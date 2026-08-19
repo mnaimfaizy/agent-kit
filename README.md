@@ -23,6 +23,14 @@ Not vendored in Agent-kit:
 - Companion procedure skills (for example `implement`, `wayfinder`, `tdd`, `to-spec`)
 - Native subagent definitions and Codex sidecar files
 
+## Companion library
+
+For procedure skills such as `implement`, `tdd`, and `wayfinder`, adopt **[Matt Pocock's skills](https://github.com/mattpocock/skills)** separately — copy from that repo or use its Claude plugin. That library is not on the Agent-kit Release line; this README does not pin a version for it.
+
+## Reference Consumer
+
+**Issuebridge** is the reference Consumer. Target state and a stand-up checklist (pins, skill copy, in-tree Companion copies, Copilot stays inert) live in `docs/issuebridge.md` — not an extract runbook.
+
 ## Security-audit flow
 
 The reusable security-audit First-class flow ships in:
@@ -46,6 +54,7 @@ The reusable plan -> implement -> review First-class flow ships in:
 ## Adopt and release docs
 
 - `docs/adopt.md` covers split adoption (tag-pinned `uses:` + skill copy from the same tag) and Dependabot stable-only guidance.
+- `docs/issuebridge.md` describes the reference Consumer target state and stand-up checklist.
 - `docs/releases.md` defines whole-kit SemVer, pre-release stages, and release-note/changelog policy.
 - `docs/copilot-restore.md` defines the inert Copilot archive restore path (choose-one runner swap).
 - `CHANGELOG.md` tracks release entries.

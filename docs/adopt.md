@@ -7,6 +7,10 @@ Adopt follows a split contract:
 
 Do not mix tags between workflow pins and copied skills.
 
+## Companion library (not Agent-kit)
+
+Procedure skills such as `implement`, `tdd`, and `wayfinder` are not vendored here. Adopt **[Matt Pocock's skills](https://github.com/mattpocock/skills)** separately — copy from that repo or use its Claude plugin. That library is outside this kit's Release line; there is no SemVer pin for it in Adopt docs.
+
 ## Tag-pinned workflow references
 
 Pin reusable jobs to an immutable SemVer tag:
@@ -81,3 +85,12 @@ updates:
           - "*-beta.*"
           - "*-rc.*"
 ```
+
+## Further reading
+
+- [Releases](releases.md) — SemVer, pre-releases, changelog policy
+- [Security model](security-model.md) — public-log rule, private delivery, gates
+- [Security audit](security-audit.md) — `full` / `pr` Caller
+- [Plan → implement → review](plan-implement-review.md) — labels, Verified plan, draft PR
+- [Copilot restore](copilot-restore.md) — inert archive, choose-one generation
+- [Issuebridge reference Consumer](issuebridge.md) — target state + stand-up checklist (not an extract runbook)
