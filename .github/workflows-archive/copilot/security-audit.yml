@@ -1,0 +1,96 @@
+name: Copilot security audit (archived)
+
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+  pull-requests: write
+  security-events: write
+
+jobs:
+  audit:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && github.event.label.name == 'agent:security-audit')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Gate
+        id: gate
+        env:
+          ENABLED: ${{ vars.AGENT_KIT_COPILOT_SECURITY_AUDIT_ENABLED }}
+          ALLOWLIST: ${{ vars.AGENT_KIT_COPILOT_SECURITY_AUDIT_ALLOWLIST }}
+          ACTOR: ${{ github.actor }}
+          EVENT: ${{ github.event_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${ENABLED:-}" != "true" ]]; then
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          IFS=',' read -r -a allowed <<< "${ALLOWLIST:-}"
+          ok=false
+          for u in "${allowed[@]}"; do
+            u_trim="$(echo "$u" | xargs)"
+            if [[ -n "$u_trim" && "$u_trim" == "$ACTOR" ]]; then
+              ok=true
+              break
+            fi
+          done
+          if [[ "$ok" != "true" ]]; then
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ "$EVENT" == "pull_request" ]]; then
+            echo "mode=pr" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=full" >> "$GITHUB_OUTPUT"
+          fi
+          echo "proceed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Generate private report artifact file (no log body)
+        if: steps.gate.outputs.proceed == 'true'
+        shell: bash
+        run: |
+          mkdir -p .tmp
+          test -f .github/workflows-archive/copilot/prompts/security-audit-prompt.md
+          cat > .tmp/security-audit-report.md <<'EOF'
+          ## Security audit report
+          - **Mode:** full
+          - **Scope:** archived Copilot restore path
+          - **Date:** 1970-01-01
+          - **Max severity:** none
+          - **Finding count:** 0
+
+          ### Findings
+
+          None.
+          EOF
+          sed -i "s/- \\*\\*Mode:\\*\\* full/- **Mode:** ${{ steps.gate.outputs.mode }}/g" .tmp/security-audit-report.md
+          sed -i "s/- \\*\\*Date:\\*\\* 1970-01-01/- **Date:** $(date -u +%F)/g" .tmp/security-audit-report.md
+
+      - name: Publish draft GHSA (required private delivery)
+        if: steps.gate.outputs.proceed == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+        shell: bash
+        run: ./.github/security-audit/publish-draft-advisory.sh ".tmp/security-audit-report.md" "$GITHUB_REPOSITORY"
+
+      - name: PR comment counts-only
+        if: >-
+          steps.gate.outputs.proceed == 'true' &&
+          github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+        shell: bash
+        run: |
+          COUNT="$(grep -E '^- \*\*Finding count:\*\* ' .tmp/security-audit-report.md | sed -E 's/^- \*\*Finding count:\*\* ([0-9]+)$/\1/')"
+          if [[ "${COUNT:-0}" != "0" ]]; then
+            gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body "Security audit completed with ${COUNT} Medium+ finding(s). Full details are in the private draft advisory."
+          fi

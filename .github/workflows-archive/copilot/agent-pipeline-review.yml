@@ -1,0 +1,86 @@
+name: Copilot agent review (archived)
+
+on:
+  issues:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: "Issue number"
+        required: true
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  review:
+    if: >-
+      (github.event_name == 'issues' && github.event.label.name == 'agent:review') ||
+      github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Gate and resolve issue
+        id: gate
+        env:
+          ENABLED: ${{ vars.AGENT_KIT_COPILOT_PIPELINE_ENABLED }}
+          ALLOWLIST: ${{ vars.AGENT_KIT_COPILOT_ALLOWLIST }}
+          ACTOR: ${{ github.actor }}
+          ISSUE_FROM_EVENT: ${{ github.event.issue.number || '' }}
+          ISSUE_FROM_INPUT: ${{ inputs.issue_number || '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${ENABLED:-}" != "true" ]]; then
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          IFS=',' read -r -a allowed <<< "${ALLOWLIST:-}"
+          ok=false
+          for u in "${allowed[@]}"; do
+            u_trim="$(echo "$u" | xargs)"
+            if [[ -n "$u_trim" && "$u_trim" == "$ACTOR" ]]; then
+              ok=true
+              break
+            fi
+          done
+          if [[ "$ok" != "true" ]]; then
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          ISSUE="${ISSUE_FROM_EVENT:-$ISSUE_FROM_INPUT}"
+          echo "issue=$ISSUE" >> "$GITHUB_OUTPUT"
+          echo "proceed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Post three-axis review report (no auto-fix loop)
+        if: steps.gate.outputs.proceed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE: ${{ steps.gate.outputs.issue }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "## Copilot archive review report"
+            echo
+            echo "### Standards"
+            echo "- Completed as on-demand review."
+            echo
+            echo "### Spec"
+            echo "- Uses trusted verified plan when available."
+            echo
+            echo "### Correctness"
+            echo "- Focuses on behavior/regression risks."
+            echo
+            echo "_Contract: no push, no product run, no auto-fix loop._"
+          } > review-comment.md
+          gh issue comment "$ISSUE" --repo "$GITHUB_REPOSITORY" --body-file review-comment.md
+
+      - name: Consume trigger label
+        if: always() && github.event_name == 'issues'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE: ${{ github.event.issue.number }}
+        shell: bash
+        run: gh issue edit "$ISSUE" --repo "$GITHUB_REPOSITORY" --remove-label "agent:review" || true

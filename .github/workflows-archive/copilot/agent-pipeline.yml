@@ -1,0 +1,188 @@
+name: Copilot agent pipeline (archived)
+
+on:
+  issues:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: "Issue number"
+        required: true
+      mode:
+        description: "plan | implement"
+        required: true
+        default: "plan"
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  gate:
+    if: >-
+      (github.event_name == 'issues' &&
+       (github.event.label.name == 'agent:plan' || github.event.label.name == 'agent:implement')) ||
+      github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    outputs:
+      proceed: ${{ steps.gate.outputs.proceed }}
+      mode: ${{ steps.gate.outputs.mode }}
+      issue: ${{ steps.gate.outputs.issue }}
+      label: ${{ steps.gate.outputs.label }}
+    steps:
+      - id: gate
+        env:
+          ENABLED: ${{ vars.AGENT_KIT_COPILOT_PIPELINE_ENABLED }}
+          ALLOWLIST: ${{ vars.AGENT_KIT_COPILOT_ALLOWLIST }}
+          ACTOR: ${{ github.actor }}
+          EVENT: ${{ github.event_name }}
+          LABEL: ${{ github.event.label.name || '' }}
+          ISSUE_FROM_EVENT: ${{ github.event.issue.number || '' }}
+          ISSUE_FROM_INPUT: ${{ inputs.issue_number || '' }}
+          MODE_FROM_INPUT: ${{ inputs.mode || '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${ENABLED:-}" != "true" ]]; then
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          IFS=',' read -r -a allowed <<< "${ALLOWLIST:-}"
+          ok=false
+          for u in "${allowed[@]}"; do
+            u_trim="$(echo "$u" | xargs)"
+            if [[ -n "$u_trim" && "$u_trim" == "$ACTOR" ]]; then
+              ok=true
+              break
+            fi
+          done
+          if [[ "$ok" != "true" ]]; then
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ "$EVENT" == "workflow_dispatch" ]]; then
+            echo "issue=${ISSUE_FROM_INPUT}" >> "$GITHUB_OUTPUT"
+            echo "mode=${MODE_FROM_INPUT}" >> "$GITHUB_OUTPUT"
+            echo "label=" >> "$GITHUB_OUTPUT"
+          else
+            echo "issue=${ISSUE_FROM_EVENT}" >> "$GITHUB_OUTPUT"
+            if [[ "$LABEL" == "agent:plan" ]]; then
+              echo "mode=plan" >> "$GITHUB_OUTPUT"
+            else
+              echo "mode=implement" >> "$GITHUB_OUTPUT"
+            fi
+            echo "label=${LABEL}" >> "$GITHUB_OUTPUT"
+          fi
+          echo "proceed=true" >> "$GITHUB_OUTPUT"
+
+  plan:
+    needs: gate
+    if: needs.gate.outputs.proceed == 'true' && needs.gate.outputs.mode == 'plan'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Post trusted plan comment (archive fork prompt)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE: ${{ needs.gate.outputs.issue }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f .github/workflows-archive/copilot/prompts/planner-prompt.md
+          {
+            echo "<!-- agent-kit-plan -->"
+            echo
+            echo "## Agent plan"
+            echo "- Source: Copilot archive planner flow."
+            echo "- Prompt pack: .github/workflows-archive/copilot/prompts/planner-prompt.md"
+            echo "- Next: apply \`agent:implement\` after plan review."
+          } > plan-comment.md
+          gh issue comment "$ISSUE" --repo "$GITHUB_REPOSITORY" --body-file plan-comment.md
+
+      - name: Consume trigger label
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE: ${{ needs.gate.outputs.issue }}
+          LABEL: ${{ needs.gate.outputs.label }}
+        shell: bash
+        run: |
+          if [[ -n "$LABEL" ]]; then
+            gh issue edit "$ISSUE" --repo "$GITHUB_REPOSITORY" --remove-label "$LABEL" || true
+          fi
+
+  implement:
+    needs: gate
+    if: needs.gate.outputs.proceed == 'true' && needs.gate.outputs.mode == 'implement'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract verified plan only (trusted marker + author)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE: ${{ needs.gate.outputs.issue }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          COMMENTS="$(gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE/comments" --paginate)"
+          PLAN="$(echo "$COMMENTS" | jq -s -r '
+            add | [ .[]
+              | select(.user.login == "github-actions[bot]")
+              | select(.body | startswith("<!-- agent-kit-plan -->"))
+            ] | last | .body // empty
+          ')"
+          if [[ -z "$PLAN" ]]; then
+            gh issue comment "$ISSUE" --repo "$GITHUB_REPOSITORY" --body "Implementer aborted: no trusted verified plan found."
+            exit 1
+          fi
+          printf '%s\n' "$PLAN" > verified-plan.md
+          test -f .github/workflows-archive/copilot/prompts/implementer-instructions.md
+
+      - name: Caller-owned verify command hook (optional)
+        if: ${{ vars.AGENT_KIT_COPILOT_VERIFY_COMMANDS != '' }}
+        shell: bash
+        run: bash -lc '${{ vars.AGENT_KIT_COPILOT_VERIFY_COMMANDS }}'
+
+      - name: Open draft PR (or exact error + compare link)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE: ${{ needs.gate.outputs.issue }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+          TITLE="Copilot archive implement for #$ISSUE"
+          BODY="Implements the trusted verified plan. Draft only. No auto-merge."
+          set +e
+          OUT="$(gh pr create --repo "$GITHUB_REPOSITORY" --draft --base main --head "$BRANCH" --title "$TITLE" --body "$BODY" 2>&1)"
+          STATUS=$?
+          set -e
+          if [[ $STATUS -eq 0 ]]; then
+            echo "$OUT"
+          else
+            COMPARE_URL="https://github.com/$GITHUB_REPOSITORY/compare/main...$BRANCH?expand=1"
+            gh issue comment "$ISSUE" --repo "$GITHUB_REPOSITORY" --body "$(printf 'Draft PR creation failed.\n\nExact gh error:\n```\n%s\n```\n\nCompare link:\n%s' "$OUT" "$COMPARE_URL")"
+          fi
+
+      - name: Remove verified-plan artifact
+        if: always()
+        shell: bash
+        run: |
+          rm -f verified-plan.md
+          if git status --porcelain | rg 'verified-plan.md' >/dev/null; then
+            echo "verified-plan.md must not be committed."
+            exit 1
+          fi
+
+      - name: Consume trigger label
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE: ${{ needs.gate.outputs.issue }}
+          LABEL: ${{ needs.gate.outputs.label }}
+        shell: bash
+        run: |
+          if [[ -n "$LABEL" ]]; then
+            gh issue edit "$ISSUE" --repo "$GITHUB_REPOSITORY" --remove-label "$LABEL" || true
+          fi
