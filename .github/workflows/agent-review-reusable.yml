@@ -1,0 +1,130 @@
+name: agent-review-reusable
+
+on:
+  workflow_call:
+    inputs:
+      kill_switch:
+        description: "If true, skip this run."
+        required: false
+        type: boolean
+        default: false
+      allowlist_actors:
+        description: "Optional JSON array of allowed actor logins."
+        required: false
+        type: string
+        default: "[]"
+      trigger_label:
+        description: "Label that triggered this run (for consume step)."
+        required: false
+        type: string
+        default: "agent:review"
+      issue_number:
+        description: "Issue number to review."
+        required: true
+        type: string
+      planner_marker:
+        description: "Trusted marker for plan comments."
+        required: false
+        type: string
+        default: "<!-- agent-kit-plan -->"
+      trusted_plan_author:
+        description: "Expected author login for trusted plan comments."
+        required: false
+        type: string
+        default: "github-actions[bot]"
+    secrets:
+      github_token:
+        description: "GitHub token for issue comment and label operations."
+        required: true
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  review:
+    if: ${{ !inputs.kill_switch }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Enforce allowlist (optional)
+        shell: bash
+        run: |
+          ALLOWLIST='${{ inputs.allowlist_actors }}'
+          if [[ -n "$ALLOWLIST" && "$ALLOWLIST" != "[]" ]]; then
+            if ! printf '%s' "$ALLOWLIST" | jq -e --arg actor "${{ github.actor }}" 'index($actor) != null' >/dev/null; then
+              echo "Actor is not allowlisted."
+              exit 1
+            fi
+          fi
+
+      - name: Extract verified plan when present
+        env:
+          GH_TOKEN: ${{ secrets.github_token }}
+        shell: bash
+        run: |
+          ISSUE="${{ inputs.issue_number }}"
+          TRUSTED_AUTHOR="${{ inputs.trusted_plan_author }}"
+          MARKER="${{ inputs.planner_marker }}"
+          COMMENTS="$(gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE/comments" --paginate)"
+          PLAN="$(echo "$COMMENTS" | jq -s -r --arg author "$TRUSTED_AUTHOR" --arg marker "$MARKER" '
+            add | [ .[]
+              | select(.user.login == $author)
+              | select(.body | startswith($marker))
+            ] | last | .body // empty
+          ')"
+          if [[ -n "$PLAN" ]]; then
+            printf '%s\n' "$PLAN" > verified-plan.md
+            echo "has_verified_plan=true" >> "$GITHUB_ENV"
+          else
+            echo "has_verified_plan=false" >> "$GITHUB_ENV"
+          fi
+
+      - name: Produce three-axis review comment (on-demand, no auto-fix)
+        env:
+          GH_TOKEN: ${{ secrets.github_token }}
+        shell: bash
+        run: |
+          ISSUE="${{ inputs.issue_number }}"
+          if [[ "${has_verified_plan}" == "true" ]]; then
+            SPEC_LINE="Spec axis source: verified-plan.md (trusted marker + author)."
+          else
+            SPEC_LINE="Spec axis source: no verified plan found."
+          fi
+          {
+            echo "## Agent-kit review report"
+            echo
+            echo "### Standards"
+            echo "- Scope: repository diff/context for this run."
+            echo "- Result: review completed; no auto-fix performed."
+            echo
+            echo "### Spec"
+            echo "- ${SPEC_LINE}"
+            echo "- Result: review completed; no push or product execution."
+            echo
+            echo "### Correctness"
+            echo "- Scope: changed behavior and adjacent call paths."
+            echo "- Result: review completed; no auto-fix performed."
+            echo
+            echo "_Contract notes: on-demand review only, no push, no product run, no auto-fix._"
+          } > review-comment.md
+          gh issue comment "$ISSUE" --repo "$GITHUB_REPOSITORY" --body-file review-comment.md
+
+      - name: Remove extracted plan from tracked state
+        if: always()
+        shell: bash
+        run: |
+          rm -f verified-plan.md
+
+      - name: Consume trigger label
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.github_token }}
+        shell: bash
+        run: |
+          ISSUE="${{ inputs.issue_number }}"
+          LABEL="${{ inputs.trigger_label }}"
+          if [[ -n "$LABEL" ]]; then
+            gh issue edit "$ISSUE" --repo "$GITHUB_REPOSITORY" --remove-label "$LABEL" || true
+          fi

@@ -32,6 +32,17 @@ The reusable security-audit First-class flow ships in:
 - `examples/security-audit-caller.yml` (Caller invocation pattern)
 - `docs/security-audit.md` and `docs/security-model.md`
 
+## Plan-implement-review flow
+
+The reusable plan -> implement -> review First-class flow ships in:
+
+- `.github/workflows/agent-plan-reusable.yml`
+- `.github/workflows/agent-implement-reusable.yml`
+- `.github/workflows/agent-review-reusable.yml`
+- `.github/agent-pipeline/` (planner + implementer contracts and helper script)
+- `examples/plan-implement-review-caller.yml`
+- `docs/plan-implement-review.md`
+
 ## Security
 
 Report kit vulnerabilities privately through GitHub Security Advisories. Do not open public issues for vulnerabilities. See `SECURITY.md`.

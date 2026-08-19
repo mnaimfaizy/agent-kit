@@ -1,0 +1,67 @@
+name: agent-pipeline-caller-example
+
+on:
+  issues:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: "Issue number"
+        required: true
+      mode:
+        description: "plan | implement | review"
+        required: true
+        default: "plan"
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  plan:
+    if: |
+      (github.event_name == 'issues' && github.event.label.name == 'agent:plan') ||
+      (github.event_name == 'workflow_dispatch' && inputs.mode == 'plan')
+    uses: mnaimfaizy/agent-kit/.github/workflows/agent-plan-reusable.yml@main
+    with:
+      kill_switch: false
+      allowlist_actors: '["your-github-login"]'
+      trigger_label: "agent:plan"
+      issue_number: ${{ github.event_name == 'issues' && github.event.issue.number || inputs.issue_number }}
+      planner_marker: "<!-- agent-kit-plan -->"
+    secrets:
+      github_token: ${{ secrets.GITHUB_TOKEN }}
+
+  implement:
+    if: |
+      (github.event_name == 'issues' && github.event.label.name == 'agent:implement') ||
+      (github.event_name == 'workflow_dispatch' && inputs.mode == 'implement')
+    uses: mnaimfaizy/agent-kit/.github/workflows/agent-implement-reusable.yml@main
+    with:
+      kill_switch: false
+      allowlist_actors: '["your-github-login"]'
+      trigger_label: "agent:implement"
+      issue_number: ${{ github.event_name == 'issues' && github.event.issue.number || inputs.issue_number }}
+      planner_marker: "<!-- agent-kit-plan -->"
+      trusted_plan_author: "github-actions[bot]"
+      base_branch: "main"
+      verify_commands: |
+        echo "Provide Consumer verify commands here (lint/tests/typecheck)."
+    secrets:
+      github_token: ${{ secrets.GITHUB_TOKEN }}
+
+  review:
+    if: |
+      (github.event_name == 'issues' && github.event.label.name == 'agent:review') ||
+      (github.event_name == 'workflow_dispatch' && inputs.mode == 'review')
+    uses: mnaimfaizy/agent-kit/.github/workflows/agent-review-reusable.yml@main
+    with:
+      kill_switch: false
+      allowlist_actors: '["your-github-login"]'
+      trigger_label: "agent:review"
+      issue_number: ${{ github.event_name == 'issues' && github.event.issue.number || inputs.issue_number }}
+      planner_marker: "<!-- agent-kit-plan -->"
+      trusted_plan_author: "github-actions[bot]"
+    secrets:
+      github_token: ${{ secrets.GITHUB_TOKEN }}

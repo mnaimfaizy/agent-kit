@@ -16,6 +16,14 @@ The required sink for successful security-audit runs is a draft GitHub Security 
 
 Consumers own their threat pack paths, allowlists, kill switch controls, advisory token, and optional scanner wiring.
 
+## Agent pipeline gates
+
+Plan/implement/review reusable jobs require kill switch + allowlist + trigger-label consumption.
+
+## Verified plan
+
+Implement must use only a verified plan produced by the trusted plan job (trusted author + marker-at-start). Issue/PR text remains untrusted input.
+
 ## Private and org support
 
 Public, private, and organization repositories use the same reusable security-audit job and same private sink.
