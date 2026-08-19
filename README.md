@@ -2,6 +2,27 @@
 
 A reusable kit of agent skills, sub-agents, and GitHub Actions — the Consumer keeps the product-specific pack.
 
+## Portable skills (v1)
+
+Agent-kit currently ships four portable skills in `.claude/skills/`:
+
+- `code-review`
+- `security-audit` (with `report-format.md`)
+- `security-finding-triage` (with `OUTCOME-FORMAT.md`)
+- `security-response` (with `STATUS-FORMAT.md`)
+
+Consumer setup is copy-based:
+
+1. Copy those four folders into your repository at `.claude/skills/`.
+2. Invoke them by name from your agent session.
+
+Not vendored in Agent-kit:
+
+- Consumer threat pack assets (such as `threat-model.md` and findings ledger files)
+- Product playbooks
+- Companion procedure skills (for example `implement`, `wayfinder`, `tdd`, `to-spec`)
+- Native subagent definitions and Codex sidecar files
+
 ## Security
 
 Report kit vulnerabilities privately through GitHub Security Advisories. Do not open public issues for vulnerabilities. See `SECURITY.md`.
