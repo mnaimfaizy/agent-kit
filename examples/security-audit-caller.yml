@@ -1,0 +1,39 @@
+name: security-audit-caller-example
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "full or pr"
+        required: false
+        default: "full"
+      pr_number:
+        description: "PR number for pr mode counts-only comment"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+  pull-requests: write
+  security-events: write
+
+jobs:
+  audit:
+    uses: mnaimfaizy/agent-kit/.github/workflows/security-audit-reusable.yml@main
+    with:
+      mode: ${{ inputs.mode }}
+      kill_switch: false
+      allowlist_actors: '["your-github-login"]'
+      threat_model_path: ".security/threat-model.md"
+      findings_ledger_path: ".security/findings-ledger.md"
+      pr_number: ${{ inputs.pr_number }}
+      notify_email: false
+      scan_command: ""
+    secrets:
+      advisories_token: ${{ secrets.AGENT_KIT_ADVISORIES_TOKEN }}
+      notify_email_to: ${{ secrets.AGENT_KIT_NOTIFY_EMAIL_TO }}
+      notify_email_from: ${{ secrets.AGENT_KIT_NOTIFY_EMAIL_FROM }}
+      notify_email_smtp_host: ${{ secrets.AGENT_KIT_NOTIFY_SMTP_HOST }}
+      notify_email_smtp_port: ${{ secrets.AGENT_KIT_NOTIFY_SMTP_PORT }}
+      notify_email_smtp_username: ${{ secrets.AGENT_KIT_NOTIFY_SMTP_USERNAME }}
+      notify_email_smtp_password: ${{ secrets.AGENT_KIT_NOTIFY_SMTP_PASSWORD }}

@@ -23,6 +23,15 @@ Not vendored in Agent-kit:
 - Companion procedure skills (for example `implement`, `wayfinder`, `tdd`, `to-spec`)
 - Native subagent definitions and Codex sidecar files
 
+## Security-audit flow
+
+The reusable security-audit First-class flow ships in:
+
+- `.github/workflows/security-audit-reusable.yml`
+- `.github/security-audit/` (prompt and helper scripts)
+- `examples/security-audit-caller.yml` (Caller invocation pattern)
+- `docs/security-audit.md` and `docs/security-model.md`
+
 ## Security
 
 Report kit vulnerabilities privately through GitHub Security Advisories. Do not open public issues for vulnerabilities. See `SECURITY.md`.

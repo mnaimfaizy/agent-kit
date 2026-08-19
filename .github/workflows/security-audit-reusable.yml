@@ -1,0 +1,175 @@
+name: security-audit-reusable
+
+on:
+  workflow_call:
+    inputs:
+      mode:
+        description: "Audit mode: full or pr"
+        required: false
+        type: string
+        default: "full"
+      kill_switch:
+        description: "If true, skip the audit run."
+        required: false
+        type: boolean
+        default: false
+      allowlist_actors:
+        description: "Optional JSON array of allowed actor logins."
+        required: false
+        type: string
+        default: "[]"
+      threat_model_path:
+        description: "Consumer-owned threat pack threat model path."
+        required: true
+        type: string
+      findings_ledger_path:
+        description: "Consumer-owned findings ledger path."
+        required: true
+        type: string
+      audit_prompt_path:
+        description: "Path to the audit prompt."
+        required: false
+        type: string
+        default: ".github/security-audit/prompt.md"
+      report_path:
+        description: "Local path where the generated report is written."
+        required: false
+        type: string
+        default: ".tmp/security-audit-report.md"
+      scan_command:
+        description: "Optional consumer scanner command."
+        required: false
+        type: string
+        default: ""
+      pr_number:
+        description: "PR number for counts-only comment in pr mode."
+        required: false
+        type: string
+        default: ""
+      notify_email:
+        description: "Send optional email notification."
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      advisories_token:
+        description: "Token with security events write scope."
+        required: true
+      notify_email_to:
+        description: "Optional recipient email address."
+        required: false
+      notify_email_from:
+        description: "Optional sender email address."
+        required: false
+      notify_email_smtp_host:
+        description: "Optional SMTP host."
+        required: false
+      notify_email_smtp_port:
+        description: "Optional SMTP port."
+        required: false
+      notify_email_smtp_username:
+        description: "Optional SMTP user."
+        required: false
+      notify_email_smtp_password:
+        description: "Optional SMTP password."
+        required: false
+
+permissions:
+  contents: read
+  pull-requests: write
+  security-events: write
+
+jobs:
+  security_audit:
+    name: Security audit
+    if: ${{ !inputs.kill_switch }}
+    runs-on: ubuntu-latest
+    env:
+      MODE: ${{ inputs.mode }}
+      THREAT_MODEL_PATH: ${{ inputs.threat_model_path }}
+      FINDINGS_LEDGER_PATH: ${{ inputs.findings_ledger_path }}
+      AUDIT_PROMPT_PATH: ${{ inputs.audit_prompt_path }}
+      REPORT_PATH: ${{ inputs.report_path }}
+      PR_NUMBER: ${{ inputs.pr_number }}
+      REPO: ${{ github.repository }}
+    steps:
+      - name: Enforce allowlist (optional)
+      shell: bash
+      run: |
+        ALLOWLIST='${{ inputs.allowlist_actors }}'
+        if [[ -n "$ALLOWLIST" && "$ALLOWLIST" != "[]" ]]; then
+          if ! printf '%s' "$ALLOWLIST" | jq -e --arg actor "${{ github.actor }}" 'index($actor) != null' >/dev/null; then
+            echo "Actor is not allowlisted."
+            exit 1
+          fi
+        fi
+
+      - name: Checkout
+      uses: actions/checkout@v4
+
+      - name: Validate caller-owned paths exist
+      shell: bash
+      run: |
+        test -f "$THREAT_MODEL_PATH"
+        test -f "$FINDINGS_LEDGER_PATH"
+        test -f "$AUDIT_PROMPT_PATH"
+
+      - name: Optional consumer scanner command
+      if: ${{ inputs.scan_command != '' }}
+      shell: bash
+      run: ${{ inputs.scan_command }}
+
+      - name: Generate audit report (placeholder)
+      shell: bash
+      run: |
+        mkdir -p "$(dirname "$REPORT_PATH")"
+        cat >"$REPORT_PATH" <<'EOF'
+        ## Security audit report
+        - **Mode:** full
+        - **Scope:** placeholder
+        - **Date:** 1970-01-01
+        - **Max severity:** none
+        - **Finding count:** 0
+
+        ### Findings
+
+        None.
+        EOF
+        sed -i "s/- \\*\\*Mode:\\*\\* full/- **Mode:** ${MODE}/g" "$REPORT_PATH"
+        sed -i "s/- \\*\\*Date:\\*\\* 1970-01-01/- **Date:** $(date -u +%F)/g" "$REPORT_PATH"
+        sed -i "s/- \\*\\*Scope:\\*\\* placeholder/- **Scope:** reusable ${MODE} audit run/g" "$REPORT_PATH"
+
+      - name: Publish draft GHSA (required private delivery)
+      env:
+        GITHUB_TOKEN: ${{ secrets.advisories_token }}
+      shell: bash
+      run: ./.github/security-audit/publish-draft-advisory.sh "$REPORT_PATH" "$REPO"
+
+      - name: Optional email notification
+      if: ${{ inputs.notify_email }}
+      env:
+        NOTIFY_EMAIL_TO: ${{ secrets.notify_email_to }}
+        NOTIFY_EMAIL_FROM: ${{ secrets.notify_email_from }}
+        NOTIFY_EMAIL_SMTP_HOST: ${{ secrets.notify_email_smtp_host }}
+        NOTIFY_EMAIL_SMTP_PORT: ${{ secrets.notify_email_smtp_port }}
+        NOTIFY_EMAIL_SMTP_USERNAME: ${{ secrets.notify_email_smtp_username }}
+        NOTIFY_EMAIL_SMTP_PASSWORD: ${{ secrets.notify_email_smtp_password }}
+      shell: bash
+      run: ./.github/security-audit/notify-email.sh "$REPORT_PATH"
+
+      - name: Parse finding count
+      id: finding_count
+      shell: bash
+      run: |
+        COUNT="$(grep -E '^- \*\*Finding count:\*\* ' "$REPORT_PATH" | sed -E 's/^- \*\*Finding count:\*\* ([0-9]+)$/\1/')"
+        if [[ -z "$COUNT" ]]; then
+          COUNT="0"
+        fi
+        echo "count=$COUNT" >>"$GITHUB_OUTPUT"
+
+      - name: PR comment (counts only)
+      if: ${{ inputs.mode == 'pr' && steps.finding_count.outputs.count != '0' && inputs.pr_number != '' }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.advisories_token }}
+      shell: bash
+      run: ./.github/security-audit/comment-pr-counts.sh "${{ inputs.pr_number }}" "${{ steps.finding_count.outputs.count }}"
