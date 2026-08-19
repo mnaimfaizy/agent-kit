@@ -50,3 +50,7 @@ Do not move backward within a target version.
 - Alpha release notes are optional.
 - `CHANGELOG.md` must include an entry for each stable, beta, and rc release.
 - Notes summarize contract-impacting changes; they are not a raw commit dump.
+
+## Cutting a release
+
+Maintainers cut tags from the default branch using `docs/cutting-releases.md` and `scripts/cut-release.sh`. The first public Pre-release on the `1.0.0` line is expected to be `v1.0.0-alpha.1`.

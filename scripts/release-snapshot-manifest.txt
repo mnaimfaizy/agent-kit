@@ -1,0 +1,36 @@
+# Whole-kit snapshot paths — every Release tag must include these.
+# Lines starting with # are comments. Trailing / means a non-empty directory.
+
+LICENSE
+README.md
+SECURITY.md
+CHANGELOG.md
+
+docs/adopt.md
+docs/releases.md
+docs/cutting-releases.md
+docs/security-model.md
+docs/security-audit.md
+docs/plan-implement-review.md
+docs/copilot-restore.md
+docs/issuebridge.md
+
+.github/workflows/security-audit-reusable.yml
+.github/workflows/agent-plan-reusable.yml
+.github/workflows/agent-implement-reusable.yml
+.github/workflows/agent-review-reusable.yml
+.github/security-audit/
+.github/agent-pipeline/
+.github/workflows-archive/copilot/
+
+.claude/skills/code-review/
+.claude/skills/security-audit/
+.claude/skills/security-finding-triage/
+.claude/skills/security-response/
+
+examples/security-audit-caller.yml
+examples/plan-implement-review-caller.yml
+
+scripts/cut-release.sh
+scripts/verify_release_snapshot.py
+scripts/release-snapshot-manifest.txt
