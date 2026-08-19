@@ -24,6 +24,14 @@ Plan/implement/review reusable jobs require kill switch + allowlist + trigger-la
 
 Implement must use only a verified plan produced by the trusted plan job (trusted author + marker-at-start). Issue/PR text remains untrusted input.
 
+## Runner seam
+
+Runner seam is explicit and narrow:
+
+- v1 live path is Claude Code in GitHub Actions reusable jobs.
+- Copilot is an inert restore path (separate docs/contracts), not a second live first-class runner.
+- No provider adapter layer is required in v1.
+
 ## Private and org support
 
 Public, private, and organization repositories use the same reusable security-audit job and same private sink.

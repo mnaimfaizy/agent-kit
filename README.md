@@ -43,6 +43,13 @@ The reusable plan -> implement -> review First-class flow ships in:
 - `examples/plan-implement-review-caller.yml`
 - `docs/plan-implement-review.md`
 
+## Adopt and release docs
+
+- `docs/adopt.md` covers split adoption (tag-pinned `uses:` + skill copy from the same tag) and Dependabot stable-only guidance.
+- `docs/releases.md` defines whole-kit SemVer, pre-release stages, and release-note/changelog policy.
+- `CHANGELOG.md` tracks release entries.
+- No Marketplace listing, no binaries, and no skills zip distribution.
+
 ## Security
 
 Report kit vulnerabilities privately through GitHub Security Advisories. Do not open public issues for vulnerabilities. See `SECURITY.md`.
