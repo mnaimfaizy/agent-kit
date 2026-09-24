@@ -1,5 +1,6 @@
 # Changes under these paths request review from the maintainer: the reusable
-# workflows, the runtime files and skills Consumers copy, this repository's
+# workflows, the runtime files and skills Consumers copy, the Caller templates
+# Consumers copy, the contract tests and release scripts, this repository's
 # Threat pack, and the files that control review routing and dependency bumps.
 # See CONTRIBUTING.md, section "Repository layout".
 
@@ -9,6 +10,8 @@
 /.github/security-audit/  @mnaimfaizy
 /.claude/skills/          @mnaimfaizy
 /security/                @mnaimfaizy
+/examples/                @mnaimfaizy
+/scripts/                 @mnaimfaizy
 
 # Self-protection: a PR must not silently change who reviews, or re-enable
 # automatic bumps of hand-pinned actions.
