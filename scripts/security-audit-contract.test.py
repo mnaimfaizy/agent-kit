@@ -58,7 +58,7 @@ def test_caller_contract_ownership_documented() -> None:
     assert "advisories token secret" in doc
 
 
-CLAUDE_ACTION_SHA = "239e3a730883eeb5c53db12b0fc9573b3024b126"
+CLAUDE_ACTION_SHA = "8cf3482550831fb35a4fc3fbf7ca139cf8028b4c"
 
 
 def _step(data: str, name: str) -> str:

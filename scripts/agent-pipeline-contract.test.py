@@ -73,7 +73,7 @@ def _step(data: str, name: str) -> str:
     return rest if next_step < 0 else rest[:next_step]
 
 
-CLAUDE_ACTION_SHA = "239e3a730883eeb5c53db12b0fc9573b3024b126"
+CLAUDE_ACTION_SHA = "8cf3482550831fb35a4fc3fbf7ca139cf8028b4c"
 
 
 def test_checkouts_do_not_persist_credentials_and_use_current_checkout() -> None:
