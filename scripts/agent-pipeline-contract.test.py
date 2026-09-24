@@ -115,22 +115,68 @@ def test_planner_and_reviewer_confine_reads_and_review_every_grant() -> None:
     allowed = review.split('--allowedTools "')[1].split('"')[0]
     for forbidden in ("Edit", "Write", "MultiEdit", "Bash(npm:", "Bash(cargo:"):
         assert forbidden not in allowed
-    assert '--disallowedTools "Read(./.git/**)"' in review
+    assert '--disallowedTools "Read(./.git/**),Bash(git diff:*),Bash(git log:*),Bash(git show:*)"' in review
     assert "read-confinement.settings.json" in review
 
 
 def test_implementer_allowlist_is_deny_by_default() -> None:
     data = read(IMPLEMENT_WORKFLOW)
-    assert (
-        "DEFAULT='Edit,Write,MultiEdit,Bash(git status:*),Bash(git diff:*),"
-        "Bash(git log:*),Bash(gh pr create:*),Bash(gh pr view:*)'"
-    ) in data
+    assert ("DEFAULT='Edit,Write,MultiEdit,Bash(git status:*),Bash(gh pr create:*),Bash(gh pr view:*)'") in data
     default = data.split("DEFAULT='", 1)[1].split("'", 1)[0]
     assert "Bash(gh:*)" not in default
     assert "Bash(gh api" not in default
     implement = _step(data, "Run implementer (Claude Code)")
     assert '--allowedTools "${{ steps.tools.outputs.allowed }}"' in implement
     assert "sha256sum -c" in data
+
+
+# A `Bash(git …:*)` rule is a prefix match, not a flag-checked one, and these
+# subcommands take diff options that write a file anywhere the runner user can.
+FILE_WRITING_GIT = ("Bash(git diff", "Bash(git log", "Bash(git show")
+
+
+def test_no_agent_is_granted_a_file_writing_git_command() -> None:
+    steps = {
+        PLAN_WORKFLOW: "Run planner (Claude Code)",
+        IMPLEMENT_WORKFLOW: "Run implementer (Claude Code)",
+        REVIEW_WORKFLOW: "Run code review (Claude Code)",
+    }
+    for workflow, name in steps.items():
+        agent = _step(read(workflow), name)
+        allowed = agent.split('--allowedTools "')[1].split('"')[0]
+        for rule in FILE_WRITING_GIT:
+            assert rule not in allowed, f"{workflow.name}: {rule} is granted"
+
+    implement = read(IMPLEMENT_WORKFLOW)
+    default = implement.split("DEFAULT='", 1)[1].split("'", 1)[0]
+    for rule in FILE_WRITING_GIT:
+        assert rule not in default
+
+    # Denied outright where Bash is granted at all: a deny wins over the
+    # action's own base list and over a Caller's extra_allowed_tools entry.
+    for workflow, name in (
+        (IMPLEMENT_WORKFLOW, "Run implementer (Claude Code)"),
+        (REVIEW_WORKFLOW, "Run code review (Claude Code)"),
+    ):
+        agent = _step(read(workflow), name)
+        denied = agent.split('--disallowedTools "')[1].split('"')[0].split(",")
+        for rule in FILE_WRITING_GIT:
+            assert f"{rule}:*)" in denied, f"{workflow.name}: {rule}:*) not denied"
+
+
+def test_review_brief_precomputes_git_output_the_agent_cannot_run() -> None:
+    brief = _step(read(REVIEW_WORKFLOW), "Build review brief")
+    assert 'git diff "$BASE_SHA...$HEAD_SHA" > "$GITHUB_WORKSPACE/review-diff.patch"' in brief
+    assert 'git log --oneline "$BASE_SHA..$HEAD_SHA" > "$GITHUB_WORKSPACE/review-log.txt"' in brief
+    rm_at = brief.index('rm -f -- "$BRIEF"')
+    assert rm_at < brief.index('> "$GITHUB_WORKSPACE/review-diff.patch"')
+    assert "git is not available in this session." in brief
+
+
+def test_verify_commands_do_not_run_in_a_login_shell() -> None:
+    verify = _step(read(IMPLEMENT_WORKFLOW), "Run caller-owned verify commands")
+    assert 'bash -c "$VERIFY"' in verify
+    assert "bash -l" not in verify
 
 
 def test_review_restores_runtime_without_fetching_a_raw_sha() -> None:

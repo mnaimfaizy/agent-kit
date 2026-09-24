@@ -256,6 +256,15 @@ jobs:
             exit 1
           fi
           BRIEF="$GITHUB_WORKSPACE/review-brief.md"
+          # The agent gets no git grant: a `Bash(git …:*)` rule is a prefix match,
+          # not a flag-checked one, and git's diff options can write a file
+          # anywhere the runner user can. Precompute what the skill would ask git
+          # for, into files the agent reads inside the workspace.
+          # These paths are in the PR checkout: remove whatever the PR put there,
+          # so a redirect cannot follow a planted symlink out of the tree.
+          rm -f -- "$BRIEF" "$GITHUB_WORKSPACE/review-diff.patch" "$GITHUB_WORKSPACE/review-log.txt"
+          git diff "$BASE_SHA...$HEAD_SHA" > "$GITHUB_WORKSPACE/review-diff.patch"
+          git log --oneline "$BASE_SHA..$HEAD_SHA" > "$GITHUB_WORKSPACE/review-log.txt"
           PR_BODY=$(gh pr view "$PR" --repo "$GITHUB_REPOSITORY" --json body --jq '.body // ""')
           ISSUE=$(printf '%s' "$PR_BODY" | grep -oiE '(close[sd]?|fixe[sd]?|resolve[sd]?) #[0-9]+' | grep -oE '[0-9]+' | head -n1 || true)
           if [ -z "${ISSUE:-}" ] && [ -n "${ISSUE_INPUT:-}" ]; then
@@ -280,11 +289,16 @@ jobs:
             echo
             echo "Fixed point (base): $BASE_SHA"
             echo "Head under review:   $HEAD_SHA"
-            echo "Diff command:        git diff $BASE_SHA...$HEAD_SHA"
+            echo "Diff:                review-diff.patch (git diff $BASE_SHA...$HEAD_SHA)"
+            echo "Commits:             review-log.txt (git log --oneline $BASE_SHA..$HEAD_SHA)"
             echo "Pull request:        #$PR"
             echo
             echo "Nobody is available to answer questions — never stop to ask. The fixed"
             echo "point above is supplied, so step 1 needs no input from anyone."
+            echo
+            echo "git is not available in this session. Where the skill says to run"
+            echo "git rev-parse, git diff, or git log, use the fixed point and head above"
+            echo "and read review-diff.patch and review-log.txt in the repository root."
             echo
             echo "This is a one-shot CI run: ending your turn kills background agents and the"
             echo "job still goes green. Spawn Agent calls with run_in_background: false and"
@@ -366,15 +380,17 @@ jobs:
             It contains the fixed point, the spec source, and the full code-review skill.
           # Read and comment only. No Edit/Write and no npm/cargo/build: this job
           # checks out untrusted PR code and holds a public comment channel. The
-          # git/gh Bash rules are reviewed one by one, and the contract reviews
-          # every entry, not only the Bash family. --disallowedTools refuses
-          # `.git` across the read tools; an --allowedTools entry only pre-approves,
-          # so it cannot by itself confine these tools to the tree.
+          # gh Bash rules are reviewed one by one, and the contract reviews every
+          # entry, not only the Bash family. No git rule: the diff and log are
+          # precomputed into the brief's files, and the git subcommands whose
+          # diff options write files are denied outright. --disallowedTools also
+          # refuses `.git` across the read tools; an --allowedTools entry only
+          # pre-approves, so it cannot by itself confine these tools to the tree.
           claude_args: |
             --model ${{ inputs.model }}
             --max-turns 120
-            --allowedTools "Read,Glob,Grep,Task,Agent,Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git rev-parse:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr comment:*),mcp__github_inline_comment__create_inline_comment"
-            --disallowedTools "Read(./.git/**)"
+            --allowedTools "Read,Glob,Grep,Task,Agent,Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr comment:*),mcp__github_inline_comment__create_inline_comment"
+            --disallowedTools "Read(./.git/**),Bash(git diff:*),Bash(git log:*),Bash(git show:*)"
             --append-system-prompt "This is a non-interactive CI session: ending your turn terminates the run and kills background work. Launch Agent/Task subagents with run_in_background: false (several in one message still run in parallel). Never end your turn until the tracking comment has the aggregated report. If Agent is denied, run the axes sequentially in this session instead."
 
       - name: Verify read-confinement hook unchanged
