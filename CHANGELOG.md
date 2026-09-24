@@ -13,6 +13,10 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 - The planner and the audit agent deny edits to `.github/agent-runtime/`.
 - Review and implement no longer grant the agent `git diff` / `git log` / `git show`, and deny them outright. The reviewer reads `review-diff.patch` and `review-log.txt`, precomputed by the brief step, instead of running git.
 - Review no longer grants `gh pr comment`, and implement no longer grants `gh pr create`; both are denied outright. The implementer opens its draft PR with `mcp__github__create_pull_request`, so the action starts GitHub's MCP server container in the implement job. A runner without Docker falls back to the workflow's draft-PR step, which uses the job token, so CI does not start on that PR until it is re-pushed.
+- The read-confinement hook refuses `.git` paths for Read, Grep, and Glob (the `--disallowedTools` rule covered Grep and Glob only best-effort).
+- The review and audit briefs fence the PR's changed-file names as untrusted data.
+- The advisory publisher writes the report body to a private `mktemp` file under `$RUNNER_TEMP` and removes it on exit.
+- `verify_commands`, `setup_commands`, `scan_command`, and `extra_allowed_tools` descriptions and `docs/security-model.md` state that these are code the job runs and must never be built from issue or PR text.
 - The security audit email notifier verifies the SMTP server's certificate and hostname before `STARTTLS` and login. **Consumer action may be required:** an SMTP host whose certificate the runner does not trust now fails the (best-effort) email step instead of sending credentials.
 - **Consumer action may be required:** security audit `full` mode refuses a `head_sha` or `base_sha` and always audits the commit it was dispatched on. A Caller that passed a PR head in `full` mode now fails with a message; use `mode: pr` for pull requests.
 - **Consumer action may be required:** `verify_commands` now run with `bash -c`, not a login shell (`bash -lc`). Commands that relied on a profile file for toolchain setup must set it up themselves, for example in `setup_commands`.

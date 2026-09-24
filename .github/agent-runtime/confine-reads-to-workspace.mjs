@@ -63,6 +63,10 @@ function within(root, candidate) {
   return rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
 }
 
+function hasGitSegment(rel) {
+  return rel.split(/[\\/]/).includes(".git");
+}
+
 /** Decide on one hook payload. Returns a deny reason, or null to allow. */
 export function decide(payload, workspace) {
   const tool = payload?.tool_name;
@@ -84,6 +88,11 @@ export function decide(payload, workspace) {
   if (!inside) {
     return `read confined to the workspace; refused a path outside GITHUB_WORKSPACE: ${abs}`;
   }
+  // The --disallowedTools `Read(./.git/**)` rule is applied to Grep and Glob
+  // only best-effort. Refuse `.git` here for all three read tools.
+  if (hasGitSegment(posix.relative(ws, abs))) {
+    return `read confined to the working tree; refused a path inside .git: ${abs}`;
+  }
 
   const real = realTarget(workspace, String(target));
   if (real === undefined) return null;
@@ -95,6 +104,9 @@ export function decide(payload, workspace) {
   }
   if (real === null || realWs === null || !within(realWs, real)) {
     return `read confined to the workspace; refused a path that resolves outside GITHUB_WORKSPACE: ${abs}`;
+  }
+  if (hasGitSegment(relative(realWs, real))) {
+    return `read confined to the working tree; refused a path that resolves inside .git: ${abs}`;
   }
   return null;
 }

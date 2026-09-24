@@ -110,6 +110,11 @@ if [ "$FORMAT_MISMATCH" = "true" ]; then
 fi
 SUMMARY="$(printf '%s' "$SUMMARY" | head -c 1024)"
 
+# The body holds every finding and the session transcript: write it to a
+# private, unpredictable file and remove it on exit.
+BODY_FILE="$(umask 077 && mktemp "${RUNNER_TEMP:-/tmp}/security-audit-advisory-body.XXXXXX")"
+trap 'rm -f "$BODY_FILE"' EXIT
+
 {
   cat "$REPORT"
   echo
@@ -146,9 +151,9 @@ SUMMARY="$(printf '%s' "$SUMMARY" | head -c 1024)"
     echo
     echo '```'
   fi
-} > /tmp/security-audit-advisory-body.md
+} > "$BODY_FILE"
 
-DESCRIPTION="$(head -c 65000 /tmp/security-audit-advisory-body.md)"
+DESCRIPTION="$(head -c 65000 "$BODY_FILE")"
 
 PAYLOAD="$(jq -n \
   --arg summary "$SUMMARY" \

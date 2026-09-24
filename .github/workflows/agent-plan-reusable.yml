@@ -143,9 +143,10 @@ jobs:
           # This job publishes agent-plan.md to a public issue comment verbatim.
           # Read / Glob / Grep cover its search; no Bash rule (a command-prefix
           # rule reaches the whole runner). The contract reviews every entry, not
-          # only the Bash family. --disallowedTools refuses `.git` across the read
-          # tools; an --allowedTools entry only pre-approves, so it cannot by
-          # itself confine these tools to the tree.
+          # only the Bash family. --disallowedTools refuses `.git` to Read (Grep
+          # and Glob only best-effort; the hook refuses it for all three). An
+          # --allowedTools entry only pre-approves, so it cannot by itself
+          # confine these tools to the tree.
           claude_args: |
             --model ${{ inputs.model }}
             --max-turns 40

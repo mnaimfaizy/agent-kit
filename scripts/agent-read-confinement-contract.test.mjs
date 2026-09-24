@@ -106,6 +106,21 @@ describe("agent read-confinement hook contract", () => {
     }
   });
 
+  it("refuses .git for every read tool, and nothing that only starts with .git", () => {
+    const ws = "/home/runner/work/repo/repo";
+    for (const payload of [
+      { tool_name: "Read", tool_input: { file_path: ".git/config" } },
+      { tool_name: "Read", tool_input: { file_path: `${ws}/.git/HEAD` } },
+      { tool_name: "Grep", tool_input: { pattern: "x", path: ".git" } },
+      { tool_name: "Glob", tool_input: { pattern: "*", path: "vendor/lib/.git/hooks" } },
+    ]) {
+      assert.match(decide(payload, ws) ?? "", /inside \.git/, JSON.stringify(payload));
+    }
+    for (const file_path of [".gitignore", ".github/workflows/ci.yml", "docs/.git-notes"]) {
+      assert.equal(decide({ tool_name: "Read", tool_input: { file_path } }, ws), null, file_path);
+    }
+  });
+
   it("fails closed when the workspace is unset, and stays silent on nothing to judge", () => {
     const call = {
       tool_name: "Read",
@@ -139,6 +154,13 @@ describe("agent read-confinement hook contract", () => {
       symlinkSync(outside, join(ws, "dir-link"), "dir");
       symlinkSync(join(outside, "deeper"), join(ws, "nest", "up"), "dir");
       symlinkSync(join(ws, "docs"), join(ws, "docs-link"), "dir");
+      mkdirSync(join(ws, ".git"), { recursive: true });
+      writeFileSync(join(ws, ".git", "config"), "[core]\n");
+      symlinkSync(join(ws, ".git"), join(ws, "git-link"), "dir");
+    });
+
+    it("denies a link inside the tree that resolves into .git", () => {
+      assert.match(decide(read("git-link/config"), ws) ?? "", /resolves inside \.git/);
     });
 
     after(() => rmSync(scratch, { recursive: true, force: true }));

@@ -46,17 +46,17 @@ on:
         type: string
         default: "main"
       verify_commands:
-        description: "Caller-owned verify commands (multi-line shell)."
+        description: "Caller-owned verify commands (multi-line shell). Code the job runs: never build it from issue or PR text."
         required: false
         type: string
         default: ""
       setup_commands:
-        description: "Caller-owned setup run before the agent (toolchain, dependencies)."
+        description: "Caller-owned setup run before the agent (toolchain, dependencies). Code the job runs: never build it from issue or PR text."
         required: false
         type: string
         default: ""
       extra_allowed_tools:
-        description: "Comma-separated allowedTools entries appended to the reviewed default. An entry that runs repository code (test runner, package manager) bypasses read confinement; see docs/security-model.md."
+        description: "Comma-separated allowedTools entries appended to the reviewed default. An entry that runs repository code (test runner, package manager) bypasses read confinement and acts with the Claude App token; see docs/security-model.md."
         required: false
         type: string
         default: ""
