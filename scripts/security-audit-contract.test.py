@@ -3,6 +3,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "security-audit-reusable.yml"
+NOTIFIER = ROOT / ".github" / "security-audit" / "notify-email.sh"
 PUBLISH = ROOT / ".github" / "security-audit" / "publish-draft-advisory.sh"
 COMMENT = ROOT / ".github" / "security-audit" / "comment-pr-counts.sh"
 SECURITY_AUDIT_DOC = ROOT / "docs" / "security-audit.md"
@@ -80,7 +81,7 @@ def test_audit_agent_cannot_see_the_advisory_token_or_widen_tools() -> None:
     assert '--allowedTools "${{ steps.tools.outputs.allowed }}"' in agent
     assert agent.count("--allowedTools") == 1
     assert "--max-turns 100" in agent
-    assert '--disallowedTools "Read(./.git/**)"' in agent
+    assert '--disallowedTools "Read(./.git/**),Edit(./.github/agent-runtime/**)"' in agent
     assert "read-confinement.settings.json" in agent
     assert "--dangerously-skip-permissions" not in data
     assert f"anthropics/claude-code-action@{CLAUDE_ACTION_SHA}" in data
@@ -106,6 +107,31 @@ def test_audit_restores_runtime_and_stages_scripts_from_a_trusted_commit() -> No
     stage = _step(data, "Stage trusted audit scripts outside the agent workspace")
     assert "publish-draft-advisory.sh" in stage
     assert "RUNNER_TEMP" in stage
+
+
+def test_full_mode_never_checks_out_a_caller_named_head() -> None:
+    # Full mode has no restore from a base: a Caller-named head would supply
+    # its own prompt, instructions, and hook, and scan_command would run on it.
+    data = read(WORKFLOW)
+    gate = _step(data, "Gate")
+    assert 'elif [ -n "$HEAD_SHA" ] || [ -n "$BASE_SHA" ]; then' in gate
+    checkout = _step(data, "Checkout")
+    assert "ref: ${{ inputs.mode == 'pr' && inputs.head_sha || github.sha }}" in checkout
+    assert "inputs.head_sha != ''" not in data
+    assert "inputs.mode == 'full'" in _step(data, "Optional consumer scanner command")
+    assert "inputs.mode == 'pr'" in _step(data, "Restore trusted audit runtime from PR base")
+
+
+def test_email_notifier_verifies_the_smtp_server_before_login() -> None:
+    # starttls() without a context falls back to the stdlib's unverified
+    # context, so the SMTP password would go to an unauthenticated server.
+    notifier = read(NOTIFIER)
+    assert "tls = ssl.create_default_context()" in notifier
+    assert "smtp.starttls(context=tls)" in notifier
+    assert "smtp.starttls()" not in notifier
+    assert "_create_unverified_context" not in notifier
+    assert "CERT_NONE" not in notifier
+    assert "check_hostname = False" not in notifier
 
 
 def test_caller_example_invokes_reusable_job() -> None:

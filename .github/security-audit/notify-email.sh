@@ -29,6 +29,7 @@ export SUBJECT BODY
 python3 - <<'PY'
 import os
 import smtplib
+import ssl
 from email.message import EmailMessage
 
 to_addr = os.environ.get("NOTIFY_EMAIL_TO", "")
@@ -50,8 +51,13 @@ msg["From"] = from_addr
 msg["To"] = to_addr
 msg.set_content(body)
 
+# starttls() without a context uses the stdlib's unverified one: the session
+# is encrypted but the server is not authenticated, and the password follows.
+# Verify the certificate and hostname against the system trust store.
+tls = ssl.create_default_context()
+
 with smtplib.SMTP(host, port, timeout=30) as smtp:
-    smtp.starttls()
+    smtp.starttls(context=tls)
     if username:
         smtp.login(username, password)
     smtp.send_message(msg)

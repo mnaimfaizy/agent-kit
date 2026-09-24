@@ -14,12 +14,18 @@
 // platform path module would make the same input depend on the machine running
 // the contract test.
 //
+// A lexical check alone is not enough: the checkout is untrusted, and a symlink
+// inside it passes a string comparison while the kernel follows it out of the
+// tree on open. So a path that passes is also resolved on disk, and the real
+// path must pass the same containment test.
+//
 // Contract: stdin is the PreToolUse hook JSON. Print a deny decision as JSON on
 // stdout to refuse an out-of-tree read; print nothing (exit 0) to let the normal
 // permission flow proceed. A hook error is not a deny, so malformed input that we
 // cannot judge is allowed through rather than exiting non-zero — except a missing
-// workspace, where we fail closed.
-import { posix } from "node:path";
+// workspace, or a path that exists but cannot be resolved, where we fail closed.
+import { realpathSync } from "node:fs";
+import { isAbsolute, posix, relative, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const READ_TOOLS = new Set(["Read", "Grep", "Glob"]);
@@ -34,6 +40,31 @@ function deny(reason) {
       },
     })}\n`,
   );
+}
+
+/**
+ * The path the tool will open, with every symlink followed. The raw target is
+ * joined, not normalized, and resolved with the native realpath(3): `link/..`
+ * must step up from the link's target as the kernel does, not lexically (the JS
+ * realpathSync normalizes first). Returns undefined when nothing exists there —
+ * the tool has nothing to read — and null when the path cannot be resolved.
+ */
+function realTarget(workspace, target) {
+  const joined = isAbsolute(target) ? target : `${workspace}/${target}`;
+  try {
+    return realpathSync.native(joined);
+  } catch (error) {
+    return error?.code === "ENOENT" || error?.code === "ENOTDIR" ? undefined : null;
+  }
+}
+
+function within(root, candidate) {
+  const rel = relative(root, candidate);
+  return rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
+}
+
+function hasGitSegment(rel) {
+  return rel.split(/[\\/]/).includes(".git");
 }
 
 /** Decide on one hook payload. Returns a deny reason, or null to allow. */
@@ -54,9 +85,30 @@ export function decide(payload, workspace) {
   const abs = posix.resolve(workspace, String(target));
   const ws = posix.resolve(workspace);
   const inside = abs === ws || abs.startsWith(`${ws}/`) || abs.startsWith(`${ws}\\`);
-  if (inside) return null;
+  if (!inside) {
+    return `read confined to the workspace; refused a path outside GITHUB_WORKSPACE: ${abs}`;
+  }
+  // The --disallowedTools `Read(./.git/**)` rule is applied to Grep and Glob
+  // only best-effort. Refuse `.git` here for all three read tools.
+  if (hasGitSegment(posix.relative(ws, abs))) {
+    return `read confined to the working tree; refused a path inside .git: ${abs}`;
+  }
 
-  return `read confined to the workspace; refused a path outside GITHUB_WORKSPACE: ${abs}`;
+  const real = realTarget(workspace, String(target));
+  if (real === undefined) return null;
+  let realWs;
+  try {
+    realWs = realpathSync.native(workspace);
+  } catch {
+    realWs = null;
+  }
+  if (real === null || realWs === null || !within(realWs, real)) {
+    return `read confined to the workspace; refused a path that resolves outside GITHUB_WORKSPACE: ${abs}`;
+  }
+  if (hasGitSegment(relative(realWs, real))) {
+    return `read confined to the working tree; refused a path that resolves inside .git: ${abs}`;
+  }
+  return null;
 }
 
 async function main() {

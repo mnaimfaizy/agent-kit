@@ -3,9 +3,10 @@
 // so confinement has to be a deny decision on the resolved path.
 
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { describe, it } from "node:test";
+import { after, before, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import { decide } from "../.github/agent-runtime/confine-reads-to-workspace.mjs";
 
@@ -13,14 +14,40 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const readRepo = (...parts) => readFileSync(join(root, ...parts), "utf8").replace(/\r\n/g, "\n");
 
 const SETTINGS_PATH = ".github/agent-runtime/read-confinement.settings.json";
-const HOOK_PATH = ".github/agent-runtime/confine-reads-to-workspace.mjs";
+// The hook runs from a read-only copy outside the workspace: a copy in the
+// workspace is one an agent holding Write could replace mid-session.
+const STAGED_DIR = "$RUNNER_TEMP/read-confinement";
+const STAGED_SETTINGS = "${{ runner.temp }}/read-confinement/read-confinement.settings.json";
+const STAGE_STEP = "Stage read-confinement hook outside the workspace";
+const VERIFY_STEP = "Verify read-confinement hook unchanged";
 
+// `publish` is the first later step that sends agent output anywhere or runs
+// agent-written code; the digest check must run before it. `denyRuntimeEdits`
+// marks agents that hold Write but have no reason to edit .github/agent-runtime;
+// the implementer may be asked to change it, and runs the staged copy anyway.
 const CONFINED_AGENT_STEPS = [
-  { workflow: "agent-plan-reusable.yml", step: "Run planner (Claude Code)" },
-  { workflow: "agent-review-reusable.yml", step: "Run code review (Claude Code)" },
+  {
+    workflow: "agent-plan-reusable.yml",
+    step: "Run planner (Claude Code)",
+    publish: "Post trusted plan comment",
+    denyRuntimeEdits: true,
+  },
+  {
+    workflow: "agent-implement-reusable.yml",
+    step: "Run implementer (Claude Code)",
+    publish: "Run caller-owned verify commands",
+    denyRuntimeEdits: false,
+  },
+  {
+    workflow: "agent-review-reusable.yml",
+    step: "Run code review (Claude Code)",
+    denyRuntimeEdits: false,
+  },
   {
     workflow: "security-audit-reusable.yml",
     step: "Run security audit (Claude Code)",
+    publish: "Publish draft GHSA (required private delivery)",
+    denyRuntimeEdits: true,
   },
 ];
 
@@ -79,6 +106,21 @@ describe("agent read-confinement hook contract", () => {
     }
   });
 
+  it("refuses .git for every read tool, and nothing that only starts with .git", () => {
+    const ws = "/home/runner/work/repo/repo";
+    for (const payload of [
+      { tool_name: "Read", tool_input: { file_path: ".git/config" } },
+      { tool_name: "Read", tool_input: { file_path: `${ws}/.git/HEAD` } },
+      { tool_name: "Grep", tool_input: { pattern: "x", path: ".git" } },
+      { tool_name: "Glob", tool_input: { pattern: "*", path: "vendor/lib/.git/hooks" } },
+    ]) {
+      assert.match(decide(payload, ws) ?? "", /inside \.git/, JSON.stringify(payload));
+    }
+    for (const file_path of [".gitignore", ".github/workflows/ci.yml", "docs/.git-notes"]) {
+      assert.equal(decide({ tool_name: "Read", tool_input: { file_path } }, ws), null, file_path);
+    }
+  });
+
   it("fails closed when the workspace is unset, and stays silent on nothing to judge", () => {
     const call = {
       tool_name: "Read",
@@ -91,6 +133,73 @@ describe("agent read-confinement hook contract", () => {
     assert.equal(decide(null, "/ws"), null);
   });
 
+  describe("symlinks in the checkout", () => {
+    // A real tree on disk: the workspace, and a sibling it must not reach.
+    let scratch;
+    let ws;
+    const read = (file_path) => ({ tool_name: "Read", tool_input: { file_path } });
+    const grep = (path) => ({ tool_name: "Grep", tool_input: { pattern: "x", path } });
+
+    before(() => {
+      scratch = mkdtempSync(join(tmpdir(), "read-confinement-"));
+      ws = join(scratch, "ws");
+      const outside = join(scratch, "outside");
+      mkdirSync(join(ws, "docs"), { recursive: true });
+      mkdirSync(join(ws, "nest"), { recursive: true });
+      mkdirSync(join(outside, "deeper"), { recursive: true });
+      writeFileSync(join(ws, "docs", "readme.md"), "in tree\n");
+      writeFileSync(join(outside, "secret.txt"), "out of tree\n");
+
+      symlinkSync(join(outside, "secret.txt"), join(ws, "file-link"), "file");
+      symlinkSync(outside, join(ws, "dir-link"), "dir");
+      symlinkSync(join(outside, "deeper"), join(ws, "nest", "up"), "dir");
+      symlinkSync(join(ws, "docs"), join(ws, "docs-link"), "dir");
+      mkdirSync(join(ws, ".git"), { recursive: true });
+      writeFileSync(join(ws, ".git", "config"), "[core]\n");
+      symlinkSync(join(ws, ".git"), join(ws, "git-link"), "dir");
+    });
+
+    it("denies a link inside the tree that resolves into .git", () => {
+      assert.match(decide(read("git-link/config"), ws) ?? "", /resolves inside \.git/);
+    });
+
+    after(() => rmSync(scratch, { recursive: true, force: true }));
+
+    it("denies a path inside the tree that resolves outside it", () => {
+      for (const payload of [
+        read("file-link"),
+        read("dir-link/secret.txt"),
+        read(join(ws, "dir-link", "secret.txt")),
+        grep("dir-link"),
+      ]) {
+        assert.match(
+          decide(payload, ws) ?? "",
+          /resolves outside GITHUB_WORKSPACE/,
+          JSON.stringify(payload),
+        );
+      }
+    });
+
+    it(
+      "resolves `..` after a link from the link's target, as the kernel does",
+      { skip: process.platform === "win32" && "Win32 paths collapse `..` lexically" },
+      () => {
+        // Lexically this is nest/secret.txt, inside the tree.
+        assert.match(
+          decide(read("nest/up/../secret.txt"), ws) ?? "",
+          /resolves outside GITHUB_WORKSPACE/,
+        );
+      },
+    );
+
+    it("allows a link that stays inside the tree, and a path that does not exist", () => {
+      assert.equal(decide(read("docs-link/readme.md"), ws), null);
+      assert.equal(decide(read("docs/readme.md"), ws), null);
+      assert.equal(decide(read("docs/missing.md"), ws), null);
+      assert.equal(decide(grep("docs-link"), ws), null);
+    });
+  });
+
   it("registers the hook for exactly the read tools, run through node", () => {
     const settings = JSON.parse(readRepo(SETTINGS_PATH));
     const entries = settings.hooks?.PreToolUse ?? [];
@@ -100,27 +209,61 @@ describe("agent read-confinement hook contract", () => {
     assert.deepEqual(group.matcher.split("|").sort(), ["Glob", "Grep", "Read"]);
     const command = group.hooks.map((hook) => hook.command).join("\n");
     assert.match(command, /^node /, "hook must run through node, not jq/bash");
-    assert.match(command, new RegExp(HOOK_PATH.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
-    assert.match(command, /\$CLAUDE_PROJECT_DIR/);
+    assert.ok(
+      command.includes(`"${STAGED_DIR}/confine-reads-to-workspace.mjs"`),
+      "hook must run the staged copy under $RUNNER_TEMP",
+    );
+    assert.doesNotMatch(command, /CLAUDE_PROJECT_DIR|GITHUB_WORKSPACE/);
   });
 
-  it("loads the hook into every confined agent step", () => {
+  it("loads the staged hook into every confined agent step", () => {
     for (const { workflow: name, step } of CONFINED_AGENT_STEPS) {
       const agent = namedStep(workflow(name), step);
-      assert.match(
-        agent,
-        new RegExp(`settings:\\s*${SETTINGS_PATH.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`),
-        `${step} must pass the read-confinement settings`,
+      assert.ok(
+        agent.includes(`settings: ${STAGED_SETTINGS}\n`),
+        `${step} must pass the staged read-confinement settings`,
       );
     }
   });
 
-  it("does not load the hook into the implementer", () => {
-    const step = namedStep(
-      workflow("agent-implement-reusable.yml"),
-      "Run implementer (Claude Code)",
-    );
-    assert.doesNotMatch(step, /read-confinement\.settings\.json/);
+  it("stages the hook read-only outside the workspace and checks it after the agent", () => {
+    for (const { workflow: name, step, publish } of CONFINED_AGENT_STEPS) {
+      const yml = workflow(name);
+      const stage = namedStep(yml, STAGE_STEP);
+      assert.match(stage, /id: confine\n/);
+      assert.ok(stage.includes(`STAGED="${STAGED_DIR}"`), `${name}: stage to ${STAGED_DIR}`);
+      assert.ok(
+        stage.includes(`grep -qF '${STAGED_DIR}/confine-reads-to-workspace.mjs'`),
+        `${name}: refuse settings that run the hook from the workspace`,
+      );
+      assert.ok(stage.includes('chmod 444 "$STAGED"/*'), `${name}: stage read-only`);
+      assert.match(stage, /hook_sha256=/);
+
+      const verify = namedStep(yml, VERIFY_STEP);
+      assert.match(verify, /steps\.confine\.outputs\.hook_sha256/);
+      assert.match(verify, /exit 1/);
+
+      const at = (s) => yml.indexOf(`- name: ${s}\n`);
+      assert.ok(at(STAGE_STEP) < at(step), `${name}: stage before the agent`);
+      assert.ok(at(step) < at(VERIFY_STEP), `${name}: verify after the agent`);
+      if (publish) {
+        assert.ok(at(VERIFY_STEP) < at(publish), `${name}: verify before ${publish}`);
+      }
+    }
+  });
+
+  it("denies .git reads to every confined agent, and runtime edits where none is needed", () => {
+    for (const { workflow: name, step, denyRuntimeEdits } of CONFINED_AGENT_STEPS) {
+      const agent = namedStep(workflow(name), step);
+      const denied = agent.split('--disallowedTools "')[1].split('"')[0].split(",");
+      assert.ok(denied.includes("Read(./.git/**)"), `${name}: deny .git reads`);
+      if (denyRuntimeEdits) {
+        assert.ok(
+          denied.includes("Edit(./.github/agent-runtime/**)"),
+          `${name}: an agent holding Write must not edit .github/agent-runtime`,
+        );
+      }
+    }
   });
 
   it("restores the hook from the base before an untrusted-code agent runs", () => {
