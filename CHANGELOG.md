@@ -6,14 +6,39 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
-## [1.0.0-alpha.2] - 2026-09-24
+## [1.0.0-alpha.3] - 2026-09-24
+
+First usable pre-release. `v1.0.0-alpha.1` and `v1.0.0-alpha.2` are **broken**: GitHub rejects their reusable workflows ("Invalid workflow file"), so no Caller pinned to them can run. Upgrade to this tag.
+
+### Fixed
+
+- Reusable workflows no longer declare a `github_token` secret (a reserved name that made every file invalid). They use `github.token`, limited by the Caller's `permissions:`.
+- Security audit no longer requests the invalid `vulnerability-alerts` permission.
+- Implement passes `verify_commands` through `env:` instead of splicing it into a single-quoted shell string, so commands containing quotes work.
+- `scripts/cut-release.sh --publish` pushes the annotated tag before creating the GitHub Release.
+
+### Changed
+
+- **Callers:** remove `github_token:` from every `secrets:` block, and remove `vulnerability-alerts: read` from the audit Caller's `permissions:`.
+- Dependabot alert grounding in `full` mode now needs the optional `dependabot_alerts_token` secret (fine-grained PAT, Dependabot alerts: read); without it the step is skipped.
+- `actions/checkout` is pinned by commit SHA.
+- Examples pin `@v1.0.0-alpha.3` and read their Kill switch from the `CLAUDE_PIPELINE_ENABLED` / `CLAUDE_SECURITY_AUDIT_ENABLED` repository variables.
+
+### Added
+
+- `docs/getting-started.md`, generated `docs/reference.md`, `CONTRIBUTING.md`, `CONTEXT.md` glossary.
+- CI (tests, ruff, prettier, shellcheck, actionlint, link checks), pre-commit, Dependabot.
+- Workflow-validity contract tests for what GitHub rejects at load time but actionlint misses.
+- Dogfood Callers that run this repository's own flows (off by default) and an Agent-kit Threat pack.
+
+## [1.0.0-alpha.2] - 2026-09-24 [BROKEN — use 1.0.0-alpha.3]
 
 ### Changed
 
 - Plan, implement, review, and security-audit reusable workflows now run Claude Code with the controls landed on the Issuebridge reference Consumer: SHA-pinned action, job-token GitHub auth for every job except the implementer, `persist-credentials: false`, a PreToolUse hook that confines Read/Grep/Glob to the workspace, reviewed tool allowlists, staged credentialed audit scripts, and an advisory-token preflight before the audit agent runs.
 - Review is a pull-request job (`pr_number`, `head_sha`, `base_sha`, `base_ref`). Callers pass `claude_code_oauth_token`. The audit Caller also passes `github_token`.
 
-## [1.0.0-alpha.1] - 2026-08-19
+## [1.0.0-alpha.1] - 2026-08-19 [BROKEN — use 1.0.0-alpha.3]
 
 ### Added
 
