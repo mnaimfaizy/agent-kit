@@ -328,7 +328,7 @@ jobs:
       - name: Run code review (Claude Code)
         if: steps.gate.outputs.proceed == 'true'
         # Pinned to an immutable commit SHA. Bump deliberately; `@v1` is mutable.
-        uses: anthropics/claude-code-action@239e3a730883eeb5c53db12b0fc9573b3024b126 # v1
+        uses: anthropics/claude-code-action@8cf3482550831fb35a4fc3fbf7ca139cf8028b4c # v1.0.233
         env:
           # Foreground subagents: ending the turn must not kill the three axes.
           CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"
