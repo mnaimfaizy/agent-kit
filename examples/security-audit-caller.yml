@@ -35,6 +35,7 @@ jobs:
     with:
       mode: ${{ inputs.mode }}
       kill_switch: ${{ vars.CLAUDE_SECURITY_AUDIT_ENABLED != 'true' }}
+      model: ${{ vars.CLAUDE_MODEL || 'claude-opus-5' }}
       allowlist_actors: '["your-github-login"]'
       threat_model_path: ".security/threat-model.md"
       findings_ledger_path: ".security/findings-ledger.md"
