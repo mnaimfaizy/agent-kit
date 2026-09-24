@@ -28,6 +28,7 @@ jobs:
     with:
       mode: ${{ github.event_name == 'pull_request' && 'pr' || 'full' }}
       kill_switch: ${{ vars.CLAUDE_SECURITY_AUDIT_ENABLED != 'true' }}
+      model: ${{ vars.CLAUDE_MODEL || 'claude-opus-5' }}
       allowlist_actors: '["mnaimfaizy"]'
       threat_model_path: "security/threat-model.md"
       findings_ledger_path: "security/findings-ledger.md"

@@ -115,6 +115,14 @@ gh variable set CLAUDE_PIPELINE_ENABLED --body true
 
 Set a variable to anything else (or delete it) to stop a flow instantly without a commit.
 
+**Model (optional).** The example Callers pass `model: ${{ vars.CLAUDE_MODEL || 'claude-opus-5' }}`, so the `CLAUDE_MODEL` variable picks the Claude model for every flow, with no commit needed:
+
+```bash
+gh variable set CLAUDE_MODEL --body claude-opus-5-5
+```
+
+Delete the variable to fall back to `claude-opus-5`.
+
 ## 9. First run
 
 **Security audit:** Actions → your audit Caller → **Run workflow** (mode `full`). On success, the log shows only validated metadata (counts, severity); the full report is in Security → Advisories as a draft.

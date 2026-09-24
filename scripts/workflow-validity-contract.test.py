@@ -141,6 +141,17 @@ def test_callers_default_to_kill_switch_on() -> None:
             )
 
 
+def test_callers_read_model_from_repository_variable() -> None:
+    for path in callers():
+        for job_name, job in load(path)["jobs"].items():
+            if "uses" not in job:
+                continue
+            model = str((job.get("with") or {}).get("model", ""))
+            assert re.fullmatch(r"\$\{\{ vars\.CLAUDE_MODEL \|\| '[a-z0-9-]+' \}\}", model), (
+                f"{path.name}:{job_name}: model must read vars.CLAUDE_MODEL with a literal fallback"
+            )
+
+
 if __name__ == "__main__":
     test_reusable_secrets_avoid_reserved_names()
     test_reusable_secret_references_are_declared()
@@ -148,4 +159,5 @@ if __name__ == "__main__":
     test_live_step_actions_are_sha_pinned()
     test_callers_match_reusable_contract()
     test_callers_default_to_kill_switch_on()
+    test_callers_read_model_from_repository_variable()
     print("workflow-validity-contract tests passed")
