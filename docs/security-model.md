@@ -47,7 +47,7 @@ Runner seam is explicit and narrow:
 - The Dependabot alerts token (optional) is used by one fetch step only and is not in the agent step.
 - Caller-owned command inputs (`verify_commands`, `setup_commands`, `scan_command`) reach the shell through `env:` or a dedicated step, never spliced into another script.
 - Third-party actions and container images are pinned by commit SHA or digest; `anthropics/claude-code-action` is bumped by hand.
-- The audit agent has no Bash grant. Credentialed publish and email scripts are copied from a trusted commit to a directory outside the workspace and run only after a digest check. The advisory token is preflighted before the agent starts and is not in the agent step.
+- The audit agent has no Bash grant. Credentialed publish and email scripts are copied from a trusted commit to a directory outside the workspace and run only after a digest check. The advisory token is preflighted before the agent starts and is not in the agent step. The email notifier verifies the SMTP server's certificate and hostname before it upgrades with STARTTLS and logs in.
 - `anthropics/claude-code-action` is pinned to a commit SHA.
 
 ## Private and org support

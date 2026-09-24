@@ -3,6 +3,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "security-audit-reusable.yml"
+NOTIFIER = ROOT / ".github" / "security-audit" / "notify-email.sh"
 PUBLISH = ROOT / ".github" / "security-audit" / "publish-draft-advisory.sh"
 COMMENT = ROOT / ".github" / "security-audit" / "comment-pr-counts.sh"
 SECURITY_AUDIT_DOC = ROOT / "docs" / "security-audit.md"
@@ -119,6 +120,18 @@ def test_full_mode_never_checks_out_a_caller_named_head() -> None:
     assert "inputs.head_sha != ''" not in data
     assert "inputs.mode == 'full'" in _step(data, "Optional consumer scanner command")
     assert "inputs.mode == 'pr'" in _step(data, "Restore trusted audit runtime from PR base")
+
+
+def test_email_notifier_verifies_the_smtp_server_before_login() -> None:
+    # starttls() without a context falls back to the stdlib's unverified
+    # context, so the SMTP password would go to an unauthenticated server.
+    notifier = read(NOTIFIER)
+    assert "tls = ssl.create_default_context()" in notifier
+    assert "smtp.starttls(context=tls)" in notifier
+    assert "smtp.starttls()" not in notifier
+    assert "_create_unverified_context" not in notifier
+    assert "CERT_NONE" not in notifier
+    assert "check_hostname = False" not in notifier
 
 
 def test_caller_example_invokes_reusable_job() -> None:
