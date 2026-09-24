@@ -97,12 +97,12 @@ on:
       advisories_token:
         description: "Token with repository security advisories write. Not exposed to the agent."
         required: true
-      github_token:
-        description: "Job token for checkout-adjacent gh calls and the counts-only PR comment."
-        required: true
       claude_code_oauth_token:
         description: "Subscription OAuth token from `claude setup-token`."
         required: true
+      dependabot_alerts_token:
+        description: "Optional fine-grained PAT with Dependabot alerts: read. Full mode grounds on open alerts when set; the job token cannot read them. Not exposed to the agent."
+        required: false
       notify_email_to:
         description: "Optional recipient email address."
         required: false
@@ -126,7 +126,6 @@ permissions:
   contents: read
   pull-requests: write
   security-events: write
-  vulnerability-alerts: read
 
 jobs:
   security_audit:
@@ -237,7 +236,7 @@ jobs:
           echo "proceed=true" >> "$GITHUB_OUTPUT"
 
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           ref: ${{ inputs.head_sha != '' && inputs.head_sha || github.sha }}
@@ -388,11 +387,17 @@ jobs:
       - name: Fetch open Dependabot alerts
         if: ${{ success() && inputs.mode == 'full' }}
         env:
-          GH_TOKEN: ${{ secrets.github_token }}
+          # GITHUB_TOKEN has no Dependabot-alerts scope, so this needs its own
+          # optional token. Absent → skip; the audit runs without the file.
+          GH_TOKEN: ${{ secrets.dependabot_alerts_token }}
           GH_CONFIG_DIR: ${{ runner.temp }}/gh-empty-config
         shell: bash
         run: |
           set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "dependabot_alerts_token not set; continuing without Dependabot alerts."
+            exit 0
+          fi
           RAW="$RUNNER_TEMP/dependabot-alerts-raw.json"
           ERR="$RUNNER_TEMP/dependabot-alerts.err"
           OUT="$GITHUB_WORKSPACE/security-audit-dependabot.json"
@@ -538,7 +543,7 @@ jobs:
           # The job token, scoped by the permissions block above. Without this
           # input the action uses the Claude App token, which can write this
           # repository; this job reads attacker-influenced text and never pushes.
-          github_token: ${{ secrets.github_token }}
+          github_token: ${{ github.token }}
           prompt: |
             Read the audit brief at security-audit-brief.md in the repository root and follow it exactly.
 
@@ -684,7 +689,7 @@ jobs:
       - name: Consume trigger label
         if: ${{ always() && inputs.mode == 'pr' && inputs.trigger_label != '' }}
         env:
-          GH_TOKEN: ${{ secrets.github_token }}
+          GH_TOKEN: ${{ github.token }}
           GH_CONFIG_DIR: ${{ runner.temp }}/gh-empty-config
           PR: ${{ inputs.pr_number }}
           LABEL: ${{ inputs.trigger_label }}
@@ -696,7 +701,7 @@ jobs:
       - name: PR comment (counts only)
         if: ${{ success() && inputs.mode == 'pr' && steps.finding_count.outputs.count != '0' && inputs.pr_number != '' }}
         env:
-          GH_TOKEN: ${{ secrets.github_token }}
+          GH_TOKEN: ${{ github.token }}
           GH_CONFIG_DIR: ${{ runner.temp }}/gh-empty-config
           PR: ${{ inputs.pr_number }}
           COUNT: ${{ steps.finding_count.outputs.count }}

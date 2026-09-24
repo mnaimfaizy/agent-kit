@@ -28,14 +28,13 @@ permissions:
   contents: read
   pull-requests: write
   security-events: write
-  vulnerability-alerts: read
 
 jobs:
   audit:
-    uses: mnaimfaizy/agent-kit/.github/workflows/security-audit-reusable.yml@main
+    uses: mnaimfaizy/agent-kit/.github/workflows/security-audit-reusable.yml@v1.0.0-alpha.3
     with:
       mode: ${{ inputs.mode }}
-      kill_switch: false
+      kill_switch: ${{ vars.CLAUDE_SECURITY_AUDIT_ENABLED != 'true' }}
       allowlist_actors: '["your-github-login"]'
       threat_model_path: ".security/threat-model.md"
       findings_ledger_path: ".security/findings-ledger.md"
@@ -47,7 +46,6 @@ jobs:
       scan_command: ""
     secrets:
       advisories_token: ${{ secrets.AGENT_KIT_ADVISORIES_TOKEN }}
-      github_token: ${{ secrets.GITHUB_TOKEN }}
       claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       notify_email_to: ${{ secrets.AGENT_KIT_NOTIFY_EMAIL_TO }}
       notify_email_from: ${{ secrets.AGENT_KIT_NOTIFY_EMAIL_FROM }}

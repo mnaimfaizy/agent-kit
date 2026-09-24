@@ -39,9 +39,6 @@ on:
         type: string
         default: "claude-opus-5"
     secrets:
-      github_token:
-        description: "Job token for issue read/write. Scoped by this workflow's permissions."
-        required: true
       claude_code_oauth_token:
         description: "Subscription OAuth token from `claude setup-token`."
         required: true
@@ -70,7 +67,7 @@ jobs:
             fi
           fi
 
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # The planner never pushes. Leaving the default (true) writes the job
           # token into .git/config, which the agent can read. Later gh steps
@@ -79,7 +76,7 @@ jobs:
 
       - name: Build planner brief with fenced untrusted issue text
         env:
-          GH_TOKEN: ${{ secrets.github_token }}
+          GH_TOKEN: ${{ github.token }}
           ISSUE: ${{ inputs.issue_number }}
         shell: bash
         run: |
@@ -121,7 +118,7 @@ jobs:
           # The job token, scoped by this workflow's permissions block. Without
           # this input the action uses the Claude App token, which can write the
           # repository; the planner reads untrusted issue text and never pushes.
-          github_token: ${{ secrets.github_token }}
+          github_token: ${{ github.token }}
           prompt: |
             Read the planner brief at planner-brief.md in the repository root and follow it exactly.
             Write your complete plan to agent-plan.md in the repository root.
@@ -140,7 +137,7 @@ jobs:
 
       - name: Post trusted plan comment
         env:
-          GH_TOKEN: ${{ secrets.github_token }}
+          GH_TOKEN: ${{ github.token }}
           ISSUE: ${{ inputs.issue_number }}
           MARKER: ${{ inputs.planner_marker }}
         shell: bash
@@ -167,7 +164,7 @@ jobs:
       - name: Consume trigger label
         if: always()
         env:
-          GH_TOKEN: ${{ secrets.github_token }}
+          GH_TOKEN: ${{ github.token }}
           ISSUE: ${{ inputs.issue_number }}
           LABEL: ${{ inputs.trigger_label }}
         shell: bash

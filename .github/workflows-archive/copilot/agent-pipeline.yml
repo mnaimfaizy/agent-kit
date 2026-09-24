@@ -61,20 +61,22 @@ jobs:
             echo "proceed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          if [[ "$EVENT" == "workflow_dispatch" ]]; then
-            echo "issue=${ISSUE_FROM_INPUT}" >> "$GITHUB_OUTPUT"
-            echo "mode=${MODE_FROM_INPUT}" >> "$GITHUB_OUTPUT"
-            echo "label=" >> "$GITHUB_OUTPUT"
-          else
-            echo "issue=${ISSUE_FROM_EVENT}" >> "$GITHUB_OUTPUT"
-            if [[ "$LABEL" == "agent:plan" ]]; then
-              echo "mode=plan" >> "$GITHUB_OUTPUT"
+          {
+            if [[ "$EVENT" == "workflow_dispatch" ]]; then
+              echo "issue=${ISSUE_FROM_INPUT}"
+              echo "mode=${MODE_FROM_INPUT}"
+              echo "label="
             else
-              echo "mode=implement" >> "$GITHUB_OUTPUT"
+              echo "issue=${ISSUE_FROM_EVENT}"
+              if [[ "$LABEL" == "agent:plan" ]]; then
+                echo "mode=plan"
+              else
+                echo "mode=implement"
+              fi
+              echo "label=${LABEL}"
             fi
-            echo "label=${LABEL}" >> "$GITHUB_OUTPUT"
-          fi
-          echo "proceed=true" >> "$GITHUB_OUTPUT"
+            echo "proceed=true"
+          } >> "$GITHUB_OUTPUT"
 
   plan:
     needs: gate
@@ -162,6 +164,7 @@ jobs:
             echo "$OUT"
           else
             COMPARE_URL="https://github.com/$GITHUB_REPOSITORY/compare/main...$BRANCH?expand=1"
+            # shellcheck disable=SC2016 # literal backticks: a Markdown code fence
             gh issue comment "$ISSUE" --repo "$GITHUB_REPOSITORY" --body "$(printf 'Draft PR creation failed.\n\nExact gh error:\n```\n%s\n```\n\nCompare link:\n%s' "$OUT" "$COMPARE_URL")"
           fi
 

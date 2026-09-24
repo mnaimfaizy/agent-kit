@@ -42,24 +42,23 @@ jobs:
     if: |
       (github.event_name == 'issues' && github.event.label.name == 'agent:plan') ||
       (github.event_name == 'workflow_dispatch' && inputs.mode == 'plan')
-    uses: mnaimfaizy/agent-kit/.github/workflows/agent-plan-reusable.yml@main
+    uses: mnaimfaizy/agent-kit/.github/workflows/agent-plan-reusable.yml@v1.0.0-alpha.3
     with:
-      kill_switch: false
+      kill_switch: ${{ vars.CLAUDE_PIPELINE_ENABLED != 'true' }}
       allowlist_actors: '["your-github-login"]'
       trigger_label: "agent:plan"
       issue_number: ${{ github.event_name == 'issues' && github.event.issue.number || inputs.issue_number }}
       planner_marker: "<!-- agent-kit-plan -->"
     secrets:
-      github_token: ${{ secrets.GITHUB_TOKEN }}
       claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
   implement:
     if: |
       (github.event_name == 'issues' && github.event.label.name == 'agent:implement') ||
       (github.event_name == 'workflow_dispatch' && inputs.mode == 'implement')
-    uses: mnaimfaizy/agent-kit/.github/workflows/agent-implement-reusable.yml@main
+    uses: mnaimfaizy/agent-kit/.github/workflows/agent-implement-reusable.yml@v1.0.0-alpha.3
     with:
-      kill_switch: false
+      kill_switch: ${{ vars.CLAUDE_PIPELINE_ENABLED != 'true' }}
       allowlist_actors: '["your-github-login"]'
       trigger_label: "agent:implement"
       issue_number: ${{ github.event_name == 'issues' && github.event.issue.number || inputs.issue_number }}
@@ -71,16 +70,15 @@ jobs:
       # setup_commands installs the Consumer toolchain before the agent.
       # extra_allowed_tools appends reviewed Bash rules, for example Bash(npm:*).
     secrets:
-      github_token: ${{ secrets.GITHUB_TOKEN }}
       claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
   review:
     if: |
       (github.event_name == 'pull_request' && github.event.label.name == 'agent:review') ||
       (github.event_name == 'workflow_dispatch' && inputs.mode == 'review')
-    uses: mnaimfaizy/agent-kit/.github/workflows/agent-review-reusable.yml@main
+    uses: mnaimfaizy/agent-kit/.github/workflows/agent-review-reusable.yml@v1.0.0-alpha.3
     with:
-      kill_switch: false
+      kill_switch: ${{ vars.CLAUDE_PIPELINE_ENABLED != 'true' }}
       allowlist_actors: '["your-github-login"]'
       trigger_label: "agent:review"
       pr_number: ${{ github.event_name == 'pull_request' && github.event.pull_request.number || inputs.pr_number }}
@@ -91,5 +89,4 @@ jobs:
       planner_marker: "<!-- agent-kit-plan -->"
       trusted_plan_author: "github-actions[bot]"
     secrets:
-      github_token: ${{ secrets.GITHUB_TOKEN }}
       claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}

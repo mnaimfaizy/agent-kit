@@ -86,7 +86,8 @@ def test_audit_agent_cannot_see_the_advisory_token_or_widen_tools() -> None:
     assert f"anthropics/claude-code-action@{CLAUDE_ACTION_SHA}" in data
     assert "id-token:" not in data
     assert "persist-credentials: false" in data
-    assert "actions/checkout@v7" in data
+    assert "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1" in data
+    assert "actions/checkout@v" not in data
     assert 'echo "allowed=Read,Glob,Grep,Write"' in data
     assert "gh api user" in data
     assert "upload-artifact" not in data
@@ -109,7 +110,7 @@ def test_audit_restores_runtime_and_stages_scripts_from_a_trusted_commit() -> No
 
 def test_caller_example_invokes_reusable_job() -> None:
     example = read(CALLER_EXAMPLE)
-    assert "uses: mnaimfaizy/agent-kit/.github/workflows/security-audit-reusable.yml@main" in example
+    assert "uses: mnaimfaizy/agent-kit/.github/workflows/security-audit-reusable.yml@v" in example
     assert "threat_model_path:" in example
     assert "findings_ledger_path:" in example
 

@@ -74,13 +74,14 @@ def _step(data: str, name: str) -> str:
 
 
 CLAUDE_ACTION_SHA = "239e3a730883eeb5c53db12b0fc9573b3024b126"
+CHECKOUT_SHA = "3d3c42e5aac5ba805825da76410c181273ba90b1"
 
 
 def test_checkouts_do_not_persist_credentials_and_use_current_checkout() -> None:
     for workflow in (PLAN_WORKFLOW, IMPLEMENT_WORKFLOW, REVIEW_WORKFLOW):
         data = read(workflow)
-        assert "actions/checkout@v7" in data
-        assert "actions/checkout@v4" not in data
+        assert f"actions/checkout@{CHECKOUT_SHA}" in data
+        assert "actions/checkout@v" not in data
         assert "persist-credentials: false" in data
 
 
