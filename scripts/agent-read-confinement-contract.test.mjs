@@ -3,9 +3,10 @@
 // so confinement has to be a deny decision on the resolved path.
 
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { describe, it } from "node:test";
+import { after, before, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import { decide } from "../.github/agent-runtime/confine-reads-to-workspace.mjs";
 
@@ -89,6 +90,66 @@ describe("agent read-confinement hook contract", () => {
     assert.equal(decide({}, "/ws"), null);
     assert.equal(decide({ tool_name: "Read", tool_input: {} }, "/ws"), null);
     assert.equal(decide(null, "/ws"), null);
+  });
+
+  describe("symlinks in the checkout", () => {
+    // A real tree on disk: the workspace, and a sibling it must not reach.
+    let scratch;
+    let ws;
+    const read = (file_path) => ({ tool_name: "Read", tool_input: { file_path } });
+    const grep = (path) => ({ tool_name: "Grep", tool_input: { pattern: "x", path } });
+
+    before(() => {
+      scratch = mkdtempSync(join(tmpdir(), "read-confinement-"));
+      ws = join(scratch, "ws");
+      const outside = join(scratch, "outside");
+      mkdirSync(join(ws, "docs"), { recursive: true });
+      mkdirSync(join(ws, "nest"), { recursive: true });
+      mkdirSync(join(outside, "deeper"), { recursive: true });
+      writeFileSync(join(ws, "docs", "readme.md"), "in tree\n");
+      writeFileSync(join(outside, "secret.txt"), "out of tree\n");
+
+      symlinkSync(join(outside, "secret.txt"), join(ws, "file-link"), "file");
+      symlinkSync(outside, join(ws, "dir-link"), "dir");
+      symlinkSync(join(outside, "deeper"), join(ws, "nest", "up"), "dir");
+      symlinkSync(join(ws, "docs"), join(ws, "docs-link"), "dir");
+    });
+
+    after(() => rmSync(scratch, { recursive: true, force: true }));
+
+    it("denies a path inside the tree that resolves outside it", () => {
+      for (const payload of [
+        read("file-link"),
+        read("dir-link/secret.txt"),
+        read(join(ws, "dir-link", "secret.txt")),
+        grep("dir-link"),
+      ]) {
+        assert.match(
+          decide(payload, ws) ?? "",
+          /resolves outside GITHUB_WORKSPACE/,
+          JSON.stringify(payload),
+        );
+      }
+    });
+
+    it(
+      "resolves `..` after a link from the link's target, as the kernel does",
+      { skip: process.platform === "win32" && "Win32 paths collapse `..` lexically" },
+      () => {
+        // Lexically this is nest/secret.txt, inside the tree.
+        assert.match(
+          decide(read("nest/up/../secret.txt"), ws) ?? "",
+          /resolves outside GITHUB_WORKSPACE/,
+        );
+      },
+    );
+
+    it("allows a link that stays inside the tree, and a path that does not exist", () => {
+      assert.equal(decide(read("docs-link/readme.md"), ws), null);
+      assert.equal(decide(read("docs/readme.md"), ws), null);
+      assert.equal(decide(read("docs/missing.md"), ws), null);
+      assert.equal(decide(grep("docs-link"), ws), null);
+    });
   });
 
   it("registers the hook for exactly the read tools, run through node", () => {
