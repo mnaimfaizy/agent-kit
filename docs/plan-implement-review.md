@@ -62,4 +62,6 @@ Plan, implement, review, and audit load `.github/agent-runtime/` from the Consum
 
 Checkouts set `persist-credentials: false`. Plan, review, and audit pass the job token into the Claude action. The implementer does not: a pull request opened with the job token does not start CI, so that job uses the Claude GitHub App and needs `id-token: write`.
 
+The implement job starts GitHub's MCP server as a Docker container, so the runner needs Docker (GitHub-hosted `ubuntu-latest` has it). The agent opens the draft PR through that server as the Claude GitHub App, so CI starts on it. If the server cannot start, the workflow's own draft-PR step opens the PR with the job token instead, and CI does not start until the branch is pushed again.
+
 `anthropics/claude-code-action` is pinned to a commit SHA. The implementer tool list is deny-by-default; package-manager rules belong in `extra_allowed_tools`, and toolchain install belongs in `setup_commands`.
