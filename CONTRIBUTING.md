@@ -40,6 +40,7 @@ CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs three jobs on eve
 | `.github/workflows/dogfood-*.yml`            | This repository as its own Caller (off by default).   |
 | `.github/workflows/ci.yml`, `links.yml`      | This repository's CI.                                 |
 | `.github/agent-*`, `.github/security-audit/` | Runtime files Consumers copy.                         |
+| `.github/CODEOWNERS`                         | Review owners for kit-critical paths.                 |
 | `.claude/skills/`                            | Portable skills Consumers copy.                       |
 | `examples/`                                  | Caller templates.                                     |
 | `scripts/*.test.py`, `*.test.mjs`            | Contract tests.                                       |

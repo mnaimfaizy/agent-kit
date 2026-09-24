@@ -1,0 +1,10 @@
+# Changes under these paths request review from the maintainer.
+# Consumers depend on them: reusable workflows, copied runtime files, skills, Threat pack.
+# See CONTRIBUTING.md, section "Repository layout".
+
+/.github/workflows/       @mnaimfaizy
+/.github/agent-runtime/   @mnaimfaizy
+/.github/agent-pipeline/  @mnaimfaizy
+/.github/security-audit/  @mnaimfaizy
+/.claude/skills/          @mnaimfaizy
+/security/                @mnaimfaizy
