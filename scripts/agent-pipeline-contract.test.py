@@ -152,7 +152,25 @@ def test_docs_capture_contract_surface() -> None:
     assert "verify commands are caller-owned inputs" in doc
 
 
+def test_implement_removes_scratch_files_before_verify() -> None:
+    data = read(IMPLEMENT_WORKFLOW)
+    cleanup_at = data.index("- name: Remove extracted plan from tracked state")
+    verify_at = data.index("- name: Run caller-owned verify commands")
+    assert cleanup_at < verify_at
+    cleanup = _step(data, "Remove extracted plan from tracked state")
+    assert "rm -f verified-plan.md implementer-brief.md" in cleanup
+
+
+def test_implementer_pr_links_the_issue_for_review() -> None:
+    # Review finds the Verified plan only via "Closes/Fixes/Resolves #N" in the PR body.
+    assert "Closes #${{ inputs.issue_number }}" in read(IMPLEMENT_WORKFLOW)
+    assert "Closes #${ISSUE_NUMBER}" in read(OPEN_DRAFT_SCRIPT)
+    assert "(close[sd]?|fixe[sd]?|resolve[sd]?) #[0-9]+" in read(REVIEW_WORKFLOW)
+
+
 if __name__ == "__main__":
+    test_implementer_pr_links_the_issue_for_review()
+    test_implement_removes_scratch_files_before_verify()
     test_caller_example_triggers_labeled_not_issue_create()
     test_reusable_jobs_exist_and_are_workflow_call()
     test_implement_uses_verified_plan_contract_only()
