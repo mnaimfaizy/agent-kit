@@ -18,10 +18,10 @@ OWNER_PATTERN = re.compile(r"^@[A-Za-z0-9-]+(?:/[A-Za-z0-9._-]+)?$")
 GLOB_CHARS = ("*", "?", "[")
 
 
-def parse_codeowners(path: Path) -> list[tuple[int, str, list[str]]]:
+def parse_codeowners_text(text: str) -> list[tuple[int, str, list[str]]]:
     """Return (line number, path pattern, owners) for each rule, skipping blanks and comments."""
     rules: list[tuple[int, str, list[str]]] = []
-    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+    for number, line in enumerate(text.splitlines(), start=1):
         stripped = line.split("#", 1)[0].strip()
         if not stripped:
             continue
@@ -30,15 +30,22 @@ def parse_codeowners(path: Path) -> list[tuple[int, str, list[str]]]:
     return rules
 
 
+def parse_codeowners(path: Path) -> list[tuple[int, str, list[str]]]:
+    return parse_codeowners_text(path.read_text(encoding="utf-8"))
+
+
 def pattern_exists(pattern: str) -> bool:
     """Resolve a gitignore-style CODEOWNERS pattern against the working tree."""
     relative = pattern.lstrip("/")
-    if not relative:
+    # A pattern that escapes the repository root (`../x`) must fail, not pass off a sibling checkout.
+    if not relative or ".." in Path(relative).parts:
         return False
     if any(char in relative for char in GLOB_CHARS):
-        return next(ROOT.glob(relative), None) is not None
+        try:
+            return next(ROOT.glob(relative), None) is not None
+        except ValueError:  # e.g. `**` not used as a whole path component
+            return False
     target = (ROOT / relative.rstrip("/")).resolve()
-    # A pattern that escapes the repository root (`../x`) must fail, not pass off a sibling checkout.
     if not target.is_relative_to(ROOT):
         return False
     if pattern.endswith("/"):
@@ -58,7 +65,10 @@ def test_every_pattern_resolves_to_an_existing_path() -> None:
         for number, pattern, _ in parse_codeowners(CODEOWNERS)
         if not pattern_exists(pattern)
     ]
-    assert not broken, "CODEOWNERS patterns that match nothing in the working tree:\n" + "\n".join(broken)
+    assert not broken, (
+        "CODEOWNERS patterns that match nothing in the working tree (or, for a trailing-slash rule, "
+        "match a file rather than a directory):\n" + "\n".join(broken)
+    )
 
 
 def test_every_rule_has_valid_owners() -> None:
@@ -75,23 +85,29 @@ def test_every_rule_has_valid_owners() -> None:
     assert not problems, "CODEOWNERS owner problems:\n" + "\n".join(problems)
 
 
-def test_comment_and_blank_lines_are_skipped() -> None:
-    lines = CODEOWNERS.read_text(encoding="utf-8").splitlines()
-    assert any(line.strip().startswith("#") for line in lines), "expected comment lines to exercise the parser"
-    assert any(not line.strip() for line in lines), "expected a blank line to exercise the parser"
-
-    rule_lines = {number for number, _, _ in parse_codeowners(CODEOWNERS)}
-    kept = [
-        f"line {number}: {line}"
-        for number, line in enumerate(lines, start=1)
-        if number in rule_lines and (not line.strip() or line.strip().startswith("#"))
+def test_parser_skips_blank_and_comment_lines() -> None:
+    # Synthetic input, so reformatting the real CODEOWNERS can never break this test.
+    sample = "# header\n\n/docs/  @someone  # trailing note\n   \n# another\n/src/ @a @org/team\n"
+    assert parse_codeowners_text(sample) == [
+        (3, "/docs/", ["@someone"]),
+        (6, "/src/", ["@a", "@org/team"]),
     ]
-    assert not kept, "parser kept blank or comment lines as rules:\n" + "\n".join(kept)
+
+
+def test_pattern_exists_edge_cases() -> None:
+    assert pattern_exists("/scripts/")
+    assert pattern_exists("/scripts/*.test.py")  # glob branch
+    assert not pattern_exists("/")  # empty after stripping the anchor
+    assert not pattern_exists("/../agent-kit/")  # escapes the repository root
+    assert not pattern_exists("/no-such-dir/")
+    assert not pattern_exists("/CONTRIBUTING.md/")  # trailing slash requires a directory
+    assert not pattern_exists("/scripts/**foo")  # invalid glob fails instead of raising
 
 
 if __name__ == "__main__":
     test_codeowners_file_exists_and_has_rules()
     test_every_pattern_resolves_to_an_existing_path()
     test_every_rule_has_valid_owners()
-    test_comment_and_blank_lines_are_skipped()
+    test_parser_skips_blank_and_comment_lines()
+    test_pattern_exists_edge_cases()
     print("codeowners contract tests passed")
