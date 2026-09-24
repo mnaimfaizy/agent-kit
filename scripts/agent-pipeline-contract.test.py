@@ -115,13 +115,17 @@ def test_planner_and_reviewer_confine_reads_and_review_every_grant() -> None:
     allowed = review.split('--allowedTools "')[1].split('"')[0]
     for forbidden in ("Edit", "Write", "MultiEdit", "Bash(npm:", "Bash(cargo:"):
         assert forbidden not in allowed
-    assert '--disallowedTools "Read(./.git/**),Bash(git diff:*),Bash(git log:*),Bash(git show:*)"' in review
+    assert (
+        '--disallowedTools "Read(./.git/**),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(gh pr comment:*)"'
+    ) in review
     assert "read-confinement.settings.json" in review
 
 
 def test_implementer_allowlist_is_deny_by_default() -> None:
     data = read(IMPLEMENT_WORKFLOW)
-    assert ("DEFAULT='Edit,Write,MultiEdit,Bash(git status:*),Bash(gh pr create:*),Bash(gh pr view:*)'") in data
+    assert (
+        "DEFAULT='Edit,Write,MultiEdit,Bash(git status:*),Bash(gh pr view:*),mcp__github__create_pull_request'"
+    ) in data
     default = data.split("DEFAULT='", 1)[1].split("'", 1)[0]
     assert "Bash(gh:*)" not in default
     assert "Bash(gh api" not in default
@@ -162,6 +166,40 @@ def test_no_agent_is_granted_a_file_writing_git_command() -> None:
         denied = agent.split('--disallowedTools "')[1].split('"')[0].split(",")
         for rule in FILE_WRITING_GIT:
             assert f"{rule}:*)" in denied, f"{workflow.name}: {rule}:*) not denied"
+
+
+# `gh pr comment` / `gh pr create` take --body-file, which reads any file the
+# runner user can into a public post. Agents may hold only these gh commands,
+# none of which reads a file argument.
+REVIEWED_GH = {"Bash(gh pr diff:*)", "Bash(gh pr view:*)"}
+FILE_READING_GH = {
+    IMPLEMENT_WORKFLOW: ("Run implementer (Claude Code)", "Bash(gh pr create:*)"),
+    REVIEW_WORKFLOW: ("Run code review (Claude Code)", "Bash(gh pr comment:*)"),
+}
+
+
+def test_agents_hold_only_gh_commands_without_file_arguments() -> None:
+    implement = read(IMPLEMENT_WORKFLOW)
+    default = implement.split("DEFAULT='", 1)[1].split("'", 1)[0].split(",")
+    review = _step(read(REVIEW_WORKFLOW), "Run code review (Claude Code)")
+    review_allowed = review.split('--allowedTools "')[1].split('"')[0].split(",")
+    for grants in (default, review_allowed):
+        gh = {g for g in grants if g.startswith("Bash(gh")}
+        assert gh <= REVIEWED_GH, f"unreviewed gh grant: {gh - REVIEWED_GH}"
+
+    # Denied outright: wins over the action's base list and extra_allowed_tools.
+    for workflow, (name, rule) in FILE_READING_GH.items():
+        agent = _step(read(workflow), name)
+        denied = agent.split('--disallowedTools "')[1].split('"')[0].split(",")
+        assert rule in denied, f"{workflow.name}: {rule} not denied"
+
+    # The implementer opens its PR through the one GitHub MCP tool it is granted.
+    mcp = [g for g in default if g.startswith("mcp__github")]
+    assert mcp == ["mcp__github__create_pull_request"]
+    agent = _step(implement, "Run implementer (Claude Code)")
+    assert "mcp__github__create_pull_request tool" in agent
+    assert "draft true" in agent
+    assert "open the pull request yourself with: gh pr create" not in agent
 
 
 def test_review_brief_precomputes_git_output_the_agent_cannot_run() -> None:

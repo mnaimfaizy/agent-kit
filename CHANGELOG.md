@@ -12,6 +12,7 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 - Plan, review, and audit fail before publishing if the staged hook changed during the agent run.
 - The planner and the audit agent deny edits to `.github/agent-runtime/`.
 - Review and implement no longer grant the agent `git diff` / `git log` / `git show`, and deny them outright. The reviewer reads `review-diff.patch` and `review-log.txt`, precomputed by the brief step, instead of running git.
+- Review no longer grants `gh pr comment`, and implement no longer grants `gh pr create`; both are denied outright. The implementer opens its draft PR with `mcp__github__create_pull_request`, so the action starts GitHub's MCP server container in the implement job. A runner without Docker falls back to the workflow's draft-PR step, which uses the job token, so CI does not start on that PR until it is re-pushed.
 - **Consumer action may be required:** `verify_commands` now run with `bash -c`, not a login shell (`bash -lc`). Commands that relied on a profile file for toolchain setup must set it up themselves, for example in `setup_commands`.
 - The implementer now loads the read-confinement hook and denies `.git` reads, like plan, review, and audit. `docs/security-model.md` states that an `extra_allowed_tools` entry which runs repository code bypasses read confinement.
 
