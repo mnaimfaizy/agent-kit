@@ -212,6 +212,8 @@ jobs:
           STAGED="$RUNNER_TEMP/read-confinement"
           test -s "$SRC/confine-reads-to-workspace.mjs"
           test -s "$SRC/read-confinement.settings.json"
+          # Single quotes on purpose: match the literal `$RUNNER_TEMP` in the file.
+          # shellcheck disable=SC2016
           if ! grep -qF '$RUNNER_TEMP/read-confinement/confine-reads-to-workspace.mjs' "$SRC/read-confinement.settings.json"; then
             echo "$SRC/read-confinement.settings.json must run the hook from \$RUNNER_TEMP/read-confinement/."
             echo "Copy .github/agent-runtime/ from the same tag as the workflow pin."
