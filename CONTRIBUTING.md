@@ -118,11 +118,14 @@ gh api -X PUT repos/mnaimfaizy/agent-kit/branches/main/protection \
 EOF
 ```
 
+The payload deliberately leaves `required_pull_request_reviews` at `null`: while `@mnaimfaizy` is the sole owner in [.github/CODEOWNERS](.github/CODEOWNERS), requiring any approving review (with or without `require_code_owner_reviews`) would block the maintainer's own PRs, since GitHub never counts a PR author as a reviewer. Merging would then require an admin bypass.
+
 ## Pull requests
 
 - Branch from `main`; use [Conventional Commits](https://www.conventionalcommits.org/) (`fix:`, `feat:`, `ci:`, `docs:`, `chore:`).
 - Fill in the PR template checklist. Add an `[Unreleased]` CHANGELOG line for anything a Consumer would notice.
 - Security issues: never in a public PR or issue. See [SECURITY.md](SECURITY.md).
+- Changes under the paths in [.github/CODEOWNERS](.github/CODEOWNERS) — everything in `.github/workflows/`, the runtime files, Portable skills, and Caller templates Consumers copy, `scripts/`, this repository's Threat pack, and the review/dependency routing files — request review from the maintainer once the PR is marked ready for review (draft PRs, including every pipeline PR, request no one until then).
 
 ## Releasing
 
