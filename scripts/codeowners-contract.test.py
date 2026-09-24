@@ -7,6 +7,7 @@ fails loudly instead, naming the offending line. Every rule must be root-anchore
 
 import re
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 CODEOWNERS = ROOT / ".github" / "CODEOWNERS"
@@ -42,8 +43,13 @@ def pattern_exists(pattern: str) -> bool:
     if not relative or ".." in Path(relative).parts:
         return False
     if any(char in relative for char in GLOB_CHARS):
+        # Strip the trailing slash and check is_dir() ourselves: Python 3.10's glob
+        # ignores it, while 3.11+ treats it as "directories only".
         try:
-            return next(ROOT.glob(relative), None) is not None
+            matches = ROOT.glob(relative.rstrip("/"))
+            if pattern.endswith("/"):
+                return any(match.is_dir() for match in matches)
+            return next(matches, None) is not None
         except ValueError:  # e.g. `**` not used as a whole path component
             return False
     target = (ROOT / relative.rstrip("/")).resolve()
@@ -114,7 +120,23 @@ def test_pattern_exists_edge_cases() -> None:
     assert not pattern_exists("/../agent-kit/")  # escapes the repository root
     assert not pattern_exists("/no-such-dir/")
     assert not pattern_exists("/CONTRIBUTING.md/")  # trailing slash requires a directory
-    assert not pattern_exists("/scripts/**foo")  # invalid glob fails instead of raising
+    # Raises ValueError on Python <= 3.12 and matches nothing on 3.13+; false either way.
+    assert not pattern_exists("/scripts/**foo")
+
+
+def test_pattern_exists_glob_branch() -> None:
+    assert not pattern_exists("/scripts/*.py/")  # trailing-slash glob matching only files
+    assert pattern_exists("/.github/*/")  # trailing-slash glob matching a directory
+    # Patch the concrete class (PosixPath/WindowsPath) that ROOT.glob resolves to, so the
+    # ValueError handler runs on every Python version.
+    with mock.patch.object(type(ROOT), "glob", side_effect=ValueError("invalid pattern")):
+        assert not pattern_exists("/scripts/*.test.py")
+    # Pin the is_dir() filter itself: with glob faked to return only a file (as Python
+    # 3.10 does for a trailing-slash pattern), the rule must fail on 3.11+ too.
+    only_a_file = lambda *_: iter([ROOT / "CONTRIBUTING.md"])  # noqa: E731
+    with mock.patch.object(type(ROOT), "glob", side_effect=only_a_file):
+        assert not pattern_exists("/CONTRIBUTING*/")
+        assert pattern_exists("/CONTRIBUTING*")
 
 
 if __name__ == "__main__":
@@ -124,4 +146,5 @@ if __name__ == "__main__":
     test_every_rule_has_valid_owners()
     test_parser_skips_blank_and_comment_lines()
     test_pattern_exists_edge_cases()
+    test_pattern_exists_glob_branch()
     print("codeowners contract tests passed")
