@@ -385,11 +385,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if gh pr view --repo "$GITHUB_REPOSITORY" --head "$BRANCH" >/dev/null 2>&1; then
+          # `gh pr list --head`, not `gh pr view`: view has no --head flag, so
+          # the old check always failed and the helper posted a bogus error.
+          OPEN="$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$BRANCH" --state open --json number --jq 'length')"
+          if [ "$OPEN" != "0" ]; then
             echo "Draft PR already open for $BRANCH."
             exit 0
           fi
-          .github/agent-pipeline/open-draft-pr.sh "$ISSUE" "$BASE" "$BRANCH"
+          # Through bash: the checkout does not carry an executable bit.
+          bash .github/agent-pipeline/open-draft-pr.sh "$ISSUE" "$BASE" "$BRANCH"
 
   consume-label:
     needs: [implement, verify, open-pr]
