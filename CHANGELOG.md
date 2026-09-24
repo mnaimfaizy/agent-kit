@@ -6,24 +6,34 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
+## [1.0.0-alpha.6] - 2026-09-24
+
+Security release for [GHSA-pwx3-m47m-qfm5](https://github.com/mnaimfaizy/agent-kit/security/advisories/GHSA-pwx3-m47m-qfm5) and [GHSA-8787-cwm5-fvcj](https://github.com/mnaimfaizy/agent-kit/security/advisories/GHSA-8787-cwm5-fvcj): hardens read confinement, the agents' tool grants, and which job runs agent-authored code. **Consumer action required** — see the first items.
+
+### Consumer action
+
+- **Required:** re-copy `.github/agent-runtime/` and `.github/agent-pipeline/` from this tag. Plan, implement, review, and audit run the read-confinement hook from a read-only copy under `$RUNNER_TEMP` and fail with a message if `read-confinement.settings.json` still runs it from the workspace. `open-draft-pr.sh` takes the head branch as a third argument.
+- **May be required:** implement runs `setup_commands` twice — before the agent, and again in the new `verify` job before `verify_commands` — so they should install the toolchain and be safe to repeat. `verify_commands` run with `bash -c`, not a login shell; move any profile-based setup into `setup_commands`.
+- **May be required:** security audit `full` mode refuses a `head_sha` or `base_sha` and audits the commit it was dispatched on. Use `mode: pr` for pull requests.
+- **May be required:** the implement job starts GitHub's MCP server container, so its runner needs Docker (GitHub-hosted `ubuntu-latest` has it). An SMTP host whose certificate the runner does not trust now fails the best-effort email step instead of receiving credentials.
+
+### Security
+
+- The read-confinement hook judges a path with symlinks resolved, runs from a read-only staged copy checked by digest after each agent, refuses `.git` for Read, Grep, and Glob, and now also covers the implementer.
+- No agent is granted `git diff` / `git log` / `git show`, `gh pr comment`, or `gh pr create`; all are denied outright. The reviewer reads a precomputed diff; the implementer opens its draft PR with `mcp__github__create_pull_request`.
+- Implement runs `verify_commands`, which execute agent-authored code, in a separate `verify` job with `contents: read` and no `id-token`, on the agent's pushed branch. Only the implement job holds write and OIDC credentials, and after the agent it runs only checks. The draft-PR fallback and label cleanup run in their own jobs without `id-token`, from the trusted commit.
+- Security audit `full` mode no longer checks out a Caller-named head.
+- The audit email notifier verifies the SMTP server's certificate and hostname, and runs Python isolated (`python3 -I`) from `$RUNNER_TEMP` so workspace files cannot shadow the standard library.
+
 ### Changed
 
-- Implement's draft-PR fallback detects an existing PR with `gh pr list --head` (`gh pr view` has no `--head` flag, so the fallback used to post a bogus "could not open draft PR" comment beside the agent's PR), and runs `open-draft-pr.sh` through `bash`.
-- Implement runs `verify_commands` in a separate `verify` job with `contents: read` and no `id-token`, on the branch the agent pushed, instead of in the credentialed implement job. `setup_commands` run in both jobs. The draft-PR fallback and label cleanup moved to their own jobs without `id-token`, and the fallback runs `open-draft-pr.sh` from the trusted commit. **Consumer action:** re-copy `.github/agent-pipeline/` from this tag (`open-draft-pr.sh` takes the head branch as a third argument).
-- The security audit email notifier runs Python isolated (`python3 -I`) from `$RUNNER_TEMP`, so a module file in the audited workspace cannot shadow the standard library.
-- **Consumer action required:** re-copy `.github/agent-runtime/` from this tag. Plan, review, and audit now copy the read-confinement hook and its settings read-only to `$RUNNER_TEMP` before the agent starts and run that copy, so the hook no longer runs from a file in the workspace. The job fails with a message if `read-confinement.settings.json` still runs the hook from the workspace.
-- Plan, review, and audit fail before publishing if the staged hook changed during the agent run.
-- The planner and the audit agent deny edits to `.github/agent-runtime/`.
-- Review and implement no longer grant the agent `git diff` / `git log` / `git show`, and deny them outright. The reviewer reads `review-diff.patch` and `review-log.txt`, precomputed by the brief step, instead of running git.
-- Review no longer grants `gh pr comment`, and implement no longer grants `gh pr create`; both are denied outright. The implementer opens its draft PR with `mcp__github__create_pull_request`, so the action starts GitHub's MCP server container in the implement job. A runner without Docker falls back to the workflow's draft-PR step, which uses the job token, so CI does not start on that PR until it is re-pushed.
-- The read-confinement hook refuses `.git` paths for Read, Grep, and Glob (the `--disallowedTools` rule covered Grep and Glob only best-effort).
 - The review and audit briefs fence the PR's changed-file names as untrusted data.
 - The advisory publisher writes the report body to a private `mktemp` file under `$RUNNER_TEMP` and removes it on exit.
-- `verify_commands`, `setup_commands`, `scan_command`, and `extra_allowed_tools` descriptions and `docs/security-model.md` state that these are code the job runs and must never be built from issue or PR text.
-- The security audit email notifier verifies the SMTP server's certificate and hostname before `STARTTLS` and login. **Consumer action may be required:** an SMTP host whose certificate the runner does not trust now fails the (best-effort) email step instead of sending credentials.
-- **Consumer action may be required:** security audit `full` mode refuses a `head_sha` or `base_sha` and always audits the commit it was dispatched on. A Caller that passed a PR head in `full` mode now fails with a message; use `mode: pr` for pull requests.
-- **Consumer action may be required:** `verify_commands` now run with `bash -c`, not a login shell (`bash -lc`). Commands that relied on a profile file for toolchain setup must set it up themselves, for example in `setup_commands`.
-- The implementer now loads the read-confinement hook and denies `.git` reads, like plan, review, and audit. `docs/security-model.md` states that an `extra_allowed_tools` entry which runs repository code bypasses read confinement.
+- Caller input descriptions and `docs/security-model.md` state that `verify_commands`, `setup_commands`, `scan_command`, and code-running `extra_allowed_tools` entries are code the job runs, must never be built from issue or PR text, and that code-running extra grants act with the Claude App token.
+
+### Fixed
+
+- Implement's draft-PR fallback detects an existing PR with `gh pr list --head` and no longer posts a bogus "could not open draft PR" comment beside the agent's PR.
 
 ## [1.0.0-alpha.5] - 2026-09-24
 

@@ -20,11 +20,11 @@ Every flow is gated by a **Kill switch**, an **Allowlist**, and a consumed **Tri
 
 Full walkthrough: **[docs/getting-started.md](docs/getting-started.md)**. Short version:
 
-1. **Pick a tag.** Use the latest from [Releases](https://github.com/mnaimfaizy/agent-kit/releases), e.g. `v1.0.0-alpha.5`.
+1. **Pick a tag.** Use the latest from [Releases](https://github.com/mnaimfaizy/agent-kit/releases), e.g. `v1.0.0-alpha.6`.
 2. **Copy the runtime files from that same tag** into your repository:
 
    ```bash
-   TAG=v1.0.0-alpha.5
+   TAG=v1.0.0-alpha.6
    git clone --depth 1 --branch "$TAG" https://github.com/mnaimfaizy/agent-kit.git /tmp/agent-kit
    mkdir -p .claude/skills .github
    cp -R /tmp/agent-kit/.claude/skills/. .claude/skills/
