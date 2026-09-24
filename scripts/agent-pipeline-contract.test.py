@@ -266,6 +266,16 @@ def test_agent_authored_code_never_runs_beside_write_or_oidc_credentials() -> No
             assert job.get("permissions", {}).get("contents", "read") == "read", name
 
 
+def test_open_pr_job_detects_an_existing_pr_and_runs_the_helper_through_bash() -> None:
+    # `gh pr view` has no --head flag; a failing check made the fallback post a
+    # bogus "could not open draft PR" comment next to the agent's own PR.
+    step = _step(read(IMPLEMENT_WORKFLOW), "Open draft PR (or post exact error + compare link)")
+    assert 'gh pr list --repo "$GITHUB_REPOSITORY" --head "$BRANCH" --state open' in step
+    assert "gh pr view --repo" not in step
+    # The trusted checkout does not keep an executable bit.
+    assert 'bash .github/agent-pipeline/open-draft-pr.sh "$ISSUE" "$BASE" "$BRANCH"' in step
+
+
 def test_review_restores_runtime_without_fetching_a_raw_sha() -> None:
     data = read(REVIEW_WORKFLOW)
     restore = _step(data, "Restore trusted review runtime from PR base")
