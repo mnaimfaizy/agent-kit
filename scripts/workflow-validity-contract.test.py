@@ -74,7 +74,7 @@ def all_step_uses(data: dict) -> list[str]:
 
 def test_reusable_secrets_avoid_reserved_names() -> None:
     for path in reusable_workflows():
-        for name in (workflow_call(path).get("secrets") or {}):
+        for name in workflow_call(path).get("secrets") or {}:
             assert name.lower() != "github_token", f"{path.name}: `{name}` is reserved"
             assert not name.upper().startswith("GITHUB_"), f"{path.name}: `{name}` is reserved"
 

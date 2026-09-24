@@ -1,6 +1,5 @@
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 ARCHIVE_DIR = ROOT / ".github" / "workflows-archive" / "copilot"
 RESTORE_DOC = ROOT / "docs" / "copilot-restore.md"

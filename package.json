@@ -1,0 +1,17 @@
+{
+  "name": "agent-kit-dev",
+  "private": true,
+  "description": "Dev tooling for Agent-kit. Not a published package.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "node --test scripts/*.test.mjs"
+  },
+  "devDependencies": {
+    "prettier": "^3"
+  }
+}

@@ -1,0 +1,97 @@
+name: CI
+
+# Runs on every PR and push to main. No secrets, no model calls: this only
+# checks that the kit is loadable, linted, formatted, and its contracts hold.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: true
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+      - name: Install Python dev deps
+        run: uv sync --locked
+      - name: Python contract tests
+        run: uv run pytest
+      - name: Node contract tests
+        run: node --test scripts/*.test.mjs
+      - name: Release snapshot paths present
+        run: uv run python scripts/verify_release_snapshot.py
+
+  lint:
+    name: Lint and format
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: true
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Install dev deps
+        run: |
+          uv sync --locked
+          npm ci
+      - name: Ruff lint
+        run: uv run ruff check --output-format=github .
+      - name: Ruff format
+        run: uv run ruff format --check .
+      - name: Prettier (Markdown, YAML, JSON)
+        run: npx prettier --check .
+      - name: Shell scripts are LF in the index
+        run: |
+          bad="$(git ls-files --eol -- '*.sh' | awk '$1 != "i/lf" {print $NF}')"
+          if [ -n "$bad" ]; then
+            echo "::error::CRLF shell scripts in the index (breaks bash on the runner):"
+            echo "$bad"
+            exit 1
+          fi
+      - name: shellcheck
+        run: git ls-files -z -- '*.sh' | xargs -0 shellcheck --severity=style
+      - name: actionlint
+        env:
+          # Pinned by digest; bump alongside the version comment.
+          ACTIONLINT_IMAGE: rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
+        run: |
+          docker run --rm -v "$PWD:/repo" --workdir /repo "$ACTIONLINT_IMAGE" -color             .github/workflows/*.yml examples/*.yml .github/workflows-archive/copilot/*.yml
+
+  links:
+    name: Internal links
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check relative links and anchors (offline)
+        uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
+        with:
+          args: --offline --no-progress --include-fragments --exclude-path node_modules --exclude-path .venv './**/*.md'
+          fail: true
