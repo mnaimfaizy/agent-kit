@@ -1,5 +1,7 @@
 # Adopt Agent-kit
 
+> First adoption? Follow [Getting started](getting-started.md) step by step. This page is the contract behind it.
+
 Adopt follows a split contract:
 
 - live-reference reusable workflows via `uses: ...@<semver-tag>`
@@ -40,15 +42,18 @@ The copied files and workflow references should always move together on upgrade.
 
 1. Copy the Caller pattern from `examples/security-audit-caller.yml`.
 2. Pin the reusable workflow reference to a release tag for stable adoption.
-3. Supply Consumer-owned threat pack paths and secrets.
+3. Supply Consumer-owned Threat pack paths and secrets.
 
 ## Consumer-owned contract surface
 
 - Caller workflow triggers and allowlist policy
-- kill switch
-- advisory token for draft GHSA creation
+- Kill switch (the examples read the `CLAUDE_SECURITY_AUDIT_ENABLED` repository variable)
+- advisory token for draft GHSA creation (`advisories_token`)
+- optional Dependabot alerts token (`dependabot_alerts_token`)
 - optional scanner command
 - optional email notification secrets
+
+The job token is not a secret input: reusable workflows use `github.token`, limited by the Caller's `permissions:`. The Caller must grant at least the permissions each reusable workflow lists in [reference.md](reference.md).
 
 The Agent-kit reusable workflow provides the job body; the Consumer controls policy and repository-specific inputs.
 
@@ -56,7 +61,7 @@ The Agent-kit reusable workflow provides the job body; the Consumer controls pol
 
 1. Copy the Caller pattern from `examples/plan-implement-review-caller.yml`.
 2. Pin reusable workflow `uses:` references to a release tag for stable adoption.
-3. Set your label names, allowlist, and kill switch policy in the Caller.
+3. Set your label names, allowlist, and Kill switch policy in the Caller (the example reads the `CLAUDE_PIPELINE_ENABLED` repository variable).
 4. Provide your own verify commands in the implement caller input.
 
 ### Plan-implement-review caller-owned contract surface
@@ -89,8 +94,14 @@ updates:
           - "*-rc.*"
 ```
 
+## Upgrading
+
+Move the `uses:` pins and the copied files to the new tag in the same commit. Read the CHANGELOG between the two tags first; a Major bump means Caller changes. Step-by-step: [Getting started → Upgrading](getting-started.md#upgrading).
+
 ## Further reading
 
+- [Getting started](getting-started.md) — first adoption, step by step
+- [Workflow reference](reference.md) — every input, secret, and permission
 - [Releases](releases.md) — SemVer, pre-releases, changelog policy
 - [Security model](security-model.md) — public-log rule, private delivery, gates
 - [Security audit](security-audit.md) — `full` / `pr` Caller

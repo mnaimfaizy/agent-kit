@@ -51,6 +51,15 @@ Do not move backward within a target version.
 - `CHANGELOG.md` must include an entry for each stable, beta, and rc release.
 - Notes summarize contract-impacting changes; they are not a raw commit dump.
 
+## Broken releases
+
+Tags are never moved or deleted, even when broken. A fix ships as the next tag, and the CHANGELOG plus the GitHub Release body of the broken tag say so.
+
+| Tag              | Status | Reason                                                                                          | Use instead      |
+| ---------------- | ------ | ----------------------------------------------------------------------------------------------- | ---------------- |
+| `v1.0.0-alpha.1` | Broken | Reusable workflows declare the reserved `github_token` secret; the audit also had a YAML error. | `v1.0.0-alpha.3` |
+| `v1.0.0-alpha.2` | Broken | Reserved `github_token` secret; invalid `vulnerability-alerts` permission in the audit.         | `v1.0.0-alpha.3` |
+
 ## Cutting a release
 
-Maintainers cut tags from the default branch using `docs/cutting-releases.md` and `scripts/cut-release.sh`. The first public Pre-release on the `1.0.0` line is expected to be `v1.0.0-alpha.1`.
+Maintainers cut tags from the default branch using `docs/cutting-releases.md` and `scripts/cut-release.sh`. The first public Pre-release on the `1.0.0` line was `v1.0.0-alpha.1`.
