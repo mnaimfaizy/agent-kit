@@ -6,6 +6,10 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
+### Changed
+
+- `scripts/codeowners-contract.test.py` fails on a CODEOWNERS rule without a leading `/`, and its path failure message names the missing anchor as a cause.
+
 ## [1.0.0-alpha.4] - 2026-09-24
 
 Adds Opus 5.5 support and fixes found by the first dogfood runs. No required Caller changes.

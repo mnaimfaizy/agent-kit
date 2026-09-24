@@ -1,7 +1,8 @@
 """Contract test: every CODEOWNERS rule points at a real path and names a valid owner.
 
 A rule whose path is renamed or deleted stops routing review silently. This test
-fails loudly instead, naming the offending line.
+fails loudly instead, naming the offending line. Every rule must be root-anchored
+(start with `/`), because paths are resolved from the repository root only.
 """
 
 import re
@@ -73,8 +74,20 @@ def test_every_pattern_resolves_to_an_existing_path() -> None:
     ]
     assert not broken, (
         "CODEOWNERS patterns that match nothing in the working tree (or, for a trailing-slash rule, "
-        "match a file rather than a directory):\n" + "\n".join(broken)
+        "match a file rather than a directory; or, for a rule without a leading `/`, need the anchor "
+        "because every rule here is root-anchored):\n" + "\n".join(broken)
     )
+
+
+def test_every_pattern_is_root_anchored() -> None:
+    # GitHub matches an unanchored pattern (`docs/`) at any depth, but pattern_exists resolves
+    # from the repository root only, so every rule here must start with `/`.
+    unanchored = [
+        f"line {number}: {pattern}"
+        for number, pattern, _ in parse_codeowners(CODEOWNERS)
+        if not pattern.startswith("/")
+    ]
+    assert not unanchored, "CODEOWNERS patterns without a leading `/`:\n" + "\n".join(unanchored)
 
 
 def test_every_rule_has_valid_owners() -> None:
@@ -129,6 +142,7 @@ def test_pattern_exists_glob_branch() -> None:
 if __name__ == "__main__":
     test_codeowners_file_exists_and_has_rules()
     test_every_pattern_resolves_to_an_existing_path()
+    test_every_pattern_is_root_anchored()
     test_every_rule_has_valid_owners()
     test_parser_skips_blank_and_comment_lines()
     test_pattern_exists_edge_cases()
