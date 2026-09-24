@@ -6,14 +6,18 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
-### Changed
+## [1.0.0-alpha.4] - 2026-09-24
 
-- `anthropics/claude-code-action` bumped from the 2026-08-11 pin (Claude Code 2.1.228) to v1.0.233, which is needed for `claude-opus-5-5`.
+Adds Opus 5.5 support and fixes found by the first dogfood runs. No required Caller changes.
 
 ### Added
 
 - Example Callers pass `model: ${{ vars.CLAUDE_MODEL || 'claude-opus-5' }}`, so the model is set with a repository variable instead of an edit to the Caller.
 - `scripts/codeowners-contract.test.py`: CI now fails when a `.github/CODEOWNERS` rule points at a path that no longer exists, or names an owner that is not a valid `@handle` / `@org/team`.
+
+### Changed
+
+- `anthropics/claude-code-action` bumped from the 2026-08-11 pin (Claude Code 2.1.228) to v1.0.233, which is needed for `claude-opus-5-5`.
 
 ### Fixed
 
