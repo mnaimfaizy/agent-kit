@@ -118,6 +118,12 @@ def test_pattern_exists_glob_branch() -> None:
     # ValueError handler runs on every Python version.
     with mock.patch.object(type(ROOT), "glob", side_effect=ValueError("invalid pattern")):
         assert not pattern_exists("/scripts/*.test.py")
+    # Pin the is_dir() filter itself: with glob faked to return only a file (as Python
+    # 3.10 does for a trailing-slash pattern), the rule must fail on 3.11+ too.
+    only_a_file = lambda *_: iter([ROOT / "CONTRIBUTING.md"])  # noqa: E731
+    with mock.patch.object(type(ROOT), "glob", side_effect=only_a_file):
+        assert not pattern_exists("/CONTRIBUTING*/")
+        assert pattern_exists("/CONTRIBUTING*")
 
 
 if __name__ == "__main__":
