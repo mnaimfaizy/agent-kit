@@ -76,7 +76,7 @@ Then edit:
 1. **Pin:** every `uses: mnaimfaizy/agent-kit/...@<tag>` equals the tag from step 2.
 2. **Allowlist:** replace `your-github-login` in `allowlist_actors` with the logins allowed to trigger runs (JSON array).
 3. **Audit paths:** point `threat_model_path` and `findings_ledger_path` at your **Threat pack** (step 7).
-4. **Implement:** set `verify_commands` (your lint/test/typecheck), and if needed `setup_commands` (toolchain install) and `extra_allowed_tools` (e.g. `Bash(npm test:*)`).
+4. **Implement:** set `verify_commands` (your lint/test/typecheck), and if needed `setup_commands` (toolchain install) and `extra_allowed_tools` (e.g. `Bash(npm test:*)`). `setup_commands` run twice, once before the agent and once in the verify job before `verify_commands`, so they should install the toolchain and be safe to repeat.
 5. **Permissions:** keep the `permissions:` block. A Caller must grant at least what the reusable workflow requests — see [reference.md](reference.md).
 
 Every input and secret is listed in the [workflow reference](reference.md).
