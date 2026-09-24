@@ -12,7 +12,7 @@ Each tag is a **whole-kit snapshot**: reusable workflows, shipped skills, docs, 
 
 ## Cut a release
 
-The steps below use `<tag>`, e.g. `v1.0.0-alpha.3`. The first cut on this line was `v1.0.0-alpha.1`.
+The steps below use `<tag>`, e.g. `v1.0.0-alpha.4`. The first cut on this line was `v1.0.0-alpha.1`.
 
 1. Ensure `main` (or your default branch) is clean, up to date (`git pull`), and includes every path in `scripts/release-snapshot-manifest.txt`.
 2. Verify the snapshot:
