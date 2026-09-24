@@ -32,6 +32,14 @@ Runner seam is explicit and narrow:
 - Copilot is an inert restore path (separate docs/contracts), not a second live first-class runner.
 - No provider adapter layer is required in v1.
 
+## Workflow controls
+
+- Plan, review, and audit pass the job token into Claude. Only the implementer uses the Claude GitHub App (`id-token: write`, no `github_token` on that step).
+- Checkouts set `persist-credentials: false`.
+- A PreToolUse hook in `.github/agent-runtime/` denies Read/Grep/Glob outside the workspace. Review and audit restore that hook from the pull request base.
+- The audit agent has no Bash grant. Credentialed publish and email scripts are copied from a trusted commit to a directory outside the workspace and run only after a digest check. The advisory token is preflighted before the agent starts and is not in the agent step.
+- `anthropics/claude-code-action` is pinned to a commit SHA.
+
 ## Private and org support
 
 Public, private, and organization repositories use the same reusable security-audit job and same private sink.

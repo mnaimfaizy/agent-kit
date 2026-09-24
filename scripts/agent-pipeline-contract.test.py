@@ -58,11 +58,91 @@ def test_draft_pr_fallback_contract() -> None:
 
 def test_review_is_three_axis_on_demand_without_autofix() -> None:
     data = read(REVIEW_WORKFLOW)
-    assert "### Standards" in data
-    assert "### Spec" in data
-    assert "### Correctness" in data
+    assert "## Standards" in data
+    assert "## Spec" in data
+    assert "## Correctness" in data
     assert "no auto-fix" in data
     assert "no push or product execution" in data
+
+
+def _step(data: str, name: str) -> str:
+    marker = f"- name: {name}\n"
+    start = data.index(marker)
+    rest = data[start + len(marker) :]
+    next_step = rest.find("\n      - ")
+    return rest if next_step < 0 else rest[:next_step]
+
+
+CLAUDE_ACTION_SHA = "239e3a730883eeb5c53db12b0fc9573b3024b126"
+
+
+def test_checkouts_do_not_persist_credentials_and_use_current_checkout() -> None:
+    for workflow in (PLAN_WORKFLOW, IMPLEMENT_WORKFLOW, REVIEW_WORKFLOW):
+        data = read(workflow)
+        assert "actions/checkout@v7" in data
+        assert "actions/checkout@v4" not in data
+        assert "persist-credentials: false" in data
+
+
+def test_claude_action_is_sha_pinned() -> None:
+    for workflow in (PLAN_WORKFLOW, IMPLEMENT_WORKFLOW, REVIEW_WORKFLOW):
+        data = read(workflow)
+        assert f"anthropics/claude-code-action@{CLAUDE_ACTION_SHA}" in data
+        assert "claude-code-action@v1" not in data
+        assert "--dangerously-skip-permissions" not in data
+
+
+def test_only_the_implementer_holds_the_app_token() -> None:
+    plan = _step(read(PLAN_WORKFLOW), "Run planner (Claude Code)")
+    review = _step(read(REVIEW_WORKFLOW), "Run code review (Claude Code)")
+    implement = _step(read(IMPLEMENT_WORKFLOW), "Run implementer (Claude Code)")
+    assert "github_token:" in plan
+    assert "github_token:" in review
+    assert "github_token:" not in implement
+    assert "id-token: write" in read(IMPLEMENT_WORKFLOW)
+    assert "id-token:" not in read(PLAN_WORKFLOW)
+    assert "id-token:" not in read(REVIEW_WORKFLOW)
+
+
+def test_planner_and_reviewer_confine_reads_and_review_every_grant() -> None:
+    plan = _step(read(PLAN_WORKFLOW), "Run planner (Claude Code)")
+    assert '--allowedTools "Read,Glob,Grep,Write"' in plan
+    assert '--disallowedTools "Read(./.git/**)"' in plan
+    assert "read-confinement.settings.json" in plan
+    assert "Bash(" not in plan
+
+    review = _step(read(REVIEW_WORKFLOW), "Run code review (Claude Code)")
+    allowed = review.split('--allowedTools "')[1].split('"')[0]
+    for forbidden in ("Edit", "Write", "MultiEdit", "Bash(npm:", "Bash(cargo:"):
+        assert forbidden not in allowed
+    assert '--disallowedTools "Read(./.git/**)"' in review
+    assert "read-confinement.settings.json" in review
+
+
+def test_implementer_allowlist_is_deny_by_default() -> None:
+    data = read(IMPLEMENT_WORKFLOW)
+    assert (
+        "DEFAULT='Edit,Write,MultiEdit,Bash(git status:*),Bash(git diff:*),"
+        "Bash(git log:*),Bash(gh pr create:*),Bash(gh pr view:*)'"
+    ) in data
+    default = data.split("DEFAULT='", 1)[1].split("'", 1)[0]
+    assert "Bash(gh:*)" not in default
+    assert "Bash(gh api" not in default
+    implement = _step(data, "Run implementer (Claude Code)")
+    assert '--allowedTools "${{ steps.tools.outputs.allowed }}"' in implement
+    assert "sha256sum -c" in data
+
+
+def test_review_restores_runtime_without_fetching_a_raw_sha() -> None:
+    data = read(REVIEW_WORKFLOW)
+    restore = _step(data, "Restore trusted review runtime from PR base")
+    assert 'git cat-file -e "$BASE_SHA^{commit}"' in restore
+    assert 'git fetch --no-tags origin "$BASE_BRANCH"' in restore
+    assert 'git fetch' not in restore or 'origin "$BASE_SHA"' not in restore
+    assert "git ls-files -z" in restore
+    assert 'git ls-tree -r -z --name-only "$BASE_SHA"' in restore
+    assert ".github/agent-runtime" in restore
+    assert "pull_request_target:" not in data
 
 
 def test_docs_capture_contract_surface() -> None:
@@ -80,4 +160,10 @@ if __name__ == "__main__":
     test_draft_pr_fallback_contract()
     test_review_is_three_axis_on_demand_without_autofix()
     test_docs_capture_contract_surface()
+    test_checkouts_do_not_persist_credentials_and_use_current_checkout()
+    test_claude_action_is_sha_pinned()
+    test_only_the_implementer_holds_the_app_token()
+    test_planner_and_reviewer_confine_reads_and_review_every_grant()
+    test_implementer_allowlist_is_deny_by_default()
+    test_review_restores_runtime_without_fetching_a_raw_sha()
     print("agent-pipeline contract seam tests passed")

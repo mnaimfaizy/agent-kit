@@ -3,6 +3,8 @@ name: agent-pipeline-caller-example
 on:
   issues:
     types: [labeled]
+  pull_request:
+    types: [labeled]
   workflow_dispatch:
     inputs:
       issue_number:
@@ -12,11 +14,28 @@ on:
         description: "plan | implement | review"
         required: true
         default: "plan"
+      pr_number:
+        description: "PR number (review)"
+        required: false
+        default: ""
+      head_sha:
+        description: "PR head SHA (review)"
+        required: false
+        default: ""
+      base_sha:
+        description: "PR base SHA (review)"
+        required: false
+        default: ""
+      base_ref:
+        description: "PR base branch (review)"
+        required: false
+        default: "main"
 
 permissions:
   contents: write
   issues: write
   pull-requests: write
+  id-token: write
 
 jobs:
   plan:
@@ -32,6 +51,7 @@ jobs:
       planner_marker: "<!-- agent-kit-plan -->"
     secrets:
       github_token: ${{ secrets.GITHUB_TOKEN }}
+      claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
   implement:
     if: |
@@ -48,20 +68,28 @@ jobs:
       base_branch: "main"
       verify_commands: |
         echo "Provide Consumer verify commands here (lint/tests/typecheck)."
+      # setup_commands installs the Consumer toolchain before the agent.
+      # extra_allowed_tools appends reviewed Bash rules, for example Bash(npm:*).
     secrets:
       github_token: ${{ secrets.GITHUB_TOKEN }}
+      claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
   review:
     if: |
-      (github.event_name == 'issues' && github.event.label.name == 'agent:review') ||
+      (github.event_name == 'pull_request' && github.event.label.name == 'agent:review') ||
       (github.event_name == 'workflow_dispatch' && inputs.mode == 'review')
     uses: mnaimfaizy/agent-kit/.github/workflows/agent-review-reusable.yml@main
     with:
       kill_switch: false
       allowlist_actors: '["your-github-login"]'
       trigger_label: "agent:review"
-      issue_number: ${{ github.event_name == 'issues' && github.event.issue.number || inputs.issue_number }}
+      pr_number: ${{ github.event_name == 'pull_request' && github.event.pull_request.number || inputs.pr_number }}
+      head_sha: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || inputs.head_sha }}
+      base_sha: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || inputs.base_sha }}
+      base_ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref || inputs.base_ref }}
+      is_fork: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
       planner_marker: "<!-- agent-kit-plan -->"
       trusted_plan_author: "github-actions[bot]"
     secrets:
       github_token: ${{ secrets.GITHUB_TOKEN }}
+      claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}

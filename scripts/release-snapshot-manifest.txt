@@ -21,6 +21,7 @@ docs/issuebridge.md
 .github/workflows/agent-review-reusable.yml
 .github/security-audit/
 .github/agent-pipeline/
+.github/agent-runtime/
 .github/workflows-archive/copilot/
 
 .claude/skills/code-review/

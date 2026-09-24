@@ -15,6 +15,13 @@ The reusable job supports:
 - required private delivery to draft GHSA
 - optional email notification
 - counts-only PR comments in `pr` mode when findings exist
+- advisory-token preflight before the agent runs
+- credentialed scripts staged outside the workspace and checked by digest
+- Read/Grep/Glob confined to the workspace
+
+`pr` mode requires `head_sha`, `base_sha`, `base_ref`, and `pr_number`. The job restores instructions and `.github/agent-runtime/` from the base before the agent starts. `scan_command` runs in `full` mode only.
+
+The preflight treats a token that can see zero draft advisories as mis-scoped, because a public repository cannot tell that apart from a token with no advisories access. Create one draft advisory by hand before the first automated run.
 
 ## Private delivery and public-log rule
 
@@ -37,7 +44,9 @@ The Caller owns:
 - kill switch
 - allowlist policy
 - advisories token secret
-- optional scanner command
+- optional scanner command (`full` mode only)
 - optional email secrets
+- Claude subscription token and the job token
+- for `pr` mode, the head SHA, base SHA, base ref, and PR number
 
 Triage and response happen after delivery using the shipped skills.

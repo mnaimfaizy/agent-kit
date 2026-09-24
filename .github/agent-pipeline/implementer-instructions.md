@@ -11,4 +11,4 @@ Rules:
 - Open a draft PR, or report the exact `gh` error and a compare link.
 - Do not merge, approve, or mark PR ready.
 - Do not edit `.github/workflows` files.
-- Run only caller-provided verify commands.
+- Run only the caller-provided verify commands recorded in this brief.

@@ -11,11 +11,24 @@ on:
         description: "PR number for pr mode counts-only comment"
         required: false
         default: ""
+      head_sha:
+        description: "PR head SHA (pr mode)"
+        required: false
+        default: ""
+      base_sha:
+        description: "PR base SHA (pr mode)"
+        required: false
+        default: ""
+      base_ref:
+        description: "PR base branch (pr mode)"
+        required: false
+        default: ""
 
 permissions:
   contents: read
   pull-requests: write
   security-events: write
+  vulnerability-alerts: read
 
 jobs:
   audit:
@@ -27,10 +40,15 @@ jobs:
       threat_model_path: ".security/threat-model.md"
       findings_ledger_path: ".security/findings-ledger.md"
       pr_number: ${{ inputs.pr_number }}
+      head_sha: ${{ inputs.head_sha }}
+      base_sha: ${{ inputs.base_sha }}
+      base_ref: ${{ inputs.base_ref }}
       notify_email: false
       scan_command: ""
     secrets:
       advisories_token: ${{ secrets.AGENT_KIT_ADVISORIES_TOKEN }}
+      github_token: ${{ secrets.GITHUB_TOKEN }}
+      claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       notify_email_to: ${{ secrets.AGENT_KIT_NOTIFY_EMAIL_TO }}
       notify_email_from: ${{ secrets.AGENT_KIT_NOTIFY_EMAIL_FROM }}
       notify_email_smtp_host: ${{ secrets.AGENT_KIT_NOTIFY_SMTP_HOST }}
