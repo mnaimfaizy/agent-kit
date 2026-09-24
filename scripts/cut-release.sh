@@ -63,7 +63,21 @@ if [[ -z "$TAG" ]]; then
   exit 1
 fi
 
-python scripts/verify_release_snapshot.py
+# Pick the first interpreter that actually runs, not just one on PATH: on
+# Windows, `python3` can be the Microsoft Store stub, which exists but fails.
+PYTHON=""
+for candidate in python3 python; do
+  if "$candidate" -c 'import sys' >/dev/null 2>&1; then
+    PYTHON="$candidate"
+    break
+  fi
+done
+if [[ -z "$PYTHON" ]]; then
+  echo "Python is required: neither python3 nor python runs on PATH." >&2
+  exit 1
+fi
+
+"$PYTHON" scripts/verify_release_snapshot.py
 
 DEFAULT_BRANCH="$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||' || true)"
 if [[ -z "$DEFAULT_BRANCH" ]]; then
@@ -81,7 +95,7 @@ if git rev-parse "$TAG" >/dev/null 2>&1; then
   exit 1
 fi
 
-python - <<PY
+"$PYTHON" - <<PY
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path("scripts").resolve()))
