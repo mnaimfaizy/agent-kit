@@ -161,7 +161,15 @@ def test_implement_removes_scratch_files_before_verify() -> None:
     assert "rm -f verified-plan.md implementer-brief.md" in cleanup
 
 
+def test_implementer_pr_links_the_issue_for_review() -> None:
+    # Review finds the Verified plan only via "Closes/Fixes/Resolves #N" in the PR body.
+    assert "Closes #${{ inputs.issue_number }}" in read(IMPLEMENT_WORKFLOW)
+    assert "Closes #${ISSUE_NUMBER}" in read(OPEN_DRAFT_SCRIPT)
+    assert "(close[sd]?|fixe[sd]?|resolve[sd]?) #[0-9]+" in read(REVIEW_WORKFLOW)
+
+
 if __name__ == "__main__":
+    test_implementer_pr_links_the_issue_for_review()
     test_implement_removes_scratch_files_before_verify()
     test_caller_example_triggers_labeled_not_issue_create()
     test_reusable_jobs_exist_and_are_workflow_call()

@@ -9,6 +9,7 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 ### Fixed
 
 - Implement removes its `implementer-brief.md` scratch file before the Caller's `verify_commands`, so whole-tree lint/format checks no longer fail on it.
+- Implementer PRs (agent-opened and fallback) include `Closes #<issue>`, so review finds the Verified plan and runs its Spec axis.
 
 ## [1.0.0-alpha.3] - 2026-09-24
 
