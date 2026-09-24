@@ -19,7 +19,7 @@ Default is dry-run: verifies the snapshot and prints the planned steps.
 Options:
   --tag <tag>           Required SemVer tag (example: v1.0.0-alpha.1)
   --apply               Create the annotated git tag locally
-  --publish             Also create the GitHub Release (requires --apply and gh)
+  --publish             Also push the tag and create the GitHub Release (requires --apply and gh)
   --notes-file <path>   Release notes body for beta/rc/stable (required then)
   -h, --help            Show this help
 
@@ -106,18 +106,22 @@ if [[ "$APPLY" -eq 0 ]]; then
   exit 0
 fi
 
-git tag -a "$TAG" -m "Release $TAG"
-echo "Created annotated tag $TAG locally."
-echo "Push the tag: git push origin $TAG"
-
-if [[ "$PUBLISH" -eq 0 ]]; then
-  exit 0
-fi
-
-if ! command -v gh >/dev/null 2>&1; then
+if [[ "$PUBLISH" -eq 1 ]] && ! command -v gh >/dev/null 2>&1; then
   echo "gh CLI is required for --publish." >&2
   exit 1
 fi
+
+git tag -a "$TAG" -m "Release $TAG"
+echo "Created annotated tag $TAG locally."
+
+if [[ "$PUBLISH" -eq 0 ]]; then
+  echo "Push the tag: git push origin $TAG"
+  exit 0
+fi
+
+# Push first so the Release attaches to this exact annotated tag instead of
+# gh creating a lightweight one from the remote default branch.
+git push origin "$TAG"
 
 PRERELEASE_FLAG=()
 if [[ "$TAG" == *"-alpha."* || "$TAG" == *"-beta."* || "$TAG" == *"-rc."* ]]; then
@@ -125,9 +129,9 @@ if [[ "$TAG" == *"-alpha."* || "$TAG" == *"-beta."* || "$TAG" == *"-rc."* ]]; th
 fi
 
 if [[ -n "$NOTES_FILE" ]]; then
-  gh release create "$TAG" "${PRERELEASE_FLAG[@]}" --title "$TAG" --notes-file "$NOTES_FILE"
+  gh release create "$TAG" "${PRERELEASE_FLAG[@]}" --verify-tag --title "$TAG" --notes-file "$NOTES_FILE"
 else
-  gh release create "$TAG" "${PRERELEASE_FLAG[@]}" --title "$TAG" --notes "Pre-release $TAG"
+  gh release create "$TAG" "${PRERELEASE_FLAG[@]}" --verify-tag --title "$TAG" --notes "Pre-release $TAG"
 fi
 
 echo "Published GitHub Release $TAG (no assets attached)."
