@@ -58,7 +58,7 @@ Implement reads only a Verified plan comment that:
 
 ## Runner controls
 
-Plan, review, and audit load `.github/agent-runtime/` from the Consumer checkout. A PreToolUse hook denies Read/Grep/Glob paths outside the workspace. Copy that directory from the same tag as the workflow pin.
+Plan, review, and audit load `.github/agent-runtime/` from the Consumer checkout, stage it to `$RUNNER_TEMP`, and run the staged copy. A PreToolUse hook denies Read/Grep/Glob paths outside the workspace. Copy that directory from the same tag as the workflow pin: a job refuses a settings file that runs the hook from the workspace.
 
 Checkouts set `persist-credentials: false`. Plan, review, and audit pass the job token into the Claude action. The implementer does not: a pull request opened with the job token does not start CI, so that job uses the Claude GitHub App and needs `id-token: write`.
 

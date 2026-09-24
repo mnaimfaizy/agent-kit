@@ -522,12 +522,29 @@ jobs:
           # gets the diff pre-computed into the brief.
           echo "allowed=Read,Glob,Grep,Write" >> "$GITHUB_OUTPUT"
 
-      - name: Require read-confinement hook
+      - name: Stage read-confinement hook outside the workspace
+        id: confine
         shell: bash
         run: |
           set -euo pipefail
-          test -s .github/agent-runtime/confine-reads-to-workspace.mjs
-          test -s .github/agent-runtime/read-confinement.settings.json
+          # The hook script runs from disk on every read, so a workspace copy is
+          # one an agent with Write could replace mid-session. Stage read-only
+          # copies outside the workspace and run those, and refuse a settings
+          # file that still points the hook into the workspace.
+          SRC=.github/agent-runtime
+          STAGED="$RUNNER_TEMP/read-confinement"
+          test -s "$SRC/confine-reads-to-workspace.mjs"
+          test -s "$SRC/read-confinement.settings.json"
+          if ! grep -qF '$RUNNER_TEMP/read-confinement/confine-reads-to-workspace.mjs' "$SRC/read-confinement.settings.json"; then
+            echo "$SRC/read-confinement.settings.json must run the hook from \$RUNNER_TEMP/read-confinement/."
+            echo "Copy .github/agent-runtime/ from the same tag as the workflow pin."
+            exit 1
+          fi
+          rm -rf "$STAGED"
+          mkdir "$STAGED"
+          cp "$SRC/confine-reads-to-workspace.mjs" "$SRC/read-confinement.settings.json" "$STAGED/"
+          chmod 444 "$STAGED"/*
+          echo "hook_sha256=$(cat "$STAGED"/* | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
 
       - name: Run security audit (Claude Code)
         id: scan
@@ -539,7 +556,7 @@ jobs:
           # allowlist entry only pre-approves and cannot revoke the action's base
           # read grant, so scoping must be a deny decision (see the hook script).
           # On a PR run it is restored from the base before the agent runs.
-          settings: .github/agent-runtime/read-confinement.settings.json
+          settings: ${{ runner.temp }}/read-confinement/read-confinement.settings.json
           # The job token, scoped by the permissions block above. Without this
           # input the action uses the Claude App token, which can write this
           # repository; this job reads attacker-influenced text and never pushes.
@@ -559,7 +576,22 @@ jobs:
             --model ${{ inputs.model }}
             --max-turns 100
             --allowedTools "${{ steps.tools.outputs.allowed }}"
-            --disallowedTools "Read(./.git/**)"
+            --disallowedTools "Read(./.git/**),Edit(./.github/agent-runtime/**)"
+
+      - name: Verify read-confinement hook unchanged
+        env:
+          HOOK_SHA256: ${{ steps.confine.outputs.hook_sha256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The staged hook is read-only and outside the agent's file tools. A
+          # changed digest means confinement did not hold for the session, so
+          # stop before anything the agent wrote is published.
+          ACTUAL="$(cat "$RUNNER_TEMP/read-confinement"/* | sha256sum | cut -d' ' -f1)"
+          if [ -z "$HOOK_SHA256" ] || [ "$ACTUAL" != "$HOOK_SHA256" ]; then
+            echo "The read-confinement hook changed during the agent run."
+            exit 1
+          fi
 
       - name: Collect transcript
         env:

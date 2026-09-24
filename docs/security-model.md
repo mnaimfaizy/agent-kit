@@ -40,7 +40,7 @@ Runner seam is explicit and narrow:
 
 - Plan, review, and audit pass the job token into Claude. Only the implementer uses the Claude GitHub App (`id-token: write`, no `github_token` on that step).
 - Checkouts set `persist-credentials: false`.
-- A PreToolUse hook in `.github/agent-runtime/` denies Read/Grep/Glob outside the workspace. Review and audit restore that hook from the pull request base.
+- A PreToolUse hook in `.github/agent-runtime/` denies Read/Grep/Glob outside the workspace, judged on the path with symlinks resolved. Review and audit restore that hook from the pull request base. Before the agent starts, each job copies the hook and its settings read-only to `$RUNNER_TEMP`, outside the workspace, and runs that copy; a digest check after the agent fails the job before anything is published.
 - The Dependabot alerts token (optional) is used by one fetch step only and is not in the agent step.
 - Caller-owned command inputs (`verify_commands`, `setup_commands`, `scan_command`) reach the shell through `env:` or a dedicated step, never spliced into another script.
 - Third-party actions and container images are pinned by commit SHA or digest; `anthropics/claude-code-action` is bumped by hand.

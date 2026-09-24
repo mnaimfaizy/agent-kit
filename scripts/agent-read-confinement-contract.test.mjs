@@ -14,14 +14,28 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const readRepo = (...parts) => readFileSync(join(root, ...parts), "utf8").replace(/\r\n/g, "\n");
 
 const SETTINGS_PATH = ".github/agent-runtime/read-confinement.settings.json";
-const HOOK_PATH = ".github/agent-runtime/confine-reads-to-workspace.mjs";
+// The hook runs from a read-only copy outside the workspace: a copy in the
+// workspace is one an agent holding Write could replace mid-session.
+const STAGED_DIR = "$RUNNER_TEMP/read-confinement";
+const STAGED_SETTINGS = "${{ runner.temp }}/read-confinement/read-confinement.settings.json";
+const STAGE_STEP = "Stage read-confinement hook outside the workspace";
+const VERIFY_STEP = "Verify read-confinement hook unchanged";
 
+// `publish` is the first step that sends agent output anywhere; the digest
+// check must run before it. `write` marks agents that hold the Write tool.
 const CONFINED_AGENT_STEPS = [
-  { workflow: "agent-plan-reusable.yml", step: "Run planner (Claude Code)" },
-  { workflow: "agent-review-reusable.yml", step: "Run code review (Claude Code)" },
+  {
+    workflow: "agent-plan-reusable.yml",
+    step: "Run planner (Claude Code)",
+    publish: "Post trusted plan comment",
+    write: true,
+  },
+  { workflow: "agent-review-reusable.yml", step: "Run code review (Claude Code)", write: false },
   {
     workflow: "security-audit-reusable.yml",
     step: "Run security audit (Claude Code)",
+    publish: "Publish draft GHSA (required private delivery)",
+    write: true,
   },
 ];
 
@@ -161,18 +175,60 @@ describe("agent read-confinement hook contract", () => {
     assert.deepEqual(group.matcher.split("|").sort(), ["Glob", "Grep", "Read"]);
     const command = group.hooks.map((hook) => hook.command).join("\n");
     assert.match(command, /^node /, "hook must run through node, not jq/bash");
-    assert.match(command, new RegExp(HOOK_PATH.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
-    assert.match(command, /\$CLAUDE_PROJECT_DIR/);
+    assert.ok(
+      command.includes(`"${STAGED_DIR}/confine-reads-to-workspace.mjs"`),
+      "hook must run the staged copy under $RUNNER_TEMP",
+    );
+    assert.doesNotMatch(command, /CLAUDE_PROJECT_DIR|GITHUB_WORKSPACE/);
   });
 
-  it("loads the hook into every confined agent step", () => {
+  it("loads the staged hook into every confined agent step", () => {
     for (const { workflow: name, step } of CONFINED_AGENT_STEPS) {
       const agent = namedStep(workflow(name), step);
-      assert.match(
-        agent,
-        new RegExp(`settings:\\s*${SETTINGS_PATH.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`),
-        `${step} must pass the read-confinement settings`,
+      assert.ok(
+        agent.includes(`settings: ${STAGED_SETTINGS}\n`),
+        `${step} must pass the staged read-confinement settings`,
       );
+    }
+  });
+
+  it("stages the hook read-only outside the workspace and checks it after the agent", () => {
+    for (const { workflow: name, step, publish } of CONFINED_AGENT_STEPS) {
+      const yml = workflow(name);
+      const stage = namedStep(yml, STAGE_STEP);
+      assert.match(stage, /id: confine\n/);
+      assert.ok(stage.includes(`STAGED="${STAGED_DIR}"`), `${name}: stage to ${STAGED_DIR}`);
+      assert.ok(
+        stage.includes(`grep -qF '${STAGED_DIR}/confine-reads-to-workspace.mjs'`),
+        `${name}: refuse settings that run the hook from the workspace`,
+      );
+      assert.ok(stage.includes('chmod 444 "$STAGED"/*'), `${name}: stage read-only`);
+      assert.match(stage, /hook_sha256=/);
+
+      const verify = namedStep(yml, VERIFY_STEP);
+      assert.match(verify, /steps\.confine\.outputs\.hook_sha256/);
+      assert.match(verify, /exit 1/);
+
+      const at = (s) => yml.indexOf(`- name: ${s}\n`);
+      assert.ok(at(STAGE_STEP) < at(step), `${name}: stage before the agent`);
+      assert.ok(at(step) < at(VERIFY_STEP), `${name}: verify after the agent`);
+      if (publish) {
+        assert.ok(at(VERIFY_STEP) < at(publish), `${name}: verify before ${publish}`);
+      }
+    }
+  });
+
+  it("denies agents holding Write any edit to the runtime directory", () => {
+    for (const { workflow: name, step, write } of CONFINED_AGENT_STEPS) {
+      const agent = namedStep(workflow(name), step);
+      const denied = agent.split('--disallowedTools "')[1].split('"')[0].split(",");
+      assert.ok(denied.includes("Read(./.git/**)"), `${name}: deny .git reads`);
+      if (write) {
+        assert.ok(
+          denied.includes("Edit(./.github/agent-runtime/**)"),
+          `${name}: an agent holding Write must not edit .github/agent-runtime`,
+        );
+      }
     }
   });
 

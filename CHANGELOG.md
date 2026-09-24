@@ -6,6 +6,12 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
+### Changed
+
+- **Consumer action required:** re-copy `.github/agent-runtime/` from this tag. Plan, review, and audit now copy the read-confinement hook and its settings read-only to `$RUNNER_TEMP` before the agent starts and run that copy, so the hook no longer runs from a file in the workspace. The job fails with a message if `read-confinement.settings.json` still runs the hook from the workspace.
+- Plan, review, and audit fail before publishing if the staged hook changed during the agent run.
+- The planner and the audit agent deny edits to `.github/agent-runtime/`.
+
 ## [1.0.0-alpha.5] - 2026-09-24
 
 Maintenance release: only this repository's own `CODEOWNERS` contract test changed. Nothing Consumer-facing changed (reusable workflows, runtime files, skills, and Caller inputs are the same as in alpha.4).
