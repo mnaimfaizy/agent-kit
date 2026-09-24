@@ -8,8 +8,11 @@ __pycache__/
 # Node
 node_modules/
 
-# Local agent / audit output
+# Agent-kit pipeline scratch files (written to the workspace root in CI)
 .tmp/
+agent-plan.md
+verified-plan.md
+implementer-brief.md
 security-audit-brief.md
 security-audit-dependabot.json
 

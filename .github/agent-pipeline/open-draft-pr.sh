@@ -19,6 +19,8 @@ TITLE="Implement verified plan for #${ISSUE_NUMBER}"
 BODY="$(cat <<EOF
 Implements the trusted verified plan for issue #${ISSUE_NUMBER}.
 
+Closes #${ISSUE_NUMBER}
+
 Contract notes:
 - draft PR only
 - no merge/approve/ready action by implementer
