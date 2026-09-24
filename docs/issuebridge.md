@@ -31,7 +31,7 @@ Stays **inert** (Issuebridge archive and/or kit archived copy). Restore-instead-
 ## Stand-up checklist (later extract)
 
 1. Pin kit SemVer tags on Callers; enable Dependabot for `github-actions`.
-2. Copy kit skills into `.claude/skills/` at the **same tag** as the Caller `uses:` pin; keep the threat pack and ledger on Issuebridge paths passed into the audit Caller.
+2. Copy kit skills into `.claude/skills/` at the **same tag** as the Caller `uses:` pin, and copy `.github/agent-runtime/`, `.github/security-audit/`, and `.github/agent-pipeline/` from that tag. Keep the threat pack and ledger on Issuebridge paths passed into the audit Caller.
 3. Keep kill switches, allowlists, labels, `CLAUDE_CODE_OAUTH_TOKEN`, advisories-write token, optional Resend.
 4. Pass Issuebridge verify commands into the implement Caller.
 5. Do not run Claude and Copilot generations together.

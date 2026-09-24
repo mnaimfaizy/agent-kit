@@ -37,6 +37,7 @@ The reusable security-audit First-class flow ships in:
 
 - `.github/workflows/security-audit-reusable.yml`
 - `.github/security-audit/` (prompt and helper scripts)
+- `.github/agent-runtime/` (workspace read-confinement hook)
 - `examples/security-audit-caller.yml` (Caller invocation pattern)
 - `docs/security-audit.md` and `docs/security-model.md`
 
@@ -48,6 +49,7 @@ The reusable plan -> implement -> review First-class flow ships in:
 - `.github/workflows/agent-implement-reusable.yml`
 - `.github/workflows/agent-review-reusable.yml`
 - `.github/agent-pipeline/` (planner + implementer contracts and helper script)
+- `.github/agent-runtime/` (workspace read-confinement hook)
 - `examples/plan-implement-review-caller.yml`
 - `docs/plan-implement-review.md`
 

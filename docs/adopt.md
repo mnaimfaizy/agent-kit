@@ -30,8 +30,11 @@ From the exact same tag used in `uses:`, copy:
 - `.claude/skills/security-audit/`
 - `.claude/skills/security-finding-triage/`
 - `.claude/skills/security-response/`
+- `.github/agent-runtime/` (Read/Grep/Glob confinement hook the jobs load from the Consumer checkout)
+- `.github/security-audit/` (prompt and the publish/email scripts the audit stages from a trusted commit)
+- `.github/agent-pipeline/` (planner and implementer contracts, and the draft-PR fallback script)
 
-The copied-skill and workflow references should always move together on upgrade.
+The copied files and workflow references should always move together on upgrade.
 
 ## Security-audit reusable job
 
