@@ -6,9 +6,14 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
+## [1.0.0-alpha.5] - 2026-09-24
+
+Maintenance release: only this repository's own `CODEOWNERS` contract test changed. Nothing Consumer-facing changed (reusable workflows, runtime files, skills, and Caller inputs are the same as in alpha.4).
+
 ### Changed
 
 - `scripts/codeowners-contract.test.py` fails on a CODEOWNERS rule without a leading `/`, and its path failure message names the missing anchor as a cause.
+- `scripts/codeowners-contract.test.py` gives the same result for wildcard patterns on every supported Python version: a trailing-slash wildcard must match a directory, and the invalid-pattern handler is tested on every version.
 
 ## [1.0.0-alpha.4] - 2026-09-24
 
