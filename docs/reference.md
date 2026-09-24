@@ -11,24 +11,24 @@ A Caller's `permissions:` must grant at least the permissions listed, or GitHub 
 
 **Caller permissions:** `contents: read`, `pull-requests: write`, `security-events: write`
 
-| Input                  | Required | Default                            | Description                                                                                  |
-| ---------------------- | -------- | ---------------------------------- | -------------------------------------------------------------------------------------------- |
-| `mode`                 | no       | `full`                             | Audit mode: full or pr                                                                       |
-| `kill_switch`          | no       | `false`                            | If true, skip the audit run.                                                                 |
-| `allowlist_actors`     | no       | `[]`                               | Optional JSON array of allowed actor logins. Empty array skips the check.                    |
-| `threat_model_path`    | yes      | —                                  | Consumer-owned threat pack threat model path.                                                |
-| `findings_ledger_path` | yes      | —                                  | Consumer-owned findings ledger path.                                                         |
-| `audit_prompt_path`    | no       | `.github/security-audit/prompt.md` | Path to the audit prompt.                                                                    |
-| `skill_dir`            | no       | `.claude/skills/security-audit`    | Directory of the copied security-audit skill.                                                |
-| `report_path`          | no       | `.tmp/security-audit-report.md`    | Local path where the generated report is written.                                            |
-| `scan_command`         | no       | `""`                               | Optional consumer scanner command. Runs in full mode only.                                   |
-| `pr_number`            | no       | `""`                               | PR number for counts-only comment in pr mode.                                                |
-| `head_sha`             | no       | `""`                               | PR head SHA. Required in pr mode.                                                            |
-| `base_sha`             | no       | `""`                               | PR base SHA. Required in pr mode. Trusted commit for the runtime restore and staged scripts. |
-| `base_ref`             | no       | `""`                               | PR base branch name. Required in pr mode.                                                    |
-| `model`                | no       | `claude-opus-5`                    | Claude model id. Defaults to claude-opus-5.                                                  |
-| `trigger_label`        | no       | `""`                               | Optional PR label to remove after a pr-mode run.                                             |
-| `notify_email`         | no       | `false`                            | Send optional email notification.                                                            |
+| Input                  | Required | Default                            | Description                                                                                                              |
+| ---------------------- | -------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `mode`                 | no       | `full`                             | Audit mode: full or pr                                                                                                   |
+| `kill_switch`          | no       | `false`                            | If true, skip the audit run.                                                                                             |
+| `allowlist_actors`     | no       | `[]`                               | Optional JSON array of allowed actor logins. Empty array skips the check.                                                |
+| `threat_model_path`    | yes      | —                                  | Consumer-owned threat pack threat model path.                                                                            |
+| `findings_ledger_path` | yes      | —                                  | Consumer-owned findings ledger path.                                                                                     |
+| `audit_prompt_path`    | no       | `.github/security-audit/prompt.md` | Path to the audit prompt.                                                                                                |
+| `skill_dir`            | no       | `.claude/skills/security-audit`    | Directory of the copied security-audit skill.                                                                            |
+| `report_path`          | no       | `.tmp/security-audit-report.md`    | Local path where the generated report is written.                                                                        |
+| `scan_command`         | no       | `""`                               | Optional consumer scanner command. Runs in full mode only.                                                               |
+| `pr_number`            | no       | `""`                               | PR number for counts-only comment in pr mode.                                                                            |
+| `head_sha`             | no       | `""`                               | PR head SHA. Required in pr mode; must be empty in full mode.                                                            |
+| `base_sha`             | no       | `""`                               | PR base SHA. Required in pr mode; must be empty in full mode. Trusted commit for the runtime restore and staged scripts. |
+| `base_ref`             | no       | `""`                               | PR base branch name. Required in pr mode.                                                                                |
+| `model`                | no       | `claude-opus-5`                    | Claude model id. Defaults to claude-opus-5.                                                                              |
+| `trigger_label`        | no       | `""`                               | Optional PR label to remove after a pr-mode run.                                                                         |
+| `notify_email`         | no       | `false`                            | Send optional email notification.                                                                                        |
 
 | Secret                       | Required | Description                                                                                                                                                  |
 | ---------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |

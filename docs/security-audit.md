@@ -19,7 +19,7 @@ The reusable job supports:
 - credentialed scripts staged outside the workspace and checked by digest
 - Read/Grep/Glob confined to the workspace
 
-`pr` mode requires `head_sha`, `base_sha`, `base_ref`, and `pr_number`. The job restores instructions and `.github/agent-runtime/` from the base before the agent starts. `scan_command` runs in `full` mode only.
+`pr` mode requires `head_sha`, `base_sha`, `base_ref`, and `pr_number`. The job restores instructions and `.github/agent-runtime/` from the base before the agent starts. `scan_command` runs in `full` mode only. `full` mode audits the commit the run was dispatched on and refuses a `head_sha` or `base_sha`: to audit a pull request, use `pr` mode.
 
 The preflight treats a token that can see zero draft advisories as mis-scoped, because a public repository cannot tell that apart from a token with no advisories access. Create one draft advisory by hand before the first automated run.
 

@@ -64,12 +64,12 @@ on:
         type: string
         default: ""
       head_sha:
-        description: "PR head SHA. Required in pr mode."
+        description: "PR head SHA. Required in pr mode; must be empty in full mode."
         required: false
         type: string
         default: ""
       base_sha:
-        description: "PR base SHA. Required in pr mode. Trusted commit for the runtime restore and staged scripts."
+        description: "PR base SHA. Required in pr mode; must be empty in full mode. Trusted commit for the runtime restore and staged scripts."
         required: false
         type: string
         default: ""
@@ -168,6 +168,13 @@ jobs:
               echo "pr mode requires head_sha, base_sha, base_ref, and pr_number."
               exit 1
             fi
+          elif [ -n "$HEAD_SHA" ] || [ -n "$BASE_SHA" ]; then
+            # Full mode audits the trusted tree it was dispatched on. It has no
+            # restore from a base, so auditing a PR head here would load that
+            # head's own prompt, instructions, and hook, and run scan_command
+            # over it. Use pr mode for a pull request.
+            echo "head_sha and base_sha are pr-mode inputs; leave them empty in full mode, or use mode=pr."
+            exit 1
           fi
           if [ -n "${ALLOWLIST:-}" ] && [ "$ALLOWLIST" != "[]" ]; then
             if ! printf '%s' "$ALLOWLIST" | jq -e --arg actor "$ACTOR" 'index($actor) != null' >/dev/null; then
@@ -239,7 +246,9 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-          ref: ${{ inputs.head_sha != '' && inputs.head_sha || github.sha }}
+          # Only pr mode checks out a Caller-named head; full mode audits the
+          # commit this run was dispatched on.
+          ref: ${{ inputs.mode == 'pr' && inputs.head_sha || github.sha }}
           # Leaving the default (true) writes the job token into .git/config,
           # which the agent can read while auditing an attacker-influenced PR
           # diff. This job never pushes; the gh steps below pass their own token.

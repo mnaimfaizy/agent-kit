@@ -108,6 +108,19 @@ def test_audit_restores_runtime_and_stages_scripts_from_a_trusted_commit() -> No
     assert "RUNNER_TEMP" in stage
 
 
+def test_full_mode_never_checks_out_a_caller_named_head() -> None:
+    # Full mode has no restore from a base: a Caller-named head would supply
+    # its own prompt, instructions, and hook, and scan_command would run on it.
+    data = read(WORKFLOW)
+    gate = _step(data, "Gate")
+    assert 'elif [ -n "$HEAD_SHA" ] || [ -n "$BASE_SHA" ]; then' in gate
+    checkout = _step(data, "Checkout")
+    assert "ref: ${{ inputs.mode == 'pr' && inputs.head_sha || github.sha }}" in checkout
+    assert "inputs.head_sha != ''" not in data
+    assert "inputs.mode == 'full'" in _step(data, "Optional consumer scanner command")
+    assert "inputs.mode == 'pr'" in _step(data, "Restore trusted audit runtime from PR base")
+
+
 def test_caller_example_invokes_reusable_job() -> None:
     example = read(CALLER_EXAMPLE)
     assert "uses: mnaimfaizy/agent-kit/.github/workflows/security-audit-reusable.yml@v" in example

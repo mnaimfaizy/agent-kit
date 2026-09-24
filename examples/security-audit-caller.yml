@@ -12,11 +12,11 @@ on:
         required: false
         default: ""
       head_sha:
-        description: "PR head SHA (pr mode)"
+        description: "PR head SHA (pr mode only; leave empty for full)"
         required: false
         default: ""
       base_sha:
-        description: "PR base SHA (pr mode)"
+        description: "PR base SHA (pr mode only; leave empty for full)"
         required: false
         default: ""
       base_ref:
