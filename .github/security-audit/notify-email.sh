@@ -26,7 +26,13 @@ SUBJECT="Security audit completed (${COUNT} findings)"
 BODY="Security audit completed with ${COUNT} Medium+ finding(s). Full details are available in the private draft GHSA."
 export SUBJECT BODY
 
-python3 - <<'PY'
+# The step runs in the audited workspace. A stdin script puts the current
+# directory first on sys.path, so a module file there would load before the
+# standard library while the SMTP secret is in the environment. Run isolated
+# (-I: no current directory, no user site, no PYTHON* variables) and from
+# outside the workspace.
+cd "${RUNNER_TEMP:-/tmp}"
+python3 -I - <<'PY'
 import os
 import smtplib
 import ssl
