@@ -23,6 +23,7 @@ jobs:
     uses: ./.github/workflows/agent-plan-reusable.yml
     with:
       kill_switch: ${{ vars.CLAUDE_PIPELINE_ENABLED != 'true' }}
+      model: ${{ vars.CLAUDE_MODEL || 'claude-opus-5' }}
       allowlist_actors: '["mnaimfaizy"]'
       trigger_label: "agent:plan"
       issue_number: ${{ format('{0}', github.event.issue.number) }}
@@ -34,6 +35,7 @@ jobs:
     uses: ./.github/workflows/agent-implement-reusable.yml
     with:
       kill_switch: ${{ vars.CLAUDE_PIPELINE_ENABLED != 'true' }}
+      model: ${{ vars.CLAUDE_MODEL || 'claude-opus-5' }}
       allowlist_actors: '["mnaimfaizy"]'
       trigger_label: "agent:implement"
       issue_number: ${{ format('{0}', github.event.issue.number) }}
@@ -58,6 +60,7 @@ jobs:
     uses: ./.github/workflows/agent-review-reusable.yml
     with:
       kill_switch: ${{ vars.CLAUDE_PIPELINE_ENABLED != 'true' }}
+      model: ${{ vars.CLAUDE_MODEL || 'claude-opus-5' }}
       allowlist_actors: '["mnaimfaizy"]'
       trigger_label: "agent:review"
       pr_number: ${{ format('{0}', github.event.pull_request.number) }}

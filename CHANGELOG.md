@@ -8,6 +8,7 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ### Added
 
+- Example Callers pass `model: ${{ vars.CLAUDE_MODEL || 'claude-opus-5' }}`, so the model is set with a repository variable instead of an edit to the Caller.
 - `scripts/codeowners-contract.test.py`: CI now fails when a `.github/CODEOWNERS` rule points at a path that no longer exists, or names an owner that is not a valid `@handle` / `@org/team`.
 
 ### Fixed
