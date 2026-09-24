@@ -63,7 +63,16 @@ if [[ -z "$TAG" ]]; then
   exit 1
 fi
 
-python scripts/verify_release_snapshot.py
+if command -v python3 >/dev/null 2>&1; then
+  PYTHON=python3
+elif command -v python >/dev/null 2>&1; then
+  PYTHON=python
+else
+  echo "Python is required: neither python3 nor python found on PATH." >&2
+  exit 1
+fi
+
+"$PYTHON" scripts/verify_release_snapshot.py
 
 DEFAULT_BRANCH="$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||' || true)"
 if [[ -z "$DEFAULT_BRANCH" ]]; then
@@ -81,7 +90,7 @@ if git rev-parse "$TAG" >/dev/null 2>&1; then
   exit 1
 fi
 
-python - <<PY
+"$PYTHON" - <<PY
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path("scripts").resolve()))
