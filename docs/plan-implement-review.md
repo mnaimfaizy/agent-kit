@@ -5,7 +5,7 @@ This runbook documents the reusable plan -> implement -> review flow. Setup step
 ## How a change flows
 
 1. A human adds `agent:plan` to an issue. The plan job writes a plan and posts it as a comment that starts with the planner marker, authored by the job token (`github-actions[bot]`). That comment is the **Verified plan**.
-2. A human reads it and adds `agent:implement`. The implement job extracts only the Verified plan, runs the Caller's `setup_commands`, lets the agent change code under a deny-by-default tool list, runs `verify_commands`, and opens a **draft** PR as the Claude GitHub App.
+2. A human reads it and adds `agent:implement`. The implement job extracts only the Verified plan, runs the Caller's `setup_commands`, lets the agent change code under a deny-by-default tool list, and opens a **draft** PR as the Claude GitHub App. A separate read-only job checks out the agent's branch and runs `setup_commands` and `verify_commands` there.
 3. A human adds `agent:review` to the PR. The review job restores its runtime from the PR base, reviews on three axes, and comments. It never pushes, approves, or merges.
 
 Each stage consumes its label, so re-adding the label re-runs the stage. Humans decide every transition.

@@ -131,7 +131,6 @@ def test_implementer_allowlist_is_deny_by_default() -> None:
     assert "Bash(gh api" not in default
     implement = _step(data, "Run implementer (Claude Code)")
     assert '--allowedTools "${{ steps.tools.outputs.allowed }}"' in implement
-    assert "sha256sum -c" in data
 
 
 # A `Bash(git …:*)` rule is a prefix match, not a flag-checked one, and these
@@ -215,6 +214,56 @@ def test_verify_commands_do_not_run_in_a_login_shell() -> None:
     verify = _step(read(IMPLEMENT_WORKFLOW), "Run caller-owned verify commands")
     assert 'bash -c "$VERIFY"' in verify
     assert "bash -l" not in verify
+
+
+def test_agent_authored_code_never_runs_beside_write_or_oidc_credentials() -> None:
+    # Permissions cannot be narrowed per step, and a step can change the
+    # environment and PATH of the steps after it. So the Caller's verify
+    # commands, which run code the agent wrote, get their own read-only job,
+    # and nothing runs after the agent inside the credentialed job but checks.
+    import yaml
+
+    wf = yaml.safe_load(read(IMPLEMENT_WORKFLOW))
+    jobs = wf["jobs"]
+    assert wf["permissions"] == {"contents": "read"}
+    assert set(jobs) == {"implement", "verify", "open-pr", "consume-label"}
+
+    implement = jobs["implement"]
+    assert implement["permissions"]["id-token"] == "write"
+    names = [s.get("name", "") for s in implement["steps"]]
+    after_agent = names[names.index("Run implementer (Claude Code)") + 1 :]
+    assert after_agent == [
+        "Verify read-confinement hook unchanged",
+        "Prevent workflow edits by implementer",
+        "Remove extracted plan from tracked state",
+        "Record the agent's branch",
+    ]
+    # The brief step prints the verify commands for the agent; none runs them here.
+    assert not any('bash -c "$VERIFY"' in s.get("run", "") for s in implement["steps"])
+
+    verify = jobs["verify"]
+    assert verify["permissions"] == {"contents": "read"}
+    assert verify["needs"] == "implement"
+    checkout = verify["steps"][0]
+    assert checkout["with"]["ref"] == "${{ needs.implement.outputs.branch }}"
+    assert checkout["with"]["persist-credentials"] is False
+    assert [s.get("name") for s in verify["steps"][1:]] == [
+        "Run caller-owned setup commands",
+        "Run caller-owned verify commands",
+    ]
+
+    open_pr = jobs["open-pr"]
+    assert "id-token" not in open_pr["permissions"]
+    assert open_pr["permissions"]["contents"] == "read"
+    # The helper runs from the trusted commit, never the agent's branch.
+    assert "ref" not in open_pr["steps"][0]["with"]
+    assert "needs.verify.result == 'success' || needs.verify.result == 'skipped'" in open_pr["if"]
+
+    assert jobs["consume-label"]["permissions"] == {"issues": "write"}
+    for name, job in jobs.items():
+        if name != "implement":
+            assert "id-token" not in job.get("permissions", {}), name
+            assert job.get("permissions", {}).get("contents", "read") == "read", name
 
 
 def test_review_restores_runtime_without_fetching_a_raw_sha() -> None:

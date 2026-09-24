@@ -134,6 +134,18 @@ def test_email_notifier_verifies_the_smtp_server_before_login() -> None:
     assert "check_hostname = False" not in notifier
 
 
+def test_credentialed_scripts_run_python_isolated_outside_the_workspace() -> None:
+    # A stdin script puts the current directory first on sys.path, and these
+    # scripts run in the audited workspace with secrets in the environment.
+    for script in sorted((ROOT / ".github").glob("*/*.sh")):
+        data = read(script)
+        for line in data.splitlines():
+            if re.match(r"\s*python3?", line):
+                assert re.match(r"\s*python3? -I", line), f"{script.name}: {line.strip()}"
+    notifier = read(NOTIFIER)
+    assert notifier.index('cd "${RUNNER_TEMP:-/tmp}"') < notifier.index("python3 -I -")
+
+
 def test_caller_example_invokes_reusable_job() -> None:
     example = read(CALLER_EXAMPLE)
     assert "uses: mnaimfaizy/agent-kit/.github/workflows/security-audit-reusable.yml@v" in example

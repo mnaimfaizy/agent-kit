@@ -70,17 +70,24 @@ on:
         description: "Subscription OAuth token from `claude setup-token`."
         required: true
 
+# Read-only by default. Only the implement job holds write and OIDC
+# credentials, and nothing runs after agent-authored code inside it: the
+# Caller's verify commands execute that code, so they run in their own job.
 permissions:
-  contents: write
-  issues: write
-  pull-requests: write
-  id-token: write
+  contents: read
 
 jobs:
   implement:
     if: ${{ !inputs.kill_switch }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+      id-token: write
+    outputs:
+      branch: ${{ steps.branch.outputs.branch }}
     steps:
       - name: Enforce allowlist (optional)
         env:
@@ -156,20 +163,6 @@ jobs:
             echo "$BODY"
             echo "</untrusted_issue_context>"
           } > "$GITHUB_WORKSPACE/implementer-brief.md"
-
-      - name: Stage draft-PR helper outside the agent workspace
-        id: stage
-        shell: bash
-        run: |
-          set -euo pipefail
-          # Copied from the checkout commit, not the working tree, before the
-          # agent can write. The fallback step refuses a copy whose digest changed.
-          STAGED="$RUNNER_TEMP/agent-implement-staged"
-          mkdir -p "$STAGED"
-          git show "HEAD:.github/agent-pipeline/open-draft-pr.sh" > "$STAGED/open-draft-pr.sh"
-          chmod 700 "$STAGED/open-draft-pr.sh"
-          echo "dir=$STAGED" >> "$GITHUB_OUTPUT"
-          echo "helper_sha256=$(sha256sum "$STAGED/open-draft-pr.sh" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
 
       - name: Resolve implementer tool allowlist
         id: tools
@@ -259,7 +252,7 @@ jobs:
           set -euo pipefail
           # The staged hook is read-only and outside the agent's file tools. A
           # changed digest means confinement did not hold for the session, so
-          # fail before the Caller's verify commands and the fallback PR step.
+          # fail before the verify and draft-PR jobs.
           ACTUAL="$(cat "$RUNNER_TEMP/read-confinement"/* | sha256sum | cut -d' ' -f1)"
           if [ -z "$HOOK_SHA256" ] || [ "$ACTUAL" != "$HOOK_SHA256" ]; then
             echo "The read-confinement hook changed during the agent run."
@@ -297,8 +290,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # Pipeline scratch files: remove before the Caller's verify commands,
-          # which may lint or format-check the whole tree.
+          # Pipeline scratch files: never committed, so the verify job's fresh
+          # checkout of the branch cannot lint or format-check them.
           rm -f verified-plan.md implementer-brief.md
           RANGE=""
           if git rev-parse --verify "$BASE" >/dev/null 2>&1; then
@@ -317,8 +310,45 @@ jobs:
           }
           exit 0
 
+      - name: Record the agent's branch
+        id: branch
+        env:
+          BASE: ${{ inputs.base_branch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Later jobs check this branch out and name it in the draft PR. It is
+          # agent-influenced, so it travels through env and must be a valid
+          # branch name.
+          BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+          if [ "$BRANCH" = "HEAD" ] || ! git check-ref-format --branch "$BRANCH" >/dev/null 2>&1; then
+            echo "The implementer did not leave a branch checked out."
+            exit 1
+          fi
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+
+  verify:
+    needs: implement
+    if: ${{ !inputs.kill_switch && inputs.verify_commands != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    # The Caller's verify commands run code the agent wrote (tests, package
+    # scripts, linter plugins). This job holds no write or OIDC credential,
+    # and no later step in it uses one.
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.implement.outputs.branch }}
+          persist-credentials: false
+
+      - name: Run caller-owned setup commands
+        if: ${{ success() && inputs.setup_commands != '' }}
+        shell: bash
+        run: ${{ inputs.setup_commands }}
+
       - name: Run caller-owned verify commands
-        if: ${{ success() && inputs.verify_commands != '' }}
         env:
           # Through env, not `${{ }}` in the script: a quote in the commands
           # would otherwise end the string and splice into this shell.
@@ -329,28 +359,47 @@ jobs:
           # before the Caller's commands.
           bash -c "$VERIFY"
 
+  open-pr:
+    needs: [implement, verify]
+    if: ${{ !cancelled() && !inputs.kill_switch && needs.implement.result == 'success' && (needs.verify.result == 'success' || needs.verify.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Runs the helper from the trusted commit this run started on, never the
+    # agent's branch, so no agent-authored code runs beside the job token.
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
       - name: Open draft PR (or post exact error + compare link)
         env:
           GH_TOKEN: ${{ github.token }}
           GITHUB_TOKEN: ${{ github.token }}
           ISSUE: ${{ inputs.issue_number }}
           BASE: ${{ inputs.base_branch }}
-          STAGED_DIR: ${{ steps.stage.outputs.dir }}
-          SCRIPT_SHA256: ${{ steps.stage.outputs.helper_sha256 }}
+          BRANCH: ${{ needs.implement.outputs.branch }}
         shell: bash
         run: |
           set -euo pipefail
-          BRANCH="$(git rev-parse --abbrev-ref HEAD)"
           if gh pr view --repo "$GITHUB_REPOSITORY" --head "$BRANCH" >/dev/null 2>&1; then
             echo "Draft PR already open for $BRANCH."
             exit 0
           fi
-          SCRIPT="$STAGED_DIR/open-draft-pr.sh"
-          printf '%s  %s\n' "$SCRIPT_SHA256" "$SCRIPT" | sha256sum -c --quiet -
-          "$SCRIPT" "$ISSUE" "$BASE"
+          .github/agent-pipeline/open-draft-pr.sh "$ISSUE" "$BASE" "$BRANCH"
 
+  consume-label:
+    needs: [implement, verify, open-pr]
+    if: ${{ always() && !inputs.kill_switch && inputs.trigger_label != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
       - name: Consume trigger label
-        if: always()
         env:
           GH_TOKEN: ${{ github.token }}
           ISSUE: ${{ inputs.issue_number }}
@@ -359,6 +408,4 @@ jobs:
         run: |
           set -euo pipefail
           # Removed only after the action has read it — `label_trigger` matches at start.
-          if [ -n "$LABEL" ]; then
-            gh issue edit "$ISSUE" --repo "$GITHUB_REPOSITORY" --remove-label "$LABEL" || true
-          fi
+          gh issue edit "$ISSUE" --repo "$GITHUB_REPOSITORY" --remove-label "$LABEL" || true

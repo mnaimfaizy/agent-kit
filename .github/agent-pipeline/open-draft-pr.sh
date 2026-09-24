@@ -3,9 +3,12 @@ set -euo pipefail
 
 ISSUE_NUMBER="${1:-}"
 BASE_BRANCH="${2:-main}"
+# The branch to open the PR from. Defaults to the checked-out branch; the
+# workflow passes it explicitly because it runs from the trusted commit.
+HEAD_BRANCH="${3:-}"
 
 if [[ -z "${ISSUE_NUMBER}" ]]; then
-  echo "usage: open-draft-pr.sh <issue-number> [base-branch]" >&2
+  echo "usage: open-draft-pr.sh <issue-number> [base-branch] [head-branch]" >&2
   exit 1
 fi
 
@@ -14,7 +17,7 @@ if [[ -z "${GITHUB_TOKEN:-}" ]]; then
   exit 1
 fi
 
-CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+CURRENT_BRANCH="${HEAD_BRANCH:-$(git rev-parse --abbrev-ref HEAD)}"
 TITLE="Implement verified plan for #${ISSUE_NUMBER}"
 BODY="$(cat <<EOF
 Implements the trusted verified plan for issue #${ISSUE_NUMBER}.

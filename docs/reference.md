@@ -65,7 +65,7 @@ A Caller's `permissions:` must grant at least the permissions listed, or GitHub 
 
 `uses: mnaimfaizy/agent-kit/.github/workflows/agent-implement-reusable.yml@<tag>` — guide: [plan-implement-review.md](plan-implement-review.md)
 
-**Caller permissions:** `contents: write`, `issues: write`, `pull-requests: write`, `id-token: write`
+**Caller permissions:** `contents: read`
 
 | Input                 | Required | Default                   | Description                                                                                                                                                                                                                        |
 | --------------------- | -------- | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
