@@ -1,17 +1,15 @@
-from pathlib import Path
 import sys
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from verify_release_snapshot import (
+from verify_release_snapshot import (  # noqa: E402 - needs the sys.path entry above
     notes_required_for_tag,
     parse_tag,
     verify_tree,
 )
 
-
-ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "scripts" / "release-snapshot-manifest.txt"
 CUT_SCRIPT = ROOT / "scripts" / "cut-release.sh"
 CUTTING_DOC = ROOT / "docs" / "cutting-releases.md"
@@ -57,11 +55,7 @@ def test_cutting_doc_has_no_release_branch_or_binaries() -> None:
     assert "no release branch" in data.lower() or "No release branch" in data
     assert "no attached binaries" in data.lower() or "No attached binaries" in data
     assert "v1.0.0-alpha.1" in data
-    assert (
-        "dry run" in data.lower()
-        or "dry-run" in data.lower()
-        or "Dry run" in data
-    )
+    assert "dry run" in data.lower() or "dry-run" in data.lower() or "Dry run" in data
 
 
 def test_cut_script_exists_and_is_dry_run_by_default() -> None:

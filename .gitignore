@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+
+# Local agent / audit output
+.tmp/
+security-audit-brief.md
+security-audit-dependabot.json
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

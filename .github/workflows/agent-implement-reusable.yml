@@ -66,9 +66,6 @@ on:
         type: string
         default: "claude-opus-5"
     secrets:
-      github_token:
-        description: "Job token for issue reads and the draft-PR fallback. Not passed to the agent."
-        required: true
       claude_code_oauth_token:
         description: "Subscription OAuth token from `claude setup-token`."
         required: true
@@ -99,7 +96,7 @@ jobs:
             fi
           fi
 
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           # The implementer pushes as the Claude GitHub App, not the job token.
@@ -113,7 +110,7 @@ jobs:
 
       - name: Extract verified plan only from trusted marker + author
         env:
-          GH_TOKEN: ${{ secrets.github_token }}
+          GH_TOKEN: ${{ github.token }}
           ISSUE: ${{ inputs.issue_number }}
           TRUSTED_AUTHOR: ${{ inputs.trusted_plan_author }}
           MARKER: ${{ inputs.planner_marker }}
@@ -135,7 +132,7 @@ jobs:
 
       - name: Fence untrusted issue text
         env:
-          GH_TOKEN: ${{ secrets.github_token }}
+          GH_TOKEN: ${{ github.token }}
           ISSUE: ${{ inputs.issue_number }}
           VERIFY: ${{ inputs.verify_commands }}
         shell: bash
@@ -267,14 +264,18 @@ jobs:
 
       - name: Run caller-owned verify commands
         if: ${{ success() && inputs.verify_commands != '' }}
+        env:
+          # Through env, not `${{ }}` in the script: a quote in the commands
+          # would otherwise end the string and splice into this shell.
+          VERIFY: ${{ inputs.verify_commands }}
         shell: bash
         run: |
-          bash -lc '${{ inputs.verify_commands }}'
+          bash -lc "$VERIFY"
 
       - name: Open draft PR (or post exact error + compare link)
         env:
-          GH_TOKEN: ${{ secrets.github_token }}
-          GITHUB_TOKEN: ${{ secrets.github_token }}
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
           ISSUE: ${{ inputs.issue_number }}
           BASE: ${{ inputs.base_branch }}
           STAGED_DIR: ${{ steps.stage.outputs.dir }}
@@ -294,7 +295,7 @@ jobs:
       - name: Consume trigger label
         if: always()
         env:
-          GH_TOKEN: ${{ secrets.github_token }}
+          GH_TOKEN: ${{ github.token }}
           ISSUE: ${{ inputs.issue_number }}
           LABEL: ${{ inputs.trigger_label }}
         shell: bash

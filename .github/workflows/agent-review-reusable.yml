@@ -74,9 +74,6 @@ on:
         type: string
         default: "claude-opus-5"
     secrets:
-      github_token:
-        description: "Job token for contents read and PR comments."
-        required: true
       claude_code_oauth_token:
         description: "Subscription OAuth token from `claude setup-token`."
         required: true
@@ -118,7 +115,7 @@ jobs:
       - name: Consume trigger label
         if: always()
         env:
-          GH_TOKEN: ${{ secrets.github_token }}
+          GH_TOKEN: ${{ github.token }}
           PR: ${{ inputs.pr_number }}
           LABEL: ${{ inputs.trigger_label }}
         shell: bash
@@ -130,7 +127,7 @@ jobs:
             gh pr edit "$PR" --repo "$GITHUB_REPOSITORY" --remove-label "$LABEL" || true
           fi
 
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: steps.gate.outputs.proceed == 'true'
         with:
           fetch-depth: 0
@@ -243,7 +240,7 @@ jobs:
       - name: Build review brief
         if: steps.gate.outputs.proceed == 'true'
         env:
-          GH_TOKEN: ${{ secrets.github_token }}
+          GH_TOKEN: ${{ github.token }}
           PR: ${{ inputs.pr_number }}
           BASE_SHA: ${{ inputs.base_sha }}
           HEAD_SHA: ${{ inputs.head_sha }}
@@ -345,7 +342,7 @@ jobs:
           # The job token, which can only read contents and comment. Without this
           # input the action uses the Claude App token, which can write this
           # repository; this job reads untrusted PR text and never pushes.
-          github_token: ${{ secrets.github_token }}
+          github_token: ${{ github.token }}
           track_progress: true
           prompt: |
             Read the review brief at review-brief.md in the repository root and follow it exactly.
@@ -366,7 +363,7 @@ jobs:
       - name: Fail if the review report was not posted
         if: ${{ always() && steps.gate.outputs.proceed == 'true' }}
         env:
-          GH_TOKEN: ${{ secrets.github_token }}
+          GH_TOKEN: ${{ github.token }}
           PR: ${{ inputs.pr_number }}
         shell: bash
         run: |

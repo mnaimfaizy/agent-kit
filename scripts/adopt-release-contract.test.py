@@ -1,6 +1,5 @@
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 ADOPT = ROOT / "docs" / "adopt.md"
 RELEASES = ROOT / "docs" / "releases.md"

@@ -5,7 +5,11 @@ LICENSE
 README.md
 SECURITY.md
 CHANGELOG.md
+CONTEXT.md
+CONTRIBUTING.md
 
+docs/getting-started.md
+docs/reference.md
 docs/adopt.md
 docs/releases.md
 docs/cutting-releases.md

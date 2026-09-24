@@ -10,8 +10,7 @@ import { fileURLToPath } from "node:url";
 import { decide } from "../.github/agent-runtime/confine-reads-to-workspace.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const readRepo = (...parts) =>
-  readFileSync(join(root, ...parts), "utf8").replace(/\r\n/g, "\n");
+const readRepo = (...parts) => readFileSync(join(root, ...parts), "utf8").replace(/\r\n/g, "\n");
 
 const SETTINGS_PATH = ".github/agent-runtime/read-confinement.settings.json";
 const HOOK_PATH = ".github/agent-runtime/confine-reads-to-workspace.mjs";
@@ -117,14 +116,21 @@ describe("agent read-confinement hook contract", () => {
   });
 
   it("does not load the hook into the implementer", () => {
-    const step = namedStep(workflow("agent-implement-reusable.yml"), "Run implementer (Claude Code)");
+    const step = namedStep(
+      workflow("agent-implement-reusable.yml"),
+      "Run implementer (Claude Code)",
+    );
     assert.doesNotMatch(step, /read-confinement\.settings\.json/);
   });
 
   it("restores the hook from the base before an untrusted-code agent runs", () => {
     for (const { workflow: name, step } of RESTORE_STEPS) {
       const restore = namedStep(workflow(name), step);
-      assert.match(restore, /\.github\/agent-runtime\b/, `${step} must restore .github/agent-runtime`);
+      assert.match(
+        restore,
+        /\.github\/agent-runtime\b/,
+        `${step} must restore .github/agent-runtime`,
+      );
     }
   });
 });

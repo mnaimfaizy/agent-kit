@@ -1,0 +1,4 @@
+uv.lock
+package-lock.json
+# Shipped release notes are immutable history.
+release-notes/

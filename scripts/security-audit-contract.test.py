@@ -1,5 +1,5 @@
+import re
 from pathlib import Path
-
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "security-audit-reusable.yml"
@@ -28,7 +28,7 @@ def test_reusable_job_surface() -> None:
 def test_public_log_rule_no_artifact_upload() -> None:
     data = read(WORKFLOW)
     assert "upload-artifact" not in data
-    assert "cat \"$REPORT_PATH\"" not in data
+    assert 'cat "$REPORT_PATH"' not in data
 
 
 def test_private_delivery_sink_present() -> None:
@@ -86,7 +86,8 @@ def test_audit_agent_cannot_see_the_advisory_token_or_widen_tools() -> None:
     assert f"anthropics/claude-code-action@{CLAUDE_ACTION_SHA}" in data
     assert "id-token:" not in data
     assert "persist-credentials: false" in data
-    assert "actions/checkout@v7" in data
+    assert re.search(r"actions/checkout@[0-9a-f]{40} # v7", data)
+    assert "actions/checkout@v" not in data
     assert 'echo "allowed=Read,Glob,Grep,Write"' in data
     assert "gh api user" in data
     assert "upload-artifact" not in data
@@ -109,7 +110,7 @@ def test_audit_restores_runtime_and_stages_scripts_from_a_trusted_commit() -> No
 
 def test_caller_example_invokes_reusable_job() -> None:
     example = read(CALLER_EXAMPLE)
-    assert "uses: mnaimfaizy/agent-kit/.github/workflows/security-audit-reusable.yml@main" in example
+    assert "uses: mnaimfaizy/agent-kit/.github/workflows/security-audit-reusable.yml@v" in example
     assert "threat_model_path:" in example
     assert "findings_ledger_path:" in example
 

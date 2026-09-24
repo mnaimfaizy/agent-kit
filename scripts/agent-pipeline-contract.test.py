@@ -1,5 +1,5 @@
+import re
 from pathlib import Path
-
 
 ROOT = Path(__file__).resolve().parents[1]
 PLAN_WORKFLOW = ROOT / ".github" / "workflows" / "agent-plan-reusable.yml"
@@ -79,8 +79,8 @@ CLAUDE_ACTION_SHA = "239e3a730883eeb5c53db12b0fc9573b3024b126"
 def test_checkouts_do_not_persist_credentials_and_use_current_checkout() -> None:
     for workflow in (PLAN_WORKFLOW, IMPLEMENT_WORKFLOW, REVIEW_WORKFLOW):
         data = read(workflow)
-        assert "actions/checkout@v7" in data
-        assert "actions/checkout@v4" not in data
+        assert re.search(r"actions/checkout@[0-9a-f]{40} # v7", data)
+        assert "actions/checkout@v" not in data
         assert "persist-credentials: false" in data
 
 
@@ -138,7 +138,7 @@ def test_review_restores_runtime_without_fetching_a_raw_sha() -> None:
     restore = _step(data, "Restore trusted review runtime from PR base")
     assert 'git cat-file -e "$BASE_SHA^{commit}"' in restore
     assert 'git fetch --no-tags origin "$BASE_BRANCH"' in restore
-    assert 'git fetch' not in restore or 'origin "$BASE_SHA"' not in restore
+    assert "git fetch" not in restore or 'origin "$BASE_SHA"' not in restore
     assert "git ls-files -z" in restore
     assert 'git ls-tree -r -z --name-only "$BASE_SHA"' in restore
     assert ".github/agent-runtime" in restore

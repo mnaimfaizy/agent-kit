@@ -1,0 +1,42 @@
+name: Dogfood security audit
+
+# Agent-kit auditing itself with its own reusable workflow, from this commit
+# (local ref), so every change to the audit is exercised before it is tagged.
+# Off until the repository variable CLAUDE_SECURITY_AUDIT_ENABLED is "true" and
+# the secrets below exist. Setup: CONTRIBUTING.md → "Dogfood flows".
+
+on:
+  schedule:
+    - cron: "23 5 * * 1"
+  workflow_dispatch:
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+  pull-requests: write
+  security-events: write
+
+concurrency:
+  group: dogfood-security-audit-${{ github.event.pull_request.number || 'full' }}
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    if: ${{ github.event_name != 'pull_request' || github.event.label.name == 'agent:audit' }}
+    uses: ./.github/workflows/security-audit-reusable.yml
+    with:
+      mode: ${{ github.event_name == 'pull_request' && 'pr' || 'full' }}
+      kill_switch: ${{ vars.CLAUDE_SECURITY_AUDIT_ENABLED != 'true' }}
+      allowlist_actors: '["mnaimfaizy"]'
+      threat_model_path: "security/threat-model.md"
+      findings_ledger_path: "security/findings-ledger.md"
+      pr_number: ${{ github.event.pull_request.number && format('{0}', github.event.pull_request.number) || '' }}
+      head_sha: ${{ github.event.pull_request.head.sha || '' }}
+      base_sha: ${{ github.event.pull_request.base.sha || '' }}
+      base_ref: ${{ github.event.pull_request.base.ref || '' }}
+      trigger_label: ${{ github.event_name == 'pull_request' && 'agent:audit' || '' }}
+    secrets:
+      advisories_token: ${{ secrets.AGENT_KIT_ADVISORIES_TOKEN }}
+      claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      dependabot_alerts_token: ${{ secrets.AGENT_KIT_DEPENDABOT_ALERTS_TOKEN }}
