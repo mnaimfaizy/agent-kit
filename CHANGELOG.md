@@ -8,6 +8,8 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ### Changed
 
+- Implement runs `verify_commands` in a separate `verify` job with `contents: read` and no `id-token`, on the branch the agent pushed, instead of in the credentialed implement job. `setup_commands` run in both jobs. The draft-PR fallback and label cleanup moved to their own jobs without `id-token`, and the fallback runs `open-draft-pr.sh` from the trusted commit. **Consumer action:** re-copy `.github/agent-pipeline/` from this tag (`open-draft-pr.sh` takes the head branch as a third argument).
+- The security audit email notifier runs Python isolated (`python3 -I`) from `$RUNNER_TEMP`, so a module file in the audited workspace cannot shadow the standard library.
 - **Consumer action required:** re-copy `.github/agent-runtime/` from this tag. Plan, review, and audit now copy the read-confinement hook and its settings read-only to `$RUNNER_TEMP` before the agent starts and run that copy, so the hook no longer runs from a file in the workspace. The job fails with a message if `read-confinement.settings.json` still runs the hook from the workspace.
 - Plan, review, and audit fail before publishing if the staged hook changed during the agent run.
 - The planner and the audit agent deny edits to `.github/agent-runtime/`.
