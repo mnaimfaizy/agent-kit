@@ -11,6 +11,7 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 - **Consumer action required:** re-copy `.github/agent-runtime/` from this tag. Plan, review, and audit now copy the read-confinement hook and its settings read-only to `$RUNNER_TEMP` before the agent starts and run that copy, so the hook no longer runs from a file in the workspace. The job fails with a message if `read-confinement.settings.json` still runs the hook from the workspace.
 - Plan, review, and audit fail before publishing if the staged hook changed during the agent run.
 - The planner and the audit agent deny edits to `.github/agent-runtime/`.
+- The implementer now loads the read-confinement hook and denies `.git` reads, like plan, review, and audit. `docs/security-model.md` states that an `extra_allowed_tools` entry which runs repository code bypasses read confinement.
 
 ## [1.0.0-alpha.5] - 2026-09-24
 

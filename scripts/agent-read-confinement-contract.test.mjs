@@ -21,21 +21,33 @@ const STAGED_SETTINGS = "${{ runner.temp }}/read-confinement/read-confinement.se
 const STAGE_STEP = "Stage read-confinement hook outside the workspace";
 const VERIFY_STEP = "Verify read-confinement hook unchanged";
 
-// `publish` is the first step that sends agent output anywhere; the digest
-// check must run before it. `write` marks agents that hold the Write tool.
+// `publish` is the first later step that sends agent output anywhere or runs
+// agent-written code; the digest check must run before it. `denyRuntimeEdits`
+// marks agents that hold Write but have no reason to edit .github/agent-runtime;
+// the implementer may be asked to change it, and runs the staged copy anyway.
 const CONFINED_AGENT_STEPS = [
   {
     workflow: "agent-plan-reusable.yml",
     step: "Run planner (Claude Code)",
     publish: "Post trusted plan comment",
-    write: true,
+    denyRuntimeEdits: true,
   },
-  { workflow: "agent-review-reusable.yml", step: "Run code review (Claude Code)", write: false },
+  {
+    workflow: "agent-implement-reusable.yml",
+    step: "Run implementer (Claude Code)",
+    publish: "Run caller-owned verify commands",
+    denyRuntimeEdits: false,
+  },
+  {
+    workflow: "agent-review-reusable.yml",
+    step: "Run code review (Claude Code)",
+    denyRuntimeEdits: false,
+  },
   {
     workflow: "security-audit-reusable.yml",
     step: "Run security audit (Claude Code)",
     publish: "Publish draft GHSA (required private delivery)",
-    write: true,
+    denyRuntimeEdits: true,
   },
 ];
 
@@ -218,26 +230,18 @@ describe("agent read-confinement hook contract", () => {
     }
   });
 
-  it("denies agents holding Write any edit to the runtime directory", () => {
-    for (const { workflow: name, step, write } of CONFINED_AGENT_STEPS) {
+  it("denies .git reads to every confined agent, and runtime edits where none is needed", () => {
+    for (const { workflow: name, step, denyRuntimeEdits } of CONFINED_AGENT_STEPS) {
       const agent = namedStep(workflow(name), step);
       const denied = agent.split('--disallowedTools "')[1].split('"')[0].split(",");
       assert.ok(denied.includes("Read(./.git/**)"), `${name}: deny .git reads`);
-      if (write) {
+      if (denyRuntimeEdits) {
         assert.ok(
           denied.includes("Edit(./.github/agent-runtime/**)"),
           `${name}: an agent holding Write must not edit .github/agent-runtime`,
         );
       }
     }
-  });
-
-  it("does not load the hook into the implementer", () => {
-    const step = namedStep(
-      workflow("agent-implement-reusable.yml"),
-      "Run implementer (Claude Code)",
-    );
-    assert.doesNotMatch(step, /read-confinement\.settings\.json/);
   });
 
   it("restores the hook from the base before an untrusted-code agent runs", () => {

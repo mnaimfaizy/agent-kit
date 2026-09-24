@@ -42,12 +42,12 @@ cp -R /tmp/agent-kit/.github/agent-runtime /tmp/agent-kit/.github/agent-pipeline
 rm -rf /tmp/agent-kit
 ```
 
-| Copied path               | Needed by                                                                     |
-| ------------------------- | ----------------------------------------------------------------------------- |
-| `.claude/skills/`         | review (`code-review`), audit (`security-audit`), and triage/response by hand |
-| `.github/agent-runtime/`  | plan, review, audit (hook that confines file reads to the workspace)          |
-| `.github/agent-pipeline/` | plan, implement (prompts, draft-PR fallback)                                  |
-| `.github/security-audit/` | audit (prompt, advisory publisher, email notifier)                            |
+| Copied path               | Needed by                                                                       |
+| ------------------------- | ------------------------------------------------------------------------------- |
+| `.claude/skills/`         | review (`code-review`), audit (`security-audit`), and triage/response by hand   |
+| `.github/agent-runtime/`  | plan, implement, review, audit (hook that confines file reads to the workspace) |
+| `.github/agent-pipeline/` | plan, implement (prompts, draft-PR fallback)                                    |
+| `.github/security-audit/` | audit (prompt, advisory publisher, email notifier)                              |
 
 Commit these files. Do **not** copy `.github/workflows/*-reusable.yml`; you reference those remotely.
 

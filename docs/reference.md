@@ -67,19 +67,19 @@ A Caller's `permissions:` must grant at least the permissions listed, or GitHub 
 
 **Caller permissions:** `contents: write`, `issues: write`, `pull-requests: write`, `id-token: write`
 
-| Input                 | Required | Default                   | Description                                                               |
-| --------------------- | -------- | ------------------------- | ------------------------------------------------------------------------- |
-| `kill_switch`         | no       | `false`                   | If true, skip this run.                                                   |
-| `allowlist_actors`    | no       | `[]`                      | Optional JSON array of allowed actor logins. Empty array skips the check. |
-| `trigger_label`       | no       | `agent:implement`         | Label that triggered this run (for consume step).                         |
-| `issue_number`        | yes      | —                         | Issue number to implement.                                                |
-| `planner_marker`      | no       | `<!-- agent-kit-plan -->` | Trusted marker for plan comments.                                         |
-| `trusted_plan_author` | no       | `github-actions[bot]`     | Expected author login for trusted plan comments.                          |
-| `base_branch`         | no       | `main`                    | PR base branch.                                                           |
-| `verify_commands`     | no       | `""`                      | Caller-owned verify commands (multi-line shell).                          |
-| `setup_commands`      | no       | `""`                      | Caller-owned setup run before the agent (toolchain, dependencies).        |
-| `extra_allowed_tools` | no       | `""`                      | Comma-separated allowedTools entries appended to the reviewed default.    |
-| `model`               | no       | `claude-opus-5`           | Claude model id. Defaults to claude-opus-5.                               |
+| Input                 | Required | Default                   | Description                                                                                                                                                                                     |
+| --------------------- | -------- | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `kill_switch`         | no       | `false`                   | If true, skip this run.                                                                                                                                                                         |
+| `allowlist_actors`    | no       | `[]`                      | Optional JSON array of allowed actor logins. Empty array skips the check.                                                                                                                       |
+| `trigger_label`       | no       | `agent:implement`         | Label that triggered this run (for consume step).                                                                                                                                               |
+| `issue_number`        | yes      | —                         | Issue number to implement.                                                                                                                                                                      |
+| `planner_marker`      | no       | `<!-- agent-kit-plan -->` | Trusted marker for plan comments.                                                                                                                                                               |
+| `trusted_plan_author` | no       | `github-actions[bot]`     | Expected author login for trusted plan comments.                                                                                                                                                |
+| `base_branch`         | no       | `main`                    | PR base branch.                                                                                                                                                                                 |
+| `verify_commands`     | no       | `""`                      | Caller-owned verify commands (multi-line shell).                                                                                                                                                |
+| `setup_commands`      | no       | `""`                      | Caller-owned setup run before the agent (toolchain, dependencies).                                                                                                                              |
+| `extra_allowed_tools` | no       | `""`                      | Comma-separated allowedTools entries appended to the reviewed default. An entry that runs repository code (test runner, package manager) bypasses read confinement; see docs/security-model.md. |
+| `model`               | no       | `claude-opus-5`           | Claude model id. Defaults to claude-opus-5.                                                                                                                                                     |
 
 | Secret                    | Required | Description                                         |
 | ------------------------- | -------- | --------------------------------------------------- |
