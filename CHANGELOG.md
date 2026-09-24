@@ -6,6 +6,10 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
+### Fixed
+
+- Implement removes its `implementer-brief.md` scratch file before the Caller's `verify_commands`, so whole-tree lint/format checks no longer fail on it.
+
 ## [1.0.0-alpha.3] - 2026-09-24
 
 First usable pre-release. `v1.0.0-alpha.1` and `v1.0.0-alpha.2` are **broken**: GitHub rejects their reusable workflows ("Invalid workflow file"), so no Caller pinned to them can run. Upgrade to this tag.

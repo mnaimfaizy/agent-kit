@@ -244,7 +244,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          rm -f verified-plan.md
+          # Pipeline scratch files: remove before the Caller's verify commands,
+          # which may lint or format-check the whole tree.
+          rm -f verified-plan.md implementer-brief.md
           RANGE=""
           if git rev-parse --verify "$BASE" >/dev/null 2>&1; then
             RANGE="$BASE...HEAD"
@@ -256,8 +258,8 @@ jobs:
             if [ -n "$RANGE" ]; then
               git diff --name-only "$RANGE"
             fi
-          } | grep -q 'verified-plan.md' && {
-            echo "verified-plan.md must not be committed."
+          } | grep -qE '(^|/)(verified-plan|implementer-brief)\.md$' && {
+            echo "verified-plan.md / implementer-brief.md must not be committed."
             exit 1
           }
           exit 0
