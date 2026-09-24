@@ -41,12 +41,12 @@ When the kit is ready for its first public Pre-release:
 
 User-facing notes summarize contract-impacting changes — not a raw commit dump.
 
-| Stage | GitHub Release body | `CHANGELOG.md` section |
-| --- | --- | --- |
-| **alpha** | Optional | Optional |
-| **beta** | Required | Required |
-| **rc** | Required | Required |
-| **stable** | Required | Required |
+| Stage      | GitHub Release body | `CHANGELOG.md` section |
+| ---------- | ------------------- | ---------------------- |
+| **alpha**  | Optional            | Optional               |
+| **beta**   | Required            | Required               |
+| **rc**     | Required            | Required               |
+| **stable** | Required            | Required               |
 
 ### Alpha (notes optional)
 
@@ -54,6 +54,7 @@ User-facing notes summarize contract-impacting changes — not a raw commit dump
 ## [1.0.0-alpha.1] - YYYY-MM-DD
 
 ### Added
+
 - First public Agent-kit snapshot: security-audit and plan-implement-review flows, four portable skills, Adopt/Releases docs, Copilot inert archive.
 ```
 
@@ -63,12 +64,15 @@ User-facing notes summarize contract-impacting changes — not a raw commit dump
 ## [1.0.0-beta.1] - YYYY-MM-DD
 
 ### Added
+
 - …
 
 ### Changed
+
 - …
 
 ### Fixed
+
 - …
 ```
 
