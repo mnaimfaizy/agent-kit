@@ -148,12 +148,14 @@ jobs:
           # only the Bash family. --disallowedTools refuses `.git` to Read (Grep
           # and Glob only best-effort; the hook refuses it for all three). An
           # --allowedTools entry only pre-approves, so it cannot by itself
-          # confine these tools to the tree.
+          # confine these tools to the tree. Nor does leaving Bash off the list
+          # withhold it: Claude Code auto-approves read-only commands, so Bash
+          # is denied outright.
           claude_args: |
             --model ${{ inputs.model }}
             --max-turns 40
             --allowedTools "Read,Glob,Grep,Write"
-            --disallowedTools "Read(./.git/**),Edit(./.github/agent-runtime/**)"
+            --disallowedTools "Read(./.git/**),Edit(./.github/agent-runtime/**),Bash"
 
       - name: Verify read-confinement hook unchanged
         env:

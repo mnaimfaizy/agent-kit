@@ -81,7 +81,11 @@ def test_audit_agent_cannot_see_the_advisory_token_or_widen_tools() -> None:
     assert '--allowedTools "${{ steps.tools.outputs.allowed }}"' in agent
     assert agent.count("--allowedTools") == 1
     assert "--max-turns 100" in agent
-    assert '--disallowedTools "Read(./.git/**),Edit(./.github/agent-runtime/**)"' in agent
+    assert '--disallowedTools "Read(./.git/**),Edit(./.github/agent-runtime/**),Bash"' in agent
+    # Claude Code auto-approves read-only Bash commands that are not on the
+    # allowlist; only a deny keeps the auditor off Bash entirely.
+    denied = agent.split('--disallowedTools "')[1].split('"')[0].split(",")
+    assert "Bash" in denied
     assert "read-confinement.settings.json" in agent
     assert "--dangerously-skip-permissions" not in data
     assert f"anthropics/claude-code-action@{CLAUDE_ACTION_SHA}" in data

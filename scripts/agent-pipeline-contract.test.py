@@ -107,9 +107,13 @@ def test_only_the_implementer_holds_the_app_token() -> None:
 def test_planner_and_reviewer_confine_reads_and_review_every_grant() -> None:
     plan = _step(read(PLAN_WORKFLOW), "Run planner (Claude Code)")
     assert '--allowedTools "Read,Glob,Grep,Write"' in plan
-    assert '--disallowedTools "Read(./.git/**),Edit(./.github/agent-runtime/**)"' in plan
+    assert '--disallowedTools "Read(./.git/**),Edit(./.github/agent-runtime/**),Bash"' in plan
     assert "read-confinement.settings.json" in plan
     assert "Bash(" not in plan
+    # Leaving Bash out of the allowlist is not enough: Claude Code auto-approves
+    # read-only commands. Only a deny keeps the planner off Bash entirely.
+    denied = plan.split('--disallowedTools "')[1].split('"')[0].split(",")
+    assert "Bash" in denied
 
     review = _step(read(REVIEW_WORKFLOW), "Run code review (Claude Code)")
     allowed = review.split('--allowedTools "')[1].split('"')[0]
