@@ -67,8 +67,16 @@ describe("implementer push guard contract", () => {
   });
 
   it("allows a push that changes neither", () => {
-    const files = ["src/a.ts", ".github/CODEOWNERS", "docs/workflows.md", ".github/workflows-archive/x.yml"];
-    assert.equal(decidePush(bash(`${WRAPPER} origin HEAD`), () => files), null);
+    const files = [
+      "src/a.ts",
+      ".github/CODEOWNERS",
+      "docs/workflows.md",
+      ".github/workflows-archive/x.yml",
+    ];
+    assert.equal(
+      decidePush(bash(`${WRAPPER} origin HEAD`), () => files),
+      null,
+    );
   });
 
   it("fails closed when the branch's changes cannot be listed", () => {
@@ -79,7 +87,9 @@ describe("implementer push guard contract", () => {
   it("is registered for Bash beside the read-confinement hook, and staged", () => {
     const settings = JSON.parse(readRepo(".github/agent-runtime/implementer.settings.json"));
     const groups = settings.hooks?.PreToolUse ?? [];
-    const byMatcher = Object.fromEntries(groups.map((g) => [g.matcher, g.hooks.map((h) => h.command)]));
+    const byMatcher = Object.fromEntries(
+      groups.map((g) => [g.matcher, g.hooks.map((h) => h.command)]),
+    );
     assert.deepEqual(Object.keys(byMatcher).sort(), ["Bash", "Read|Grep|Glob"]);
     assert.deepEqual(byMatcher.Bash, [
       'node "$RUNNER_TEMP/read-confinement/guard-implementer-push.mjs"',
@@ -90,10 +100,16 @@ describe("implementer push guard contract", () => {
 
     const implement = readRepo(".github/workflows/agent-implement-reusable.yml");
     assert.ok(
-      implement.includes("settings: ${{ runner.temp }}/read-confinement/implementer.settings.json\n"),
+      implement.includes(
+        "settings: ${{ runner.temp }}/read-confinement/implementer.settings.json\n",
+      ),
       "the implementer must load the staged implementer settings",
     );
-    for (const file of ["guard-implementer-push.mjs", "implementer.settings.json", "push-guard-base"]) {
+    for (const file of [
+      "guard-implementer-push.mjs",
+      "implementer.settings.json",
+      "push-guard-base",
+    ]) {
       assert.ok(implement.includes(file), `staging must include ${file}`);
     }
   });
