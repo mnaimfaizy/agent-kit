@@ -14,6 +14,9 @@
 // platform path module would make the same input depend on the machine running
 // the contract test.
 //
+// Glob is judged on its pattern as well as its path: the pattern alone can
+// name an absolute or climbing location.
+//
 // A lexical check alone is not enough: the checkout is untrusted, and a symlink
 // inside it passes a string comparison while the kernel follows it out of the
 // tree on open. So a path that passes is also resolved on disk, and the real
@@ -67,10 +70,51 @@ function hasGitSegment(rel) {
   return rel.split(/[\\/]/).includes(".git");
 }
 
+const GLOB_MAGIC = /[*?[\]{}!()]/;
+
+/**
+ * Glob matches its pattern from the filesystem, not from `path`: an absolute
+ * pattern, one that climbs with `..`, or one whose literal leading directories
+ * pass through a symlink lists names outside the tree whatever `path` says. So
+ * refuse the first two outright, and judge the literal prefix as a path under
+ * `path` with the same on-disk resolution as every other target.
+ */
+function decideGlobPattern(pattern, path, workspace) {
+  if (pattern == null || pattern === "") return null;
+  const p = String(pattern);
+  const segments = p.split(/[\\/]/);
+  if (/^([\\/~]|[A-Za-z]:)/.test(p) || segments.includes("..")) {
+    return `read confined to the workspace; refused a Glob pattern outside GITHUB_WORKSPACE: ${p}`;
+  }
+  if (segments.includes(".git")) {
+    return `read confined to the working tree; refused a Glob pattern inside .git: ${p}`;
+  }
+  const literal = [];
+  for (const segment of segments) {
+    if (GLOB_MAGIC.test(segment)) break;
+    literal.push(segment);
+  }
+  if (literal.length === 0) return null;
+  const base = path == null || path === "" ? "." : String(path);
+  return decide(
+    { tool_name: "Glob", tool_input: { path: `${base}/${literal.join("/")}` } },
+    workspace,
+  );
+}
+
 /** Decide on one hook payload. Returns a deny reason, or null to allow. */
 export function decide(payload, workspace) {
   const tool = payload?.tool_name;
   if (!READ_TOOLS.has(tool)) return null; // other tools: their own rules
+
+  if (tool === "Glob") {
+    const reason = decideGlobPattern(
+      payload?.tool_input?.pattern,
+      payload?.tool_input?.path,
+      workspace,
+    );
+    if (reason) return reason;
+  }
 
   // Read uses file_path; Grep and Glob use path. Absent → the tool defaults to
   // the working directory, which is the workspace, so allow.
