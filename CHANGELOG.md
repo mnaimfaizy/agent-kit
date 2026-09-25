@@ -6,25 +6,30 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
-Security fixes for [GHSA-6c8q-c2xg-w3fh](https://github.com/mnaimfaizy/agent-kit/security/advisories/GHSA-6c8q-c2xg-w3fh). **Consumer action required:** re-copy `.github/agent-runtime/` from this tag; implement fails with a message if `implementer.settings.json` or the push guard is missing.
+## [1.0.0-alpha.7] - 2026-09-25
+
+Security release for [GHSA-6c8q-c2xg-w3fh](https://github.com/mnaimfaizy/agent-kit/security/advisories/GHSA-6c8q-c2xg-w3fh). **Consumer action required** — see the first item.
+
+### Consumer action
+
+- **Required:** re-copy `.github/agent-runtime/` from this tag. Implement loads the new `implementer.settings.json` and push guard, and fails with a message if they are missing.
+- **Recommended:** before granting `extra_allowed_tools` that run repository code, protect your default branch and release tags with rulesets the Claude GitHub App cannot bypass.
 
 ### Security
 
 - The implementer can no longer push changes under `.github/workflows/` or `.github/actions/`. It is denied edits there, and a staged pre-push hook refuses any push whose branch touches those paths, before the push. Previously the only check ran after the agent had pushed and opened its draft PR, and a same-repository PR runs its own workflow files with repository secrets.
 - The read-confinement hook judges Glob's pattern as well as its path, so an absolute or climbing pattern can no longer list file names outside the workspace.
+- Plan and security audit deny `Bash` outright. Leaving it off `--allowedTools` did not withhold it: Claude Code auto-approves read-only commands inside the workspace. Hardening only; the auto-approved commands reach nothing the agents' Read, Glob, and Grep tools could not.
 
 ### Added
 
 - Per-flow model variables: the example and dogfood Callers read `CLAUDE_MODEL_PLAN`, `CLAUDE_MODEL_IMPLEMENT`, `CLAUDE_MODEL_REVIEW`, or `CLAUDE_MODEL_AUDIT` first, then the shared `CLAUDE_MODEL`, then `claude-opus-5`. Existing Callers keep working; re-copy the examples to use the new variables.
 
-### Security
-
-- Plan and security audit deny `Bash` outright. Leaving it off `--allowedTools` did not withhold it: Claude Code auto-approves read-only commands inside the workspace. Hardening only; the auto-approved commands reach nothing the agents' Read, Glob, and Grep tools could not.
-
 ### Changed
 
 - The security audit's token preflight no longer needs a draft advisory to exist. It probes the create-advisory endpoint with an empty body, which passes only for a token allowed to create advisories and never creates one. The one-draft seeding step is gone from setup.
 - Publishing the draft advisory retries three times. If it still fails and `notify_email` is on, the full report is emailed with a `[publish failed]` subject instead of being lost; the run still fails.
+- The example Caller's placeholder `verify_commands` start with `set -e`, so a failing command fails the verify job.
 
 ### Docs
 

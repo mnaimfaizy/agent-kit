@@ -25,7 +25,7 @@ Then see [Troubleshooting](#troubleshooting) and [Upgrading](#upgrading).
 
 ## 2. Pick a tag
 
-Use the newest tag from [Releases](https://github.com/mnaimfaizy/agent-kit/releases), for example `v1.0.0-alpha.6`. Every file you copy and every `uses:` pin must be the **same exact tag** — see [Adopt](adopt.md).
+Use the newest tag from [Releases](https://github.com/mnaimfaizy/agent-kit/releases), for example `v1.0.0-alpha.7`. Every file you copy and every `uses:` pin must be the **same exact tag** — see [Adopt](adopt.md).
 
 > Do not use `v1.0.0-alpha.1` or `v1.0.0-alpha.2`: GitHub rejects their reusable workflows ("Invalid workflow file").
 
@@ -34,7 +34,7 @@ Use the newest tag from [Releases](https://github.com/mnaimfaizy/agent-kit/relea
 The reusable workflows run in _your_ checkout and load prompts, the read-confinement hook, and skills from it. Copy them:
 
 ```bash
-TAG=v1.0.0-alpha.6
+TAG=v1.0.0-alpha.7
 git clone --depth 1 --branch "$TAG" https://github.com/mnaimfaizy/agent-kit.git /tmp/agent-kit
 mkdir -p .claude/skills .github
 cp -R /tmp/agent-kit/.claude/skills/. .claude/skills/
