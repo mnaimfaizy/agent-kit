@@ -55,12 +55,12 @@ Commit these files. Do **not** copy `.github/workflows/*-reusable.yml`; you refe
 
 Settings → Secrets and variables → Actions → **New repository secret**, or `gh secret set NAME`.
 
-| Secret                              | Used by         | How to get it                                                                                                                               |
-| ----------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `CLAUDE_CODE_OAUTH_TOKEN`           | all flows       | Run `claude setup-token` locally and paste the token.                                                                                       |
-| `AGENT_KIT_ADVISORIES_TOKEN`        | audit           | Fine-grained PAT, this repository only, **Repository security advisories: Read and write**. Set an expiry you will track.                   |
-| `AGENT_KIT_DEPENDABOT_ALERTS_TOKEN` | audit, optional | Fine-grained PAT, this repository only, **Dependabot alerts: Read-only**. Lets `full` mode ground on open alerts; skipped when unset.       |
-| `AGENT_KIT_NOTIFY_*`                | audit, optional | SMTP settings for the optional email notice (counts only). See [examples/security-audit-caller.yml](../examples/security-audit-caller.yml). |
+| Secret                              | Used by         | How to get it                                                                                                                                                                         |
+| ----------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CLAUDE_CODE_OAUTH_TOKEN`           | all flows       | Run `claude setup-token` locally and paste the token.                                                                                                                                 |
+| `AGENT_KIT_ADVISORIES_TOKEN`        | audit           | Fine-grained PAT, this repository only, **Repository security advisories: Read and write**. Set an expiry you will track.                                                             |
+| `AGENT_KIT_DEPENDABOT_ALERTS_TOKEN` | audit, optional | Fine-grained PAT, this repository only, **Dependabot alerts: Read-only**. Lets `full` mode ground on open alerts; skipped when unset.                                                 |
+| `AGENT_KIT_NOTIFY_*`                | audit, optional | SMTP settings for the optional email notice (counts only; the full report only if publishing fails). See [examples/security-audit-caller.yml](../examples/security-audit-caller.yml). |
 
 The job token (`GITHUB_TOKEN`) is **not** passed as a secret; the reusable workflows use `github.token`, limited by your Caller's `permissions:`.
 
@@ -98,8 +98,7 @@ Each run removes its label when it finishes, so adding it again re-runs the stag
 Skip if you only use plan → implement → review.
 
 1. **Threat pack.** Create the two files your Caller points at (defaults: `.security/threat-model.md`, `.security/findings-ledger.md`). The threat model lists assets, trust boundaries, and attack paths; the ledger holds only fingerprints (concept id, status, dates) of known findings, never details. This repository's own [threat model](../security/threat-model.md) and [ledger](../security/findings-ledger.md) are working examples.
-2. **Advisories on.** Private repositories: Settings → Code security → make sure security advisories are available. Delivery is always a draft GitHub Security Advisory; there is no other sink.
-3. **Seed one draft advisory by hand.** Security → Advisories → **New draft security advisory**, any placeholder content. The preflight treats a token that sees zero drafts as mis-scoped (a public repository cannot tell the two apart), so the first run fails without one.
+2. **Advisories on.** Private repositories: Settings → Code security → make sure security advisories are available. Delivery is a draft GitHub Security Advisory. The one exception is a failed publish with `notify_email` on, which emails the full report instead of losing it (see [security-audit.md](security-audit.md)).
 
 ## 8. Turn the flows on (Kill switch variables)
 
@@ -144,7 +143,8 @@ Delete the variable to fall back to `claude-opus-5`.
 | Jobs show as skipped                                                          | The Kill switch is on: the variable is unset or not exactly `true`. Or the label name doesn't match the Caller's `if:`.                                         |
 | "Actor is not allowlisted."                                                   | The login that added the label (or dispatched the run) is not in `allowlist_actors`. Scheduled runs use the last actor to edit the schedule.                    |
 | Audit: "advisories token missing" / "rejected by GitHub"                      | `AGENT_KIT_ADVISORIES_TOKEN` unset, expired, or revoked. Rotate it.                                                                                             |
-| Audit: "advisories token sees no draft advisories"                            | No draft exists yet, or the token lacks security-advisories access. Do step 7.3; check the PAT permission.                                                      |
+| Audit: "advisories token lacks Repository security advisories: write"         | The PAT is live but not scoped for advisories. Give it **Repository security advisories: Read and write** on this repository.                                   |
+| Audit: "Publish failed after 3 attempts"                                      | The token lost access mid-run, or GitHub was down. With `notify_email` on, the full report was emailed; fix the token and re-run.                               |
 | Audit: "Dependabot alerts fetch failed" / "not set"                           | Informational. Add `AGENT_KIT_DEPENDABOT_ALERTS_TOKEN` if you want alert grounding.                                                                             |
 | Implement: "No verified plan found from trusted author with required marker." | The plan comment must start with `planner_marker` and be authored by `trusted_plan_author` (default `github-actions[bot]`). Edited or copied plans don't count. |
 | Implement: PR opened but CI didn't start                                      | The PR came from the job-token fallback, not the Claude App. Install the [Claude GitHub App](https://github.com/apps/claude).                                   |

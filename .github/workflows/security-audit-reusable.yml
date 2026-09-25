@@ -212,35 +212,36 @@ jobs:
           # 2. Permission. A live but mis-scoped token passes check 1 and still
           # fails at publish, discarding the audit exactly as an expired one does.
           #
-          # The status code cannot carry this signal on a public repository: the
-          # advisories endpoint answers 200 to callers with no credential at all.
-          # Draft advisories are the discriminator. They are invisible without
-          # Repository security advisories access, so an unauthorised caller gets
-          # 200 with an empty list where an authorised one sees drafts.
-          # per_page=1 because only existence matters, and `length` keeps advisory
-          # content out of the log.
-          DRAFTS="$(GH_TOKEN="$ADVISORY_TOKEN" gh api \
-            "repos/${GITHUB_REPOSITORY}/security-advisories?state=draft&per_page=1" \
-            --jq 'length' 2>"$TOKEN_ERR" || true)"
-          if ! printf '%s' "${DRAFTS:-}" | grep -qxE '[0-9]+'; then
-            STATUS="$(grep -oE 'HTTP [0-9]{3}' "$TOKEN_ERR" | head -n 1 | grep -oE '[0-9]{3}' || true)"
-            rm -f "$TOKEN_ERR"
-            echo "advisories token could not list draft advisories (HTTP ${STATUS:-unknown})."
+          # No read call proves write access: the advisories list answers 200 to
+          # callers with no credential on a public repository, and a fine-grained
+          # PAT cannot list its own permissions. So probe the create endpoint with
+          # an empty body. GitHub checks authorization before it validates the
+          # body: a token that may create advisories gets 422 (missing keys), one
+          # that may not gets 403 or 404, and an empty body can never create one.
+          # The order is not documented, so the publish step still retries and
+          # can fall back to email rather than rely on this alone.
+          PROBE_OUT="$RUNNER_TEMP/advisory-probe.out"
+          if printf '{}' | GH_TOKEN="$ADVISORY_TOKEN" gh api --method POST \
+            "repos/${GITHUB_REPOSITORY}/security-advisories" --input - \
+            >"$PROBE_OUT" 2>"$TOKEN_ERR"; then
+            GHSA="$(jq -r '.ghsa_id // empty' "$PROBE_OUT" 2>/dev/null || true)"
+            rm -f "$PROBE_OUT" "$TOKEN_ERR"
+            echo "advisory write probe created an advisory (${GHSA:-unknown id}); close it by hand."
             exit 1
           fi
-          rm -f "$TOKEN_ERR"
-          if [ "$DRAFTS" = "0" ]; then
-            # Deliberately fatal, and deliberately ambiguous in the message: the
-            # API cannot distinguish these two causes. Failing here is loud; the
-            # alternative is discarding a finished audit at publish. A repository
-            # with no drafts yet needs one created by hand before the first run.
-            echo "advisories token sees no draft advisories. Either it lacks"
-            echo "Repository security advisories access, or this repository genuinely"
-            echo "has none — every full audit files one, so an empty list is unusual."
-            exit 1
+          STATUS="$(grep -oE 'HTTP [0-9]{3}' "$TOKEN_ERR" | head -n 1 | grep -oE '[0-9]{3}' || true)"
+          rm -f "$PROBE_OUT" "$TOKEN_ERR"
+          if [ "$STATUS" = "422" ]; then
+            echo "Advisory token accepted (live, and may create advisories)."
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
-          echo "Advisory token accepted (live, and can read draft advisories)."
-          echo "proceed=true" >> "$GITHUB_OUTPUT"
+          case "$STATUS" in
+            401) echo "advisories token rejected by the advisories endpoint (HTTP 401)." ;;
+            403|404) echo "advisories token lacks Repository security advisories: write (HTTP $STATUS)." ;;
+            *) echo "advisory write probe returned an unexpected result (HTTP ${STATUS:-unknown})." ;;
+          esac
+          exit 1
 
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -721,6 +722,28 @@ jobs:
           SCRIPT="$STAGED_DIR/notify-email.sh"
           printf '%s  %s\n' "$SCRIPT_SHA256" "$SCRIPT" | sha256sum -c --quiet -
           "$SCRIPT" "$REPORT_PATH"
+
+      # The publish step failed after its retries, so the report exists only on
+      # this runner. Email it in full: the one case where email carries finding
+      # detail. The job stays failed, because the token still needs fixing.
+      - name: Email report after failed publish
+        if: ${{ failure() && steps.publish.outcome == 'failure' && inputs.notify_email }}
+        env:
+          NOTIFY_EMAIL_TO: ${{ secrets.notify_email_to }}
+          NOTIFY_EMAIL_FROM: ${{ secrets.notify_email_from }}
+          NOTIFY_EMAIL_SMTP_HOST: ${{ secrets.notify_email_smtp_host }}
+          NOTIFY_EMAIL_SMTP_PORT: ${{ secrets.notify_email_smtp_port }}
+          NOTIFY_EMAIL_SMTP_USERNAME: ${{ secrets.notify_email_smtp_username }}
+          NOTIFY_EMAIL_SMTP_PASSWORD: ${{ secrets.notify_email_smtp_password }}
+          SCRIPT_SHA256: ${{ steps.stage.outputs.notifier_sha256 }}
+          STAGED_DIR: ${{ steps.stage.outputs.dir }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Staged before the scan from a trusted commit; never the workspace copy.
+          SCRIPT="$STAGED_DIR/notify-email.sh"
+          printf '%s  %s\n' "$SCRIPT_SHA256" "$SCRIPT" | sha256sum -c --quiet -
+          "$SCRIPT" "$REPORT_PATH" publish-failed
 
       - name: Parse finding count
         id: finding_count

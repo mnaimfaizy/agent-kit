@@ -2,8 +2,9 @@
 set -euo pipefail
 
 REPORT_PATH="${1:-}"
+MODE="${2:-notice}"
 if [[ -z "${REPORT_PATH}" ]]; then
-  echo "usage: notify-email.sh <report-path>" >&2
+  echo "usage: notify-email.sh <report-path> [publish-failed]" >&2
   exit 1
 fi
 
@@ -14,6 +15,10 @@ fi
 
 if [[ -z "${NOTIFY_EMAIL_TO:-}" || -z "${NOTIFY_EMAIL_FROM:-}" ]]; then
   echo "email notification skipped: missing sender/recipient configuration"
+  if [[ "${MODE}" == "publish-failed" ]]; then
+    echo "The report was not delivered anywhere and is lost."
+    exit 1
+  fi
   exit 0
 fi
 
@@ -24,7 +29,15 @@ fi
 
 SUBJECT="Security audit completed (${COUNT} findings)"
 BODY="Security audit completed with ${COUNT} Medium+ finding(s). Full details are available in the private draft GHSA."
-export SUBJECT BODY
+if [[ "${MODE}" == "publish-failed" ]]; then
+  # The draft advisory could not be created, so this email is the report's
+  # only copy off the runner. It carries the full report, and only here.
+  SUBJECT="[publish failed] Security audit report (${COUNT} findings)"
+  BODY="$(printf '%s\n\n%s\n' \
+    "The private draft advisory could not be created. The full report follows; fix the advisories token." \
+    "$(head -c 200000 "${REPORT_PATH}")")"
+fi
+export SUBJECT BODY MODE
 
 # The step runs in the audited workspace. A stdin script puts the current
 # directory first on sys.path, so a module file there would load before the
@@ -49,6 +62,9 @@ body = os.environ.get("BODY", "")
 
 if not host:
     print("email notification skipped: SMTP host is not configured")
+    if os.environ.get("MODE") == "publish-failed":
+        print("The report was not delivered anywhere and is lost.")
+        raise SystemExit(1)
     raise SystemExit(0)
 
 msg = EmailMessage()

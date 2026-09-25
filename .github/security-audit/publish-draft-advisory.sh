@@ -174,11 +174,26 @@ PAYLOAD="$(jq -n \
     ]
   }')"
 
-RESP="$(gh api \
-  --method POST \
-  -H "Accept: application/vnd.github+json" \
-  "/repos/${OWNER}/${REPO}/security-advisories" \
-  --input - <<<"$PAYLOAD")"
+# The report exists only on this runner, so a transient failure must not
+# discard it. A retry after a create that succeeded but lost its response
+# files a duplicate draft; that is the cheaper failure.
+RESP=""
+for attempt in 1 2 3; do
+  if RESP="$(gh api \
+    --method POST \
+    -H "Accept: application/vnd.github+json" \
+    "/repos/${OWNER}/${REPO}/security-advisories" \
+    --input - <<<"$PAYLOAD")"; then
+    break
+  fi
+  if [ "$attempt" = 3 ]; then
+    echo "Publish failed after 3 attempts. If notify_email is configured, the next step" >&2
+    echo "emails the full report; otherwise the report is lost. Fix the advisories token" >&2
+    echo "and re-run the audit." >&2
+    exit 1
+  fi
+  sleep $((attempt * 15))
+done
 
 GHSA="$(jq -r '.ghsa_id // empty' <<<"$RESP")"
 if [ -z "$GHSA" ]; then

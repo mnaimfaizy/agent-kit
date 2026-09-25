@@ -21,7 +21,9 @@ The reusable job supports:
 
 `pr` mode requires `head_sha`, `base_sha`, `base_ref`, and `pr_number`. The job restores instructions and `.github/agent-runtime/` from the base before the agent starts. `scan_command` runs in `full` mode only. `full` mode audits the commit the run was dispatched on and refuses a `head_sha` or `base_sha`: to audit a pull request, use `pr` mode.
 
-The preflight treats a token that can see zero draft advisories as mis-scoped, because a public repository cannot tell that apart from a token with no advisories access. Create one draft advisory by hand before the first automated run.
+The preflight checks the advisories token is live, then sends an empty body to the create-advisory endpoint. GitHub checks authorization first, so a token that may create advisories gets a validation error (422), which passes, and one that may not gets 403 or 404, which fails the run before the agent starts. Nothing is created.
+
+Publishing retries three times. If it still fails and `notify_email` is on, the job emails the **full report**, with a subject starting `[publish failed]`. This is the only email that carries finding detail; the routine notice is counts-only. The run still fails, because the token needs fixing. Without email, the report is lost and the run must be repeated.
 
 ## Dependabot alert grounding (optional)
 
