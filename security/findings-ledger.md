@@ -17,3 +17,4 @@ Fingerprints of known findings for the dogfood security audit, so repeat runs de
 | `gh-body-file-read-bypass`                          | released v1.0.0-alpha.6 | 2026-09-24 | GHSA-pwx3-m47m-qfm5 | found in triage, advisory F11; fixed in 70e2d33                        |
 | `implement-verify-runs-agent-code-with-write-creds` | released v1.0.0-alpha.6 | 2026-09-24 | GHSA-8787-cwm5-fvcj | fixed in 492082d                                                       |
 | `email-notifier-python-imports-from-workspace`      | released v1.0.0-alpha.6 | 2026-09-24 | GHSA-8787-cwm5-fvcj | fixed in 3ad3f1c                                                       |
+| `readonly-bash-auto-approved`                       | confirmed               | 2026-09-25 | n/a                 | below the Medium floor; hardening only, no advisory                    |

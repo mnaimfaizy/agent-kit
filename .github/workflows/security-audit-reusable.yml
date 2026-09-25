@@ -531,6 +531,9 @@ jobs:
           # the email secret), so the write is a real sink. Full mode audits the
           # trusted default-branch tree, not a diff, so it needs no git; PR mode
           # gets the diff pre-computed into the brief.
+          #
+          # Leaving Bash off this list does not withhold it: Claude Code
+          # auto-approves read-only commands. The agent step denies Bash outright.
           echo "allowed=Read,Glob,Grep,Write" >> "$GITHUB_OUTPUT"
 
       - name: Stage read-confinement hook outside the workspace
@@ -589,7 +592,7 @@ jobs:
             --model ${{ inputs.model }}
             --max-turns 100
             --allowedTools "${{ steps.tools.outputs.allowed }}"
-            --disallowedTools "Read(./.git/**),Edit(./.github/agent-runtime/**)"
+            --disallowedTools "Read(./.git/**),Edit(./.github/agent-runtime/**),Bash"
 
       - name: Verify read-confinement hook unchanged
         env:
