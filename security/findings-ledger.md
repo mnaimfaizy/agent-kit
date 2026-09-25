@@ -17,10 +17,10 @@ Fingerprints of known findings for the dogfood security audit, so repeat runs de
 | `gh-body-file-read-bypass`                          | released v1.0.0-alpha.6 | 2026-09-24 | GHSA-pwx3-m47m-qfm5 | found in triage, advisory F11; fixed in 70e2d33                        |
 | `implement-verify-runs-agent-code-with-write-creds` | released v1.0.0-alpha.6 | 2026-09-24 | GHSA-8787-cwm5-fvcj | fixed in 492082d                                                       |
 | `email-notifier-python-imports-from-workspace`      | released v1.0.0-alpha.6 | 2026-09-24 | GHSA-8787-cwm5-fvcj | fixed in 3ad3f1c                                                       |
-| `readonly-bash-auto-approved`                       | confirmed               | 2026-09-25 | n/a                 | below the Medium floor; hardening only, no advisory                    |
+| `readonly-bash-auto-approved`                       | released v1.0.0-alpha.7 | 2026-09-25 | n/a                 | below the Medium floor; hardening only, no advisory                    |
 | `implementer-push-grant-unrestricted-by-ref`        | rejected                | 2026-09-25 | GHSA-cmmp-gv5v-5x7h | the action's push wrapper refuses flags and refspecs                   |
-| `release-refs-unprotected-from-app`                 | confirmed               | 2026-09-25 | GHSA-cmmp-gv5v-5x7h | found in triage of F1; maintainer repository settings                  |
+| `release-refs-unprotected-from-app`                 | fixed                   | 2026-09-25 | GHSA-cmmp-gv5v-5x7h | repository rulesets applied 2026-09-25; no code change                 |
 | `project-settings-widen-agent-grants`               | accepted-risk           | 2026-09-25 | GHSA-cmmp-gv5v-5x7h | trusted Consumer config, same tier as Caller inputs; documented        |
 | `action-transcript-echoed-to-public-log`            | rejected                | 2026-09-25 | GHSA-cmmp-gv5v-5x7h | run log shows the action hides the transcript                          |
-| `glob-pattern-escapes-read-confinement`             | confirmed               | 2026-09-25 | GHSA-6c8q-c2xg-w3fh | file names only; contents stay confined                                |
-| `implementer-workflow-edit-guard-post-push`         | confirmed               | 2026-09-25 | GHSA-6c8q-c2xg-w3fh | rated high in triage                                                   |
+| `glob-pattern-escapes-read-confinement`             | released v1.0.0-alpha.7 | 2026-09-25 | GHSA-6c8q-c2xg-w3fh | file names only; contents stay confined                                |
+| `implementer-workflow-edit-guard-post-push`         | released v1.0.0-alpha.7 | 2026-09-25 | GHSA-6c8q-c2xg-w3fh | rated high in triage                                                   |
