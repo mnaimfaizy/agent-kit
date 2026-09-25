@@ -1,0 +1,25 @@
+{
+  "$comment": "The implementer's settings, passed to claude-code-action via the settings input. Registers the read-confinement hook (see read-confinement.settings.json) and a pre-push guard that refuses a push changing .github/workflows or .github/actions. The workflow stages both scripts and this file to $RUNNER_TEMP/read-confinement/ before the agent starts, outside the workspace, and runs the staged copies. See .github/agent-runtime/guard-implementer-push.mjs.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Read|Grep|Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$RUNNER_TEMP/read-confinement/confine-reads-to-workspace.mjs\""
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$RUNNER_TEMP/read-confinement/guard-implementer-push.mjs\""
+          }
+        ]
+      }
+    ]
+  }
+}

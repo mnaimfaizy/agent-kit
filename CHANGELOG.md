@@ -6,6 +6,13 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
+Security fixes for [GHSA-6c8q-c2xg-w3fh](https://github.com/mnaimfaizy/agent-kit/security/advisories/GHSA-6c8q-c2xg-w3fh). **Consumer action required:** re-copy `.github/agent-runtime/` from this tag; implement fails with a message if `implementer.settings.json` or the push guard is missing.
+
+### Security
+
+- The implementer can no longer push changes under `.github/workflows/` or `.github/actions/`. It is denied edits there, and a staged pre-push hook refuses any push whose branch touches those paths, before the push. Previously the only check ran after the agent had pushed and opened its draft PR, and a same-repository PR runs its own workflow files with repository secrets.
+- The read-confinement hook judges Glob's pattern as well as its path, so an absolute or climbing pattern can no longer list file names outside the workspace.
+
 ### Added
 
 - Per-flow model variables: the example and dogfood Callers read `CLAUDE_MODEL_PLAN`, `CLAUDE_MODEL_IMPLEMENT`, `CLAUDE_MODEL_REVIEW`, or `CLAUDE_MODEL_AUDIT` first, then the shared `CLAUDE_MODEL`, then `claude-opus-5`. Existing Callers keep working; re-copy the examples to use the new variables.

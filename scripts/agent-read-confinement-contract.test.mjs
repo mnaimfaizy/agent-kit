@@ -37,6 +37,8 @@ const CONFINED_AGENT_STEPS = [
     step: "Run implementer (Claude Code)",
     publish: "Run caller-owned verify commands",
     denyRuntimeEdits: false,
+    // Also registers the pre-push guard; see implementer-push-guard-contract.
+    settings: "implementer.settings.json",
   },
   {
     workflow: "agent-review-reusable.yml",
@@ -121,6 +123,42 @@ describe("agent read-confinement hook contract", () => {
     }
   });
 
+  it("judges the Glob pattern, not only its path", () => {
+    // Glob resolves an absolute or climbing pattern from the filesystem, not
+    // from `path`, so the pattern alone can list names outside the workspace.
+    const ws = "/home/runner/work/repo/repo";
+    const glob = (pattern, path) => ({
+      tool_name: "Glob",
+      tool_input: path === undefined ? { pattern } : { pattern, path },
+    });
+    for (const payload of [
+      glob("/home/runner/**"),
+      glob("/proc/self/*"),
+      glob("C:/Users/*"),
+      glob("\\\\server\\share\\*"),
+      glob("~/.config/*"),
+      glob("../../*"),
+      glob("src/../../../etc/*"),
+      glob("*", ".."),
+      glob("src/*", "/tmp"),
+    ]) {
+      assert.match(decide(payload, ws) ?? "", /outside GITHUB_WORKSPACE/, JSON.stringify(payload));
+    }
+    for (const payload of [glob(".git/**"), glob("**/.git/*"), glob("vendor/.git/hooks/*")]) {
+      assert.match(decide(payload, ws) ?? "", /inside \.git/, JSON.stringify(payload));
+    }
+    for (const payload of [
+      glob("**/*.md"),
+      glob("src/**/*.ts"),
+      glob("*.{js,ts}"),
+      glob("docs/*", "."),
+      glob(".github/workflows/*.yml"),
+      glob("**/.gitignore"),
+    ]) {
+      assert.equal(decide(payload, ws), null, JSON.stringify(payload));
+    }
+  });
+
   it("fails closed when the workspace is unset, and stays silent on nothing to judge", () => {
     const call = {
       tool_name: "Read",
@@ -171,6 +209,8 @@ describe("agent read-confinement hook contract", () => {
         read("dir-link/secret.txt"),
         read(join(ws, "dir-link", "secret.txt")),
         grep("dir-link"),
+        { tool_name: "Glob", tool_input: { pattern: "dir-link/*" } },
+        { tool_name: "Glob", tool_input: { pattern: "deeper/*", path: "dir-link" } },
       ]) {
         assert.match(
           decide(payload, ws) ?? "",
@@ -197,6 +237,10 @@ describe("agent read-confinement hook contract", () => {
       assert.equal(decide(read("docs/readme.md"), ws), null);
       assert.equal(decide(read("docs/missing.md"), ws), null);
       assert.equal(decide(grep("docs-link"), ws), null);
+      assert.equal(
+        decide({ tool_name: "Glob", tool_input: { pattern: "docs-link/*.md" } }, ws),
+        null,
+      );
     });
   });
 
@@ -217,10 +261,13 @@ describe("agent read-confinement hook contract", () => {
   });
 
   it("loads the staged hook into every confined agent step", () => {
-    for (const { workflow: name, step } of CONFINED_AGENT_STEPS) {
+    for (const { workflow: name, step, settings } of CONFINED_AGENT_STEPS) {
       const agent = namedStep(workflow(name), step);
+      const staged = settings
+        ? STAGED_SETTINGS.replace("read-confinement.settings.json", settings)
+        : STAGED_SETTINGS;
       assert.ok(
-        agent.includes(`settings: ${STAGED_SETTINGS}\n`),
+        agent.includes(`settings: ${staged}\n`),
         `${step} must pass the staged read-confinement settings`,
       );
     }

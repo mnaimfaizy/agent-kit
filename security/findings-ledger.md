@@ -22,3 +22,5 @@ Fingerprints of known findings for the dogfood security audit, so repeat runs de
 | `release-refs-unprotected-from-app`                 | confirmed               | 2026-09-25 | GHSA-cmmp-gv5v-5x7h | found in triage of F1; maintainer repository settings                  |
 | `project-settings-widen-agent-grants`               | accepted-risk           | 2026-09-25 | GHSA-cmmp-gv5v-5x7h | trusted Consumer config, same tier as Caller inputs; documented        |
 | `action-transcript-echoed-to-public-log`            | rejected                | 2026-09-25 | GHSA-cmmp-gv5v-5x7h | run log shows the action hides the transcript                          |
+| `glob-pattern-escapes-read-confinement`             | confirmed               | 2026-09-25 | GHSA-6c8q-c2xg-w3fh | file names only; contents stay confined                                |
+| `implementer-workflow-edit-guard-post-push`         | confirmed               | 2026-09-25 | GHSA-6c8q-c2xg-w3fh | rated high in triage                                                   |
