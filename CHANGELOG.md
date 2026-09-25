@@ -6,6 +6,10 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
+### Added
+
+- Per-flow model variables: the example and dogfood Callers read `CLAUDE_MODEL_PLAN`, `CLAUDE_MODEL_IMPLEMENT`, `CLAUDE_MODEL_REVIEW`, or `CLAUDE_MODEL_AUDIT` first, then the shared `CLAUDE_MODEL`, then `claude-opus-5`. Existing Callers keep working; re-copy the examples to use the new variables.
+
 ### Security
 
 - Plan and security audit deny `Bash` outright. Leaving it off `--allowedTools` did not withhold it: Claude Code auto-approves read-only commands inside the workspace. Hardening only; the auto-approved commands reach nothing the agents' Read, Glob, and Grep tools could not.

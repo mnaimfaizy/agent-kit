@@ -116,13 +116,22 @@ gh variable set CLAUDE_PIPELINE_ENABLED --body true
 
 Set a variable to anything else (or delete it) to stop a flow instantly without a commit.
 
-**Model (optional).** The example Callers pass `model: ${{ vars.CLAUDE_MODEL || 'claude-opus-5' }}`, so the `CLAUDE_MODEL` variable picks the Claude model for every flow, with no commit needed:
+**Model (optional).** Each flow reads its own repository variable first, then the shared `CLAUDE_MODEL`, then `claude-opus-5`. For example, the plan job passes `model: ${{ vars.CLAUDE_MODEL_PLAN || vars.CLAUDE_MODEL || 'claude-opus-5' }}`. Change a model at any time, with no commit needed:
+
+| Variable                 | Flow                                       |
+| ------------------------ | ------------------------------------------ |
+| `CLAUDE_MODEL_PLAN`      | plan                                       |
+| `CLAUDE_MODEL_IMPLEMENT` | implement                                  |
+| `CLAUDE_MODEL_REVIEW`    | review                                     |
+| `CLAUDE_MODEL_AUDIT`     | security audit                             |
+| `CLAUDE_MODEL`           | any flow above whose own variable is unset |
 
 ```bash
 gh variable set CLAUDE_MODEL --body claude-opus-5-5
+gh variable set CLAUDE_MODEL_AUDIT --body claude-fable-5-1
 ```
 
-Delete the variable to fall back to `claude-opus-5`.
+Delete a flow's variable to fall back to `CLAUDE_MODEL`, and delete that to fall back to `claude-opus-5`.
 
 ## 9. First run
 

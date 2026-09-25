@@ -141,14 +141,26 @@ def test_callers_default_to_kill_switch_on() -> None:
             )
 
 
+# Each flow has its own model variable, so one can change without the others;
+# the shared CLAUDE_MODEL still applies to any flow whose own variable is unset.
+MODEL_VARIABLE = {
+    "agent-plan-reusable.yml": "CLAUDE_MODEL_PLAN",
+    "agent-implement-reusable.yml": "CLAUDE_MODEL_IMPLEMENT",
+    "agent-review-reusable.yml": "CLAUDE_MODEL_REVIEW",
+    "security-audit-reusable.yml": "CLAUDE_MODEL_AUDIT",
+}
+
+
 def test_callers_read_model_from_repository_variable() -> None:
     for path in callers():
         for job_name, job in load(path)["jobs"].items():
             if "uses" not in job:
                 continue
+            reusable = job["uses"].split("/")[-1].split("@")[0]
+            own = MODEL_VARIABLE[reusable]
             model = str((job.get("with") or {}).get("model", ""))
-            assert re.fullmatch(r"\$\{\{ vars\.CLAUDE_MODEL \|\| '[a-z0-9-]+' \}\}", model), (
-                f"{path.name}:{job_name}: model must read vars.CLAUDE_MODEL with a literal fallback"
+            assert re.fullmatch(rf"\$\{{\{{ vars\.{own} \|\| vars\.CLAUDE_MODEL \|\| '[a-z0-9-]+' \}}\}}", model), (
+                f"{path.name}:{job_name}: model must read vars.{own}, then vars.CLAUDE_MODEL, then a literal"
             )
 
 

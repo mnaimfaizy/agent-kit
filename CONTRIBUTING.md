@@ -91,8 +91,10 @@ gh label create "agent:audit"     --color B60205 --description "Agent-kit: secur
 gh variable set CLAUDE_SECURITY_AUDIT_ENABLED --body true
 gh variable set CLAUDE_PIPELINE_ENABLED --body true
 
-# Optional: model for every dogfood run (default claude-opus-5)
+# Optional: model for every dogfood run (default claude-opus-5), and a
+# per-flow override: CLAUDE_MODEL_PLAN, _IMPLEMENT, _REVIEW, or _AUDIT
 gh variable set CLAUDE_MODEL --body claude-opus-5-5
+gh variable set CLAUDE_MODEL_AUDIT --body claude-fable-5-1
 ```
 
 Also: install the [Claude GitHub App](https://github.com/apps/claude) on the repository (implementer) (see [getting-started §7](docs/getting-started.md#7-prepare-the-security-audit) for the audit). Review [security/threat-model.md](security/threat-model.md) before the first audit; it is a draft.
