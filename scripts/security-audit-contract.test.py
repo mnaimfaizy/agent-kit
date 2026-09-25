@@ -126,6 +126,40 @@ def test_full_mode_never_checks_out_a_caller_named_head() -> None:
     assert "inputs.mode == 'pr'" in _step(data, "Restore trusted audit runtime from PR base")
 
 
+def test_gate_proves_advisory_write_access_without_repository_state() -> None:
+    # A draft count depends on the repository having a draft; the write probe
+    # does not. GitHub checks authorization before it validates the body, so an
+    # empty body answers 422 to a token that may create advisories and 403/404
+    # to one that may not, and can never create one.
+    gate = _step(read(WORKFLOW), "Gate")
+    assert "state=draft" not in gate
+    assert "gh api user --silent" in gate
+    assert gate.index("gh api user --silent") < gate.index("--method POST")
+    assert "printf '{}' | GH_TOKEN=\"$ADVISORY_TOKEN\" gh api" in gate
+    assert '"repos/${GITHUB_REPOSITORY}/security-advisories"' in gate
+    assert '[ "$STATUS" = "422" ]' in gate
+
+
+def test_publish_retries_then_falls_back_to_emailing_the_report() -> None:
+    publish = read(PUBLISH)
+    assert "for attempt in 1 2 3; do" in publish
+    assert "Publish failed after 3 attempts" in publish
+
+    data = read(WORKFLOW)
+    fallback = _step(data, "Email report after failed publish")
+    assert "failure() && steps.publish.outcome == 'failure' && inputs.notify_email" in fallback
+    assert '"$SCRIPT" "$REPORT_PATH" publish-failed' in fallback
+    assert "continue-on-error" not in fallback
+    # Only the fallback sends the report; the routine notice stays counts-only.
+    routine = _step(data, "Optional email notification")
+    assert "publish-failed" not in routine
+
+    notifier = read(NOTIFIER)
+    assert 'if [[ "${MODE}" == "publish-failed" ]]; then' in notifier
+    assert "[publish failed]" in notifier
+    assert "Full details are available in the private draft GHSA." in notifier
+
+
 def test_email_notifier_verifies_the_smtp_server_before_login() -> None:
     # starttls() without a context falls back to the stdlib's unverified
     # context, so the SMTP password would go to an unauthenticated server.

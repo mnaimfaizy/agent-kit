@@ -10,6 +10,11 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 - Plan and security audit deny `Bash` outright. Leaving it off `--allowedTools` did not withhold it: Claude Code auto-approves read-only commands inside the workspace. Hardening only; the auto-approved commands reach nothing the agents' Read, Glob, and Grep tools could not.
 
+### Changed
+
+- The security audit's token preflight no longer needs a draft advisory to exist. It probes the create-advisory endpoint with an empty body, which passes only for a token allowed to create advisories and never creates one. The one-draft seeding step is gone from setup.
+- Publishing the draft advisory retries three times. If it still fails and `notify_email` is on, the full report is emailed with a `[publish failed]` subject instead of being lost; the run still fails.
+
 ### Docs
 
 - Getting started and the security model now say to protect the default branch and release tags with rulesets before granting `extra_allowed_tools` that run repository code, and that permission rules and hooks in a committed `.claude/settings.json` apply to the CI agents.

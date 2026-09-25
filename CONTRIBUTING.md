@@ -95,7 +95,7 @@ gh variable set CLAUDE_PIPELINE_ENABLED --body true
 gh variable set CLAUDE_MODEL --body claude-opus-5-5
 ```
 
-Also: install the [Claude GitHub App](https://github.com/apps/claude) on the repository (implementer), and create one draft security advisory by hand before the first audit (see [getting-started §7](docs/getting-started.md#7-prepare-the-security-audit)). Review [security/threat-model.md](security/threat-model.md) before the first audit; it is a draft.
+Also: install the [Claude GitHub App](https://github.com/apps/claude) on the repository (implementer) (see [getting-started §7](docs/getting-started.md#7-prepare-the-security-audit) for the audit). Review [security/threat-model.md](security/threat-model.md) before the first audit; it is a draft.
 
 The Allowlist in both dogfood Callers is `mnaimfaizy`; edit it to add maintainers.
 
