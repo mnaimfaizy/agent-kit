@@ -79,7 +79,10 @@ function git(args) {
 
 function listChanged(ref) {
   try {
-    const base = readFileSync(`${process.env.RUNNER_TEMP}/read-confinement/push-guard-base`, "utf8").trim();
+    const base = readFileSync(
+      `${process.env.RUNNER_TEMP}/read-confinement/push-guard-base`,
+      "utf8",
+    ).trim();
     if (!base) return null;
     // Prefer the remote-tracking ref: the agent cannot move it without a fetch.
     let baseRef = null;
