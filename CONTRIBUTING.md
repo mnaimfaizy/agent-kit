@@ -120,6 +120,29 @@ EOF
 
 The payload deliberately leaves `required_pull_request_reviews` at `null`: while `@mnaimfaizy` is the sole owner in [.github/CODEOWNERS](.github/CODEOWNERS), requiring any approving review (with or without `require_code_owner_reviews`) would block the maintainer's own PRs, since GitHub never counts a PR author as a reviewer. Merging would then require an admin bypass.
 
+Two rulesets keep the implementer's Claude GitHub App token, which code run through `extra_allowed_tools` can use, away from `main` and the release tags. Only the Admin role bypasses them, so `cut-release.sh` still tags. The `main branch` ruleset (id `23917207`) blocks deletion and force pushes and requires a pull request with zero approvals, which the maintainer's own PRs satisfy:
+
+```bash
+gh api -X PUT repos/mnaimfaizy/agent-kit/rulesets/23917207 --input - <<'EOF'
+{"name":"main branch","target":"branch","enforcement":"active",
+ "conditions":{"ref_name":{"include":["~DEFAULT_BRANCH","refs/heads/main"],"exclude":[]}},
+ "rules":[{"type":"deletion"},{"type":"non_fast_forward"},
+  {"type":"pull_request","parameters":{"required_approving_review_count":0,"dismiss_stale_reviews_on_push":false,"require_code_owner_review":false,"require_last_push_approval":false,"required_review_thread_resolution":false}}],
+ "bypass_actors":[{"actor_id":5,"actor_type":"RepositoryRole","bypass_mode":"always"}]}
+EOF
+```
+
+The `release tags` ruleset blocks creating, moving, or deleting a `v*` tag:
+
+```bash
+gh api -X POST repos/mnaimfaizy/agent-kit/rulesets --input - <<'EOF'
+{"name":"release tags","target":"tag","enforcement":"active",
+ "conditions":{"ref_name":{"include":["refs/tags/v*"],"exclude":[]}},
+ "rules":[{"type":"creation"},{"type":"update"},{"type":"deletion"}],
+ "bypass_actors":[{"actor_id":5,"actor_type":"RepositoryRole","bypass_mode":"always"}]}
+EOF
+```
+
 ## Pull requests
 
 - Branch from `main`; use [Conventional Commits](https://www.conventionalcommits.org/) (`fix:`, `feat:`, `ci:`, `docs:`, `chore:`).

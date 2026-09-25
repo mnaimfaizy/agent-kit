@@ -18,3 +18,7 @@ Fingerprints of known findings for the dogfood security audit, so repeat runs de
 | `implement-verify-runs-agent-code-with-write-creds` | released v1.0.0-alpha.6 | 2026-09-24 | GHSA-8787-cwm5-fvcj | fixed in 492082d                                                       |
 | `email-notifier-python-imports-from-workspace`      | released v1.0.0-alpha.6 | 2026-09-24 | GHSA-8787-cwm5-fvcj | fixed in 3ad3f1c                                                       |
 | `readonly-bash-auto-approved`                       | confirmed               | 2026-09-25 | n/a                 | below the Medium floor; hardening only, no advisory                    |
+| `implementer-push-grant-unrestricted-by-ref`        | rejected                | 2026-09-25 | GHSA-cmmp-gv5v-5x7h | the action's push wrapper refuses flags and refspecs                   |
+| `release-refs-unprotected-from-app`                 | confirmed               | 2026-09-25 | GHSA-cmmp-gv5v-5x7h | found in triage of F1; maintainer repository settings                  |
+| `project-settings-widen-agent-grants`               | accepted-risk           | 2026-09-25 | GHSA-cmmp-gv5v-5x7h | trusted Consumer config, same tier as Caller inputs; documented        |
+| `action-transcript-echoed-to-public-log`            | rejected                | 2026-09-25 | GHSA-cmmp-gv5v-5x7h | run log shows the action hides the transcript                          |
