@@ -10,6 +10,10 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 - Plan and security audit deny `Bash` outright. Leaving it off `--allowedTools` did not withhold it: Claude Code auto-approves read-only commands inside the workspace. Hardening only; the auto-approved commands reach nothing the agents' Read, Glob, and Grep tools could not.
 
+### Docs
+
+- Getting started and the security model now say to protect the default branch and release tags with rulesets before granting `extra_allowed_tools` that run repository code, and that permission rules and hooks in a committed `.claude/settings.json` apply to the CI agents.
+
 ## [1.0.0-alpha.6] - 2026-09-24
 
 Security release for [GHSA-pwx3-m47m-qfm5](https://github.com/mnaimfaizy/agent-kit/security/advisories/GHSA-pwx3-m47m-qfm5) and [GHSA-8787-cwm5-fvcj](https://github.com/mnaimfaizy/agent-kit/security/advisories/GHSA-8787-cwm5-fvcj): hardens read confinement, the agents' tool grants, and which job runs agent-authored code. **Consumer action required** — see the first items.

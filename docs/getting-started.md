@@ -77,6 +77,8 @@ Then edit:
 2. **Allowlist:** replace `your-github-login` in `allowlist_actors` with the logins allowed to trigger runs (JSON array).
 3. **Audit paths:** point `threat_model_path` and `findings_ledger_path` at your **Threat pack** (step 7).
 4. **Implement:** set `verify_commands` (your lint/test/typecheck), and if needed `setup_commands` (toolchain install) and `extra_allowed_tools` (e.g. `Bash(npm test:*)`). `setup_commands` run twice, once before the agent and once in the verify job before `verify_commands`, so they should install the toolchain and be safe to repeat.
+   - An `extra_allowed_tools` entry that runs repository code gives the agent the Claude GitHub App token. Before you add one, protect your default branch (require a pull request) and your release tags with rulesets that the App cannot bypass.
+   - Permission rules and hooks in a committed `.claude/settings.json` also apply to every agent in CI, on top of the reviewed grants. Keep developer conveniences in the uncommitted `.claude/settings.local.json`.
 5. **Permissions:** keep the `permissions:` block. A Caller must grant at least what the reusable workflow requests — see [reference.md](reference.md).
 
 Every input and secret is listed in the [workflow reference](reference.md).
