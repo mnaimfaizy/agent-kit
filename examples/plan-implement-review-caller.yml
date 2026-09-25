@@ -68,6 +68,8 @@ jobs:
       trusted_plan_author: "github-actions[bot]"
       base_branch: "main"
       verify_commands: |
+        # verify_commands run via `bash -c`; set -e makes any failing command fail the job.
+        set -e
         echo "Provide Consumer verify commands here (lint/tests/typecheck)."
       # setup_commands installs the Consumer toolchain before the agent.
       # extra_allowed_tools appends reviewed Bash rules, for example Bash(npm:*).
