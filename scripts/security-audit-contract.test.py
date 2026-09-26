@@ -113,6 +113,13 @@ def test_audit_restores_runtime_and_stages_scripts_from_a_trusted_commit() -> No
     assert "RUNNER_TEMP" in stage
 
 
+def test_pr_diff_in_the_brief_ignores_pr_attributes() -> None:
+    # A PR's .gitattributes must not blank a hunk as binary or run a textconv.
+    data = read(WORKFLOW)
+    assert 'git diff --text --no-ext-diff --no-textconv --unified=3 "$BASE_SHA"...HEAD' in data
+    assert 'git diff --unified=3 "$BASE_SHA"...HEAD' not in data
+
+
 def test_full_mode_never_checks_out_a_caller_named_head() -> None:
     # Full mode has no restore from a base: a Caller-named head would supply
     # its own prompt, instructions, and hook, and scan_command would run on it.
@@ -201,4 +208,5 @@ if __name__ == "__main__":
     test_caller_example_invokes_reusable_job()
     test_audit_agent_cannot_see_the_advisory_token_or_widen_tools()
     test_audit_restores_runtime_and_stages_scripts_from_a_trusted_commit()
+    test_pr_diff_in_the_brief_ignores_pr_attributes()
     print("security-audit contract seam tests passed")

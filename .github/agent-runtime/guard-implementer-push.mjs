@@ -17,7 +17,8 @@
 //
 // Contract: stdin is the PreToolUse hook JSON. Print a deny decision as JSON on
 // stdout to refuse; print nothing (exit 0) to let the normal permission flow
-// proceed.
+// proceed. The settings run this with `|| exit 2`, so a guard that cannot load
+// or finish blocks the call instead of allowing it.
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";

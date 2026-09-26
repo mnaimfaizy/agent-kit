@@ -3,7 +3,16 @@
 // so confinement has to be a deny decision on the resolved path.
 
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import {
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, before, describe, it } from "node:test";
@@ -20,6 +29,9 @@ const STAGED_DIR = "$RUNNER_TEMP/read-confinement";
 const STAGED_SETTINGS = "${{ runner.temp }}/read-confinement/read-confinement.settings.json";
 const STAGE_STEP = "Stage read-confinement hook outside the workspace";
 const VERIFY_STEP = "Verify read-confinement hook unchanged";
+// A hook that crashes is a non-blocking error, not a deny, so the settings run
+// it with `|| exit 2`: any failure to decide blocks the call.
+const FAIL_CLOSED = " || exit 2";
 
 // `publish` is the first later step that sends agent output anywhere or runs
 // agent-written code; the digest check must run before it. `denyRuntimeEdits`
@@ -253,11 +265,51 @@ describe("agent read-confinement hook contract", () => {
     assert.deepEqual(group.matcher.split("|").sort(), ["Glob", "Grep", "Read"]);
     const command = group.hooks.map((hook) => hook.command).join("\n");
     assert.match(command, /^node /, "hook must run through node, not jq/bash");
-    assert.ok(
-      command.includes(`"${STAGED_DIR}/confine-reads-to-workspace.mjs"`),
-      "hook must run the staged copy under $RUNNER_TEMP",
+    assert.equal(
+      command,
+      `node "${STAGED_DIR}/confine-reads-to-workspace.mjs"${FAIL_CLOSED}`,
+      "hook must run the staged copy under $RUNNER_TEMP and fail closed",
     );
     assert.doesNotMatch(command, /CLAUDE_PROJECT_DIR|GITHUB_WORKSPACE/);
+  });
+
+  describe("the registered command, run by a shell", () => {
+    const command = JSON.parse(readRepo(SETTINGS_PATH)).hooks.PreToolUse[0].hooks[0].command;
+    const hook = join(root, ".github/agent-runtime/confine-reads-to-workspace.mjs");
+    let temp;
+    let staged;
+    let hasShell;
+
+    before(() => {
+      temp = mkdtempSync(join(tmpdir(), "confine-cmd-"));
+      staged = join(temp, "read-confinement", "confine-reads-to-workspace.mjs");
+      mkdirSync(join(temp, "read-confinement"));
+      mkdirSync(join(temp, "ws"));
+      hasShell = !spawnSync("sh", ["-c", "true"]).error;
+    });
+    after(() => rmSync(temp, { recursive: true, force: true }));
+
+    const run = (payload) =>
+      spawnSync("sh", ["-c", command], {
+        input: JSON.stringify(payload),
+        encoding: "utf8",
+        env: { ...process.env, RUNNER_TEMP: temp, GITHUB_WORKSPACE: join(temp, "ws") },
+      });
+
+    it("denies an out-of-tree read with the staged hook", (t) => {
+      if (!hasShell) return t.skip("no POSIX sh");
+      copyFileSync(hook, staged);
+      const result = run({ tool_name: "Read", tool_input: { file_path: "/proc/self/environ" } });
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(result.stdout, /"permissionDecision":"deny"/);
+    });
+
+    it("blocks the call when the staged hook cannot run", (t) => {
+      if (!hasShell) return t.skip("no POSIX sh");
+      writeFileSync(staged, "\u0000 not a module");
+      const result = run({ tool_name: "Read", tool_input: { file_path: "README.md" } });
+      assert.equal(result.status, 2, "a crashing hook must exit 2, which blocks the call");
+    });
   });
 
   it("loads the staged hook into every confined agent step", () => {
@@ -280,11 +332,17 @@ describe("agent read-confinement hook contract", () => {
       assert.match(stage, /id: confine\n/);
       assert.ok(stage.includes(`STAGED="${STAGED_DIR}"`), `${name}: stage to ${STAGED_DIR}`);
       assert.ok(
-        stage.includes(`grep -qF '${STAGED_DIR}/confine-reads-to-workspace.mjs'`),
-        `${name}: refuse settings that run the hook from the workspace`,
+        stage.includes(`grep -qF '${STAGED_DIR}/confine-reads-to-workspace.mjs\\"${FAIL_CLOSED}'`),
+        `${name}: refuse settings that run the hook from the workspace or fail open`,
       );
       assert.ok(stage.includes('chmod 444 "$STAGED"/*'), `${name}: stage read-only`);
       assert.match(stage, /hook_sha256=/);
+      // A copy that cannot run decides nothing: show the staged hook refuses an
+      // out-of-tree read before any agent relies on it.
+      const probe = stage.indexOf('| node "$STAGED/confine-reads-to-workspace.mjs"');
+      assert.ok(probe > stage.indexOf("chmod 444"), `${name}: probe the staged hook`);
+      assert.ok(stage.includes("/proc/self/environ"), `${name}: probe an out-of-tree read`);
+      assert.ok(stage.includes(`'"permissionDecision":"deny"'`), `${name}: require a deny`);
 
       const verify = namedStep(yml, VERIFY_STEP);
       assert.match(verify, /steps\.confine\.outputs\.hook_sha256/);
@@ -320,6 +378,29 @@ describe("agent read-confinement hook contract", () => {
         restore,
         /\.github\/agent-runtime\b/,
         `${step} must restore .github/agent-runtime`,
+      );
+    }
+  });
+
+  it("rewrites the checkout under pinned attributes before restoring", () => {
+    // A pull request's .gitattributes decides how git writes files, and
+    // checkout has already written them that way; a restore that finds the
+    // index unchanged leaves them. Pin the attributes that rewrite content in
+    // info/attributes, which outranks the tree, then write the tree again.
+    for (const { workflow: name, step } of RESTORE_STEPS) {
+      const restore = namedStep(workflow(name), step);
+      const pin = restore.indexOf("git rev-parse --git-path info/attributes");
+      assert.ok(pin >= 0, `${step} must pin attributes in info/attributes`);
+      assert.ok(
+        restore.includes("'* -text -eol -working-tree-encoding -filter -ident\\n'"),
+        `${step} must unset every content-rewriting attribute`,
+      );
+      const drop = restore.indexOf("git rm -r -q --cached -- .");
+      const rewrite = restore.indexOf("git reset -q --hard HEAD");
+      assert.ok(pin < drop && drop < rewrite, `${name}: pin, drop the index, then rewrite`);
+      assert.ok(
+        rewrite < restore.indexOf('restore_from_base "$path"'),
+        `${name}: rewrite before restoring`,
       );
     }
   });

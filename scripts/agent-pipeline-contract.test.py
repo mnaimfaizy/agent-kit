@@ -207,7 +207,10 @@ def test_agents_hold_only_gh_commands_without_file_arguments() -> None:
 
 def test_review_brief_precomputes_git_output_the_agent_cannot_run() -> None:
     brief = _step(read(REVIEW_WORKFLOW), "Build review brief")
-    assert 'git diff "$BASE_SHA...$HEAD_SHA" > "$GITHUB_WORKSPACE/review-diff.patch"' in brief
+    # --text etc.: the PR's .gitattributes must not blank a hunk as binary.
+    assert (
+        'git diff --text --no-ext-diff --no-textconv "$BASE_SHA...$HEAD_SHA" > "$GITHUB_WORKSPACE/review-diff.patch"'
+    ) in brief
     assert 'git log --oneline "$BASE_SHA..$HEAD_SHA" > "$GITHUB_WORKSPACE/review-log.txt"' in brief
     rm_at = brief.index('rm -f -- "$BRIEF"')
     assert rm_at < brief.index('> "$GITHUB_WORKSPACE/review-diff.patch"')
