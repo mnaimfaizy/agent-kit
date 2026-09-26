@@ -306,8 +306,8 @@ jobs:
             if [ -n "$RANGE" ]; then
               git diff --name-only "$RANGE"
             fi
-          } | grep -q '^\.github/workflows/' && {
-            echo "Implementer cannot edit .github/workflows files."
+          } | grep -qE '^\.github/(workflows|actions)/' && {
+            echo "Implementer cannot edit .github/workflows or .github/actions files."
             exit 1
           }
           exit 0
@@ -424,8 +424,34 @@ jobs:
           # Through bash: the checkout does not carry an executable bit.
           bash .github/agent-pipeline/open-draft-pr.sh "$ISSUE" "$BASE" "$BRANCH"
 
+  keep-draft:
+    # The implementer is told its PR MUST be a draft, but that is a prompt
+    # instruction. Needs only implement, so it runs even when verify fails
+    # and open-pr is skipped. No checkout: it runs gh, nothing from a branch.
+    needs: implement
+    if: ${{ always() && !inputs.kill_switch && needs.implement.outputs.branch != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Convert the implementer's PR back to draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ needs.implement.outputs.branch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Same-repository PRs only: a fork can use the same branch name.
+          READY="$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$BRANCH" --state open             --json number,isDraft,isCrossRepository             --jq '.[] | select(.isCrossRepository == false and .isDraft == false) | .number')"
+          for NUMBER in $READY; do
+            gh pr ready --undo "$NUMBER" --repo "$GITHUB_REPOSITORY"
+            echo "PR #$NUMBER was opened ready for review; converted it back to draft."
+          done
+
   consume-label:
-    needs: [implement, verify, open-pr]
+    needs: [implement, verify, open-pr, keep-draft]
     if: ${{ always() && !inputs.kill_switch && inputs.trigger_label != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5

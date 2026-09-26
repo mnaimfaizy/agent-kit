@@ -45,7 +45,10 @@ def test_implementer_limits_and_caller_owned_verify() -> None:
     assert "verify_commands" in data
     assert "Run caller-owned verify commands" in data
     assert "Prevent workflow edits by implementer" in data
-    assert "cannot edit .github/workflows files" in data
+    step = _step(data, "Prevent workflow edits by implementer")
+    # Backstop for the pre-push guard: same paths, both trees.
+    assert r"grep -qE '^\.github/(workflows|actions)/'" in step
+    assert "cannot edit .github/workflows or .github/actions files" in step
 
 
 def test_draft_pr_fallback_contract() -> None:
@@ -233,7 +236,7 @@ def test_agent_authored_code_never_runs_beside_write_or_oidc_credentials() -> No
     wf = yaml.safe_load(read(IMPLEMENT_WORKFLOW))
     jobs = wf["jobs"]
     assert wf["permissions"] == {"contents": "read"}
-    assert set(jobs) == {"implement", "verify", "open-pr", "consume-label"}
+    assert set(jobs) == {"implement", "verify", "open-pr", "keep-draft", "consume-label"}
 
     implement = jobs["implement"]
     assert implement["permissions"]["id-token"] == "write"
@@ -281,6 +284,30 @@ def test_open_pr_job_detects_an_existing_pr_and_runs_the_helper_through_bash() -
     assert "gh pr view --repo" not in step
     # The trusted checkout does not keep an executable bit.
     assert 'bash .github/agent-pipeline/open-draft-pr.sh "$ISSUE" "$BASE" "$BRANCH"' in step
+
+
+def test_keep_draft_job_redrafts_the_implementers_pr_whatever_verify_did() -> None:
+    # "It MUST be a draft" is only a prompt instruction. A trusted job that
+    # needs only the implementer, so it runs even when verify fails and
+    # open-pr is skipped, converts a same-repository PR back to draft.
+    import yaml
+
+    jobs = yaml.safe_load(read(IMPLEMENT_WORKFLOW))["jobs"]
+    job = jobs["keep-draft"]
+    assert job["needs"] == "implement"
+    assert "always()" in job["if"]
+    assert "needs.implement.outputs.branch != ''" in job["if"]
+    assert job["permissions"] == {"contents": "read", "pull-requests": "write"}
+    # No checkout: nothing from the agent's branch, or any branch, runs here.
+    assert all("uses" not in s for s in job["steps"])
+    run = job["steps"][0]["run"]
+    assert "BRANCH: ${{ needs.implement.outputs.branch }}" in _step(
+        read(IMPLEMENT_WORKFLOW), "Convert the implementer's PR back to draft"
+    )
+    assert "isCrossRepository == false" in run
+    assert "isDraft == false" in run
+    assert 'gh pr ready --undo "$NUMBER" --repo "$GITHUB_REPOSITORY"' in run
+    assert "consume-label" in jobs and "keep-draft" in jobs["consume-label"]["needs"]
 
 
 def test_review_restores_runtime_without_fetching_a_raw_sha() -> None:
@@ -334,4 +361,5 @@ if __name__ == "__main__":
     test_planner_and_reviewer_confine_reads_and_review_every_grant()
     test_implementer_allowlist_is_deny_by_default()
     test_review_restores_runtime_without_fetching_a_raw_sha()
+    test_keep_draft_job_redrafts_the_implementers_pr_whatever_verify_did()
     print("agent-pipeline contract seam tests passed")
