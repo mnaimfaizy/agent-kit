@@ -1,5 +1,5 @@
 {
-  "$comment": "Passed to claude-code-action via the settings input. Registers a PreToolUse hook that confines Read/Grep/Glob to $GITHUB_WORKSPACE. Run through node (no +x bit needed, no jq dependency). The workflow stages the hook script and this file to $RUNNER_TEMP/read-confinement/ before the agent starts, outside the workspace an agent with Write can reach, and runs the staged copy. See .github/agent-runtime/confine-reads-to-workspace.mjs.",
+  "$comment": "Passed to claude-code-action via the settings input. Registers a PreToolUse hook that confines Read/Grep/Glob to $GITHUB_WORKSPACE. Run through node (no +x bit needed, no jq dependency). The workflow stages the hook script and this file to $RUNNER_TEMP/read-confinement/ before the agent starts, outside the workspace an agent with Write can reach, and runs the staged copy. The command ends in `|| exit 2`: a hook that crashes is a non-blocking error in Claude Code, so any failure to decide must block the call instead. See .github/agent-runtime/confine-reads-to-workspace.mjs.",
   "hooks": {
     "PreToolUse": [
       {
@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$RUNNER_TEMP/read-confinement/confine-reads-to-workspace.mjs\""
+            "command": "node \"$RUNNER_TEMP/read-confinement/confine-reads-to-workspace.mjs\" || exit 2"
           }
         ]
       }

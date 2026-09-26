@@ -91,11 +91,12 @@ describe("implementer push guard contract", () => {
       groups.map((g) => [g.matcher, g.hooks.map((h) => h.command)]),
     );
     assert.deepEqual(Object.keys(byMatcher).sort(), ["Bash", "Read|Grep|Glob"]);
+    // `|| exit 2`: a hook that crashes is a non-blocking error, so fail closed.
     assert.deepEqual(byMatcher.Bash, [
-      'node "$RUNNER_TEMP/read-confinement/guard-implementer-push.mjs"',
+      'node "$RUNNER_TEMP/read-confinement/guard-implementer-push.mjs" || exit 2',
     ]);
     assert.deepEqual(byMatcher["Read|Grep|Glob"], [
-      'node "$RUNNER_TEMP/read-confinement/confine-reads-to-workspace.mjs"',
+      'node "$RUNNER_TEMP/read-confinement/confine-reads-to-workspace.mjs" || exit 2',
     ]);
 
     const implement = readRepo(".github/workflows/agent-implement-reusable.yml");
@@ -112,6 +113,18 @@ describe("implementer push guard contract", () => {
     ]) {
       assert.ok(implement.includes(file), `staging must include ${file}`);
     }
+    // The staged guard must be shown to refuse a chained push before the agent
+    // starts: a copy that cannot run guards nothing.
+    assert.ok(
+      implement.includes('| node "$STAGED/guard-implementer-push.mjs"'),
+      "staging must probe the staged push guard",
+    );
+    assert.ok(
+      implement.includes(
+        `grep -qF '$RUNNER_TEMP/read-confinement/guard-implementer-push.mjs\\" || exit 2'`,
+      ),
+      "staging must refuse settings that run the push guard fail-open",
+    );
   });
 
   it("denies the implementer file edits under workflows and local actions", () => {

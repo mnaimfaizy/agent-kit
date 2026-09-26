@@ -272,6 +272,19 @@ jobs:
             git fetch --no-tags origin "$BASE_BRANCH"
           fi
 
+          # A pull request's .gitattributes decides how git writes files, and
+          # checkout already wrote the tree that way: working-tree-encoding can
+          # turn the hook restored below into bytes node cannot parse, and a
+          # restore that finds the index unchanged leaves the file as checkout
+          # wrote it. info/attributes outranks every in-tree .gitattributes, so
+          # pin the attributes that rewrite content there, then write the tree
+          # again.
+          ATTRIBUTES="$(git rev-parse --git-path info/attributes)"
+          mkdir -p "$(dirname "$ATTRIBUTES")"
+          printf '* -text -eol -working-tree-encoding -filter -ident\n' > "$ATTRIBUTES"
+          git rm -r -q --cached -- .
+          git reset -q --hard HEAD
+
           MEMORY_LIST="$(mktemp)"
           {
             git ls-files -z
@@ -480,7 +493,7 @@ jobs:
               echo "Changed files:"
               git diff --name-only "$BASE_SHA"...HEAD || true
               echo
-              git diff --unified=3 "$BASE_SHA"...HEAD | head -c 200000 || true
+              git diff --text --no-ext-diff --no-textconv --unified=3 "$BASE_SHA"...HEAD | head -c 200000 || true
               echo
               echo "</untrusted_pr_diff>"
               echo
@@ -550,10 +563,12 @@ jobs:
           STAGED="$RUNNER_TEMP/read-confinement"
           test -s "$SRC/confine-reads-to-workspace.mjs"
           test -s "$SRC/read-confinement.settings.json"
+          # The settings must end each command in `|| exit 2`: a hook that crashes
+          # is a non-blocking error, so without it a hook that cannot run allows.
           # Single quotes on purpose: match the literal `$RUNNER_TEMP` in the file.
           # shellcheck disable=SC2016
-          if ! grep -qF '$RUNNER_TEMP/read-confinement/confine-reads-to-workspace.mjs' "$SRC/read-confinement.settings.json"; then
-            echo "$SRC/read-confinement.settings.json must run the hook from \$RUNNER_TEMP/read-confinement/."
+          if ! grep -qF '$RUNNER_TEMP/read-confinement/confine-reads-to-workspace.mjs\" || exit 2' "$SRC/read-confinement.settings.json"; then
+            echo "$SRC/read-confinement.settings.json must run the hook from \$RUNNER_TEMP/read-confinement/ and end in || exit 2."
             echo "Copy .github/agent-runtime/ from the same tag as the workflow pin."
             exit 1
           fi
@@ -561,6 +576,14 @@ jobs:
           mkdir "$STAGED"
           cp "$SRC/confine-reads-to-workspace.mjs" "$SRC/read-confinement.settings.json" "$STAGED/"
           chmod 444 "$STAGED"/*
+          # A hook that cannot run decides nothing. Show the staged copy refuses
+          # an out-of-tree read before any agent relies on it.
+          PROBE='{"tool_name":"Read","tool_input":{"file_path":"/proc/self/environ"}}'
+          DECISION="$(printf '%s' "$PROBE" | node "$STAGED/confine-reads-to-workspace.mjs" || true)"
+          if ! printf '%s' "$DECISION" | grep -qF '"permissionDecision":"deny"'; then
+            echo "The staged read-confinement hook did not refuse an out-of-tree read."
+            exit 1
+          fi
           echo "hook_sha256=$(cat "$STAGED"/* | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
 
       - name: Run security audit (Claude Code)

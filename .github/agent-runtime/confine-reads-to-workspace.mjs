@@ -24,9 +24,11 @@
 //
 // Contract: stdin is the PreToolUse hook JSON. Print a deny decision as JSON on
 // stdout to refuse an out-of-tree read; print nothing (exit 0) to let the normal
-// permission flow proceed. A hook error is not a deny, so malformed input that we
-// cannot judge is allowed through rather than exiting non-zero — except a missing
-// workspace, or a path that exists but cannot be resolved, where we fail closed.
+// permission flow proceed. Malformed input that we cannot judge is allowed
+// through — except a missing workspace, or a path that exists but cannot be
+// resolved, where we fail closed. A hook error on its own is not a deny, so the
+// settings run this with `|| exit 2`: if node cannot load or finish the script,
+// the call is blocked.
 import { realpathSync } from "node:fs";
 import { isAbsolute, posix, relative, sep } from "node:path";
 import { pathToFileURL } from "node:url";

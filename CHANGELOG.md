@@ -6,6 +6,16 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
+### Consumer action
+
+- **Required:** re-copy `.github/agent-runtime/` from this tag. The staged settings must run each hook with `|| exit 2`, and the plan, implement, review, and audit jobs fail with a message if they do not.
+
+### Security
+
+- Review and PR-mode audit rewrite the checkout with content-changing git attributes pinned off before restoring the runtime from the pull request base, so a pull request's `.gitattributes` cannot re-encode the read-confinement hook into a file that does not run.
+- Every job proves the staged read-confinement hook (and the implementer's push guard) refuses a probe call before the agent starts, and the hooks are registered with `|| exit 2`, so a hook that cannot run blocks the call instead of allowing it.
+- The diffs precomputed for review and PR-mode audit use `--text --no-ext-diff --no-textconv`, so a pull request's attributes cannot hide a change as binary.
+
 ## [1.0.0-alpha.7] - 2026-09-25
 
 Security release for [GHSA-6c8q-c2xg-w3fh](https://github.com/mnaimfaizy/agent-kit/security/advisories/GHSA-6c8q-c2xg-w3fh). **Consumer action required** — see the first item.

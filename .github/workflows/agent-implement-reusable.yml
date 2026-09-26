@@ -209,12 +209,14 @@ jobs:
           test -s "$SRC/read-confinement.settings.json"
           test -s "$SRC/guard-implementer-push.mjs"
           test -s "$SRC/implementer.settings.json"
+          # The settings must end each command in `|| exit 2`: a hook that crashes
+          # is a non-blocking error, so without it a hook that cannot run allows.
           # Single quotes on purpose: match the literal `$RUNNER_TEMP` in the file.
           # shellcheck disable=SC2016
-          if ! grep -qF '$RUNNER_TEMP/read-confinement/confine-reads-to-workspace.mjs' "$SRC/read-confinement.settings.json" \
-            || ! grep -qF '$RUNNER_TEMP/read-confinement/confine-reads-to-workspace.mjs' "$SRC/implementer.settings.json" \
-            || ! grep -qF '$RUNNER_TEMP/read-confinement/guard-implementer-push.mjs' "$SRC/implementer.settings.json"; then
-            echo "$SRC/ settings must run the hooks from \$RUNNER_TEMP/read-confinement/."
+          if ! grep -qF '$RUNNER_TEMP/read-confinement/confine-reads-to-workspace.mjs\" || exit 2' "$SRC/read-confinement.settings.json" \
+            || ! grep -qF '$RUNNER_TEMP/read-confinement/confine-reads-to-workspace.mjs\" || exit 2' "$SRC/implementer.settings.json" \
+            || ! grep -qF '$RUNNER_TEMP/read-confinement/guard-implementer-push.mjs\" || exit 2' "$SRC/implementer.settings.json"; then
+            echo "$SRC/ settings must run the hooks from \$RUNNER_TEMP/read-confinement/ and end in || exit 2."
             echo "Copy .github/agent-runtime/ from the same tag as the workflow pin."
             exit 1
           fi
@@ -226,6 +228,20 @@ jobs:
           # agent cannot point it elsewhere.
           printf '%s\n' "$BASE" > "$STAGED/push-guard-base"
           chmod 444 "$STAGED"/*
+          # A hook that cannot run decides nothing. Show the staged copy refuses
+          # an out-of-tree read before any agent relies on it.
+          PROBE='{"tool_name":"Read","tool_input":{"file_path":"/proc/self/environ"}}'
+          DECISION="$(printf '%s' "$PROBE" | node "$STAGED/confine-reads-to-workspace.mjs" || true)"
+          if ! printf '%s' "$DECISION" | grep -qF '"permissionDecision":"deny"'; then
+            echo "The staged read-confinement hook did not refuse an out-of-tree read."
+            exit 1
+          fi
+          PROBE='{"tool_name":"Bash","tool_input":{"command":"git-push.sh origin probe; true"}}'
+          DECISION="$(printf '%s' "$PROBE" | node "$STAGED/guard-implementer-push.mjs" || true)"
+          if ! printf '%s' "$DECISION" | grep -qF '"permissionDecision":"deny"'; then
+            echo "The staged push guard did not refuse a chained push."
+            exit 1
+          fi
           echo "hook_sha256=$(cat "$STAGED"/* | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
 
       - name: Run implementer (Claude Code)
