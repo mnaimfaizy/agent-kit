@@ -6,6 +6,10 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
+## [1.0.0-alpha.8] - 2026-09-26
+
+Security release for [GHSA-529g-7fww-6rr7](https://github.com/mnaimfaizy/agent-kit/security/advisories/GHSA-529g-7fww-6rr7). **Consumer action required** — see the first item.
+
 ### Consumer action
 
 - **Required:** re-copy `.github/agent-runtime/` from this tag. The staged settings must run each hook with `|| exit 2`, and the plan, implement, review, and audit jobs fail with a message if they do not.
