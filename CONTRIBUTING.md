@@ -149,7 +149,7 @@ EOF
 
 - Branch from `main`; use [Conventional Commits](https://www.conventionalcommits.org/) (`fix:`, `feat:`, `ci:`, `docs:`, `chore:`).
 - Fill in the PR template checklist. Add an `[Unreleased]` CHANGELOG line for anything a Consumer would notice.
-- Security issues: never in a public PR or issue. See [SECURITY.md](SECURITY.md).
+- Security issues: never in a public PR or issue. See [SECURITY.md](SECURITY.md). Before changing a workflow or `.github/agent-runtime/`, read [docs/security-model.md](docs/security-model.md) for the controls the change must keep.
 - Changes under the paths in [.github/CODEOWNERS](.github/CODEOWNERS) — everything in `.github/workflows/`, the runtime files, Portable skills, and Caller templates Consumers copy, `scripts/`, this repository's Threat pack, and the review/dependency routing files — request review from the maintainer once the PR is marked ready for review (draft PRs, including every pipeline PR, request no one until then).
 
 ## Releasing
