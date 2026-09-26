@@ -286,10 +286,12 @@ def test_open_pr_job_detects_an_existing_pr_and_runs_the_helper_through_bash() -
     assert 'bash .github/agent-pipeline/open-draft-pr.sh "$ISSUE" "$BASE" "$BRANCH"' in step
 
 
-def test_keep_draft_job_redrafts_the_implementers_pr_whatever_verify_did() -> None:
+def test_keep_draft_job_closes_a_non_draft_pr_whatever_verify_did() -> None:
     # "It MUST be a draft" is only a prompt instruction. A trusted job that
     # needs only the implementer, so it runs even when verify fails and
-    # open-pr is skipped, converts a same-repository PR back to draft.
+    # open-pr is skipped, closes a same-repository PR opened ready for review
+    # and fails. It cannot convert it: the job token is refused
+    # convertPullRequestToDraft on a PR the Claude GitHub App opened.
     import yaml
 
     jobs = yaml.safe_load(read(IMPLEMENT_WORKFLOW))["jobs"]
@@ -302,11 +304,14 @@ def test_keep_draft_job_redrafts_the_implementers_pr_whatever_verify_did() -> No
     assert all("uses" not in s for s in job["steps"])
     run = job["steps"][0]["run"]
     assert "BRANCH: ${{ needs.implement.outputs.branch }}" in _step(
-        read(IMPLEMENT_WORKFLOW), "Convert the implementer's PR back to draft"
+        read(IMPLEMENT_WORKFLOW), "Close the implementer's PR if it is not a draft"
     )
     assert "isCrossRepository == false" in run
     assert "isDraft == false" in run
-    assert 'gh pr ready --undo "$NUMBER" --repo "$GITHUB_REPOSITORY"' in run
+    assert "gh pr ready --undo" not in run
+    assert 'gh pr close "$NUMBER" --repo "$GITHUB_REPOSITORY" --comment' in run
+    # Closed after the loop, so every offending PR is closed before it fails.
+    assert run.rstrip().endswith('[ -z "$READY" ]')
     assert "consume-label" in jobs and "keep-draft" in jobs["consume-label"]["needs"]
 
 
@@ -361,5 +366,5 @@ if __name__ == "__main__":
     test_planner_and_reviewer_confine_reads_and_review_every_grant()
     test_implementer_allowlist_is_deny_by_default()
     test_review_restores_runtime_without_fetching_a_raw_sha()
-    test_keep_draft_job_redrafts_the_implementers_pr_whatever_verify_did()
+    test_keep_draft_job_closes_a_non_draft_pr_whatever_verify_did()
     print("agent-pipeline contract seam tests passed")

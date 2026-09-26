@@ -428,6 +428,8 @@ jobs:
     # The implementer is told its PR MUST be a draft, but that is a prompt
     # instruction. Needs only implement, so it runs even when verify fails
     # and open-pr is skipped. No checkout: it runs gh, nothing from a branch.
+    # It closes rather than converts: the job token is refused
+    # convertPullRequestToDraft on a PR the Claude GitHub App opened.
     needs: implement
     if: ${{ always() && !inputs.kill_switch && needs.implement.outputs.branch != '' }}
     runs-on: ubuntu-latest
@@ -436,7 +438,7 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - name: Convert the implementer's PR back to draft
+      - name: Close the implementer's PR if it is not a draft
         env:
           GH_TOKEN: ${{ github.token }}
           BRANCH: ${{ needs.implement.outputs.branch }}
@@ -444,11 +446,15 @@ jobs:
         run: |
           set -euo pipefail
           # Same-repository PRs only: a fork can use the same branch name.
-          READY="$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$BRANCH" --state open             --json number,isDraft,isCrossRepository             --jq '.[] | select(.isCrossRepository == false and .isDraft == false) | .number')"
+          READY="$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$BRANCH" --state open \
+            --json number,isDraft,isCrossRepository \
+            --jq '.[] | select(.isCrossRepository == false and .isDraft == false) | .number')"
           for NUMBER in $READY; do
-            gh pr ready --undo "$NUMBER" --repo "$GITHUB_REPOSITORY"
-            echo "PR #$NUMBER was opened ready for review; converted it back to draft."
+            gh pr close "$NUMBER" --repo "$GITHUB_REPOSITORY" --comment \
+              "Closed by agent-kit: the implementer must open a draft PR, and this one was opened ready for review. Check the branch, then reopen it as a draft if the change is wanted."
+            echo "PR #$NUMBER was opened ready for review; closed it."
           done
+          [ -z "$READY" ]
 
   consume-label:
     needs: [implement, verify, open-pr, keep-draft]

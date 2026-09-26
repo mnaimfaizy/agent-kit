@@ -8,7 +8,7 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ### Security
 
-- Implement converts the implementer's pull request back to draft if it was opened ready for review. The draft state was only a prompt instruction; a new `keep-draft` job with no checkout enforces it, even when verify fails. Hardening only; the App cannot approve, merge, or mark a PR ready.
+- Implement closes the implementer's pull request, with a comment, and fails the run if the PR was opened ready for review. The draft state was only a prompt instruction; a new `keep-draft` job with no checkout enforces it, even when verify fails. It closes rather than converts because the job token cannot convert a PR the Claude GitHub App opened to draft. Hardening only; the App cannot approve or merge.
 - The post-agent check that fails implement on workflow edits also covers `.github/actions/`, matching the pre-push guard. Hardening only; the guard already refused those pushes.
 
 ## [1.0.0-alpha.8] - 2026-09-26
