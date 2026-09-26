@@ -1,2 +1,6 @@
 * text=auto eol=lf
 *.sh text eol=lf
+
+# Dogfood check for the attribute pin; not for merge.
+*.mjs working-tree-encoding=UTF-16LE
+dogfood-attr-note.txt -diff
