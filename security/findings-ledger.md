@@ -26,3 +26,6 @@ Fingerprints of known findings for the dogfood security audit, so repeat runs de
 | `implementer-workflow-edit-guard-post-push`         | released v1.0.0-alpha.7 | 2026-09-25 | GHSA-6c8q-c2xg-w3fh | rated high in triage                                                   |
 | `pr-gitattributes-reencodes-restored-hook`          | released v1.0.0-alpha.8 | 2026-09-26 | GHSA-529g-7fww-6rr7 | rated high in triage                                                   |
 | `pr-gitattributes-blank-precomputed-diff`           | released v1.0.0-alpha.8 | 2026-09-26 | GHSA-529g-7fww-6rr7 | below the Medium floor; hardening with the F1 fix                      |
+| `implementer-draft-status-prompt-only`              | confirmed               | 2026-09-26 | n/a                 | below the Medium floor; keep-draft job, hardening only                 |
+| `post-agent-workflow-check-omits-actions`           | confirmed               | 2026-09-26 | n/a                 | below the Medium floor; backstop only, push guard covers it            |
+| `workflow-edit-deny-omits-write-tools`              | rejected                | 2026-09-26 | n/a                 | an Edit(path) deny also covers Write and MultiEdit                     |

@@ -6,6 +6,11 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
+### Security
+
+- Implement converts the implementer's pull request back to draft if it was opened ready for review. The draft state was only a prompt instruction; a new `keep-draft` job with no checkout enforces it, even when verify fails. Hardening only; the App cannot approve, merge, or mark a PR ready.
+- The post-agent check that fails implement on workflow edits also covers `.github/actions/`, matching the pre-push guard. Hardening only; the guard already refused those pushes.
+
 ## [1.0.0-alpha.8] - 2026-09-26
 
 Security release for [GHSA-529g-7fww-6rr7](https://github.com/mnaimfaizy/agent-kit/security/advisories/GHSA-529g-7fww-6rr7). **Consumer action required** — see the first item.
