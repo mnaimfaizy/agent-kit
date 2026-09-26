@@ -24,5 +24,5 @@ Fingerprints of known findings for the dogfood security audit, so repeat runs de
 | `action-transcript-echoed-to-public-log`            | rejected                | 2026-09-25 | GHSA-cmmp-gv5v-5x7h | run log shows the action hides the transcript                          |
 | `glob-pattern-escapes-read-confinement`             | released v1.0.0-alpha.7 | 2026-09-25 | GHSA-6c8q-c2xg-w3fh | file names only; contents stay confined                                |
 | `implementer-workflow-edit-guard-post-push`         | released v1.0.0-alpha.7 | 2026-09-25 | GHSA-6c8q-c2xg-w3fh | rated high in triage                                                   |
-| `pr-gitattributes-reencodes-restored-hook`          | confirmed               | 2026-09-26 | GHSA-529g-7fww-6rr7 | rated high in triage; fix pending                                      |
-| `pr-gitattributes-blank-precomputed-diff`           | confirmed               | 2026-09-26 | GHSA-529g-7fww-6rr7 | below the Medium floor; hardening with the F1 fix                      |
+| `pr-gitattributes-reencodes-restored-hook`          | released v1.0.0-alpha.8 | 2026-09-26 | GHSA-529g-7fww-6rr7 | rated high in triage                                                   |
+| `pr-gitattributes-blank-precomputed-diff`           | released v1.0.0-alpha.8 | 2026-09-26 | GHSA-529g-7fww-6rr7 | below the Medium floor; hardening with the F1 fix                      |

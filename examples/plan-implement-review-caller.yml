@@ -42,7 +42,7 @@ jobs:
     if: |
       (github.event_name == 'issues' && github.event.label.name == 'agent:plan') ||
       (github.event_name == 'workflow_dispatch' && inputs.mode == 'plan')
-    uses: mnaimfaizy/agent-kit/.github/workflows/agent-plan-reusable.yml@v1.0.0-alpha.7
+    uses: mnaimfaizy/agent-kit/.github/workflows/agent-plan-reusable.yml@v1.0.0-alpha.8
     with:
       kill_switch: ${{ vars.CLAUDE_PIPELINE_ENABLED != 'true' }}
       model: ${{ vars.CLAUDE_MODEL_PLAN || vars.CLAUDE_MODEL || 'claude-opus-5' }}
@@ -57,7 +57,7 @@ jobs:
     if: |
       (github.event_name == 'issues' && github.event.label.name == 'agent:implement') ||
       (github.event_name == 'workflow_dispatch' && inputs.mode == 'implement')
-    uses: mnaimfaizy/agent-kit/.github/workflows/agent-implement-reusable.yml@v1.0.0-alpha.7
+    uses: mnaimfaizy/agent-kit/.github/workflows/agent-implement-reusable.yml@v1.0.0-alpha.8
     with:
       kill_switch: ${{ vars.CLAUDE_PIPELINE_ENABLED != 'true' }}
       model: ${{ vars.CLAUDE_MODEL_IMPLEMENT || vars.CLAUDE_MODEL || 'claude-opus-5' }}
@@ -80,7 +80,7 @@ jobs:
     if: |
       (github.event_name == 'pull_request' && github.event.label.name == 'agent:review') ||
       (github.event_name == 'workflow_dispatch' && inputs.mode == 'review')
-    uses: mnaimfaizy/agent-kit/.github/workflows/agent-review-reusable.yml@v1.0.0-alpha.7
+    uses: mnaimfaizy/agent-kit/.github/workflows/agent-review-reusable.yml@v1.0.0-alpha.8
     with:
       kill_switch: ${{ vars.CLAUDE_PIPELINE_ENABLED != 'true' }}
       model: ${{ vars.CLAUDE_MODEL_REVIEW || vars.CLAUDE_MODEL || 'claude-opus-5' }}

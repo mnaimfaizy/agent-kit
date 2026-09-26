@@ -31,7 +31,7 @@ permissions:
 
 jobs:
   audit:
-    uses: mnaimfaizy/agent-kit/.github/workflows/security-audit-reusable.yml@v1.0.0-alpha.7
+    uses: mnaimfaizy/agent-kit/.github/workflows/security-audit-reusable.yml@v1.0.0-alpha.8
     with:
       mode: ${{ inputs.mode }}
       kill_switch: ${{ vars.CLAUDE_SECURITY_AUDIT_ENABLED != 'true' }}

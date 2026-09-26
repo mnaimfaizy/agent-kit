@@ -158,8 +158,8 @@ See [docs/cutting-releases.md](docs/cutting-releases.md). In short, after the re
 
 ```bash
 git switch main && git pull
-bash scripts/cut-release.sh --tag v1.0.0-alpha.7                 # dry run
-bash scripts/cut-release.sh --tag v1.0.0-alpha.7 --apply --publish --notes-file release-notes/v1.0.0-alpha.7.md
+bash scripts/cut-release.sh --tag v1.0.0-alpha.8                 # dry run
+bash scripts/cut-release.sh --tag v1.0.0-alpha.8 --apply --publish --notes-file release-notes/v1.0.0-alpha.8.md
 ```
 
 `--publish` pushes the tag and creates the GitHub Release on it.
