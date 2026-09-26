@@ -45,6 +45,7 @@ CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs three jobs on eve
 | `examples/`                                  | Caller templates.                                     |
 | `scripts/*.test.py`, `*.test.mjs`            | Contract tests.                                       |
 | `scripts/gen_workflow_reference.py`          | Generates `docs/reference.md` from the workflows.     |
+| `release-notes/`                             | GitHub Release notes, one file per tag.               |
 | `security/`                                  | This repository's own Threat pack (dogfood audit).    |
 
 ## Contract tests
