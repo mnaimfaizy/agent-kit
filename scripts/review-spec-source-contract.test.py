@@ -160,6 +160,7 @@ def test_with_no_trusted_authors_a_marked_brief_is_ignored(tmp_path: Path) -> No
 
 def test_a_marked_brief_from_an_unlisted_login_is_ignored(tmp_path: Path) -> None:
     result, brief = run_brief(tmp_path, [comment("drive-by", f"{BRIEF_MARKER}\n{SECRET}")], trusted='["maintainer"]')
+    assert result.returncode == 0, result.stdout + result.stderr
     assert spec_in(brief) == ""
     assert "Spec source: none" in result.stdout
 
@@ -169,6 +170,7 @@ def test_a_listed_login_needs_the_marker_at_the_start(tmp_path: Path) -> None:
         case = tmp_path / str(i)
         case.mkdir()
         result, brief = run_brief(case, [comment("maintainer", body)], trusted='["maintainer"]')
+        assert result.returncode == 0, result.stdout + result.stderr
         assert spec_in(brief) == "", body
         assert "Spec source: none" in result.stdout
 
@@ -203,7 +205,8 @@ def test_the_latest_trusted_brief_is_used(tmp_path: Path) -> None:
 
 
 def test_trusted_spec_authors_must_be_a_json_array_of_logins(tmp_path: Path) -> None:
-    for i, value in enumerate(("maintainer", '{"login": "maintainer"}', "[1]")):
+    # Several JSON values in one string must fail too, not only the last one.
+    for i, value in enumerate(("maintainer", '{"login": "maintainer"}', "[1]", "[] []", '[] ["maintainer"]')):
         case = tmp_path / str(i)
         case.mkdir()
         result, _ = run_brief(case, [], trusted=value)

@@ -291,8 +291,9 @@ jobs:
           fi
 
           # The Caller's list of logins whose marked brief may stand in for a
-          # Verified plan. Refuse anything but a JSON array of strings.
-          if ! printf '%s' "${TRUSTED_SPEC_AUTHORS:-[]}" | jq -e 'type == "array" and all(.[]; type == "string")' >/dev/null 2>&1; then
+          # Verified plan. Refuse anything but exactly one JSON array of
+          # strings: slurp, because jq -e judges only the last of several values.
+          if ! printf '%s' "${TRUSTED_SPEC_AUTHORS:-[]}" | jq -s -e 'length == 1 and (.[0] | type == "array" and all(.[]; type == "string"))' >/dev/null 2>&1; then
             echo "trusted_spec_authors must be a JSON array of logins."
             exit 1
           fi
