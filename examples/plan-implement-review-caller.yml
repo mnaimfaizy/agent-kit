@@ -73,6 +73,10 @@ jobs:
         echo "Provide Consumer verify commands here (lint/tests/typecheck)."
       # setup_commands installs the Consumer toolchain before the agent.
       # extra_allowed_tools appends reviewed Bash rules, for example Bash(npm:*).
+      # Branch naming defaults to claude/issue-<N>-<timestamp>. To match a branch
+      # policy, set a prefix and/or a template that keeps {{entityNumber}}:
+      # branch_prefix: "fix/"
+      # branch_name_template: "{{prefix}}{{entityNumber}}-{{description}}"
     secrets:
       claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 

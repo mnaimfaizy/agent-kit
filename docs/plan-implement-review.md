@@ -47,6 +47,7 @@ Implement reads only a Verified plan comment that:
 - no merge, approve, or mark-ready actions
 - no edits to `.github/workflows`
 - verify commands are caller-owned inputs
+- branch naming is caller-owned: `branch_prefix` (default `claude/`, at most 24 characters without a template) and `branch_name_template` (must contain `{{entityNumber}}`), checked before the agent runs
 
 ## Reviewer contract
 
