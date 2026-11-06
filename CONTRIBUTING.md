@@ -103,33 +103,19 @@ The Allowlist in both dogfood Callers is `mnaimfaizy`; edit it to add maintainer
 
 ## Branch protection
 
-Require CI before merging to `main` (run once; needs admin):
+Two rulesets keep the implementer's Claude GitHub App token, which code run through `extra_allowed_tools` can use, away from `main` and the release tags. Only the Admin role bypasses them, so `cut-release.sh` still tags. Run once; needs admin.
 
-```bash
-gh api -X PUT repos/mnaimfaizy/agent-kit/branches/main/protection \
-  -H "Accept: application/vnd.github+json" \
-  --input - <<'EOF'
-{
-  "required_status_checks": { "strict": true, "contexts": ["Tests", "Lint and format", "Internal links"] },
-  "enforce_admins": false,
-  "required_pull_request_reviews": null,
-  "restrictions": null,
-  "allow_force_pushes": false,
-  "allow_deletions": false
-}
-EOF
-```
-
-The payload deliberately leaves `required_pull_request_reviews` at `null`: while `@mnaimfaizy` is the sole owner in [.github/CODEOWNERS](.github/CODEOWNERS), requiring any approving review (with or without `require_code_owner_reviews`) would block the maintainer's own PRs, since GitHub never counts a PR author as a reviewer. Merging would then require an admin bypass.
-
-Two rulesets keep the implementer's Claude GitHub App token, which code run through `extra_allowed_tools` can use, away from `main` and the release tags. Only the Admin role bypasses them, so `cut-release.sh` still tags. The `main branch` ruleset (id `23917207`) blocks deletion and force pushes and requires a pull request with zero approvals, which the maintainer's own PRs satisfy:
+The `main branch` ruleset (id `23917207`) blocks deletion and force pushes, and requires a pull request and green CI (`Tests`, `Lint and format`, `Internal links`, each pinned to GitHub Actions so another app cannot report a check under the same name). Its `update` rule lets only the Admin bypass change `main`, so the App cannot merge its own pull request. The maintainer merges every pull request, Dependabot's included, with the bypass, and waits for CI first: the bypass skips the required checks too. Approvals stay at zero: while `@mnaimfaizy` is the sole owner in [.github/CODEOWNERS](.github/CODEOWNERS), a required review would block the maintainer's own PRs, since GitHub never counts a PR author as a reviewer.
 
 ```bash
 gh api -X PUT repos/mnaimfaizy/agent-kit/rulesets/23917207 --input - <<'EOF'
 {"name":"main branch","target":"branch","enforcement":"active",
  "conditions":{"ref_name":{"include":["~DEFAULT_BRANCH","refs/heads/main"],"exclude":[]}},
  "rules":[{"type":"deletion"},{"type":"non_fast_forward"},
-  {"type":"pull_request","parameters":{"required_approving_review_count":0,"dismiss_stale_reviews_on_push":false,"require_code_owner_review":false,"require_last_push_approval":false,"required_review_thread_resolution":false}}],
+  {"type":"update","parameters":{"update_allows_fetch_and_merge":false}},
+  {"type":"pull_request","parameters":{"required_approving_review_count":0,"dismiss_stale_reviews_on_push":false,"require_code_owner_review":false,"require_last_push_approval":false,"required_review_thread_resolution":false}},
+  {"type":"required_status_checks","parameters":{"strict_required_status_checks_policy":true,"do_not_enforce_on_create":false,
+   "required_status_checks":[{"context":"Tests","integration_id":15368},{"context":"Lint and format","integration_id":15368},{"context":"Internal links","integration_id":15368}]}}],
  "bypass_actors":[{"actor_id":5,"actor_type":"RepositoryRole","bypass_mode":"always"}]}
 EOF
 ```
