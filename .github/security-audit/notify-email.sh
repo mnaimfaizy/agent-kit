@@ -23,6 +23,10 @@ if [[ -z "${NOTIFY_EMAIL_TO:-}" || -z "${NOTIFY_EMAIL_FROM:-}" ]]; then
   if [[ "${MODE}" == "publish-failed" ]]; then
     echo "The report was not delivered anywhere and is lost."
     exit 1
+  elif [[ "${MODE}" == "empty-report" ]]; then
+    # If the failed-run draft also failed, this was the transcript's only copy.
+    echo "The session transcript was not delivered by email."
+    exit 1
   fi
   exit 0
 fi
@@ -104,6 +108,9 @@ if not host:
     print("email notification skipped: SMTP host is not configured")
     if os.environ.get("MODE") == "publish-failed":
         print("The report was not delivered anywhere and is lost.")
+        raise SystemExit(1)
+    if os.environ.get("MODE") == "empty-report":
+        print("The session transcript was not delivered by email.")
         raise SystemExit(1)
     raise SystemExit(0)
 

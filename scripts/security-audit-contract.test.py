@@ -494,6 +494,24 @@ def test_notifier_sends_a_large_transcript_through_a_private_file(tmp_path: Path
     assert not list(tmp_path.glob("security-audit-email-body.*")), "body file left behind"
 
 
+def test_notifier_says_when_an_empty_report_transcript_was_not_emailed(tmp_path: Path) -> None:
+    # If the failed-run draft also failed, this email is the transcript's only
+    # copy, so a skipped email must say so and fail the step.
+    session = tmp_path / "security-audit-session.md"
+    session.write_text(f"transcript {SECRET}", encoding="utf-8")
+    env = {k: v for k, v in os.environ.items() if not k.startswith("NOTIFY_EMAIL_")}
+    env["RUNNER_TEMP"] = str(tmp_path)
+    result = subprocess.run(
+        [bash(), str(NOTIFIER), str(session), "empty-report"], env=env, capture_output=True, text=True, check=False
+    )
+    assert result.returncode != 0
+    assert "session transcript was not delivered by email" in result.stdout
+    assert SECRET not in result.stdout + result.stderr
+    # The SMTP-host check inside Python must say the same.
+    notifier = read(NOTIFIER)
+    assert 'os.environ.get("MODE") == "empty-report"' in notifier
+
+
 if __name__ == "__main__":
     import tempfile
 
@@ -527,4 +545,5 @@ if __name__ == "__main__":
     test_no_step_prints_the_transcript_to_the_log()
     test_publisher_keeps_the_start_and_end_of_a_large_transcript(Path(tempfile.mkdtemp()))
     test_notifier_sends_a_large_transcript_through_a_private_file(Path(tempfile.mkdtemp()))
+    test_notifier_says_when_an_empty_report_transcript_was_not_emailed(Path(tempfile.mkdtemp()))
     print("security-audit contract seam tests passed")
