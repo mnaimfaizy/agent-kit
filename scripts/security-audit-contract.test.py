@@ -244,7 +244,10 @@ def execution_file(tmp_path: Path, final: str) -> Path:
 def run_collect(tmp_path: Path, report: str | None, execution: Path | None) -> tuple[subprocess.CompletedProcess, str]:
     report_path = tmp_path / ".tmp" / "security-audit-report.md"
     report_path.parent.mkdir(parents=True, exist_ok=True)
-    if report is not None:
+    if report is None:
+        # Callers may reuse tmp_path: never inherit a report from an earlier run.
+        report_path.unlink(missing_ok=True)
+    else:
         report_path.write_text(report, encoding="utf-8")
     github_output = tmp_path / "github_output"
     github_output.touch()
@@ -287,6 +290,10 @@ def test_collect_logs_a_matching_final_line_with_its_count(tmp_path: Path) -> No
     for report in (REPORT, None):
         result, _ = run_collect(tmp_path, report, execution_file(tmp_path, "audit complete: 3 findings"))
         assert "Final line: matched (3 findings)" in result.stdout
+        if report is None:
+            # Logged before the empty-report exit, not only on success.
+            assert "Empty report" in result.stdout
+            assert result.returncode != 0
 
 
 def test_collect_never_logs_a_final_line_outside_the_closed_pattern(tmp_path: Path) -> None:
