@@ -29,7 +29,7 @@ Fingerprints of known findings for the dogfood security audit, so repeat runs de
 | `implementer-draft-status-prompt-only`              | fixed                   | 2026-09-26 | n/a                 | below the Medium floor; hardened in d85bc3f and d991e70, release pending |
 | `post-agent-workflow-check-omits-actions`           | fixed                   | 2026-09-26 | n/a                 | below the Medium floor; backstop added in d85bc3f, release pending       |
 | `workflow-edit-deny-omits-write-tools`              | rejected                | 2026-09-26 | n/a                 | an Edit(path) deny also covers Write and MultiEdit                       |
-| `implementer-git-config-write-executes-code`        | untriaged               | 2026-10-12 | GHSA-hg89-9pp4-v549 | reported High                                                            |
+| `implementer-git-config-write-executes-code`        | confirmed               | 2026-10-12 | GHSA-hg89-9pp4-v549 | rated high in triage; code-path evidence, live check pending             |
 | `glob-brace-expansion-escapes-pattern-check`        | untriaged               | 2026-10-12 | GHSA-hg89-9pp4-v549 | reported Medium                                                          |
 | `agent-writes-project-settings-mid-session`         | untriaged               | 2026-10-12 | GHSA-hg89-9pp4-v549 | reported Medium                                                          |
 | `main-ruleset-allows-app-self-merge`                | untriaged               | 2026-10-12 | GHSA-hg89-9pp4-v549 | reported Medium                                                          |
