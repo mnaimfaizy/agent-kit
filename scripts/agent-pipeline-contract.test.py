@@ -246,6 +246,7 @@ def test_agent_authored_code_never_runs_beside_write_or_oidc_credentials() -> No
     after_agent = names[names.index("Run implementer (Claude Code)") + 1 :]
     assert after_agent == [
         "Verify read-confinement hook unchanged",
+        "Check git configuration after the agent",
         "Prevent workflow edits by implementer",
         "Remove extracted plan from tracked state",
         "Record the agent's branch",

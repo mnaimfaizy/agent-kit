@@ -6,6 +6,10 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
+### Consumer action
+
+- **Required:** re-copy `.github/agent-runtime/` from this tag. Implement stages two new files from it, `confine-writes-to-worktree.mjs` and `check-git-config.mjs`, and fails before the agent starts if either is missing or if `implementer.settings.json` does not run the write hook with `|| exit 2`.
+
 ### Added
 
 - Review takes an optional Caller input, `trusted_spec_authors` (a JSON array of logins, empty by default). When the linked issue has no Verified plan, the Spec axis uses the latest issue comment that starts with `<!-- agent-kit-brief -->` and is written by a listed login. A Verified plan still wins, the brief stays inside the untrusted-spec fence, and the log records only which source was used.
@@ -24,6 +28,7 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ### Security
 
+- The implementer can no longer write git's configuration or hooks. A new staged hook keeps its file-writing tools in the working tree and out of `.git`, with symlinks resolved, and `Edit(./.git/**)` is denied. Before and after the agent, and in the push guard before it runs git, a check fails the run if `.git/config` holds a key outside a short allowlist or `.git/hooks` holds anything but samples. The push guard and the git steps after the agent also run with fsmonitor and hooks turned off. Before this, the implementer could write a git setting that names a command, which git then ran with the Claude GitHub App token in its environment.
 - Implement closes the implementer's pull request, with a comment, and fails the run if the PR was opened ready for review. The draft state was only a prompt instruction; a new `keep-draft` job with no checkout enforces it, even when verify fails. It closes rather than converts because the job token cannot convert a PR the Claude GitHub App opened to draft. Hardening only; the App cannot approve or merge.
 - The post-agent check that fails implement on workflow edits also covers `.github/actions/`, matching the pre-push guard. Hardening only; the guard already refused those pushes.
 

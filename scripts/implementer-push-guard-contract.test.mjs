@@ -90,7 +90,12 @@ describe("implementer push guard contract", () => {
     const byMatcher = Object.fromEntries(
       groups.map((g) => [g.matcher, g.hooks.map((h) => h.command)]),
     );
-    assert.deepEqual(Object.keys(byMatcher).sort(), ["Bash", "Read|Grep|Glob"]);
+    // The write-confinement group is covered by implementer-git-config-contract.
+    assert.deepEqual(Object.keys(byMatcher).sort(), [
+      "Bash",
+      "Edit|Write|MultiEdit|NotebookEdit",
+      "Read|Grep|Glob",
+    ]);
     // `|| exit 2`: a hook that crashes is a non-blocking error, so fail closed.
     assert.deepEqual(byMatcher.Bash, [
       'node "$RUNNER_TEMP/read-confinement/guard-implementer-push.mjs" || exit 2',

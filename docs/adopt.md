@@ -32,7 +32,7 @@ From the exact same tag used in `uses:`, copy:
 - `.claude/skills/security-audit/`
 - `.claude/skills/security-finding-triage/`
 - `.claude/skills/security-response/`
-- `.github/agent-runtime/` (Read/Grep/Glob confinement hook the jobs load from the Consumer checkout)
+- `.github/agent-runtime/` (the Read/Grep/Glob confinement hook, plus the implementer's write-confinement hook, push guard, and git config check, which the jobs load from the Consumer checkout)
 - `.github/security-audit/` (prompt and the publish/email scripts the audit stages from a trusted commit)
 - `.github/agent-pipeline/` (planner and implementer contracts, and the draft-PR fallback script)
 
