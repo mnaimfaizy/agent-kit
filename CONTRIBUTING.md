@@ -1,6 +1,6 @@
 # Contributing
 
-How to work on Agent-kit itself. To _use_ the kit, see [docs/getting-started.md](docs/getting-started.md). Vocabulary: [CONTEXT.md](CONTEXT.md).
+How to work on Agent-kit itself. To _use_ the kit, see [docs/getting-started.md](docs/getting-started.md). Vocabulary: [GLOSSARY.md](GLOSSARY.md).
 
 ## Setup
 

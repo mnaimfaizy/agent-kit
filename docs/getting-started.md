@@ -1,6 +1,6 @@
 # Getting started
 
-A complete first adoption of Agent-kit in a Consumer repository, in order. Budget about 30 minutes. Terms in **bold** are defined in [CONTEXT.md](../CONTEXT.md).
+A complete first adoption of Agent-kit in a Consumer repository, in order. Budget about 30 minutes. Terms in **bold** are defined in [GLOSSARY.md](../GLOSSARY.md).
 
 You will:
 

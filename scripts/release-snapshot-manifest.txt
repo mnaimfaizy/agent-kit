@@ -5,7 +5,7 @@ LICENSE
 README.md
 SECURITY.md
 CHANGELOG.md
-CONTEXT.md
+GLOSSARY.md
 CONTRIBUTING.md
 
 docs/getting-started.md
