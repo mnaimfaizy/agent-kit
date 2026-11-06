@@ -614,11 +614,13 @@ jobs:
             audit complete: <N> findings
 
             and nothing else.
+          # Edits to .claude/ and .mcp.json are denied: a running session can
+          # pick up a changed project permission rule.
           claude_args: |
             --model ${{ inputs.model }}
             --max-turns 100
             --allowedTools "${{ steps.tools.outputs.allowed }}"
-            --disallowedTools "Read(./.git/**),Edit(./.github/agent-runtime/**),Bash"
+            --disallowedTools "Read(./.git/**),Edit(./.github/agent-runtime/**),Edit(./.claude/**),Edit(./.mcp.json),Bash"
 
       - name: Verify read-confinement hook unchanged
         env:
