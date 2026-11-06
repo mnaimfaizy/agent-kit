@@ -131,8 +131,10 @@ jobs:
         run: |
           set -euo pipefail
           export LC_ALL=C
-          # The action's own branch-name check (claude-code-action
-          # validateBranchName). git alone accepts names the action rejects.
+          # The rules below copy claude-code-action v1.0.233's branch naming;
+          # re-check them when the action is bumped (see CONTRIBUTING.md).
+          # The action's own branch-name check (validateBranchName). git
+          # alone accepts names the action rejects.
           ACTION_NAME='^[a-zA-Z0-9@_][a-zA-Z0-9/_.#+,@()-]*$'
           valid_name() {
             [[ "$1" =~ $ACTION_NAME ]] && git check-ref-format --branch "$1" >/dev/null 2>&1

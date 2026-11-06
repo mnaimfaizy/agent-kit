@@ -76,6 +76,8 @@ def _step(data: str, name: str) -> str:
     return rest if next_step < 0 else rest[:next_step]
 
 
+# Bumping this? Re-check the implement workflow's "Check branch naming inputs"
+# step, which copies this version's branch naming rules (see CONTRIBUTING.md).
 CLAUDE_ACTION_SHA = "8cf3482550831fb35a4fc3fbf7ca139cf8028b4c"
 
 
