@@ -65,6 +65,10 @@ _Avoid_: command label, action label
 A plan comment authored by the trusted plan job and starting with its marker; the only input implement may act on.
 _Avoid_: approved plan, plan comment
 
+**Maintainer brief**:
+An issue comment starting with `<!-- agent-kit-brief -->`, written by a login the Caller lists in `trusted_spec_authors`; review's Spec source when the issue has no Verified plan.
+_Avoid_: triage comment, spec comment
+
 **Threat pack**:
 The Consumer-owned threat model and findings ledger the security audit reads.
 _Avoid_: security config, threat files
