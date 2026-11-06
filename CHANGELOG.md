@@ -14,6 +14,13 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 - The glossary is renamed from `CONTEXT.md` to `GLOSSARY.md`. Update any links to the old name.
 
+### Fixed
+
+- The security audit no longer creates an empty report file before the agent runs. Claude Code's Write tool refuses to overwrite a file the session has not read, so a run could report success and leave the report empty.
+- An empty audit report no longer discards the agent's session transcript. Before the job fails, it files a private draft advisory marked as a failed run with the transcript, and emails it when `notify_email` is on. The public log still says only `Empty report`.
+- Every audit run's log now includes a `Final line:` verdict on whether the agent's last message matched `audit complete: <N> findings`, without showing the message.
+- The email notifier passes the message body to Python as a private file instead of an environment variable, which failed on Linux for bodies over 128 KiB.
+
 ### Security
 
 - Implement closes the implementer's pull request, with a comment, and fails the run if the PR was opened ready for review. The draft state was only a prompt instruction; a new `keep-draft` job with no checkout enforces it, even when verify fails. It closes rather than converts because the job token cannot convert a PR the Claude GitHub App opened to draft. Hardening only; the App cannot approve or merge.

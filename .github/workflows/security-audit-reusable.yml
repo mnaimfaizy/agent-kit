@@ -464,8 +464,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Create the directory only. Claude Code's Write refuses to overwrite
+          # a file the session has not Read, so an empty report file here can
+          # end a run that reports success with no report.
           mkdir -p "$(dirname "$REPORT_PATH")"
-          : > "$REPORT_PATH"
           BRIEF="$GITHUB_WORKSPACE/security-audit-brief.md"
           {
             echo "Mode: $MODE"
@@ -634,6 +636,7 @@ jobs:
           fi
 
       - name: Collect transcript
+        id: collect
         env:
           EXECUTION_FILE: ${{ steps.scan.outputs.execution_file }}
         shell: bash
@@ -654,7 +657,27 @@ jobs:
           fi
           : > "$CLI_LOG"
 
+          # Whether the agent believed it wrote a report. Its final message is
+          # agent-authored, so log only a whole-message match of the closed
+          # pattern the prompt asks for, and never the message itself.
+          FINAL=""
+          if [ -n "${EXECUTION_FILE:-}" ] && [ -f "$EXECUTION_FILE" ]; then
+            FINAL="$(jq -rs 'flatten | map(select(type == "object" and .type? == "result")) | last | .result // empty' \
+              "$EXECUTION_FILE" 2>/dev/null || true)"
+          fi
+          FINAL="$(printf '%s' "$FINAL" | sed -e 's/[[:space:]]*$//')"
+          if [ -z "$FINAL" ]; then
+            echo "Final line: (absent)"
+          elif [[ "$FINAL" != *$'\n'* ]] && [[ "$FINAL" =~ ^audit\ complete:\ ([0-9]{1,6})\ findings$ ]]; then
+            echo "Final line: matched (${BASH_REMATCH[1]} findings)"
+          else
+            echo "Final line: (unrecognized)"
+          fi
+
           if [ ! -s "$REPORT" ]; then
+            # The transcript is the only clue to why, so the steps below send
+            # it privately before the job fails. The log says no more than this.
+            echo "empty_report=true" >> "$GITHUB_OUTPUT"
             echo "Empty report — failing."
             exit 1
           fi
@@ -767,6 +790,52 @@ jobs:
           SCRIPT="$STAGED_DIR/notify-email.sh"
           printf '%s  %s\n' "$SCRIPT_SHA256" "$SCRIPT" | sha256sum -c --quiet -
           "$SCRIPT" "$REPORT_PATH" publish-failed
+
+      # The agent wrote no report, so Collect transcript failed the job. The
+      # session transcript is the only record of why: file it as a private
+      # draft marked as a failed run, then email it when email is on. The job
+      # stays failed, and the log keeps saying only "Empty report".
+      - name: Publish failed-run draft after empty report
+        if: ${{ failure() && steps.collect.outputs.empty_report == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.advisories_token }}
+          GITHUB_TOKEN: ${{ secrets.advisories_token }}
+          GH_CONFIG_DIR: ${{ runner.temp }}/gh-empty-config
+          SECURITY_AUDIT_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SECURITY_AUDIT_MODE: ${{ inputs.mode }}
+          SCRIPT_SHA256: ${{ steps.stage.outputs.publisher_sha256 }}
+          STAGED_DIR: ${{ steps.stage.outputs.dir }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "advisories token missing — cannot create private draft advisory."
+            exit 1
+          fi
+          # Staged before the scan from a trusted commit; never the workspace copy.
+          SCRIPT="$STAGED_DIR/publish-draft-advisory.sh"
+          printf '%s  %s\n' "$SCRIPT_SHA256" "$SCRIPT" | sha256sum -c --quiet -
+          "$SCRIPT" "$REPORT_PATH" "$cli_log" "$session" empty-report
+
+      # Runs even if the draft above failed: failure() stays true either way.
+      - name: Email transcript after empty report
+        if: ${{ failure() && steps.collect.outputs.empty_report == 'true' && inputs.notify_email }}
+        env:
+          NOTIFY_EMAIL_TO: ${{ secrets.notify_email_to }}
+          NOTIFY_EMAIL_FROM: ${{ secrets.notify_email_from }}
+          NOTIFY_EMAIL_SMTP_HOST: ${{ secrets.notify_email_smtp_host }}
+          NOTIFY_EMAIL_SMTP_PORT: ${{ secrets.notify_email_smtp_port }}
+          NOTIFY_EMAIL_SMTP_USERNAME: ${{ secrets.notify_email_smtp_username }}
+          NOTIFY_EMAIL_SMTP_PASSWORD: ${{ secrets.notify_email_smtp_password }}
+          SCRIPT_SHA256: ${{ steps.stage.outputs.notifier_sha256 }}
+          STAGED_DIR: ${{ steps.stage.outputs.dir }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Staged before the scan from a trusted commit; never the workspace copy.
+          SCRIPT="$STAGED_DIR/notify-email.sh"
+          printf '%s  %s\n' "$SCRIPT_SHA256" "$SCRIPT" | sha256sum -c --quiet -
+          "$SCRIPT" "$session" empty-report
 
       - name: Parse finding count
         id: finding_count
