@@ -8,6 +8,7 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ### Added
 
+- Review takes an optional Caller input, `trusted_spec_authors` (a JSON array of logins, empty by default). When the linked issue has no Verified plan, the Spec axis uses the latest issue comment that starts with `<!-- agent-kit-brief -->` and is written by a listed login. A Verified plan still wins, the brief stays inside the untrusted-spec fence, and the log records only which source was used.
 - Implement takes two optional Caller inputs for the implementer's branch name: `branch_prefix` (default `claude/`) and `branch_name_template` (default empty, the action's own naming). A check before the agent fails the run if a name would be one the action rejects, if a template leaves out `{{entityNumber}}`, or if the prefix is longer than 24 characters (the action's default naming, which it also falls back to when a template's name already exists, cuts names at 50 characters). Callers that set neither get the same branches as before.
 
 ### Changed

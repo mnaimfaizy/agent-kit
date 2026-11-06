@@ -54,6 +54,7 @@ Implement reads only a Verified plan comment that:
 - on-demand review of a pull request (`pr_number`, `head_sha`, `base_sha`, `base_ref`)
 - report three axes: Standards, Spec, Correctness
 - Spec axis uses a Verified plan when the PR (or `issue_number`) names one
+- without a Verified plan, the Spec axis uses the latest issue comment that starts with `<!-- agent-kit-brief -->` and is written by a login in `trusted_spec_authors` (empty by default, which turns this off; logins match exactly, and an invalid value fails the review); a triage agent brief can carry the marker to become the spec
 - no push or product execution, no auto-fix
 - fork pull requests are a no-op; do not switch the Caller to `pull_request_target`
 
