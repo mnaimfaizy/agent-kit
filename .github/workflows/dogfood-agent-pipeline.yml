@@ -62,6 +62,9 @@ jobs:
       kill_switch: ${{ vars.CLAUDE_PIPELINE_ENABLED != 'true' }}
       model: ${{ vars.CLAUDE_MODEL_REVIEW || vars.CLAUDE_MODEL || 'claude-opus-5' }}
       allowlist_actors: '["mnaimfaizy"]'
+      # Without a Verified plan, grade Spec against a maintainer brief: an issue
+      # comment that starts with <!-- agent-kit-brief --> by a listed login.
+      trusted_spec_authors: '["mnaimfaizy"]'
       trigger_label: "agent:review"
       pr_number: ${{ format('{0}', github.event.pull_request.number) }}
       head_sha: ${{ github.event.pull_request.head.sha }}
