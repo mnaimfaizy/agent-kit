@@ -32,13 +32,32 @@ out() {
   fi
 }
 
+# Print at most <max> bytes of <file>: all of it, or its first <head> bytes and
+# its last bytes with a marker between. Duplicated in notify-email.sh
+# deliberately: the staged copies are runnable scripts, not a library.
+head_tail() {
+  local file="$1" max="$2" head="$3" size
+  size="$(wc -c < "$file" | tr -d '[:space:]')"
+  if [ "$size" -le "$max" ]; then
+    cat "$file"
+    return
+  fi
+  local tail=$((max - head - 64))
+  head -c "$head" "$file"
+  printf '\n\n[... %d bytes omitted ...]\n\n' "$((size - head - tail))"
+  tail -c "$tail" "$file"
+}
+
 # Create the draft from SUMMARY, MAX, COUNT, FORMAT_MISMATCH and BODY_FILE.
 create_draft() {
-  DESCRIPTION="$(head -c 65000 "$BODY_FILE")"
+  # Read the description from a file, not an argument: a 65 KB argument is
+  # over some platforms' command-line limit.
+  local description_file="${BODY_FILE}.description"
+  (umask 077 && head -c 65000 "$BODY_FILE" > "$description_file")
 
   PAYLOAD="$(jq -n \
     --arg summary "$SUMMARY" \
-    --arg description "$DESCRIPTION" \
+    --rawfile description "$description_file" \
     --arg severity "$MAX" \
     --arg package "$PACKAGE" \
     '{
@@ -68,9 +87,14 @@ create_draft() {
       break
     fi
     if [ "$attempt" = 3 ]; then
-      echo "Publish failed after 3 attempts. If notify_email is configured, the next step" >&2
-      echo "emails the full report; otherwise the report is lost. Fix the advisories token" >&2
-      echo "and re-run the audit." >&2
+      echo "Publish failed after 3 attempts. Fix the advisories token." >&2
+      if [ "$RUN_STATUS" = "empty-report" ]; then
+        echo "If notify_email is configured, the next step emails the session transcript;" >&2
+        echo "otherwise it is lost." >&2
+      else
+        echo "If notify_email is configured, the next step emails the full report;" >&2
+        echo "otherwise the report is lost and the audit must be re-run." >&2
+      fi
       exit 1
     fi
     sleep $((attempt * 15))
@@ -98,7 +122,7 @@ if [ "$RUN_STATUS" = "empty-report" ]; then
   FORMAT_MISMATCH=false
   SUMMARY="[Security audit] ${DATE} — failed run: empty report"
   BODY_FILE="$(umask 077 && mktemp "${RUNNER_TEMP:-/tmp}/security-audit-advisory-body.XXXXXX")"
-  trap 'rm -f "$BODY_FILE"' EXIT
+  trap 'rm -f "$BODY_FILE" "$BODY_FILE.description"' EXIT
   {
     echo "The audit agent finished without writing a report, so the job failed."
     echo "The session transcript below is the record of what it did."
@@ -117,8 +141,10 @@ if [ "$RUN_STATUS" = "empty-report" ]; then
     echo "## Agent session transcript"
     echo
     if [ -n "$SESSION" ] && [ -s "$SESSION" ]; then
-      # Leave room under the 65535 advisory description cap.
-      head -c 60000 "$SESSION"
+      # Leave room under the 65535 advisory description cap. The clue to an
+      # empty report (the report Write, a refusal, the final result) is at
+      # the end of the transcript, so keep its start and its end.
+      head_tail "$SESSION" 60000 8000
     else
       echo "(no transcript was captured)"
     fi
@@ -212,7 +238,7 @@ SUMMARY="$(printf '%s' "$SUMMARY" | head -c 1024)"
 # The body holds every finding and the session transcript: write it to a
 # private, unpredictable file and remove it on exit.
 BODY_FILE="$(umask 077 && mktemp "${RUNNER_TEMP:-/tmp}/security-audit-advisory-body.XXXXXX")"
-trap 'rm -f "$BODY_FILE"' EXIT
+trap 'rm -f "$BODY_FILE" "$BODY_FILE.description"' EXIT
 
 {
   cat "$REPORT"

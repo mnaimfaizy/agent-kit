@@ -372,7 +372,13 @@ def run_notifier(tmp_path: Path, *args: str) -> tuple[subprocess.CompletedProces
     message = tmp_path / "message.txt"
     python = bin_dir / "python3"
     python.write_text(
-        f'#!/usr/bin/env bash\ncat > /dev/null\nprintf "%s\n---\n%s" "$SUBJECT" "$BODY" > "{message.as_posix()}"\n',
+        "#!/usr/bin/env bash\n"
+        "cat > /dev/null\n"
+        # The body must arrive as a file: an environment string over 128 KiB
+        # makes execve fail on Linux, and the transcript is often that large.
+        f'printf "%s\\n---\\n" "$SUBJECT" > "{message.as_posix()}"\n'
+        f'cat "$BODY_FILE" >> "{message.as_posix()}"\n'
+        f'printf "%s" "${{BODY:-}}" > "{(tmp_path / "body-env.txt").as_posix()}"\n',
         encoding="utf-8",
     )
     python.chmod(0o755)
@@ -445,6 +451,42 @@ def test_no_step_prints_the_transcript_to_the_log() -> None:
         assert f'head -c 200000 "${name}"' not in data
 
 
+def large_transcript(path: Path) -> Path:
+    # Init first, the decisive last turns at the end, like an execution file.
+    path.write_text("TRANSCRIPT-START " + "x" * 300_000 + f" {SECRET} TRANSCRIPT-END", encoding="utf-8")
+    return path
+
+
+def test_publisher_keeps_the_start_and_end_of_a_large_transcript(tmp_path: Path) -> None:
+    env, captured = fake_gh(tmp_path)
+    session = large_transcript(tmp_path / "security-audit-session.md")
+    result = subprocess.run(
+        [bash(), str(PUBLISH), str(tmp_path / "missing.md"), "", str(session), "empty-report"],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    description = json.loads(captured.read_text(encoding="utf-8"))["description"]
+    assert "TRANSCRIPT-START" in description
+    assert "TRANSCRIPT-END" in description
+    assert "bytes omitted" in description
+    assert len(description.encode("utf-8")) <= 65000
+
+
+def test_notifier_sends_a_large_transcript_through_a_private_file(tmp_path: Path) -> None:
+    session = large_transcript(tmp_path / "security-audit-session.md")
+    result, message = run_notifier(tmp_path, str(session), "empty-report")
+    assert result.returncode == 0, result.stdout + result.stderr
+    body = message.read_text(encoding="utf-8")
+    assert "TRANSCRIPT-START" in body
+    assert "TRANSCRIPT-END" in body
+    assert "bytes omitted" in body
+    assert (tmp_path / "body-env.txt").read_text(encoding="utf-8") == ""
+    assert not list(tmp_path.glob("security-audit-email-body.*")), "body file left behind"
+
+
 if __name__ == "__main__":
     import tempfile
 
@@ -476,4 +518,6 @@ if __name__ == "__main__":
     test_an_empty_report_files_a_failed_run_draft_through_the_staged_publisher()
     test_an_empty_report_emails_the_transcript_only_when_email_is_on()
     test_no_step_prints_the_transcript_to_the_log()
+    test_publisher_keeps_the_start_and_end_of_a_large_transcript(Path(tempfile.mkdtemp()))
+    test_notifier_sends_a_large_transcript_through_a_private_file(Path(tempfile.mkdtemp()))
     print("security-audit contract seam tests passed")

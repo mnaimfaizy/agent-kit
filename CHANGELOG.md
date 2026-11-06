@@ -17,7 +17,9 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 ### Fixed
 
 - The security audit no longer creates an empty report file before the agent runs. Claude Code's Write tool refuses to overwrite a file the session has not read, so a run could report success and leave the report empty.
-- An empty audit report no longer discards the agent's session transcript. Before the job fails, it files a private draft advisory marked as a failed run with the transcript, and emails it when `notify_email` is on. The public log still says only `Empty report`, plus a `Final line:` verdict on whether the agent's last message matched `audit complete: <N> findings`.
+- An empty audit report no longer discards the agent's session transcript. Before the job fails, it files a private draft advisory marked as a failed run with the transcript, and emails it when `notify_email` is on. The public log still says only `Empty report`.
+- Every audit run's log now includes a `Final line:` verdict on whether the agent's last message matched `audit complete: <N> findings`, without showing the message.
+- The email notifier passes the message body to Python as a private file instead of an environment variable, which failed on Linux for bodies over 128 KiB.
 
 ### Security
 
