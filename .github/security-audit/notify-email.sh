@@ -4,7 +4,8 @@ set -euo pipefail
 REPORT_PATH="${1:-}"
 MODE="${2:-notice}"
 if [[ -z "${REPORT_PATH}" ]]; then
-  echo "usage: notify-email.sh <report-path> [publish-failed]" >&2
+  # With empty-report, the first argument is the session transcript instead.
+  echo "usage: notify-email.sh <report-path> [publish-failed] | <session-path> empty-report" >&2
   exit 1
 fi
 
@@ -35,6 +36,13 @@ if [[ "${MODE}" == "publish-failed" ]]; then
   SUBJECT="[publish failed] Security audit report (${COUNT} findings)"
   BODY="$(printf '%s\n\n%s\n' \
     "The private draft advisory could not be created. The full report follows; fix the advisories token." \
+    "$(head -c 200000 "${REPORT_PATH}")")"
+elif [[ "${MODE}" == "empty-report" ]]; then
+  # The agent wrote no report, so the job fails. The transcript is the only
+  # record of why; it goes to the configured mailbox and the private draft only.
+  SUBJECT="[empty report] Security audit run failed"
+  BODY="$(printf '%s\n\n%s\n' \
+    "The audit agent finished without writing a report, so the job failed. Its session transcript follows." \
     "$(head -c 200000 "${REPORT_PATH}")")"
 fi
 export SUBJECT BODY MODE

@@ -3,15 +3,18 @@
 # Always creates a draft for full audits (including clean runs) so maintainers can see what the
 # agent produced. Finding bodies and CLI transcripts must NEVER be printed to public Actions logs.
 #
-# Usage: publish-draft-advisory.sh <report.md> [cli-log] [session.md]
+# Usage: publish-draft-advisory.sh <report.md> [cli-log] [session.md] [empty-report]
+# With `empty-report`, the agent wrote no report: file a draft marked as a failed
+# run whose body is the session transcript, so the maintainer can see why.
 # The vulnerability package name defaults to the repository name. Set SECURITY_AUDIT_PACKAGE to override.
 set -euo pipefail
 
 REPORT="${1:?report file required}"
 CLI_LOG="${2:-}"
 SESSION="${3:-}"
+RUN_STATUS="${4:-}"
 
-if [ ! -f "$REPORT" ]; then
+if [ "$RUN_STATUS" != "empty-report" ] && [ ! -f "$REPORT" ]; then
   echo "missing report: $REPORT" >&2
   exit 1
 fi
@@ -28,6 +31,102 @@ out() {
     echo "$1" >> "$GITHUB_OUTPUT"
   fi
 }
+
+# Create the draft from SUMMARY, MAX, COUNT, FORMAT_MISMATCH and BODY_FILE.
+create_draft() {
+  DESCRIPTION="$(head -c 65000 "$BODY_FILE")"
+
+  PAYLOAD="$(jq -n \
+    --arg summary "$SUMMARY" \
+    --arg description "$DESCRIPTION" \
+    --arg severity "$MAX" \
+    --arg package "$PACKAGE" \
+    '{
+      summary: $summary,
+      description: $description,
+      severity: $severity,
+      vulnerabilities: [
+        {
+          package: { ecosystem: "other", name: $package },
+          vulnerable_version_range: "*",
+          patched_versions: null,
+          vulnerable_functions: []
+        }
+      ]
+    }')"
+
+  # The report exists only on this runner, so a transient failure must not
+  # discard it. A retry after a create that succeeded but lost its response
+  # files a duplicate draft; that is the cheaper failure.
+  RESP=""
+  for attempt in 1 2 3; do
+    if RESP="$(gh api \
+      --method POST \
+      -H "Accept: application/vnd.github+json" \
+      "/repos/${OWNER}/${REPO}/security-advisories" \
+      --input - <<<"$PAYLOAD")"; then
+      break
+    fi
+    if [ "$attempt" = 3 ]; then
+      echo "Publish failed after 3 attempts. If notify_email is configured, the next step" >&2
+      echo "emails the full report; otherwise the report is lost. Fix the advisories token" >&2
+      echo "and re-run the audit." >&2
+      exit 1
+    fi
+    sleep $((attempt * 15))
+  done
+
+  GHSA="$(jq -r '.ghsa_id // empty' <<<"$RESP")"
+  if [ -z "$GHSA" ]; then
+    echo "Draft advisory created."
+  else
+    echo "Draft advisory created: ${GHSA} (details private to admins/security managers)."
+  fi
+  # Do NOT echo the advisory URL — public Actions logs would leak a private handle.
+  out "advisory_url="
+  out "ghsa_id=$GHSA"
+  out "finding_count=$COUNT"
+  out "max_severity=$MAX"
+  out "format_mismatch=$FORMAT_MISMATCH"
+  out "published=true"
+}
+
+if [ "$RUN_STATUS" = "empty-report" ]; then
+  echo "Run status: empty report (filing a failed-run draft with the session transcript)."
+  COUNT=0
+  MAX="low"
+  FORMAT_MISMATCH=false
+  SUMMARY="[Security audit] ${DATE} — failed run: empty report"
+  BODY_FILE="$(umask 077 && mktemp "${RUNNER_TEMP:-/tmp}/security-audit-advisory-body.XXXXXX")"
+  trap 'rm -f "$BODY_FILE"' EXIT
+  {
+    echo "The audit agent finished without writing a report, so the job failed."
+    echo "The session transcript below is the record of what it did."
+    echo "Close this draft once you have read it."
+    echo
+    echo "## Run metadata"
+    echo
+    echo "- Mode: \`${MODE}\`"
+    if [ -n "$RUN_URL" ]; then
+      echo "- Actions run: ${RUN_URL}"
+    fi
+    echo "- Captured at (UTC): $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    echo
+    echo "---"
+    echo
+    echo "## Agent session transcript"
+    echo
+    if [ -n "$SESSION" ] && [ -s "$SESSION" ]; then
+      # Leave room under the 65535 advisory description cap.
+      head -c 60000 "$SESSION"
+    else
+      echo "(no transcript was captured)"
+    fi
+    echo
+  } > "$BODY_FILE"
+  create_draft
+  exit 0
+fi
 
 # Safe metadata only (no finding bodies) — helps debug false cleans in Actions logs.
 echo "Report path: $REPORT"
@@ -153,58 +252,4 @@ trap 'rm -f "$BODY_FILE"' EXIT
   fi
 } > "$BODY_FILE"
 
-DESCRIPTION="$(head -c 65000 "$BODY_FILE")"
-
-PAYLOAD="$(jq -n \
-  --arg summary "$SUMMARY" \
-  --arg description "$DESCRIPTION" \
-  --arg severity "$MAX" \
-  --arg package "$PACKAGE" \
-  '{
-    summary: $summary,
-    description: $description,
-    severity: $severity,
-    vulnerabilities: [
-      {
-        package: { ecosystem: "other", name: $package },
-        vulnerable_version_range: "*",
-        patched_versions: null,
-        vulnerable_functions: []
-      }
-    ]
-  }')"
-
-# The report exists only on this runner, so a transient failure must not
-# discard it. A retry after a create that succeeded but lost its response
-# files a duplicate draft; that is the cheaper failure.
-RESP=""
-for attempt in 1 2 3; do
-  if RESP="$(gh api \
-    --method POST \
-    -H "Accept: application/vnd.github+json" \
-    "/repos/${OWNER}/${REPO}/security-advisories" \
-    --input - <<<"$PAYLOAD")"; then
-    break
-  fi
-  if [ "$attempt" = 3 ]; then
-    echo "Publish failed after 3 attempts. If notify_email is configured, the next step" >&2
-    echo "emails the full report; otherwise the report is lost. Fix the advisories token" >&2
-    echo "and re-run the audit." >&2
-    exit 1
-  fi
-  sleep $((attempt * 15))
-done
-
-GHSA="$(jq -r '.ghsa_id // empty' <<<"$RESP")"
-if [ -z "$GHSA" ]; then
-  echo "Draft advisory created."
-else
-  echo "Draft advisory created: ${GHSA} (details private to admins/security managers)."
-fi
-# Do NOT echo the advisory URL — public Actions logs would leak a private handle.
-out "advisory_url="
-out "ghsa_id=$GHSA"
-out "finding_count=$COUNT"
-out "max_severity=$MAX"
-out "format_mismatch=$FORMAT_MISMATCH"
-out "published=true"
+create_draft

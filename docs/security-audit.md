@@ -23,7 +23,11 @@ The reusable job supports:
 
 The preflight checks the advisories token is live, then sends an empty body to the create-advisory endpoint. GitHub checks authorization first, so a token that may create advisories gets a validation error (422), which passes, and one that may not gets 403 or 404, which fails the run before the agent starts. Nothing is created.
 
-Publishing retries three times. If it still fails and `notify_email` is on, the job emails the **full report**, with a subject starting `[publish failed]`. This is the only email that carries finding detail; the routine notice is counts-only. The run still fails, because the token needs fixing. Without email, the report is lost and the run must be repeated.
+Publishing retries three times. If it still fails and `notify_email` is on, the job emails the **full report**, with a subject starting `[publish failed]`. The run still fails, because the token needs fixing. Without email, the report is lost and the run must be repeated.
+
+If the agent finishes without writing a report, the job fails with `Empty report`. Before it does, it files a private draft advisory titled `failed run: empty report` whose body is the agent's session transcript and the run link. When `notify_email` is on, it also emails the transcript, with a subject starting `[empty report]`. Close the draft once you have read it. The log adds one line, `Final line:`, which says whether the agent's last message matched `audit complete: <N> findings` (`matched (<N> findings)`, `(unrecognized)` or `(absent)`) and never shows the message itself. This applies only when the agent step finished and the read-confinement hook was unchanged. If the agent step errors or the hook check fails, nothing the agent wrote is delivered, and the run log is the only record.
+
+Only these two failure emails carry detail that may include findings; the routine notice is counts-only.
 
 ## Dependabot alert grounding (optional)
 
