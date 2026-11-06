@@ -45,6 +45,16 @@ on:
         required: false
         type: string
         default: "main"
+      branch_prefix:
+        description: "Prefix for the implementer's branch name. Must be a valid start of a branch name, at most 24 characters."
+        required: false
+        type: string
+        default: "claude/"
+      branch_name_template:
+        description: "claude-code-action branch name template, for example `fix/{{entityNumber}}-{{description}}`. Must contain `{{entityNumber}}`. Empty uses the action's default naming, which the action also falls back to when the template's name already exists."
+        required: false
+        type: string
+        default: ""
       verify_commands:
         description: "Caller-owned verify commands (multi-line shell). Code the job runs: never build it from issue or PR text."
         required: false
@@ -109,6 +119,69 @@ jobs:
           # The implementer pushes as the Claude GitHub App, not the job token.
           # Leaving the default (true) writes the job token into .git/config.
           persist-credentials: false
+
+      # Fail before any agent or App-token step if the Caller's branch naming
+      # could produce an invalid name, or one shared across issues (even the
+      # base branch). Inputs arrive through env only, never interpolated.
+      - name: Check branch naming inputs
+        env:
+          BRANCH_PREFIX: ${{ inputs.branch_prefix }}
+          BRANCH_NAME_TEMPLATE: ${{ inputs.branch_name_template }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          export LC_ALL=C
+          # The rules below copy claude-code-action v1.0.233's branch naming;
+          # re-check them when the action is bumped (see CONTRIBUTING.md).
+          # The action's own branch-name check (validateBranchName). git
+          # alone accepts names the action rejects.
+          ACTION_NAME='^[a-zA-Z0-9@_][a-zA-Z0-9/_.#+,@()-]*$'
+          valid_name() {
+            [[ "$1" =~ $ACTION_NAME ]] && git check-ref-format --branch "$1" >/dev/null 2>&1
+          }
+          # The action appends its own suffix, so judge the prefix with one.
+          if ! valid_name "${BRANCH_PREFIX}issue-1"; then
+            echo "branch_prefix is not a valid start of a branch name."
+            exit 1
+          fi
+          # Default naming is <prefix>issue-<N>-<YYYYMMDD-HHMM>, cut to 50
+          # characters: a longer prefix loses the timestamp, then the issue
+          # number, and runs start sharing one branch. It applies even with a
+          # template: when the template's name already exists on the remote,
+          # the action falls back to default naming.
+          if [ "${#BRANCH_PREFIX}" -gt 24 ]; then
+            echo "branch_prefix is longer than 24 characters."
+            exit 1
+          fi
+          if [ -n "$BRANCH_NAME_TEMPLATE" ]; then
+            # A template without the issue number can resolve to one name for
+            # every run, even the base branch.
+            if [[ "$BRANCH_NAME_TEMPLATE" != *"{{entityNumber}}"* ]]; then
+              echo "branch_name_template must contain {{entityNumber}}."
+              exit 1
+            fi
+            # Fill the known variables with samples and judge the result:
+            # literal text, and any unknown {{variable}} the action leaves as
+            # is. The action cleans {{label}} and always has the others, but
+            # {{description}} is empty for a title with no ASCII letters or
+            # digits, so judge that case too.
+            sample() {
+              local s="${BRANCH_NAME_TEMPLATE//\{\{prefix\}\}/$BRANCH_PREFIX}"
+              s="${s//\{\{description\}\}/$1}"
+              for var in entityType entityNumber timestamp sha label; do
+                s="${s//\{\{$var\}\}/x1}"
+              done
+              # Collapse empty path segments, as the action does.
+              while [[ "$s" == *//* ]]; do s="${s//\/\//\/}"; done
+              s="${s#/}"
+              s="${s%/}"
+              printf '%s' "$s"
+            }
+            if ! valid_name "$(sample x1)" || ! valid_name "$(sample '')"; then
+              echo "branch_name_template does not produce a valid branch name."
+              exit 1
+            fi
+          fi
 
       - name: Run caller-owned setup commands
         if: ${{ success() && inputs.setup_commands != '' }}
@@ -262,7 +335,9 @@ jobs:
           settings: ${{ runner.temp }}/read-confinement/implementer.settings.json
           label_trigger: ${{ inputs.trigger_label }}
           track_progress: true
-          branch_prefix: "claude/"
+          # Caller-owned, checked by "Check branch naming inputs" above.
+          branch_prefix: ${{ inputs.branch_prefix }}
+          branch_name_template: ${{ inputs.branch_name_template }}
           # --allowedTools is an accumulating flag: these MERGE with the action's
           # own base list (Read/Glob/Grep plus the git add/commit/push plumbing)
           # rather than replacing it, so the commit path stays intact.

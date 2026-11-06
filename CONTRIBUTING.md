@@ -65,7 +65,7 @@ The tests are contracts, not unit tests: they pin behavior a Consumer depends on
 ## Action and dependency pins
 
 - Every `uses:` in `.github/workflows/` is pinned to a full commit SHA with a `# vX.Y.Z` comment. Dependabot bumps them weekly.
-- `anthropics/claude-code-action` is excluded from Dependabot and asserted by the contract tests. To bump it: read its release notes, update the SHA in all four reusable workflows and in `CLAUDE_ACTION_SHA` in the tests, and note it in the CHANGELOG.
+- `anthropics/claude-code-action` is excluded from Dependabot and asserted by the contract tests. To bump it: read its release notes, update the SHA in all four reusable workflows and in `CLAUDE_ACTION_SHA` in the tests, and note it in the CHANGELOG. Also re-check the implement workflow's "Check branch naming inputs" step against the new version's branch naming (`validateBranchName`'s pattern, the default name and its 50-character cut, the fallback to default naming when a template's branch exists, and empty path-segment collapsing), and update the step and its tests if any of these changed.
 - The actionlint image in `ci.yml` is pinned by digest; update the tag and digest together.
 - Keep `.pre-commit-config.yaml` hook versions in step with `uv.lock` (ruff) and CI.
 
