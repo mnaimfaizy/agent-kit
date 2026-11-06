@@ -67,7 +67,7 @@ For procedure skills such as `implement`, `tdd`, and `wayfinder`, adopt **[Matt 
 | [Cutting releases](docs/cutting-releases.md)               | Maintainers: how to tag a release                                             |
 | [Copilot restore](docs/copilot-restore.md)                 | Swapping the runner to the inert Copilot archive                              |
 | [Issuebridge](docs/issuebridge.md)                         | Reference Consumer target state + stand-up checklist                          |
-| [CONTEXT.md](CONTEXT.md)                                   | Glossary of the terms used across these docs                                  |
+| [GLOSSARY.md](GLOSSARY.md)                                 | Glossary of the terms used across these docs                                  |
 | [CHANGELOG.md](CHANGELOG.md)                               | Release history                                                               |
 
 Distribution is tags only: no Marketplace listing, no binaries, and no skills zip.
