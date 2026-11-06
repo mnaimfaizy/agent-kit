@@ -32,7 +32,13 @@ From the exact same tag used in `uses:`, copy:
 - `.claude/skills/security-audit/`
 - `.claude/skills/security-finding-triage/`
 - `.claude/skills/security-response/`
-- `.github/agent-runtime/` (the Read/Grep/Glob confinement hook, plus the implementer's write-confinement hook, push guard, and git config check, which the jobs load from the Consumer checkout)
+- `.github/agent-runtime/` — hooks and settings the jobs load from the Consumer checkout and run from a read-only copy under `$RUNNER_TEMP`:
+  - `confine-reads-to-workspace.mjs`: PreToolUse hook that denies Read/Grep/Glob outside the workspace. Plan, implement, review, audit.
+  - `read-confinement.settings.json`: settings that run the read hook. Plan, review, audit (implement checks it too).
+  - `implementer.settings.json`: settings that run the read hook, write hook, and push guard. Implement.
+  - `confine-writes-to-worktree.mjs`: PreToolUse hook that keeps writes in the worktree and out of `.git/`. Implement.
+  - `guard-implementer-push.mjs`: PreToolUse hook that refuses any push except the expected one. Implement.
+  - `check-git-config.mjs`: allowlist check of the checkout's git config and hooks, run before and after the agent. Implement.
 - `.github/security-audit/` (prompt and the publish/email scripts the audit stages from a trusted commit)
 - `.github/agent-pipeline/` (planner and implementer contracts, and the draft-PR fallback script)
 
