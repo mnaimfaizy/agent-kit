@@ -26,11 +26,11 @@ Fingerprints of known findings for the dogfood security audit, so repeat runs de
 | `implementer-workflow-edit-guard-post-push`         | released v1.0.0-alpha.7 | 2026-09-25 | GHSA-6c8q-c2xg-w3fh | rated high in triage                                                            |
 | `pr-gitattributes-reencodes-restored-hook`          | released v1.0.0-alpha.8 | 2026-09-26 | GHSA-529g-7fww-6rr7 | rated high in triage                                                            |
 | `pr-gitattributes-blank-precomputed-diff`           | released v1.0.0-alpha.8 | 2026-09-26 | GHSA-529g-7fww-6rr7 | below the Medium floor; hardening with the F1 fix                               |
-| `implementer-draft-status-prompt-only`              | fixed                   | 2026-09-26 | n/a                 | below the Medium floor; hardened in d85bc3f and d991e70, release pending        |
-| `post-agent-workflow-check-omits-actions`           | fixed                   | 2026-09-26 | n/a                 | below the Medium floor; backstop added in d85bc3f, release pending              |
+| `implementer-draft-status-prompt-only`              | released v1.0.0-alpha.9 | 2026-09-26 | n/a                 | below the Medium floor; hardened in d85bc3f and d991e70                         |
+| `post-agent-workflow-check-omits-actions`           | released v1.0.0-alpha.9 | 2026-09-26 | n/a                 | below the Medium floor; backstop added in d85bc3f                               |
 | `workflow-edit-deny-omits-write-tools`              | rejected                | 2026-09-26 | n/a                 | an Edit(path) deny also covers Write and MultiEdit                              |
-| `implementer-git-config-write-executes-code`        | fixed                   | 2026-10-12 | GHSA-hg89-9pp4-v549 | rated high in triage; fixed in c2d0bd5, release pending                         |
-| `glob-brace-expansion-escapes-pattern-check`        | fixed                   | 2026-10-12 | GHSA-hg89-9pp4-v549 | file names only; fixed in 763af3a, release pending                              |
-| `agent-writes-project-settings-mid-session`         | fixed                   | 2026-10-12 | GHSA-hg89-9pp4-v549 | rated high in triage for the implementer; fixed in 763af3a, release pending     |
+| `implementer-git-config-write-executes-code`        | released v1.0.0-alpha.9 | 2026-10-12 | GHSA-hg89-9pp4-v549 | rated high in triage; fixed in c2d0bd5                                          |
+| `glob-brace-expansion-escapes-pattern-check`        | released v1.0.0-alpha.9 | 2026-10-12 | GHSA-hg89-9pp4-v549 | file names only; fixed in 763af3a                                               |
+| `agent-writes-project-settings-mid-session`         | released v1.0.0-alpha.9 | 2026-10-12 | GHSA-hg89-9pp4-v549 | rated high in triage for the implementer; fixed in 763af3a                      |
 | `main-ruleset-allows-app-self-merge`                | fixed                   | 2026-10-12 | GHSA-hg89-9pp4-v549 | main ruleset gained update and required-checks rules 2026-11-07; no code change |
 | `glob-brace-pattern-escapes-read-confinement`       | rejected                | 2026-11-02 | GHSA-xmp7-9gg5-9fv9 | duplicate of `glob-brace-expansion-escapes-pattern-check`                       |

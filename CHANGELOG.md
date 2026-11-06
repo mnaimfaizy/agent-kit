@@ -6,6 +6,10 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
+## [1.0.0-alpha.9] - 2026-11-07
+
+Security release for [GHSA-hg89-9pp4-v549](https://github.com/mnaimfaizy/agent-kit/security/advisories/GHSA-hg89-9pp4-v549). **Consumer action required** — see the first item.
+
 ### Consumer action
 
 - **Required:** re-copy `.github/agent-runtime/` from this tag. Implement stages two new files from it, `confine-writes-to-worktree.mjs` and `check-git-config.mjs`, and fails before the agent starts if either is missing or if `implementer.settings.json` does not run the write hook with `|| exit 2`.
