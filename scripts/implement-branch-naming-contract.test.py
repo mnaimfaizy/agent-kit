@@ -132,9 +132,22 @@ def test_guardrail_refuses_a_prefix_the_default_naming_would_truncate() -> None:
     assert "branch_prefix" in result.stdout + result.stderr
 
 
-def test_guardrail_allows_a_long_prefix_when_a_template_names_the_branch() -> None:
-    # A template result is not truncated by the action.
-    assert run_guard("a-very-long-team-prefix/agents/", "{{prefix}}{{entityNumber}}").returncode == 0
+def test_guardrail_refuses_a_long_prefix_even_with_a_template() -> None:
+    # When the template's name already exists on the remote, the action falls
+    # back to default naming, which truncates a long prefix's name too.
+    result = run_guard("a-very-long-team-prefix/agents/", "{{prefix}}{{entityNumber}}")
+    assert result.returncode != 0
+    assert "branch_prefix" in result.stdout + result.stderr
+
+
+def test_guardrail_judges_a_template_with_an_empty_description() -> None:
+    # A title with no ASCII letters or digits makes {{description}} empty. The
+    # action collapses the empty path segments that leaves, but not a leading "-".
+    for template in ("{{description}}/{{entityNumber}}", "fix/{{entityNumber}}-{{description}}"):
+        assert run_guard("claude/", template).returncode == 0, f"refused template {template!r}"
+    result = run_guard("claude/", "{{description}}-{{entityNumber}}")
+    assert result.returncode != 0
+    assert "branch_name_template" in result.stdout + result.stderr
 
 
 def test_guardrail_refuses_characters_the_action_rejects() -> None:
@@ -162,6 +175,7 @@ if __name__ == "__main__":
     test_guardrail_refuses_a_template_without_the_issue_number()
     test_no_run_script_interpolates_branch_naming()
     test_guardrail_refuses_a_prefix_the_default_naming_would_truncate()
-    test_guardrail_allows_a_long_prefix_when_a_template_names_the_branch()
+    test_guardrail_refuses_a_long_prefix_even_with_a_template()
+    test_guardrail_judges_a_template_with_an_empty_description()
     test_guardrail_refuses_characters_the_action_rejects()
     print("implement-branch-naming contract tests passed")

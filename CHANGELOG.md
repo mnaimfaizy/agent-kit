@@ -8,7 +8,7 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ### Added
 
-- Implement takes two optional Caller inputs for the implementer's branch name: `branch_prefix` (default `claude/`) and `branch_name_template` (default empty, the action's own naming). A check before the agent fails the run if a name would be one the action rejects, if a template leaves out `{{entityNumber}}`, or if a prefix longer than 24 characters is used without a template (the action's default naming cuts names at 50 characters). Callers that set neither get the same branches as before.
+- Implement takes two optional Caller inputs for the implementer's branch name: `branch_prefix` (default `claude/`) and `branch_name_template` (default empty, the action's own naming). A check before the agent fails the run if a name would be one the action rejects, if a template leaves out `{{entityNumber}}`, or if the prefix is longer than 24 characters (the action's default naming, which it also falls back to when a template's name already exists, cuts names at 50 characters). Callers that set neither get the same branches as before.
 
 ### Changed
 

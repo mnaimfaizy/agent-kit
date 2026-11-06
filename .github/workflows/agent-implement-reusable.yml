@@ -46,12 +46,12 @@ on:
         type: string
         default: "main"
       branch_prefix:
-        description: "Prefix for the implementer's branch name. Must be a valid start of a branch name, and at most 24 characters unless branch_name_template is set."
+        description: "Prefix for the implementer's branch name. Must be a valid start of a branch name, at most 24 characters."
         required: false
         type: string
         default: "claude/"
       branch_name_template:
-        description: "claude-code-action branch name template, for example `fix/{{entityNumber}}-{{description}}`. Must contain `{{entityNumber}}`. Empty uses the action's default naming."
+        description: "claude-code-action branch name template, for example `fix/{{entityNumber}}-{{description}}`. Must contain `{{entityNumber}}`. Empty uses the action's default naming, which the action also falls back to when the template's name already exists."
         required: false
         type: string
         default: ""
@@ -142,28 +142,40 @@ jobs:
             echo "branch_prefix is not a valid start of a branch name."
             exit 1
           fi
-          if [ -z "$BRANCH_NAME_TEMPLATE" ]; then
-            # Default naming is <prefix>issue-<N>-<YYYYMMDD-HHMM>, cut to 50
-            # characters: a longer prefix loses the timestamp, then the issue
-            # number, and runs start sharing one branch.
-            if [ "${#BRANCH_PREFIX}" -gt 24 ]; then
-              echo "branch_prefix is longer than 24 characters; set branch_name_template to use it."
-              exit 1
-            fi
-          else
+          # Default naming is <prefix>issue-<N>-<YYYYMMDD-HHMM>, cut to 50
+          # characters: a longer prefix loses the timestamp, then the issue
+          # number, and runs start sharing one branch. It applies even with a
+          # template: when the template's name already exists on the remote,
+          # the action falls back to default naming.
+          if [ "${#BRANCH_PREFIX}" -gt 24 ]; then
+            echo "branch_prefix is longer than 24 characters."
+            exit 1
+          fi
+          if [ -n "$BRANCH_NAME_TEMPLATE" ]; then
             # A template without the issue number can resolve to one name for
             # every run, even the base branch.
             if [[ "$BRANCH_NAME_TEMPLATE" != *"{{entityNumber}}"* ]]; then
               echo "branch_name_template must contain {{entityNumber}}."
               exit 1
             fi
-            # Fill the known variables with safe samples and judge the rest:
-            # literal text, and any unknown {{variable}} the action leaves as is.
-            SAMPLE="${BRANCH_NAME_TEMPLATE//\{\{prefix\}\}/$BRANCH_PREFIX}"
-            for var in entityType entityNumber timestamp sha label description; do
-              SAMPLE="${SAMPLE//\{\{$var\}\}/x1}"
-            done
-            if ! valid_name "$SAMPLE"; then
+            # Fill the known variables with samples and judge the result:
+            # literal text, and any unknown {{variable}} the action leaves as
+            # is. The action cleans {{label}} and always has the others, but
+            # {{description}} is empty for a title with no ASCII letters or
+            # digits, so judge that case too.
+            sample() {
+              local s="${BRANCH_NAME_TEMPLATE//\{\{prefix\}\}/$BRANCH_PREFIX}"
+              s="${s//\{\{description\}\}/$1}"
+              for var in entityType entityNumber timestamp sha label; do
+                s="${s//\{\{$var\}\}/x1}"
+              done
+              # Collapse empty path segments, as the action does.
+              while [[ "$s" == *//* ]]; do s="${s//\/\//\/}"; done
+              s="${s#/}"
+              s="${s%/}"
+              printf '%s' "$s"
+            }
+            if ! valid_name "$(sample x1)" || ! valid_name "$(sample '')"; then
               echo "branch_name_template does not produce a valid branch name."
               exit 1
             fi
