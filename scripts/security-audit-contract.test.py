@@ -507,9 +507,16 @@ def test_notifier_says_when_an_empty_report_transcript_was_not_emailed(tmp_path:
     assert result.returncode != 0
     assert "session transcript was not delivered by email" in result.stdout
     assert SECRET not in result.stdout + result.stderr
-    # The SMTP-host check inside Python must say the same.
-    notifier = read(NOTIFIER)
-    assert 'os.environ.get("MODE") == "empty-report"' in notifier
+    # The SMTP-host check inside Python must say the same. With a mailbox but no
+    # host, the real python3 returns before it opens any SMTP connection.
+    env.update(NOTIFY_EMAIL_TO="maintainer@example.com", NOTIFY_EMAIL_FROM="audit@example.com")
+    result = subprocess.run(
+        [bash(), str(NOTIFIER), str(session), "empty-report"], env=env, capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "SMTP host is not configured" in result.stdout
+    assert "session transcript was not delivered by email" in result.stdout
+    assert SECRET not in result.stdout + result.stderr
 
 
 if __name__ == "__main__":
