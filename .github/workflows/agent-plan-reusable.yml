@@ -160,12 +160,13 @@ jobs:
           # --allowedTools entry only pre-approves, so it cannot by itself
           # confine these tools to the tree. Nor does leaving Bash off the list
           # withhold it: Claude Code auto-approves read-only commands, so Bash
-          # is denied outright.
+          # is denied outright. Edits to .claude/ and .mcp.json are denied too: a
+          # running session can pick up a changed project permission rule.
           claude_args: |
             --model ${{ inputs.model }}
             --max-turns 40
             --allowedTools "Read,Glob,Grep,Write"
-            --disallowedTools "Read(./.git/**),Edit(./.github/agent-runtime/**),Bash"
+            --disallowedTools "Read(./.git/**),Edit(./.github/agent-runtime/**),Edit(./.claude/**),Edit(./.mcp.json),Bash"
 
       - name: Verify read-confinement hook unchanged
         env:

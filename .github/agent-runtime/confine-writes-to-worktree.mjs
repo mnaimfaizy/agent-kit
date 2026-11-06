@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 // PreToolUse hook: confine the implementer's file-writing tools (Edit, Write,
-// MultiEdit, NotebookEdit) to the working tree, outside .git.
+// MultiEdit, NotebookEdit) to the working tree, outside .git, and away from
+// Claude Code's project settings (.claude/settings.json,
+// .claude/settings.local.json, .mcp.json), whose permission rules a running
+// session can pick up.
 //
 // Why: git runs commands that its configuration names, and runs the scripts in
 // .git/hooks. The implementer holds the Claude GitHub App token, and the
@@ -47,6 +50,19 @@ function within(root, candidate) {
 
 function hasGitSegment(rel) {
   return rel.split(/[\\/]/).includes(".git");
+}
+
+// Claude Code reads permission rules and MCP servers from these, and a running
+// session can pick up a changed permission rule. Skills and other files under
+// .claude/ stay writable: a plan may ask the implementer to change them.
+const PROJECT_SETTINGS = new Set([
+  ".claude/settings.json",
+  ".claude/settings.local.json",
+  ".mcp.json",
+]);
+
+function isProjectSettings(rel) {
+  return PROJECT_SETTINGS.has(rel.split(/[\\/]/).join("/"));
 }
 
 /**
@@ -97,6 +113,9 @@ export function decideWrite(payload, workspace) {
   if (hasGitSegment(posix.relative(ws, abs))) {
     return `writes confined to the working tree; refused a path inside .git: ${abs}`;
   }
+  if (isProjectSettings(posix.relative(ws, abs))) {
+    return `the implementer cannot edit Claude Code project settings: ${abs}`;
+  }
 
   const real = resolveForWrite(
     isAbsolute(String(target)) ? String(target) : `${workspace}/${target}`,
@@ -115,6 +134,9 @@ export function decideWrite(payload, workspace) {
   }
   if (hasGitSegment(relative(realWs, real))) {
     return `writes confined to the working tree; refused a path that resolves inside .git: ${abs}`;
+  }
+  if (isProjectSettings(relative(realWs, real))) {
+    return `the implementer cannot edit Claude Code project settings; refused a path that resolves to one: ${abs}`;
   }
   return null;
 }
