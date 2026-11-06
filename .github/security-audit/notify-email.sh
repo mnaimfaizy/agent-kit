@@ -10,7 +10,11 @@ if [[ -z "${REPORT_PATH}" ]]; then
 fi
 
 if [[ ! -f "${REPORT_PATH}" ]]; then
-  echo "report not found at ${REPORT_PATH}" >&2
+  if [[ "${MODE}" == "empty-report" ]]; then
+    echo "session transcript not found at ${REPORT_PATH}" >&2
+  else
+    echo "report not found at ${REPORT_PATH}" >&2
+  fi
   exit 1
 fi
 
