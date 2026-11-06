@@ -30,7 +30,7 @@ Fingerprints of known findings for the dogfood security audit, so repeat runs de
 | `post-agent-workflow-check-omits-actions`           | fixed                   | 2026-09-26 | n/a                 | below the Medium floor; backstop added in d85bc3f, release pending       |
 | `workflow-edit-deny-omits-write-tools`              | rejected                | 2026-09-26 | n/a                 | an Edit(path) deny also covers Write and MultiEdit                       |
 | `implementer-git-config-write-executes-code`        | fixed                   | 2026-10-12 | GHSA-hg89-9pp4-v549 | rated high in triage; fixed in c2d0bd5, release pending                  |
-| `glob-brace-expansion-escapes-pattern-check`        | untriaged               | 2026-10-12 | GHSA-hg89-9pp4-v549 | reported Medium                                                          |
-| `agent-writes-project-settings-mid-session`         | untriaged               | 2026-10-12 | GHSA-hg89-9pp4-v549 | reported Medium                                                          |
-| `main-ruleset-allows-app-self-merge`                | untriaged               | 2026-10-12 | GHSA-hg89-9pp4-v549 | reported Medium                                                          |
-| `glob-brace-pattern-escapes-read-confinement`       | untriaged               | 2026-11-02 | GHSA-xmp7-9gg5-9fv9 | likely duplicate of `glob-brace-expansion-escapes-pattern-check`         |
+| `glob-brace-expansion-escapes-pattern-check`        | confirmed               | 2026-10-12 | GHSA-hg89-9pp4-v549 | file names only; contents stay confined                                  |
+| `agent-writes-project-settings-mid-session`         | confirmed               | 2026-10-12 | GHSA-hg89-9pp4-v549 | rated high in triage for the implementer; code-path evidence             |
+| `main-ruleset-allows-app-self-merge`                | confirmed               | 2026-10-12 | GHSA-hg89-9pp4-v549 | repository settings; no code change                                      |
+| `glob-brace-pattern-escapes-read-confinement`       | rejected                | 2026-11-02 | GHSA-xmp7-9gg5-9fv9 | duplicate of `glob-brace-expansion-escapes-pattern-check`                |
