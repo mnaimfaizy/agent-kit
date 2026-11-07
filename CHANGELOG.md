@@ -6,6 +6,14 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
+### Consumer action
+
+- **Required:** re-copy `.github/agent-runtime/` from this tag. Implement checks before the agent starts that the staged Bash guard refuses a commit that reads a file.
+
+### Security
+
+- The implementer's Bash guard now judges every command, not only pushes. claude-code-action grants `git add`, `git commit`, and `git rm` by command prefix, which allows any arguments. The guard refuses the git options that read a file (`-F`/`--file`, `-t`/`--template`, `--pathspec-from-file`, and their abbreviations), git's global options, an environment assignment before git, and shell expansion or input redirection (`$`, backticks, `<`) outside single quotes. Before this, the implementer could put a runner file or a secret from its environment into a commit message or an error it could copy into its pull request.
+
 ## [1.0.0-alpha.9] - 2026-11-07
 
 Security release for [GHSA-hg89-9pp4-v549](https://github.com/mnaimfaizy/agent-kit/security/advisories/GHSA-hg89-9pp4-v549). **Consumer action required** — see the first item.
