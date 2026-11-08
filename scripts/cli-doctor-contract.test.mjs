@@ -65,6 +65,13 @@ const GIT_ID = [
   "commit.gpgsign=false",
   "-c",
   "tag.gpgsign=false",
+  // No background maintenance from the fixture's own commits: a detached
+  // `git maintenance run --auto` can add or remove objects/maintenance.lock
+  // while a test compares the object store before and after doctor runs.
+  "-c",
+  "maintenance.auto=false",
+  "-c",
+  "gc.auto=0",
 ];
 
 function git(cwd, ...args) {
