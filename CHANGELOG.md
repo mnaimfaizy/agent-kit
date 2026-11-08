@@ -8,6 +8,8 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ### Fixed
 
+- When an implement run failed before the agent started, for example because `setup_commands` failed, the "Check git configuration after the agent" step blamed the agent with "The agent run left git configuration or hooks outside the allowlist" and a `MODULE_NOT_FOUND` error ([#83](https://github.com/mnaimfaizy/agent-kit/issues/83)). The check now runs only when the hooks were staged. It still runs after a failed agent step: the agent can only start after staging succeeds, so any run in which the agent started is still checked.
+
 - The plan, implement, review and audit runs no longer fail when GitHub's release CDN returns 5xx on the Bun download ([#86](https://github.com/mnaimfaizy/agent-kit/issues/86)). Each reusable workflow now installs the Bun version the pinned `claude-code-action` expects (1.3.14) before the action runs. It downloads from the npm registry first and falls back to the GitHub release through `api.github.com`, retrying each source for a few minutes. Either download must match a pinned SHA-256 before it is extracted. The path is passed to the action as `path_to_bun_executable`, so the action skips its own install. If neither source works, the job fails with "Bun install failed" instead of a later `bun: command not found`. No inputs, secrets or permissions changed.
 
 ## [1.0.0-alpha.12] - 2026-11-08

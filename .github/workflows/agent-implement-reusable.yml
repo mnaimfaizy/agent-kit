@@ -456,13 +456,21 @@ jobs:
 
       - name: Check git configuration after the agent
         id: gitconfig
-        if: always()
+        # After a failed agent step too, but not when the job failed before the
+        # hooks were staged (a failed setup_commands, say): the agent never ran
+        # and the staged checker does not exist (#83). The agent step runs only
+        # after staging succeeded, so an agent that ran is always checked.
+        if: always() && steps.confine.outcome == 'success'
         shell: bash
         run: |
           set -euo pipefail
           # The steps below run git in the agent's checkout, in a job that holds
           # write and OIDC credentials. git runs commands its config and
           # .git/hooks name, so check both against the staged allowlist first.
+          if ! test -s "$RUNNER_TEMP/read-confinement/check-git-config.mjs"; then
+            echo "The staged git-config checker is missing; the staging step did not leave it in \$RUNNER_TEMP/read-confinement/."
+            exit 1
+          fi
           if ! node "$RUNNER_TEMP/read-confinement/check-git-config.mjs" "$GITHUB_WORKSPACE/.git"; then
             echo "The agent run left git configuration or hooks outside the allowlist."
             exit 1
