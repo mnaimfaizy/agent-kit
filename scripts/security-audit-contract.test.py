@@ -191,11 +191,15 @@ def test_email_notifier_verifies_the_smtp_server_before_login() -> None:
 def test_credentialed_scripts_run_python_isolated_outside_the_workspace() -> None:
     # A stdin script puts the current directory first on sys.path, and these
     # scripts run in the audited workspace with secrets in the environment.
+    checked = 0
     for script in sorted((ROOT / ".github").glob("*/*.sh")):
         data = read(script)
         for line in data.splitlines():
-            if re.match(r"\s*python3?", line):
-                assert re.match(r"\s*python3? -I", line), f"{script.name}: {line.strip()}"
+            if re.match(r"\s*python3?\b", line):
+                checked += 1
+                assert re.match(r"\s*python3? -I\b", line), f"{script.name}: {line.strip()}"
+    # Guard against the loop silently matching nothing (it once did).
+    assert checked, "no python invocation found in .github/*/*.sh; the isolation check ran on nothing"
     notifier = read(NOTIFIER)
     assert notifier.index('cd "${RUNNER_TEMP:-/tmp}"') < notifier.index("python3 -I -")
 
