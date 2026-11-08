@@ -554,7 +554,7 @@ describe("upgrade: hardening", () => {
   });
 
   it("escapes bidirectional and invisible characters in what it prints", () => {
-    for (const c of ["‮", "⁦", "​", "‏", "﻿"]) {
+    for (const c of ["‮", "⁦", "​", "‏", "\ufeff"]) {
       assert.doesNotMatch(sanitizeLine(`a${c}b`), new RegExp(c));
     }
   });

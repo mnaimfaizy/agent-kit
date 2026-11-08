@@ -30,7 +30,7 @@ import { caseCollisions } from "./safe-paths.mjs";
 import { compareTags } from "./tags.mjs";
 
 const MAX_LISTED = 20;
-const BOM = "﻿";
+const BOM = "\ufeff";
 const utf8 = new TextDecoder("utf-8", { fatal: true });
 
 /** A workflow file's text, or a Refusal when it is not UTF-8 (rewriting it would corrupt it). */
