@@ -1,0 +1,70 @@
+name: Publish CLI
+
+# Publishes cli/ to npm as @mnaimfaizy/agent-kit when a Release tag is pushed.
+# npm trusted publishing: the job's OIDC token is exchanged for a short-lived
+# publish credential, and --provenance links the package to this run. No npm
+# token is stored in the repository. The `npm` environment has a required
+# reviewer, so every publish waits for the maintainer's approval.
+# One-time setup and the first manual publish: docs/cutting-releases.md.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions: {}
+
+concurrency:
+  group: publish-cli-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish to npm
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # Full history, so the next step can see whether the tag is on main.
+          fetch-depth: 0
+      - name: Check the tagged commit is on main
+        run: |
+          # Releases are cut from main only (docs/cutting-releases.md).
+          git fetch --no-tags --quiet origin +refs/heads/main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main; then
+            echo "::error::The tagged commit is not on main; refusing to publish."
+            exit 1
+          fi
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          registry-url: https://registry.npmjs.org
+      - name: Check the tag matches the package version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          version="$(node -p 'require("./cli/package.json").version')"
+          if [ "v$version" != "$TAG" ]; then
+            echo "::error::cli/package.json version $version does not match tag $TAG"
+            exit 1
+          fi
+      - name: Check npm supports trusted publishing
+        run: |
+          # Trusted publishing needs npm 11.5.1 or later.
+          npm_version="$(npm --version)"
+          if ! printf '%s\n' 11.5.1 "$npm_version" | sort --version-sort --check=quiet; then
+            echo "::error::npm $npm_version is older than 11.5.1"
+            exit 1
+          fi
+      - name: CLI contract tests
+        run: node --test scripts/cli-*.test.mjs
+      - name: Publish
+        working-directory: cli
+        # Release-line tags only move forward (alpha, beta, rc, stable), so the
+        # newest tag is always `latest`, including pre-releases.
+        run: npm publish --provenance --access public --tag latest

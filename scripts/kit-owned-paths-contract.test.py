@@ -104,6 +104,16 @@ def test_adopt_copy_list_matches_the_manifest() -> None:
     assert "kit-owned-paths.txt" in ADOPT.read_text(encoding="utf-8"), "docs/adopt.md must name the manifest"
 
 
+def test_adopt_never_calls_a_kit_owned_path_optional() -> None:
+    # `doctor` fails when any Kit-owned path is missing, so the copy list must
+    # not tell a Consumer they may leave one out.
+    text = ADOPT.read_text(encoding="utf-8")
+    section = text.split(ADOPT_SECTION, 1)[1].split("\n## ", 1)[0]
+    for line in section.splitlines():
+        if ADOPT_BULLET.match(line):
+            assert "optional" not in line.lower(), f"docs/adopt.md calls a Kit-owned path optional: {line}"
+
+
 def test_copy_steps_read_the_manifest_and_delete_before_copying() -> None:
     for doc, path in (("README.md", README), ("docs/getting-started.md", GETTING_STARTED)):
         block = copy_block(path.read_text(encoding="utf-8"), doc)
@@ -135,5 +145,6 @@ if __name__ == "__main__":
     test_every_entry_is_an_existing_directory()
     test_every_entry_ships_in_the_release_snapshot()
     test_adopt_copy_list_matches_the_manifest()
+    test_adopt_never_calls_a_kit_owned_path_optional()
     test_copy_steps_read_the_manifest_and_delete_before_copying()
     print("kit-owned-paths contract: ok")

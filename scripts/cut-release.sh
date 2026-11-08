@@ -95,19 +95,27 @@ if git rev-parse "$TAG" >/dev/null 2>&1; then
   exit 1
 fi
 
-"$PYTHON" - <<PY
+# Values reach Python through the environment, never pasted into its source.
+AGENT_KIT_TAG="$TAG" AGENT_KIT_NOTES_FILE="$NOTES_FILE" "$PYTHON" - <<'PY'
+import os
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path("scripts").resolve()))
-from verify_release_snapshot import notes_required_for_tag, parse_tag
+from verify_release_snapshot import cli_version_mismatch, notes_required_for_tag, parse_tag
 
-tag = "$TAG"
+tag = os.environ["AGENT_KIT_TAG"]
 if parse_tag(tag) is None:
     print(f"Invalid tag format: {tag}", file=sys.stderr)
     sys.exit(1)
-if notes_required_for_tag(tag) and not Path("${NOTES_FILE}").is_file():
+if notes_required_for_tag(tag) and not Path(os.environ["AGENT_KIT_NOTES_FILE"]).is_file():
     print("Release notes are required for beta, rc, and stable tags.", file=sys.stderr)
     print("Pass --notes-file or skip notes for alpha.", file=sys.stderr)
+    sys.exit(1)
+# The tag push publishes cli/ to npm (publish-cli.yml), which refuses a
+# version that differs from the tag. Catch it before the tag exists.
+mismatch = cli_version_mismatch(tag)
+if mismatch:
+    print(mismatch, file=sys.stderr)
     sys.exit(1)
 PY
 

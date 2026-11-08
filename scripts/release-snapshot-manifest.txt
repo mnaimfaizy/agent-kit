@@ -47,3 +47,10 @@ examples/setup-presets/redis-service.sh
 scripts/cut-release.sh
 scripts/verify_release_snapshot.py
 scripts/release-snapshot-manifest.txt
+
+# The npm CLI, published from each tag by publish-cli.yml.
+.github/workflows/publish-cli.yml
+cli/package.json
+cli/README.md
+cli/bin/agent-kit.mjs
+cli/src/

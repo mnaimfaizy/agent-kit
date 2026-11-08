@@ -32,7 +32,7 @@ From the exact same tag used in `uses:`, copy each Kit-owned path. The source of
 - `.claude/skills/security-audit/`
 - `.claude/skills/security-finding-triage/`
 - `.claude/skills/security-response/`
-- `.claude/skills/explainer/` — optional; used by hand, not by a flow. Its per-repository settings live in your own `docs/agents/explainer.md` (template: [`examples/explainer-config.md`](../examples/explainer-config.md)), which you keep across upgrades.
+- `.claude/skills/explainer/` — a Kit-owned path copied with the rest. No First-class flow uses it; you use it by hand. Its per-repository settings in your own `docs/agents/explainer.md` (template: [`examples/explainer-config.md`](../examples/explainer-config.md)) are not Kit-owned and survive upgrades.
 - `.github/agent-runtime/` — hooks and settings the jobs load from the Consumer checkout and run from a read-only copy under `$RUNNER_TEMP`:
   - `confine-reads-to-workspace.mjs`: PreToolUse hook that denies Read/Grep/Glob outside the workspace. Plan, implement, review, audit.
   - `read-confinement.settings.json`: settings that run the read hook. Plan, review, audit (implement checks it too).
@@ -100,6 +100,25 @@ updates:
           - "*-beta.*"
           - "*-rc.*"
 ```
+
+## Check an adoption with doctor
+
+`npx @mnaimfaizy/agent-kit doctor` checks a Consumer against the tag its Callers pin (CLI from `v1.0.0-alpha.12`; how to run it: [Getting started](getting-started.md#check-the-setup-with-doctor)). It is read-only: it runs git in your checkout without hooks or configured filter commands, writes nothing to it, and never changes GitHub settings. Kit files come from the git tag, not from the npm package, and tags without `kit-owned-paths.txt` (up to `v1.0.0-alpha.10`) are refused: adopt those by hand with that tag's `docs/adopt.md`.
+
+| Check                        | Result when it does not hold | Runs in `--ci` | How                                                                                                                                                                                                                                                                                        |
+| ---------------------------- | ---------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `uses:` pins agree           | fail                         | yes            | Every Agent-kit `uses:` in `.github/workflows/` names the same repository and Release-line tag. Pins of a fork or a GitHub Enterprise mirror pass with a note: the other checks then compare against that repository.                                                                      |
+| Kit-owned paths match        | fail                         | yes            | Each path in the tag's `kit-owned-paths.txt` has the same git tree hash in your working copy (tracked and untracked files, minus ignored ones) as at the tag. Paths marked skip-worktree (a sparse checkout, say) are compared as committed at HEAD, and skipped only if HEAD has no copy. |
+| Secrets set                  | fail; warn if optional       | no             | Each `secrets.X` a Caller passes. Required or optional comes from the reusable workflow's `secrets:` block at the pinned tag.                                                                                                                                                              |
+| Variables set                | fail                         | no             | Each `vars.X` a Caller reads, unless every read falls back with `\|\|` (the model variables). The Kill switch variables are required: set them to `true` or `false`.                                                                                                                       |
+| Trigger labels exist         | fail                         | no             | Each Caller's `trigger_label`, or the reusable workflow's default at the tag when the Caller leaves it out.                                                                                                                                                                                |
+| Claude GitHub App installed  | fail                         | no             | Organization repositories only. GitHub does not show a personal account's app installations to a `gh` login, so there it is skipped.                                                                                                                                                       |
+| Default branch `update` rule | warn                         | no             | [Repository hardening §1](repository-hardening.md#1-default-branch-an-update-rule). Each ruleset check also warns when a GitHub App, the Write role or another role below Maintain is on the bypass list.                                                                                  |
+| Branch `creation` rule       | warn                         | no             | [Repository hardening §2](repository-hardening.md#2-release-branches-a-creation-rule). Matters only if you cut releases from branches.                                                                                                                                                     |
+| `v*` tag ruleset             | warn                         | no             | [Repository hardening §3](repository-hardening.md#3-release-tags-a-v-tag-ruleset): creation, update and deletion blocked.                                                                                                                                                                  |
+| Release tag pushes           | warn                         | no             | On a personal account, a workflow that pushes tags with `GITHUB_TOKEN`; see [Personal-account repositories](repository-hardening.md#personal-account-repositories-pushing-release-tags).                                                                                                   |
+
+A check it could not run (no admin `gh` login, `--ci`, a refused API call, or a Caller `secrets:` block written as a flow mapping, anchor or alias) is reported as **skipped** and never counts as passed. The run exits 1 on any fail; `--strict` turns warnings into failures. Fix commands are printed for a POSIX shell, and only for names that pass a strict allowlist; anything else is shown escaped, to fix by hand. When the Kit-owned paths differ, the failure names the fix, `npx @mnaimfaizy/agent-kit@<version> upgrade --tag <tag>`; `upgrade` ships in a later release, so until then the failure also links this page's [copy step](#copy-kit-owned-paths-from-the-same-tag) at the tag: re-copy the paths by hand.
 
 ## Upgrading
 
