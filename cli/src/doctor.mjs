@@ -24,9 +24,7 @@ import {
 } from "./checks/secrets-and-variables.mjs";
 import { firstLine } from "./exec.mjs";
 import { createGitHub } from "./github.mjs";
-import { DEFAULT_SERVER, openKitTag, PreManifestTagError } from "./kit-tag.mjs";
-
-const SERVER = /^https:\/\/[A-Za-z0-9.-]+(?::\d+)?$/;
+import { openKitTag, PreManifestTagError, serverFromEnv } from "./kit-tag.mjs";
 
 /**
  * The GitHub server the pins resolve on: the repository's host in a local
@@ -35,8 +33,7 @@ const SERVER = /^https:\/\/[A-Za-z0-9.-]+(?::\d+)?$/;
  */
 function serverFor(info, env) {
   if (info?.host) return `https://${info.host}`;
-  const fromEnv = String(env.GITHUB_SERVER_URL ?? "").replace(/\/$/, "");
-  return SERVER.test(fromEnv) ? fromEnv : DEFAULT_SERVER;
+  return serverFromEnv(env);
 }
 
 /** The checks that need a `gh` login with admin on the repository. */

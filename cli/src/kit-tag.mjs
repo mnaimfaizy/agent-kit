@@ -17,8 +17,17 @@ const SAFE_PATH = /^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*\/?$/;
 export const DEFAULT_SERVER = "https://github.com";
 const SERVER = /^https:\/\/[A-Za-z0-9.-]+(?::\d+)?$/;
 
+/** GITHUB_SERVER_URL when it is a valid server URL (set on GitHub Enterprise Server too), else github.com. */
+export function serverFromEnv(env) {
+  const fromEnv = String(env.GITHUB_SERVER_URL ?? "").replace(/\/$/, "");
+  return SERVER.test(fromEnv) ? fromEnv : DEFAULT_SERVER;
+}
+
+/** The git mode of an executable file. */
+export const EXECUTABLE_MODE = "100755";
+
 /** File modes the CLI copies: a regular file, or an executable one. */
-const FILE_MODES = new Set(["100644", "100755"]);
+const FILE_MODES = new Set(["100644", EXECUTABLE_MODE]);
 const MODE_NAMES = { 120000: "a symbolic link", 160000: "a submodule" };
 const OID = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/;
 
@@ -92,6 +101,8 @@ export function openKitRepo({ runner, repo, serverUrl = DEFAULT_SERVER, remoteUr
   const fetchTag = (tag, { forDeletion = true } = {}) => {
     if (!isReleaseTag(tag)) throw new KitTagError(`not a Release-line tag: ${JSON.stringify(tag)}`);
     let r = git(
+      "-c",
+      "fetch.fsckObjects=true",
       "fetch",
       "--quiet",
       "--depth=1",

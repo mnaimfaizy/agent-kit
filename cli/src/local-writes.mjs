@@ -15,7 +15,8 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { firstLine } from "./exec.mjs";
-import { gitSafetyArgs } from "./local-tree.mjs";
+import { EXECUTABLE_MODE } from "./kit-tag.mjs";
+import { fileModeIsOff, gitSafetyArgs } from "./local-tree.mjs";
 import { checkSafePath } from "./safe-paths.mjs";
 
 /** A reason not to start. Nothing has been written when this is thrown. */
@@ -26,7 +27,7 @@ export class Refusal extends Error {
   }
 }
 
-export function lstatOrNull(path) {
+function lstatOrNull(path) {
   try {
     return lstatSync(path);
   } catch (err) {
@@ -65,7 +66,7 @@ export function checkLocalPath(root, rel) {
 }
 
 /** Links inside `rel`: never followed or guessed at. */
-export function linksUnder(root, rel) {
+function linksUnder(root, rel) {
   const found = [];
   const walk = (sub) => {
     const st = lstatOrNull(join(root, sub));
@@ -109,8 +110,11 @@ function safeGit(runner, root) {
 
 /**
  * Files under `paths` with uncommitted changes (modified, staged, deleted or
- * untracked; ignored files do not count), as "XY path". git runs no hooks,
- * fsmonitor or filter drivers, and takes no optional locks.
+ * untracked), as "XY path", and, apart, the ignored files and folders there
+ * (deleting the paths deletes those too). git runs no hooks, fsmonitor or
+ * filter drivers, and takes no optional locks.
+ *
+ * @returns {{ changed: string[], ignored: string[] }}
  */
 export function uncommittedChanges({ runner, root, paths }) {
   const git = safeGit(runner, root);
@@ -122,15 +126,35 @@ export function uncommittedChanges({ runner, root, paths }) {
       "--porcelain=v1",
       "-z",
       "--untracked-files=all",
+      "--ignored=matching",
+      "--ignore-submodules=all",
       "--no-renames",
       "--",
       ...paths,
     ]);
     if (r.status !== 0) throw new Refusal(`git status failed: ${firstLine(r.stderr)}`);
-    return r.stdout
+    const entries = r.stdout.split("\0").filter(Boolean);
+    // git status cannot see local edits to files marked assume-unchanged
+    // (a lower-case tag) or skip-worktree (S): count those as changed.
+    const flagged = runner("git", [...git.args, "ls-files", "-v", "-z", "--", ...paths]);
+    if (flagged.status !== 0)
+      throw new Refusal(`git ls-files failed: ${firstLine(flagged.stderr)}`);
+    const hidden = flagged.stdout
       .split("\0")
-      .filter(Boolean)
-      .map((entry) => `${entry.slice(0, 2).trim() || "?"} ${entry.slice(3)}`);
+      .filter((e) => /^(?:[a-z]|S) /.test(e))
+      .map(
+        (e) =>
+          `${e[0]} ${e.slice(2)} (marked ${e[0] === "S" ? "skip-worktree" : "assume-unchanged"})`,
+      );
+    return {
+      changed: [
+        ...entries
+          .filter((e) => !e.startsWith("!!"))
+          .map((e) => `${e.slice(0, 2).trim() || "?"} ${e.slice(3)}`),
+        ...hidden,
+      ],
+      ignored: entries.filter((e) => e.startsWith("!!")).map((e) => e.slice(3)),
+    };
   } finally {
     git.done();
   }
@@ -166,11 +190,14 @@ export function kitFileWrites(snap) {
  * @param {{ deletes?: string[], writes: { path: string, mode?: string, bytes: Buffer | string }[] }} plan
  */
 export function applyPlan(root, { deletes = [], writes }) {
+  // Checked again here: time may have passed at the confirmation prompt.
+  for (const rel of deletes) checkDeletable(root, rel);
+  for (const w of writes) checkLocalPath(root, w.path);
   for (const rel of deletes) rmSync(join(root, rel), { recursive: true, force: true });
   for (const w of writes) {
     const target = join(root, w.path);
     mkdirSync(dirname(target), { recursive: true });
-    const executable = w.mode === "100755";
+    const executable = w.mode === EXECUTABLE_MODE;
     writeFileSync(target, w.bytes, { mode: executable ? 0o755 : 0o644 });
     if (executable) chmodSync(target, 0o755);
   }
@@ -184,8 +211,7 @@ export function applyPlan(root, { deletes = [], writes }) {
  */
 export function stageExecutableBits({ runner, root, files }) {
   if (files.length === 0) return null;
-  const fileMode = runner("git", ["-C", root, "config", "--type=bool", "core.fileMode"]);
-  if (fileMode.status !== 0 || fileMode.stdout.trim() !== "false") return null;
+  if (!fileModeIsOff(runner, root)) return null;
   const git = safeGit(runner, root);
   try {
     const r = runner("git", [...git.args, "add", "--chmod=+x", "--", ...files]);

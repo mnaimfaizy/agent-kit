@@ -47,8 +47,14 @@ export function byHand(what, value) {
   return `fix by hand: ${what} ${JSON.stringify(String(value))} (not printed as a command)`;
 }
 
-// C0 and C1 controls, DEL, and the Unicode line and paragraph separators.
-const CONTROL = new RegExp("[\u0000-\u001f\u007f-\u009f\u2028\u2029]", "g");
+// C0 and C1 controls, DEL, the Unicode line and paragraph separators, and the
+// invisible and bidirectional formatting characters that can make printed
+// text read differently from what it is (zero-width, LRM/RLM, embeddings,
+// overrides and isolates).
+const CONTROL = new RegExp(
+  "[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2066-\u2069\ufeff]",
+  "g",
+);
 
 /**
  * Make one output line safe for a terminal and for a CI log: escape control
