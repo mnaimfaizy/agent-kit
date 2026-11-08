@@ -358,7 +358,7 @@ function formatLines(report, { version } = {}) {
   return lines;
 }
 
-function formatResult(r) {
+export function formatResult(r) {
   const out = [
     `${LABEL[r.status]}  ${r.title}: ${r.summary}${r.strict ? " (warning; failed by --strict)" : ""}`,
   ];

@@ -8,7 +8,10 @@ const ALLOWED = new Set(["git", "gh"]);
 
 /**
  * @typedef {{ status: number | null, stdout: string, stderr: string }} RunResult
- * @typedef {(cmd: string, args: string[], opts?: { cwd?: string, env?: NodeJS.ProcessEnv }) => RunResult} Runner
+ * @typedef {{ status: number | null, stdout: Buffer, stderr: string }} BufferResult
+ * @typedef {(cmd: string, args: string[], opts?: { cwd?: string, env?: NodeJS.ProcessEnv, encoding?: "utf8" | "buffer" }) => RunResult} Runner
+ *   With `encoding: "buffer"`, stdout is the raw bytes (a Buffer): use it for
+ *   file contents, which need not be UTF-8. stderr is always text.
  */
 
 /** @type {Runner} */
@@ -20,15 +23,25 @@ export function systemRunner(cmd, args, opts = {}) {
   const result = spawnSync(cmd, args, {
     cwd: opts.cwd,
     env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GH_PROMPT_DISABLED: "1", ...opts.env },
-    encoding: "utf8",
+    encoding: "buffer",
     shell: false,
     windowsHide: true,
     maxBuffer: 64 * 1024 * 1024,
   });
+  const raw = opts.encoding === "buffer";
   if (result.error) {
-    return { status: null, stdout: "", stderr: `${cmd}: ${result.error.message}` };
+    return {
+      status: null,
+      stdout: raw ? Buffer.alloc(0) : "",
+      stderr: `${cmd}: ${result.error.message}`,
+    };
   }
-  return { status: result.status, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
+  const stdout = result.stdout ?? Buffer.alloc(0);
+  return {
+    status: result.status,
+    stdout: raw ? stdout : stdout.toString("utf8"),
+    stderr: (result.stderr ?? Buffer.alloc(0)).toString("utf8"),
+  };
 }
 
 /**

@@ -2,6 +2,8 @@
 // scripts/verify_release_snapshot.py accepts. The npm package version is the
 // tag without its leading v.
 
+import { readFileSync } from "node:fs";
+
 export const TAG_PATTERN = /^v(\d+)\.(\d+)\.(\d+)(?:-(alpha|beta|rc)\.(\d+))?$/;
 
 /** The first tag published to npm; older tags have no matching package version. */
@@ -11,6 +13,11 @@ export const FIRST_NPM_TAG = "v1.0.0-alpha.12";
 export const FIRST_MANIFEST_TAG = "v1.0.0-alpha.11";
 
 export const PACKAGE_NAME = "@mnaimfaizy/agent-kit";
+
+/** The version of this CLI, from its package.json. */
+export const CLI_VERSION = JSON.parse(
+  readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+).version;
 
 const STAGE_RANK = { alpha: 0, beta: 1, rc: 2, "": 3 };
 
@@ -37,9 +44,12 @@ export function versionForTag(tag) {
   return tag.slice(1);
 }
 
-/** The `npx` command that upgrades to `tag`. */
-export function upgradeCommand(tag) {
-  const spec =
-    compareTags(tag, FIRST_NPM_TAG) >= 0 ? `${PACKAGE_NAME}@${versionForTag(tag)}` : PACKAGE_NAME;
-  return `npx ${spec} upgrade --tag ${tag}`;
+/**
+ * The `npx` command that upgrades to `tag`: the npm version that matches the
+ * tag, or this CLI's version when the tag is older (an older package has no
+ * `upgrade`, and tags before FIRST_NPM_TAG have no package at all).
+ */
+export function upgradeCommand(tag, cliVersion = CLI_VERSION) {
+  const version = compareTags(tag, `v${cliVersion}`) >= 0 ? versionForTag(tag) : cliVersion;
+  return `npx ${PACKAGE_NAME}@${version} upgrade --tag ${tag}`;
 }

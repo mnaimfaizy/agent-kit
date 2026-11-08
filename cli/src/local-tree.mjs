@@ -38,6 +38,33 @@ export function filterDrivers(configNames) {
 }
 
 /**
+ * `-c` options that keep git from running anything the checkout's or the
+ * adopter's git config names: no hooks (`noHooks` is an empty folder), no
+ * fsmonitor, no background maintenance, and no clean/process filter drivers.
+ */
+export function gitSafetyArgs({ runner, root, noHooks }) {
+  const safety = [
+    "-c",
+    `core.hooksPath=${noHooks}`,
+    "-c",
+    "core.fsmonitor=false",
+    "-c",
+    "gc.auto=0",
+    "-c",
+    "maintenance.auto=false",
+  ];
+  const listed = runner("git", ["-C", root, "config", "--name-only", "--get-regexp", "^filter\\."]);
+  for (const driver of filterDrivers(listed.status === 0 ? listed.stdout.split("\n") : [])) {
+    if (/[=\r\n]/.test(driver)) {
+      throw new LocalTreeError(`cannot turn off git filter driver ${JSON.stringify(driver)}`);
+    }
+    safety.push("-c", `filter.${driver}.clean=`, "-c", `filter.${driver}.process=`);
+    safety.push("-c", `filter.${driver}.required=false`);
+  }
+  return safety;
+}
+
+/**
  * @param {{ runner: import("./exec.mjs").Runner, cwd: string, paths: string[] }} opts
  * @returns {{ root: string, hashes: Map<string, string | null>, skipped: Map<string, string>, notes: Map<string, string> }}
  *   A null hash means the path is missing locally; `skipped` holds paths that
@@ -75,31 +102,7 @@ export function localTreeHashes({ runner, cwd, paths }) {
     // splits on ':' on POSIX, so a path containing one would break it.
     writeFileSync(join(objects, "info", "alternates"), `${realObjects}\n`);
 
-    const safety = [
-      "-c",
-      `core.hooksPath=${noHooks}`,
-      "-c",
-      "core.fsmonitor=false",
-      "-c",
-      "gc.auto=0",
-      "-c",
-      "maintenance.auto=false",
-    ];
-    const listed = runner("git", [
-      "-C",
-      root,
-      "config",
-      "--name-only",
-      "--get-regexp",
-      "^filter\\.",
-    ]);
-    for (const driver of filterDrivers(listed.status === 0 ? listed.stdout.split("\n") : [])) {
-      if (/[=\r\n]/.test(driver)) {
-        throw new LocalTreeError(`cannot turn off git filter driver ${JSON.stringify(driver)}`);
-      }
-      safety.push("-c", `filter.${driver}.clean=`, "-c", `filter.${driver}.process=`);
-      safety.push("-c", `filter.${driver}.required=false`);
-    }
+    const safety = gitSafetyArgs({ runner, root, noHooks });
     const base = ["-C", root, ...safety, "--literal-pathspecs"];
     const env = { GIT_INDEX_FILE: index, GIT_OBJECT_DIRECTORY: objects };
     const git = (...args) => runner("git", [...base, ...args], { env });
@@ -114,6 +117,11 @@ export function localTreeHashes({ runner, cwd, paths }) {
         throw new LocalTreeError(`git read-tree HEAD failed: ${firstLine(read.stderr)}`);
       }
     }
+
+    // Without core.fileMode (the default on Windows) git cannot see an
+    // executable bit on disk and takes the mode from the index: so does this.
+    const fileMode = real("config", "--type=bool", "core.fileMode");
+    const trustIndexModes = fileMode.status === 0 && fileMode.stdout.trim() === "false";
 
     const hashes = new Map();
     const skipped = new Map();
@@ -160,6 +168,25 @@ export function localTreeHashes({ runner, cwd, paths }) {
           throw new LocalTreeError(
             `git reset of skip-worktree files failed: ${firstLine(reset.stderr)}`,
           );
+        }
+      }
+      if (trustIndexModes) {
+        const modes = (res) =>
+          new Map(
+            (res.status === 0 ? res.stdout.split("\0") : [])
+              .filter(Boolean)
+              .map((e) => [e.slice(e.indexOf("\t") + 1), e.slice(0, 6)]),
+          );
+        const inReal = modes(real("ls-files", "-s", "-z", "--", path));
+        const inTemp = modes(git("ls-files", "-s", "-z", "--", path));
+        const fix = [...inReal]
+          .filter(([f, mode]) => mode === "100755" && inTemp.get(f) === "100644")
+          .map(([f]) => f);
+        for (let i = 0; i < fix.length; i += 200) {
+          const chmod = git("update-index", "--chmod=+x", "--", ...fix.slice(i, i + 200));
+          if (chmod.status !== 0) {
+            throw new LocalTreeError(`git update-index --chmod failed: ${firstLine(chmod.stderr)}`);
+          }
         }
       }
       const inIndex = git("ls-files", "-z", "--", path);

@@ -233,9 +233,21 @@ Pin the CLI version as you pin actions; any CLI version checks any tag from `v1.
 
 ## Upgrading
 
-1. Read the [CHANGELOG](../CHANGELOG.md) entries between your tag and the new one; Major bumps require Caller changes.
-2. Re-run step 3 with the new tag. It replaces each Kit-owned path whole, so files the kit removed are gone too.
+Read the [CHANGELOG](../CHANGELOG.md) entries between your tag and the new one first; Major bumps require Caller changes.
+
+**With the CLI** (from the CLI's `v1.0.0-alpha.13`; your current pins must be `v1.0.0-alpha.11` or later), on a branch with no uncommitted changes in the Kit-owned paths:
+
+```bash
+npx @mnaimfaizy/agent-kit upgrade --tag <new-tag>
+```
+
+It does steps 1 to 3 below for you and changes only local files: it replaces each Kit-owned path whole from the new tag, deletes any path the new tag no longer lists, and rewrites the `@<tag>` of every Agent-kit `uses:` pin (nothing else in your workflows). It then prints the `examples/` diff between the two tags, for step 4, and runs the [`doctor --ci`](#check-the-setup-with-doctor) file and pin checks. It refuses, before changing anything, when the pins disagree, when the old tag has no `kit-owned-paths.txt`, or when a path it would replace has uncommitted changes (`--force` discards them). It asks before writing; `--yes` skips the question, and is required when there is no terminal. Review `git diff`, then commit.
+
+**By hand:**
+
+1. Re-run step 3 with the new tag. It replaces each Kit-owned path whole, so files the kit removed are gone too.
+2. Delete any Kit-owned path the old tag's `kit-owned-paths.txt` lists and the new one does not.
 3. Bump every `uses: …@<tag>` to the new tag in the same commit.
 4. Diff your Callers against the new `examples/` for new or renamed inputs and secrets.
 
-Dependabot can open step 3's pin bumps for stable tags; see [Adopt](adopt.md#dependabot-for-stable-workflow-pins). It does not re-copy files, so the [`doctor --ci` check](#check-the-setup-with-doctor) fails on its pull request until the Kit-owned paths match the new tag. The failure names the command to run on that branch, `npx @mnaimfaizy/agent-kit@<version> upgrade --tag <tag>`. `upgrade` ships in a later release; until then, do step 2 by hand on the same branch.
+Dependabot can open step 3's pin bumps for stable tags; see [Adopt](adopt.md#dependabot-for-stable-workflow-pins). It does not re-copy files, so the [`doctor --ci` check](#check-the-setup-with-doctor) fails on its pull request until the Kit-owned paths match the new tag. The failure names the command to run on that branch, `npx @mnaimfaizy/agent-kit@<version> upgrade --tag <tag>`: with the pins already on the new tag, it re-copies the Kit-owned paths and leaves the pins alone.
