@@ -294,7 +294,7 @@ describe("implement workflow wiring", () => {
     // the agent would run, steps.confine.outcome would be failure, and the
     // check would be skipped.
     assert.doesNotMatch(implement.slice(stagingAt, agentAt), /\n {8}continue-on-error:/);
-    // A missing checker names the missing staging, not the agent.
+    // A missing checker is reported as removed after staging, not as bad git config.
     assert.match(check, /test -s "\$RUNNER_TEMP\/read-confinement\/check-git-config\.mjs"/);
     // The cleanup step runs after a failed agent step, but not past a failed check.
     assert.match(
