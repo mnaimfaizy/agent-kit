@@ -6,7 +6,9 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
-No workflow inputs, secrets or permissions changed.
+## [1.0.0-alpha.12] - 2026-11-08
+
+First release of the `@mnaimfaizy/agent-kit` npm CLI. No workflow inputs, secrets or permissions changed, and no Consumer action is required: upgrade the `uses:` pins and the Kit-owned paths together, as always.
 
 ### Added
 

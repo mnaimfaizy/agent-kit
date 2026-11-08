@@ -43,7 +43,7 @@ None of these blocks the first run, but each comes up during setup. Settle them 
 
 ## 2. Pick a tag
 
-Use the newest tag from [Releases](https://github.com/mnaimfaizy/agent-kit/releases), for example `v1.0.0-alpha.11`. Every file you copy and every `uses:` pin must be the **same exact tag** — see [Adopt](adopt.md).
+Use the newest tag from [Releases](https://github.com/mnaimfaizy/agent-kit/releases), for example `v1.0.0-alpha.12`. Every file you copy and every `uses:` pin must be the **same exact tag** — see [Adopt](adopt.md).
 
 > Do not use `v1.0.0-alpha.1` or `v1.0.0-alpha.2`: GitHub rejects their reusable workflows ("Invalid workflow file").
 
@@ -52,7 +52,7 @@ Use the newest tag from [Releases](https://github.com/mnaimfaizy/agent-kit/relea
 The reusable workflows run in _your_ checkout and load prompts, the read-confinement hook, and skills from it. These are the **Kit-owned paths**, listed in [`kit-owned-paths.txt`](../kit-owned-paths.txt) in every tag from `v1.0.0-alpha.11`. Copy them; the loop deletes each path, then copies it fresh, and leaves your own skills in `.claude/skills/` alone:
 
 ```bash
-TAG=v1.0.0-alpha.11
+TAG=v1.0.0-alpha.12
 rm -rf /tmp/agent-kit
 git clone --depth 1 --branch "$TAG" https://github.com/mnaimfaizy/agent-kit.git /tmp/agent-kit &&
 grep -v -e '^#' -e '^$' /tmp/agent-kit/kit-owned-paths.txt | while read -r path; do
