@@ -15,6 +15,6 @@ Adopters spent most of their time on repository settings rather than files ([#67
 ## Consequences
 
 - npm is a new supply-chain surface. Every version is published from the tag workflow through npm trusted publishing (OIDC, `--provenance`, a protected `npm` environment). The repository never stores a long-lived publish token.
-- The **first** version has no provenance. Trusted publishing can only be set up on a package that already exists, so the maintainer publishes it by hand once, with a short-lived granular token that is revoked straight after. This is recorded in `docs/cutting-releases.md`.
+- The **first** version has no provenance. Trusted publishing can only be set up on a package that already exists, so the maintainer publishes it by hand once, with their own interactive `npm login` (two-factor authentication), then `npm logout`. No access token is created. The steps are in `docs/cutting-releases.md`.
 - Tags without `kit-owned-paths.txt` (up to `v1.0.0-alpha.10`) are refused rather than handled with a built-in fallback list.
 - The CLI writes only local files and never changes GitHub settings. For rulesets, labels, variables and secrets it prints ready-to-run `gh` commands.

@@ -171,8 +171,21 @@ def test_cutting_releases_documents_the_manual_first_publish() -> None:
     text = (ROOT / "docs" / "cutting-releases.md").read_text(encoding="utf-8")
     assert "## Publishing the CLI to npm" in text
     section = text.split("## Publishing the CLI to npm", 1)[1].split("\n## ", 1)[0]
-    for phrase in ("granular", "revoke", "trusted publish", "`npm` environment", "required reviewer", "--provenance"):
+    for phrase in (
+        "npm login",
+        "npm logout",
+        "trusted publish",
+        "`npm` environment",
+        "required reviewer",
+        "Prevent self-review",
+        "Allow administrators to bypass",
+        "Allowed actions",
+        "2 days",
+        "--provenance",
+    ):
         assert phrase.lower() in section.lower(), f"cutting-releases.md npm section must mention {phrase!r}"
+    # The first publish uses the maintainer's own login: no access token is created or stored.
+    assert "_authToken" not in section, "the first publish must not write an npm token to a file"
 
 
 if __name__ == "__main__":

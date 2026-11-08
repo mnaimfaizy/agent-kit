@@ -51,28 +51,74 @@ Each pushed `v*` tag also publishes `cli/` as `@mnaimfaizy/agent-kit` through [p
 
 ### One-time setup
 
-Trusted publishing can only be configured on a package that already exists, so the first version is published by hand, without provenance (ADR [0001](adr/0001-distribute-the-cli-via-npm.md)). The maintainer does this once; no agent or workflow does it.
+npm can only attach a trusted publisher to a package that already exists, on the website and with `npm trust` alike. So the first version is published by hand, without provenance (ADR [0001](adr/0001-distribute-the-cli-via-npm.md)). The maintainer does this once; no agent or workflow does it. Checked against GitHub's and npm's docs on 2026-11-08.
 
-1. **Before you push the first tag that carries `cli/`** (`v1.0.0-alpha.12`), create the `npm` environment in the repository settings (**Settings → Environments → New environment**), add yourself as a **required reviewer**, and limit its deployment tags to `v*`. Every publish then waits for your approval. Without it, the tag's publish run starts at once and fails, because no trusted publisher exists yet.
-2. Cut the tag as usual. Its `Publish CLI` run waits on the `npm` environment; leave it waiting.
-3. On npmjs.com, create a **granular access token** with read and write access to the `@mnaimfaizy` scope only (publishing a new package needs the scope, not one package), and the shortest expiry offered.
-4. Publish the first version from a clean checkout of the tag. The token stays in an environment variable: the temporary npmrc only names the variable (npm expands it), so the token reaches no file, command line, or shell history:
+#### 1. The `npm` environment (before the first tag that carries `cli/`)
+
+Create it **before** you push `v1.0.0-alpha.12`. A workflow that names a missing environment creates it with no protection, and the tag's publish run would start at once.
+
+1. Open **Settings → Environments → New environment**, name it `npm` (it must match `environment: npm` in `publish-cli.yml`), and click **Configure environment**.
+2. Under deployment protection rules:
+   - Tick **Required reviewers** and add yourself.
+   - Leave **Prevent self-review** unticked. You push the tag and you are the only reviewer, so with it ticked nobody could approve.
+   - Leave **Wait timer** off.
+   - Untick **Allow administrators to bypass configured protection rules**, so a publish can't skip review.
+   - Click **Save protection rules**.
+3. Under **Deployment branches and tags**:
+   - Choose **Selected branches and tags**.
+   - Click **Add deployment branch or tag rule**, set **Ref type** to **Tag**, enter `v*`, and click **Add rule**.
+4. Add no environment secrets or variables. The job publishes through OIDC, with no token.
+
+Required reviewers are available on a free personal account because this repository is public. Check the result:
+
+```bash
+gh api repos/mnaimfaizy/agent-kit/environments/npm --jq '{rules: [.protection_rules[].type], admin_bypass: .can_admins_bypass, policy: .deployment_branch_policy}'
+```
+
+```bash
+gh api repos/mnaimfaizy/agent-kit/environments/npm/deployment-branch-policies --jq '.branch_policies[] | {name, type}'
+```
+
+#### 2. The first publish (`v1.0.0-alpha.12`)
+
+1. Cut the tag as usual. Its `Publish CLI` run waits on the `npm` environment; leave it waiting.
+2. Publish from a clean checkout of the tag with your own interactive npm login. No access token is created:
+   - `npm login` signs in through the browser with your account's two-factor authentication.
+   - `npm publish` asks for a one-time password.
+   - `--access public` is required, because scoped packages default to private.
+   - `npm logout` revokes the login token straight after.
 
    ```bash
    git switch --detach v1.0.0-alpha.12
    cd cli
-   read -rs NPM_BOOTSTRAP_TOKEN && export NPM_BOOTSTRAP_TOKEN
-   npmrc="$(mktemp)"
-   printf '%s\n' '//registry.npmjs.org/:_authToken=${NPM_BOOTSTRAP_TOKEN}' > "$npmrc"
-   npm publish --access public --tag latest --userconfig "$npmrc"
-   rm -f "$npmrc"; unset NPM_BOOTSTRAP_TOKEN
+   npm login
+   npm publish --access public --tag latest
+   npm logout
    ```
 
-5. **Revoke the token straight after**, on npmjs.com (**Access Tokens → Delete**).
-6. Reject the waiting `Publish CLI` run for this tag: the version is already published.
-7. On the package's npmjs.com settings, add a **trusted publisher**: GitHub Actions, organization or user `mnaimfaizy`, repository `agent-kit`, workflow `publish-cli.yml`, environment `npm`. Then, under publishing access, require two-factor authentication and disallow tokens, so only the trusted publisher can publish.
+3. In the waiting run, click **Review deployments**, then **Reject**: the version is already published.
 
-From the next tag on, approve the waiting `Publish CLI` run and it publishes with provenance. Check it with `npm view @mnaimfaizy/agent-kit@<version> dist.attestations`.
+#### 3. The trusted publisher (within 2 days before the next tag)
+
+A newly created trusted publisher must complete a successful publish within **2 days**, or you delete it and create it again. So add it shortly before you cut the next tag (`v1.0.0-alpha.13`), not right after the first publish.
+
+- **On npmjs.com:**
+  1. Go to **Packages → `@mnaimfaizy/agent-kit` → Settings → Trusted publishing → GitHub Actions**.
+  2. Fill in organization or user `mnaimfaizy`, repository `agent-kit`, workflow filename `publish-cli.yml` and environment name `npm`.
+  3. Under **Allowed actions**, tick **`npm publish`**. Trusted publishers created after 2026-09-03 allow only `npm stage publish` by default, and `publish-cli.yml` runs a plain `npm publish`.
+- **Or from the CLI**, with npm 11.15 or later and two-factor authentication on your account:
+
+  ```bash
+  npm trust github @mnaimfaizy/agent-kit --file publish-cli.yml --repo mnaimfaizy/agent-kit --env npm --allow-publish
+  ```
+
+Then, under the package's **Publishing access**, choose **Require two-factor authentication and disallow tokens** and click **Update Package Settings**. This doesn't affect OIDC publishing, and it means no token can ever publish the package.
+
+From that tag on, cut the tag, click **Review deployments → Approve and deploy** on its `Publish CLI` run, and the job publishes with `--provenance`. Check it:
+
+```bash
+npm view @mnaimfaizy/agent-kit@<version> dist.attestations
+```
 
 ## Release notes and changelog shape
 
