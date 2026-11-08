@@ -14,6 +14,7 @@ docs/adopt.md
 docs/releases.md
 docs/cutting-releases.md
 docs/security-model.md
+docs/repository-hardening.md
 docs/security-audit.md
 docs/plan-implement-review.md
 docs/copilot-restore.md
