@@ -64,12 +64,47 @@ export function fnmatchToRegExp(pattern) {
 
 /** Whether a ruleset's `conditions.ref_name` covers `ref`. */
 export function coversRef(ruleset, ref, { defaultBranch } = {}) {
+  // A ruleset with a pattern doctor cannot interpret is not counted at all.
+  if (unreadablePatterns(ruleset).length) return false;
   const cond = ruleset.conditions?.ref_name ?? {};
   const matches = (p) =>
     p === "~ALL" ||
     (p === "~DEFAULT_BRANCH" && defaultBranch && ref === `refs/heads/${defaultBranch}`) ||
     fnmatchToRegExp(p).test(ref);
   return (cond.include ?? []).some(matches) && !(cond.exclude ?? []).some(matches);
+}
+
+/** The ref patterns of a ruleset that do not compile (an invalid range such as `[z-a]`). */
+export function unreadablePatterns(ruleset) {
+  const cond = ruleset.conditions?.ref_name ?? {};
+  return [...(cond.include ?? []), ...(cond.exclude ?? [])].filter((p) => {
+    if (typeof p !== "string") return true;
+    if (p === "~ALL" || p === "~DEFAULT_BRANCH") return false;
+    try {
+      fnmatchToRegExp(p);
+      return false;
+    } catch {
+      return true;
+    }
+  });
+}
+
+/**
+ * Note the rulesets of `target` that were not counted because a pattern could
+ * not be interpreted. Rulesets only add restrictions, so a check that holds
+ * without them stays a pass; one that does not is already a warning.
+ */
+function withPatternNotes(res, rulesets, target) {
+  const notes = rulesets
+    .filter((r) => r.target === target)
+    .flatMap((r) =>
+      unreadablePatterns(r).map(
+        (p) =>
+          `${label(r)}: pattern ${JSON.stringify(p)} could not be interpreted, so it was not counted.`,
+      ),
+    );
+  if (notes.length === 0) return res;
+  return { ...res, details: [...notes, ...res.details] };
 }
 
 /**
@@ -135,7 +170,7 @@ function ruleStatus(covering, type) {
 const BYPASS_ADVICE =
   "Keep the bypass list to Admin and Maintain: never a GitHub App, the Write role, or a team the App acts through.";
 
-export function checkUpdateRule(rulesets, { defaultBranch }) {
+function updateRule(rulesets, { defaultBranch }) {
   const ID = "ruleset-update";
   const TITLE = "Default branch has an update rule";
   const recipe = `Recipe: ${HARDENING}#1-default-branch-an-update-rule`;
@@ -165,7 +200,7 @@ const RELEASE_BRANCH_REFS = [
   "refs/heads/release-1.0.0",
 ];
 
-export function checkCreationRule(rulesets) {
+function creationRule(rulesets) {
   const ID = "ruleset-creation";
   const TITLE = "Release branches have a creation rule";
   const recipe = `Recipe: ${HARDENING}#2-release-branches-a-creation-rule`;
@@ -205,7 +240,7 @@ const TAG_RULES = ["creation", "update", "deletion"];
 // A stable and a pre-release tag: the v* ruleset must cover both.
 const TAG_REFS = ["refs/tags/v1.0.0", "refs/tags/v1.0.0-alpha.1"];
 
-export function checkTagRuleset(rulesets) {
+function tagRuleset(rulesets) {
   const ID = "ruleset-tags";
   const TITLE = "Release tags have a v* tag ruleset";
   const recipe = `Recipe: ${HARDENING}#3-release-tags-a-v-tag-ruleset`;
@@ -240,6 +275,18 @@ export function checkTagRuleset(rulesets) {
     "pass",
     "An active tag ruleset blocks creating, moving and deleting v* tags, pre-releases included.",
   );
+}
+
+export function checkUpdateRule(rulesets, opts) {
+  return withPatternNotes(updateRule(rulesets, opts), rulesets, "branch");
+}
+
+export function checkCreationRule(rulesets) {
+  return withPatternNotes(creationRule(rulesets), rulesets, "branch");
+}
+
+export function checkTagRuleset(rulesets) {
+  return withPatternNotes(tagRuleset(rulesets), rulesets, "tag");
 }
 
 /**

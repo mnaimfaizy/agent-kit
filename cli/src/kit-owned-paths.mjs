@@ -17,7 +17,12 @@ export class ManifestError extends Error {}
 
 function safe(line) {
   const parts = line.slice(0, -1).split("/");
-  return SAFE_PATH.test(line) && !parts.includes("..") && !parts.includes(".");
+  return (
+    SAFE_PATH.test(line) &&
+    !parts.includes("..") &&
+    !parts.includes(".") &&
+    !parts.some((p) => p.toLowerCase() === ".git")
+  );
 }
 
 /**

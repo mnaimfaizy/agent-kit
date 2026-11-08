@@ -61,10 +61,11 @@ export function checkPins(files) {
   const [tag] = refs;
   const summary = `${all.length} pin${all.length === 1 ? "" : "s"} use ${repo}@${tag}.`;
   if (repo.toLowerCase() !== DEFAULT_KIT_REPO) {
+    // A fork or an Enterprise mirror is a valid choice: say so, but not as a warning.
     return {
-      result: result(ID, TITLE, "warn", `${summary} The pins name a fork.`, {
+      result: result(ID, TITLE, "pass", summary, {
         details: [
-          `The pins name ${repo}, not ${DEFAULT_KIT_REPO}: the Kit-owned path checks compare against the fork's ${tag}.`,
+          `The pins name ${repo}, not ${DEFAULT_KIT_REPO}; the Kit-owned path checks compare against that repository.`,
         ],
       }),
       repo,

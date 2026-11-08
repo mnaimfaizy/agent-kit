@@ -195,17 +195,51 @@ function repoInfo(github, repoArg) {
   return github.repoInfo(repoArg);
 }
 
+const TITLES = Object.fromEntries(LOCAL_ONLY_CHECKS);
+
+/** Run one check; an exception becomes a FAIL for that check, never a silent pass. */
+export function guarded(id, run) {
+  try {
+    return run();
+  } catch (err) {
+    return result(
+      id,
+      TITLES[id] ?? id,
+      "fail",
+      `Check crashed: ${firstLine(err?.message ?? err)}`,
+      {
+        details: ["This is a bug in doctor; the other checks still ran."],
+      },
+    );
+  }
+}
+
 function localChecks({ runner, cwd, info, files, callers, snapshot }) {
   const github = createGitHub(runner, { cwd, hostname: info.host ?? null });
   const { repo, owner, ownerType, defaultBranch } = info;
-  const out = [];
+  const raw = [];
+  const out = { push: (...items) => raw.push(...items) };
 
   if (snapshot) {
-    const requirements = deriveRequirements(callers, (file) =>
-      snapshot.readFile(`.github/workflows/${file}`),
+    let requirements = null;
+    out.push(
+      guarded("secrets", () => {
+        requirements = deriveRequirements(callers, (file) =>
+          snapshot.readFile(`.github/workflows/${file}`),
+        );
+        return checkSecrets({ github, repo, ownerType, requirements });
+      }),
     );
-    out.push(checkSecrets({ github, repo, ownerType, requirements }));
-    out.push(checkVariables({ github, repo, ownerType, requirements }));
+    out.push(
+      guarded("variables", () =>
+        checkVariables({
+          github,
+          repo,
+          ownerType,
+          requirements: requirements ?? { variables: deriveVariables(callers) },
+        }),
+      ),
+    );
   } else {
     out.push(
       ...skipAll(
@@ -214,13 +248,22 @@ function localChecks({ runner, cwd, info, files, callers, snapshot }) {
       ),
     );
     // Variables come from the Caller files alone.
-    const variables = deriveVariables(callers);
-    out.push(checkVariables({ github, repo, ownerType, requirements: { variables } }));
+    out.push(
+      guarded("variables", () =>
+        checkVariables({
+          github,
+          repo,
+          ownerType,
+          requirements: { variables: deriveVariables(callers) },
+        }),
+      ),
+    );
   }
 
   const readReusable = snapshot ? (file) => snapshot.readFile(`.github/workflows/${file}`) : null;
-  if (callers.length) out.push(checkLabels({ github, repo, callers, readReusable }));
-  else
+  if (callers.length) {
+    out.push(guarded("trigger-labels", () => checkLabels({ github, repo, callers, readReusable })));
+  } else
     out.push(
       result(
         "trigger-labels",
@@ -230,7 +273,7 @@ function localChecks({ runner, cwd, info, files, callers, snapshot }) {
       ),
     );
 
-  out.push(checkClaudeApp({ github, repo, owner, ownerType }));
+  out.push(guarded("claude-app", () => checkClaudeApp({ github, repo, owner, ownerType })));
 
   let rulesets = null;
   let rulesetError = null;
@@ -240,14 +283,14 @@ function localChecks({ runner, cwd, info, files, callers, snapshot }) {
     rulesetError = `Could not read rulesets: ${err.message}`;
   }
   if (rulesets) {
-    out.push(checkUpdateRule(rulesets, { defaultBranch }));
-    out.push(checkCreationRule(rulesets));
-    out.push(checkTagRuleset(rulesets));
+    out.push(guarded("ruleset-update", () => checkUpdateRule(rulesets, { defaultBranch })));
+    out.push(guarded("ruleset-creation", () => checkCreationRule(rulesets)));
+    out.push(guarded("ruleset-tags", () => checkTagRuleset(rulesets)));
   } else {
     out.push(...skipAll(LOCAL_ONLY_CHECKS.slice(4, 7), rulesetError));
   }
-  out.push(checkPersonalTagPush({ ownerType, files }));
-  return out;
+  out.push(guarded("release-tag-push", () => checkPersonalTagPush({ ownerType, files })));
+  return raw;
 }
 
 function finish({ mode, modeReason, repo, tag, results, refusal, strict }) {

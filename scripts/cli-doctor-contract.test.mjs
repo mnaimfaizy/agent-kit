@@ -44,7 +44,7 @@ import {
   deriveRequirements,
 } from "../cli/src/checks/secrets-and-variables.mjs";
 import { main } from "../cli/src/cli.mjs";
-import { formatReport, LOCAL_ONLY_CHECKS, runDoctor } from "../cli/src/doctor.mjs";
+import { formatReport, guarded, LOCAL_ONLY_CHECKS, runDoctor } from "../cli/src/doctor.mjs";
 import { firstLine, systemRunner } from "../cli/src/exec.mjs";
 import { parseKitOwnedPaths } from "../cli/src/kit-owned-paths.mjs";
 import { openKitTag, PreManifestTagError } from "../cli/src/kit-tag.mjs";
@@ -1117,15 +1117,6 @@ describe("hardening (PR #78, second review)", () => {
     });
   });
 
-  it("pins of a fork warn, and the tree check uses the fork", () => {
-    const pin = (repo) => ({ repo, file: "agent-plan-reusable.yml", ref: TAG, line: 1 });
-    const r = checkPins([{ path: "a.yml", pins: [pin("someone/agent-kit")] }]);
-    assert.equal(r.result.status, "warn");
-    assert.match(r.result.details[0], /compare against the fork/);
-    assert.equal(r.repo, "someone/agent-kit");
-    assert.equal(r.tag, TAG);
-  });
-
   describe("edge cases", () => {
     it("1: a UTF-8 BOM does not hide a Caller's jobs", () => {
       const text = `\ufeff${callerFor(TAG)}`;
@@ -1394,5 +1385,110 @@ describe("hardening (PR #78, second review)", () => {
       const report = runDoctor({ cwd: wt, runner: systemRunner, ci: true, openTag });
       assert.equal(report.results.find((r) => r.id === "kit-owned-trees").status, "pass");
     });
+  });
+});
+
+describe("re-audit fixes (PR #78)", () => {
+  const branchRuleset = (include, extra = {}) => ({
+    name: "rs",
+    enforcement: "active",
+    target: "branch",
+    conditions: { ref_name: { include, exclude: [] } },
+    rules: [{ type: "update" }],
+    bypass_actors: [],
+    ...extra,
+  });
+
+  it("A: a ruleset pattern that cannot be interpreted is noted, not a crash", () => {
+    const bad = branchRuleset(["refs/heads/[z-a]"], { name: "broken" });
+    assert.doesNotThrow(() => coversRef(bad, "refs/heads/main"));
+    assert.equal(coversRef(bad, "refs/heads/main"), false);
+    const alone = checkUpdateRule([bad], { defaultBranch: "main" });
+    assert.equal(alone.status, "warn");
+    assert.match(
+      alone.details.join("\n"),
+      /"broken": pattern "refs\/heads\/\[z-a\]" could not be interpreted/,
+    );
+    // Rulesets only add restrictions: another one that holds the rule still passes.
+    const held = checkUpdateRule([bad, branchRuleset(["~DEFAULT_BRANCH"])], {
+      defaultBranch: "main",
+    });
+    assert.equal(held.status, "pass");
+    assert.match(held.details.join("\n"), /could not be interpreted/);
+  });
+
+  it("A: a check that throws becomes a FAIL and the other checks still report", () => {
+    assert.equal(
+      guarded("x", () => {
+        throw new Error("boom\nmore");
+      }).summary,
+      "Check crashed: boom",
+    );
+    const dir = makeConsumer("crash");
+    const { runner } = fakeGh({
+      ...ALL_GOOD,
+      "repos/acme/app/rulesets?includes_parents=true": ["1"],
+      "repos/acme/app/rulesets/1": JSON.stringify(
+        branchRuleset(["~DEFAULT_BRANCH"], { rules: "bogus" }),
+      ),
+    });
+    const report = runDoctor({ cwd: dir, runner, openTag });
+    const update = report.results.find((r) => r.id === "ruleset-update");
+    assert.equal(update.status, "fail");
+    assert.match(update.summary, /^Check crashed: /);
+    assert.ok(
+      report.results.find((r) => r.id === "release-tag-push"),
+      "later checks still ran",
+    );
+    assert.equal(report.exitCode, 1);
+  });
+
+  describe("B: one skip-worktree file does not hide the rest of the path", () => {
+    const prepare = (name) => {
+      const dir = makeConsumer(name);
+      git(dir, "update-index", "--skip-worktree", ".claude/skills/code-review/SKILL.md");
+      rmSync(join(dir, ".claude/skills/code-review/SKILL.md"));
+      return dir;
+    };
+    const trees = (dir) =>
+      runDoctor({ cwd: dir, runner: systemRunner, ci: true, openTag }).results.find(
+        (r) => r.id === "kit-owned-trees",
+      );
+
+    it("passes when the other files match, saying how it compared", () => {
+      const t = trees(prepare("mixed-clean"));
+      assert.equal(t.status, "pass", JSON.stringify(t));
+      assert.match(t.details.join("\n"), /code-review\/: 1 of its files are marked skip-worktree/);
+    });
+
+    it("fails on a local edit elsewhere in the path", () => {
+      const dir = prepare("mixed-edit");
+      writeFileSync(join(dir, ".claude/skills/code-review/notes/a.md"), "edited\n");
+      assert.equal(trees(dir).status, "fail");
+    });
+
+    it("fails on a new untracked file elsewhere in the path", () => {
+      const dir = prepare("mixed-new");
+      writeFileSync(join(dir, ".claude/skills/code-review/stale.md"), "old\n");
+      assert.equal(trees(dir).status, "fail");
+    });
+  });
+
+  it("C: fork pins pass with a detail line, so --strict can pass", () => {
+    const pin = (repo) => ({ repo, file: "agent-plan-reusable.yml", ref: TAG, line: 1 });
+    const r = checkPins([{ path: "a.yml", pins: [pin("acme/agent-kit")] }]);
+    assert.equal(r.result.status, "pass");
+    assert.equal(
+      r.result.details[0],
+      "The pins name acme/agent-kit, not mnaimfaizy/agent-kit; the Kit-owned path checks compare against that repository.",
+    );
+    assert.equal(r.repo, "acme/agent-kit");
+  });
+
+  it("read-only manifest parsing refuses a .git segment", () => {
+    for (const bad of [".git/\n", ".git/hooks/\n", "a/.GIT/b/\n", "x/.Git/\n"]) {
+      assert.throws(() => parseKitOwnedPaths(bad, { forDeletion: false }), bad);
+    }
+    assert.deepEqual(parseKitOwnedPaths(".gitx/\n", { forDeletion: false }), [".gitx/"]);
   });
 });
