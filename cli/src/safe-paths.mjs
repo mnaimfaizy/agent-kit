@@ -2,7 +2,8 @@
 // Consumer's checkout. A path read from a tag passes only if writing it is
 // safe on Linux, macOS and Windows alike: plain name characters, no `.` or
 // `..` segment, nothing git or Windows treats as special (`.git` in any case,
-// its 8.3 short name `git~1`, a trailing dot, a device name such as `nul`).
+// a trailing dot, a device name such as `nul`). `~` is not a name character,
+// so no 8.3 short name (`git~1`, `PROGRA~1`) can alias another folder.
 
 const SEGMENT = /^[A-Za-z0-9._-]+$/;
 const WINDOWS_DEVICE = /^(?:con|prn|aux|nul|com[0-9]|lpt[0-9])(?:\..*)?$/i;
@@ -13,7 +14,7 @@ export class UnsafePathError extends Error {}
 function segmentProblem(segment) {
   if (!SEGMENT.test(segment)) return "has a character outside A-Z a-z 0-9 . _ -";
   if (segment === "." || segment === "..") return "is a . or .. segment";
-  if (segment.toLowerCase() === ".git" || /^git~\d+$/i.test(segment)) return "names .git";
+  if (segment.toLowerCase() === ".git") return "names .git";
   if (segment.endsWith(".")) return "ends with a dot, which Windows drops";
   if (WINDOWS_DEVICE.test(segment)) return "is a Windows device name";
   return null;

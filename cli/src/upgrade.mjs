@@ -16,7 +16,7 @@ import { checkPins } from "./checks/pins.mjs";
 import { result } from "./checks/result.mjs";
 import { formatResult } from "./doctor.mjs";
 import { firstLine } from "./exec.mjs";
-import { DEFAULT_SERVER, openKitRepo, PreManifestTagError } from "./kit-tag.mjs";
+import { EXECUTABLE_MODE, openKitRepo, PreManifestTagError, serverFromEnv } from "./kit-tag.mjs";
 import {
   applyPlan,
   checkDeletable,
@@ -29,18 +29,9 @@ import {
 import { caseCollisions } from "./safe-paths.mjs";
 import { compareTags } from "./tags.mjs";
 
-export { Refusal };
-
-const SERVER = /^https:\/\/[A-Za-z0-9.-]+(?::\d+)?$/;
 const MAX_LISTED = 20;
 const BOM = "﻿";
 const utf8 = new TextDecoder("utf-8", { fatal: true });
-
-/** GITHUB_SERVER_URL when it is a valid server (GitHub Enterprise Server), else github.com. */
-export function serverFor(env) {
-  const fromEnv = String(env.GITHUB_SERVER_URL ?? "").replace(/\/$/, "");
-  return SERVER.test(fromEnv) ? fromEnv : DEFAULT_SERVER;
-}
 
 /** A workflow file's text, or a Refusal when it is not UTF-8 (rewriting it would corrupt it). */
 function readWorkflowText(root, path) {
@@ -59,7 +50,7 @@ function readWorkflowText(root, path) {
  * Work out everything upgrade would do, reading every file it would write,
  * and throw Refusal for anything that stops it. Touches nothing on disk.
  */
-export function planUpgrade({ runner, root, oldSnap, newSnap, files, force }) {
+export function planUpgrade({ runner, root, oldSnap, newSnap, files, force, pinnedTag }) {
   const newPaths = newSnap.kitOwnedPaths;
   const removed = oldSnap.kitOwnedPaths.filter((p) => !newPaths.includes(p));
   for (const snap of [newSnap, oldSnap]) {
@@ -77,7 +68,7 @@ export function planUpgrade({ runner, root, oldSnap, newSnap, files, force }) {
   const writes = kitFileWrites(newSnap);
 
   const pinEdits = [];
-  if (oldSnap.tag !== newSnap.tag) {
+  if (pinnedTag !== newSnap.tag) {
     for (const file of files) {
       if (file.pins.length === 0) continue;
       const text = readWorkflowText(root, file.path);
@@ -96,7 +87,7 @@ export function planUpgrade({ runner, root, oldSnap, newSnap, files, force }) {
     }
   }
 
-  const dirty = uncommittedChanges({ runner, root, paths: deletes });
+  const { changed: dirty, ignored } = uncommittedChanges({ runner, root, paths: deletes });
   if (dirty.length && !force) {
     throw new Refusal(
       `${dirty.length} file(s) in the paths upgrade would replace or delete have uncommitted changes. ` +
@@ -105,7 +96,7 @@ export function planUpgrade({ runner, root, oldSnap, newSnap, files, force }) {
     );
   }
 
-  return { deletes, removed, writes, pinEdits, dirty };
+  return { deletes, removed, writes, pinEdits, dirty, ignored };
 }
 
 /**
@@ -113,6 +104,7 @@ export function planUpgrade({ runner, root, oldSnap, newSnap, files, force }) {
  *   cwd: string,
  *   runner: import("./exec.mjs").Runner,
  *   tag: string,
+ *   from?: string,   // the tag being left, when the pins already name `tag`
  *   force?: boolean,
  *   yes?: boolean,
  *   confirm?: ((question: string) => Promise<boolean>) | null,
@@ -126,6 +118,7 @@ export async function runUpgrade({
   cwd,
   runner,
   tag: newTag,
+  from,
   force = false,
   yes = false,
   confirm = null,
@@ -159,13 +152,21 @@ export async function runUpgrade({
       ),
     );
   }
-  const oldTag = pins.tag;
-  out(`Upgrading ${pins.repo} from ${oldTag} to ${newTag}.`);
+  const pinnedTag = pins.tag;
+  if (from !== undefined && pinnedTag !== from && pinnedTag !== newTag) {
+    return refuse(
+      new Refusal(
+        `The pins name ${pinnedTag}, which is neither --from ${from} nor --tag ${newTag}.`,
+      ),
+    );
+  }
+  const oldTag = from ?? pinnedTag;
+  out(`Upgrading ${pins.repo} from ${oldTag} to ${newTag} in ${root}.`);
   if (compareTags(newTag, oldTag) < 0) out(`Note: ${newTag} is older than ${oldTag}.`);
 
   let kit;
   try {
-    kit = openRepo({ runner, repo: pins.repo, serverUrl: serverFor(env) });
+    kit = openRepo({ runner, repo: pins.repo, serverUrl: serverFromEnv(env) });
   } catch (err) {
     return refuse(err);
   }
@@ -176,7 +177,15 @@ export async function runUpgrade({
     try {
       oldSnap = kit.fetchTag(oldTag, { forDeletion: true });
       newSnap = newTag === oldTag ? oldSnap : kit.fetchTag(newTag, { forDeletion: true });
-      plan = planUpgrade({ runner, root, oldSnap, newSnap, files: workflows.files, force });
+      plan = planUpgrade({
+        runner,
+        root,
+        oldSnap,
+        newSnap,
+        files: workflows.files,
+        force,
+        pinnedTag,
+      });
     } catch (err) {
       // PreManifestTagError gives the same message doctor prints.
       if (err instanceof Refusal || err instanceof PreManifestTagError) return refuse(err);
@@ -203,6 +212,10 @@ export async function runUpgrade({
       out(`--force: discarding uncommitted changes in ${plan.dirty.length} file(s):`);
       for (const d of plan.dirty.slice(0, MAX_LISTED)) out(`  ${d}`);
     }
+    if (plan.ignored.length) {
+      out(`Also deleted: ${plan.ignored.length} ignored file(s) or folder(s) in those paths:`);
+      for (const d of plan.ignored.slice(0, MAX_LISTED)) out(`  ${d}`);
+    }
     out("");
 
     if (!yes) {
@@ -219,6 +232,7 @@ export async function runUpgrade({
     try {
       applyPlan(root, { deletes: plan.deletes, writes: [...plan.writes, ...plan.pinEdits] });
     } catch (err) {
+      if (err instanceof Refusal) return refuse(err);
       out(`FAILED  upgrade stopped part-way: ${firstLine(err?.message ?? err)}`);
       out("      See `git status`; restore with `git checkout -- .` and `git clean` as needed.");
       return 1;
@@ -230,15 +244,16 @@ export async function runUpgrade({
     const note = stageExecutableBits({
       runner,
       root,
-      files: plan.writes.filter((w) => w.mode === "100755").map((w) => w.path),
+      files: plan.writes.filter((w) => w.mode === EXECUTABLE_MODE).map((w) => w.path),
     });
     if (note) out(note);
 
     out("");
     if (oldTag === newTag) {
       out(
-        `The pins already named ${newTag}, so there is no examples/ diff to show. If they were ` +
-          `bumped from an older tag (by Dependabot, say), compare that tag's examples/ by hand.`,
+        `The pins already named ${newTag}, so there is no examples/ diff to show, and no path ` +
+          `only an older tag listed was deleted. If they were bumped from an older tag (by ` +
+          `Dependabot, say), run again with --from <that tag> to get both.`,
       );
     } else {
       let diff = "";
@@ -252,6 +267,12 @@ export async function runUpgrade({
           `examples/ changed between ${oldTag} and ${newTag}. Your Callers are yours: ` +
             `apply what you need by hand.`,
         );
+        // eslint-disable-next-line no-control-regex
+        if (/[\u0000-\u0009\u000b-\u001f]/.test(diff)) {
+          out(
+            "(Control characters, tabs and carriage returns included, are shown escaped as \\uXXXX.)",
+          );
+        }
         out(diff.replace(/\n$/, ""));
       } else {
         out(`examples/ did not change between ${oldTag} and ${newTag}.`);

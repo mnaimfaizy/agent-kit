@@ -22,6 +22,7 @@ import { dirname, join } from "node:path";
 import { after, before, describe, it } from "node:test";
 import { pathToFileURL } from "node:url";
 import { findKitPins, rewriteKitPins } from "../cli/src/callers.mjs";
+import { sanitizeLine } from "../cli/src/checks/result.mjs";
 import { main } from "../cli/src/cli.mjs";
 import { systemRunner } from "../cli/src/exec.mjs";
 import { openKitRepo, openKitTag } from "../cli/src/kit-tag.mjs";
@@ -480,6 +481,85 @@ describe("upgrade: refusals change nothing", () => {
   });
 });
 
+describe("upgrade: after a Dependabot pin bump", () => {
+  // The pins already name the new tag; the files are still the old tag's.
+  const bumped = () => makeConsumer({ tag: TO });
+
+  it("without --from, re-copies the new tag's paths but cannot know what to delete, and says so", async () => {
+    const dir = bumped();
+    const res = await upgrade(dir, ["--tag", TO, "--yes"]);
+    assert.equal(res.code, 0, res.text);
+    assert.equal(read(dir, ".github/agent-runtime/hook.mjs"), "export const v = 12;\n");
+    assert.equal(existsSync(join(dir, ".claude/skills/old-skill")), true);
+    assert.match(res.text, /run again with --from <that tag>/);
+  });
+
+  it("--from deletes paths only the old tag listed and prints the examples/ diff, leaving the pins", async () => {
+    const dir = bumped();
+    const res = await upgrade(dir, ["--tag", TO, "--from", FROM, "--yes"]);
+    assert.equal(res.code, 0, res.text);
+    assert.equal(existsSync(join(dir, ".claude/skills/old-skill")), false);
+    assert.match(res.text, /The uses: pins already name v1\.0\.0-alpha\.12\./);
+    assert.match(res.text, /^\+# setting: new$/m);
+    assert.equal(read(dir, ".github/workflows/caller.yml"), callerYml(TO));
+  });
+
+  it("refuses --from when the pins name a third tag", async () => {
+    const dir = makeConsumer({ tag: FROM });
+    const before = snapshot(dir);
+    const res = await upgrade(dir, ["--tag", TO, "--from", BAD.ghost, "--yes"]);
+    assert.equal(res.code, 1, res.text);
+    assert.match(res.text, /neither --from/);
+    assert.deepEqual(snapshot(dir), before);
+  });
+
+  it("rejects a --from that is not a Release-line tag", async () => {
+    const res = await upgrade(bumped(), ["--tag", TO, "--from", "main", "--yes"]);
+    assert.equal(res.code, 2, res.text);
+  });
+});
+
+describe("upgrade: ignored files", () => {
+  it("lists ignored files it will delete with a path, without needing --force", async () => {
+    const dir = makeConsumer({ files: { ".gitignore": "*.log\n" } });
+    writeFileSync(join(dir, ".github/agent-runtime/debug.log"), "noise\n");
+    const res = await upgrade(dir);
+    assert.equal(res.code, 0, res.text);
+    assert.match(
+      res.text,
+      /Also deleted: 1 ignored file\(s\) or folder\(s\)[^\n]*\n {2}\.github\/agent-runtime\/debug\.log/,
+    );
+    assert.equal(existsSync(join(dir, ".github/agent-runtime/debug.log")), false);
+  });
+});
+
+describe("upgrade: hardening", () => {
+  it("counts a file marked assume-unchanged or skip-worktree as changed", async () => {
+    for (const flag of ["--assume-unchanged", "--skip-worktree"]) {
+      const dir = makeConsumer();
+      git(dir, "update-index", flag, ".github/agent-runtime/hook.mjs");
+      writeFileSync(join(dir, ".github/agent-runtime/hook.mjs"), "hidden local edit\n");
+      const before = snapshot(dir);
+      const res = await upgrade(dir);
+      assert.equal(res.code, 1, res.text);
+      assert.match(res.text, /hook\.mjs \(marked (?:assume-unchanged|skip-worktree)\)/);
+      assert.deepEqual(snapshot(dir), before);
+    }
+  });
+
+  it("prints the repository root it will change before asking", async () => {
+    const dir = makeConsumer();
+    const res = await upgrade(dir, ["--tag", TO], { prompt: async () => "n" });
+    assert.match(res.text, /Upgrading .* in .+\./);
+  });
+
+  it("escapes bidirectional and invisible characters in what it prints", () => {
+    for (const c of ["‮", "⁦", "​", "‏", "﻿"]) {
+      assert.doesNotMatch(sanitizeLine(`a${c}b`), new RegExp(c));
+    }
+  });
+});
+
 describe("upgrade: questions and flags", () => {
   it("with no terminal and no --yes, stops before any git runs and names the flags", async () => {
     const calls = [];
@@ -620,6 +700,7 @@ describe("path safety", () => {
       "a/.GIT/config",
       "a/.Git",
       "a/git~1/config",
+      "a/PROGRA~1",
       "a/.git./x",
       "a/name.",
       "a/nul",

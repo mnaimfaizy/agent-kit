@@ -17,6 +17,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { firstLine } from "./exec.mjs";
+import { EXECUTABLE_MODE } from "./kit-tag.mjs";
 
 const SAFE_PATH = /^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*\/$/;
 
@@ -35,6 +36,15 @@ export function filterDrivers(configNames) {
     if (m) drivers.add(m[1]);
   }
   return [...drivers];
+}
+
+/**
+ * True when core.fileMode is off (the default on Windows): git then cannot
+ * see an executable bit on disk and takes a file's mode from the index.
+ */
+export function fileModeIsOff(runner, root) {
+  const r = runner("git", ["-C", root, "config", "--type=bool", "core.fileMode"]);
+  return r.status === 0 && r.stdout.trim() === "false";
 }
 
 /**
@@ -120,8 +130,7 @@ export function localTreeHashes({ runner, cwd, paths }) {
 
     // Without core.fileMode (the default on Windows) git cannot see an
     // executable bit on disk and takes the mode from the index: so does this.
-    const fileMode = real("config", "--type=bool", "core.fileMode");
-    const trustIndexModes = fileMode.status === 0 && fileMode.stdout.trim() === "false";
+    const trustIndexModes = fileModeIsOff(runner, root);
 
     const hashes = new Map();
     const skipped = new Map();
@@ -180,7 +189,7 @@ export function localTreeHashes({ runner, cwd, paths }) {
         const inReal = modes(real("ls-files", "-s", "-z", "--", path));
         const inTemp = modes(git("ls-files", "-s", "-z", "--", path));
         const fix = [...inReal]
-          .filter(([f, mode]) => mode === "100755" && inTemp.get(f) === "100644")
+          .filter(([f, mode]) => mode === EXECUTABLE_MODE && inTemp.get(f) === "100644")
           .map(([f]) => f);
         for (let i = 0; i < fix.length; i += 200) {
           const chmod = git("update-index", "--chmod=+x", "--", ...fix.slice(i, i + 200));

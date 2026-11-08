@@ -30,6 +30,9 @@ Options for doctor:
 
 Options for upgrade:
   --tag <vY>      The Agent-kit tag to move to (asked for when missing).
+  --from <vX>     The tag you are leaving, when the pins already name <vY>
+                  (after a Dependabot bump): deletes paths only <vX> listed
+                  and prints the examples/ diff.
   --yes           Do not ask before changing files.
   --force         Replace Kit-owned paths even when they have uncommitted
                   changes (those changes are lost).
@@ -41,7 +44,7 @@ init is not available yet.`;
 
 const COMMAND_OPTIONS = {
   doctor: ["ci", "strict", "repo"],
-  upgrade: ["tag", "yes", "force"],
+  upgrade: ["tag", "from", "yes", "force"],
 };
 
 /**
@@ -74,6 +77,7 @@ export async function main(argv, io) {
         strict: { type: "boolean" },
         repo: { type: "string" },
         tag: { type: "string" },
+        from: { type: "string" },
         yes: { type: "boolean", short: "y" },
         force: { type: "boolean" },
         help: { type: "boolean", short: "h" },
@@ -147,6 +151,10 @@ async function upgrade(values, { cwd, runner, openRepo, prompt, stdout, stderr }
   }
   let tag = values.tag;
   if (tag === undefined) tag = await prompt("Agent-kit tag to upgrade to (for example v1.0.0): ");
+  if (values.from !== undefined && !isReleaseTag(values.from)) {
+    stderr(`--from must be a Release-line tag, got: ${JSON.stringify(values.from)}`);
+    return 2;
+  }
   if (!isReleaseTag(tag)) {
     stderr(
       `--tag must be a Release-line tag (vX.Y.Z or vX.Y.Z-stage.N), got: ${JSON.stringify(tag)}`,
@@ -158,6 +166,7 @@ async function upgrade(values, { cwd, runner, openRepo, prompt, stdout, stderr }
     cwd,
     runner,
     tag,
+    from: values.from,
     force: Boolean(values.force),
     yes: Boolean(values.yes),
     confirm: prompt ? (q) => askYesNo(prompt, q) : null,
