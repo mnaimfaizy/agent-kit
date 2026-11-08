@@ -9,6 +9,7 @@ Each tag is a **whole-kit snapshot**: reusable workflows, shipped skills, docs, 
 - CI is green on `main` (tests, lint, actionlint, links).
 - The examples pin the tag you are about to cut (`uses: …@<tag>`). The contract tests require a SemVer tag there, so bump them in the release-prep PR.
 - `CHANGELOG.md` has a section for the tag, and `release-notes/<tag>.md` exists when you want a Release body (required for beta, rc, stable).
+- The release-prep PR is merged to `main` with the Admin bypass: the `main branch` ruleset lets only the Admin role update `main`. Wait for green CI on the PR first, because the bypass skips the required checks too. See [Branch protection](../CONTRIBUTING.md#branch-protection).
 
 ## Cut a release
 
