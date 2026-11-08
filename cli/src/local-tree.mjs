@@ -82,6 +82,8 @@ export function localTreeHashes({ runner, cwd, paths }) {
       "core.fsmonitor=false",
       "-c",
       "gc.auto=0",
+      "-c",
+      "maintenance.auto=false",
     ];
     const listed = runner("git", [
       "-C",
