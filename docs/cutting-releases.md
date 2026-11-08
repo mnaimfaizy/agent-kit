@@ -79,24 +79,31 @@ gh api repos/mnaimfaizy/agent-kit/environments/npm --jq '{rules: [.protection_ru
 gh api repos/mnaimfaizy/agent-kit/environments/npm/deployment-branch-policies --jq '.branch_policies[] | {name, type}'
 ```
 
-#### 2. The first publish (`v1.0.0-alpha.12`)
+#### 2. The first publish (`v1.0.0-alpha.12`, done 2026-11-08)
 
 1. Cut the tag as usual. Its `Publish CLI` run waits on the `npm` environment; leave it waiting.
 2. Publish from a clean checkout of the tag with your own interactive npm login. No access token is created:
    - `npm login` signs in through the browser with your account's two-factor authentication.
-   - `npm publish` asks for a one-time password.
    - `--access public` is required, because scoped packages default to private.
+   - `--provenance=false` is required here. `cli/package.json` sets `publishConfig.provenance: true` for the workflow, and outside CI npm stops with `EUSAGE` "Automatic provenance generation not supported for provider: null".
    - `npm logout` revokes the login token straight after.
 
    ```bash
    git switch --detach v1.0.0-alpha.12
    cd cli
    npm login
-   npm publish --access public --tag latest
+   npm publish --access public --tag latest --provenance=false
    npm logout
    ```
 
-3. In the waiting run, click **Review deployments**, then **Reject**: the version is already published.
+   **Run `npm publish` in a real console** (PowerShell, cmd or Windows Terminal; on macOS or Linux, any terminal), not in Git Bash's mintty window. npm only waits for browser two-factor authentication when stdin and stdout are both terminals. Under mintty they are pipes, so npm prints an `EOTP` error with an authentication link and exits at once, and the link is then useless, because nothing is waiting for the approval. In Git Bash, prefix the command with `winpty npm.cmd` instead of `npm`.
+
+   With a passkey or security key (no six-digit codes), npm prints `Authenticate your account at: …`. Press Enter to open it, approve in the browser, then return to the terminal and the publish completes. With an authenticator app, pass `--otp=<code>` instead.
+
+   **Fallback:** `npm stage publish --access public --tag latest --provenance=false` needs no two-factor authentication to stage. You then click **Approve** under **Staged Packages** on npmjs.com, or run `npm stage approve <stage-id>`. For a package that doesn't exist yet, npm first publishes a public `0.0.0-stage` placeholder that stays in the version list, so prefer the console route.
+
+3. The registry can take a few minutes to list a new package ("Your package is being processed"). Check it with `npm view @mnaimfaizy/agent-kit@<version> version`.
+4. In the waiting run, click **Review deployments**, then **Reject**: the version is already published.
 
 #### 3. The trusted publisher (within 2 days before the next tag)
 

@@ -186,6 +186,14 @@ def test_cutting_releases_documents_the_manual_first_publish() -> None:
         assert phrase.lower() in section.lower(), f"cutting-releases.md npm section must mention {phrase!r}"
     # The first publish uses the maintainer's own login: no access token is created or stored.
     assert "_authToken" not in section, "the first publish must not write an npm token to a file"
+    # A manual publish outside CI must turn off the provenance publishConfig asks for, or npm stops with EUSAGE.
+    assert "publishConfig" in json.dumps(package()) and package()["publishConfig"].get("provenance") is True
+    assert "npm publish --access public --tag latest --provenance=false" in section, (
+        "the manual first publish must pass --provenance=false"
+    )
+    # npm waits for browser 2FA only on a real console; Git Bash's mintty gives it pipes.
+    for phrase in ("winpty", "real console", "npm stage publish"):
+        assert phrase.lower() in section.lower(), f"cutting-releases.md npm section must mention {phrase!r}"
 
 
 if __name__ == "__main__":
