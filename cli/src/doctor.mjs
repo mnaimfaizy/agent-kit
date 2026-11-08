@@ -8,7 +8,7 @@ import { checkClaudeApp } from "./checks/claude-app.mjs";
 import { checkKitOwnedTrees } from "./checks/kit-owned-trees.mjs";
 import { checkLabels } from "./checks/labels.mjs";
 import { checkPins } from "./checks/pins.mjs";
-import { result } from "./checks/result.mjs";
+import { result, sanitizeLine } from "./checks/result.mjs";
 import {
   checkCreationRule,
   checkPersonalTagPush,
@@ -20,10 +20,24 @@ import {
   checkSecrets,
   checkVariables,
   deriveRequirements,
+  deriveVariables,
 } from "./checks/secrets-and-variables.mjs";
 import { firstLine } from "./exec.mjs";
 import { createGitHub } from "./github.mjs";
-import { openKitTag, PreManifestTagError } from "./kit-tag.mjs";
+import { DEFAULT_SERVER, openKitTag, PreManifestTagError } from "./kit-tag.mjs";
+
+const SERVER = /^https:\/\/[A-Za-z0-9.-]+(?::\d+)?$/;
+
+/**
+ * The GitHub server the pins resolve on: the repository's host in a local
+ * run, GITHUB_SERVER_URL in GitHub Actions (set on GitHub Enterprise Server
+ * too), else github.com.
+ */
+function serverFor(info, env) {
+  if (info?.host) return `https://${info.host}`;
+  const fromEnv = String(env.GITHUB_SERVER_URL ?? "").replace(/\/$/, "");
+  return SERVER.test(fromEnv) ? fromEnv : DEFAULT_SERVER;
+}
 
 /** The checks that need a `gh` login with admin on the repository. */
 export const LOCAL_ONLY_CHECKS = [
@@ -47,6 +61,7 @@ const skipAll = (ids, reason) => ids.map(([id, title]) => result(id, title, "ski
  *   strict?: boolean,
  *   repo?: string,
  *   openTag?: typeof openKitTag,
+ *   env?: NodeJS.ProcessEnv,
  * }} opts
  * @returns {{ mode: "local" | "ci", modeReason: string | null, repo: string | null, tag: string | null, results: object[], refusal: string | null, exitCode: number }}
  */
@@ -57,6 +72,7 @@ export function runDoctor({
   strict = false,
   repo: repoArg,
   openTag = openKitTag,
+  env = process.env,
 }) {
   const results = [];
   let mode = ci ? "ci" : "local";
@@ -102,7 +118,15 @@ export function runDoctor({
   let refusal = null;
   if (pins.tag) {
     try {
-      snapshot = openTag({ runner, repo: pins.repo, tag: pins.tag });
+      // Read-only: accept any safe manifest path, so an older CLI can check a
+      // newer tag. Code that deletes paths keeps the strict shapes.
+      snapshot = openTag({
+        runner,
+        repo: pins.repo,
+        tag: pins.tag,
+        serverUrl: serverFor(info, env),
+        forDeletion: false,
+      });
     } catch (err) {
       if (err instanceof PreManifestTagError) refusal = err.message;
       else
@@ -172,7 +196,7 @@ function repoInfo(github, repoArg) {
 }
 
 function localChecks({ runner, cwd, info, files, callers, snapshot }) {
-  const github = createGitHub(runner, { cwd });
+  const github = createGitHub(runner, { cwd, hostname: info.host ?? null });
   const { repo, owner, ownerType, defaultBranch } = info;
   const out = [];
 
@@ -185,10 +209,13 @@ function localChecks({ runner, cwd, info, files, callers, snapshot }) {
   } else {
     out.push(
       ...skipAll(
-        LOCAL_ONLY_CHECKS.slice(0, 2),
+        LOCAL_ONLY_CHECKS.slice(0, 1),
         "Needs the pinned tag's reusable workflows; fix the pins first.",
       ),
     );
+    // Variables come from the Caller files alone.
+    const variables = deriveVariables(callers);
+    out.push(checkVariables({ github, repo, ownerType, requirements: { variables } }));
   }
 
   const readReusable = snapshot ? (file) => snapshot.readFile(`.github/workflows/${file}`) : null;
@@ -233,8 +260,12 @@ function finish({ mode, modeReason, repo, tag, results, refusal, strict }) {
 
 const LABEL = { pass: "PASS", warn: "WARN", fail: "FAIL", skip: "SKIP" };
 
-/** Plain-text report. */
-export function formatReport(report, { version } = {}) {
+/** Plain-text report. Every line is sanitized for terminals and CI logs. */
+export function formatReport(report, opts = {}) {
+  return formatLines(report, opts).map(sanitizeLine).join("\n");
+}
+
+function formatLines(report, { version } = {}) {
   const lines = [];
   lines.push(`agent-kit doctor${version ? ` ${version}` : ""}`);
   lines.push(`  repository: ${report.repo ?? "(unknown)"}`);
@@ -246,7 +277,7 @@ export function formatReport(report, { version } = {}) {
     lines.push(`REFUSED  ${report.refusal}`);
     lines.push("");
     lines.push("Result: refused (exit 1).");
-    return lines.join("\n");
+    return lines;
   }
   for (const r of report.results) lines.push(...formatResult(r));
   const count = (s) => report.results.filter((r) => r.status === s).length;
@@ -260,7 +291,12 @@ export function formatReport(report, { version } = {}) {
       `Skipped checks did not run and are not passes: ${skipped.map((r) => r.id).join(", ")}.`,
     );
   }
-  return lines.join("\n");
+  if (report.results.some((r) => r.fix.length)) {
+    lines.push(
+      "Lines starting with $ are POSIX shell (bash, zsh) commands for you to run; doctor ran none of them.",
+    );
+  }
+  return lines;
 }
 
 function formatResult(r) {

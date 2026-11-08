@@ -2,25 +2,27 @@
 // and tree hashes from it. Nothing is bundled in the npm package: the git tag
 // Consumers pin in `uses:` is the only source of kit files (ADR 0001).
 
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { REPO_PATTERN } from "./checks/result.mjs";
 import { firstLine } from "./exec.mjs";
 import { parseKitOwnedPaths } from "./kit-owned-paths.mjs";
 import { FIRST_MANIFEST_TAG, isReleaseTag } from "./tags.mjs";
 
-const REPO = /^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/;
 const SAFE_PATH = /^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*\/?$/;
+export const DEFAULT_SERVER = "https://github.com";
+const SERVER = /^https:\/\/[A-Za-z0-9.-]+(?::\d+)?$/;
 
 export class KitTagError extends Error {}
 
 /** A tag with no kit-owned-paths.txt (up to v1.0.0-alpha.10): the CLI refuses it. */
 export class PreManifestTagError extends KitTagError {
-  constructor(repo, tag) {
+  constructor(repo, tag, serverUrl = DEFAULT_SERVER) {
     super(
       `${tag} has no kit-owned-paths.txt, so the CLI cannot handle it ` +
         `(the manifest ships from ${FIRST_MANIFEST_TAG}). Adopt or upgrade ${tag} by hand ` +
-        `with that tag's https://github.com/${repo}/blob/${tag}/docs/adopt.md, ` +
+        `with that tag's ${serverUrl}/${repo}/blob/${tag}/docs/adopt.md, ` +
         `or move your pins to ${FIRST_MANIFEST_TAG} or later.`,
     );
     this.repo = repo;
@@ -39,18 +41,40 @@ function checkPath(path) {
  * Fetch `tag` of `repo`. The tag must carry kit-owned-paths.txt, or this throws
  * PreManifestTagError. Call `cleanup()` when done.
  *
- * @param {{ runner: import("./exec.mjs").Runner, repo: string, tag: string, remoteUrl?: string }} opts
+ * @param {{
+ *   runner: import("./exec.mjs").Runner,
+ *   repo: string,
+ *   tag: string,
+ *   serverUrl?: string,   // https://github.com, or a GitHub Enterprise Server host
+ *   remoteUrl?: string,   // tests: fetch from here instead
+ *   forDeletion?: boolean // strict manifest shapes, for code that deletes paths
+ * }} opts
  */
-export function openKitTag({ runner, repo, tag, remoteUrl }) {
-  if (!REPO.test(repo))
+export function openKitTag({
+  runner,
+  repo,
+  tag,
+  serverUrl = DEFAULT_SERVER,
+  remoteUrl,
+  forDeletion = true,
+}) {
+  if (!REPO_PATTERN.test(repo)) {
     throw new KitTagError(`not a GitHub repository name: ${JSON.stringify(repo)}`);
+  }
   if (!isReleaseTag(tag)) throw new KitTagError(`not a Release-line tag: ${JSON.stringify(tag)}`);
-  const url = remoteUrl ?? `https://github.com/${repo}.git`;
-  const dir = mkdtempSync(join(tmpdir(), "agent-kit-tag-"));
-  const cleanup = () => rmSync(dir, { recursive: true, force: true });
-  const git = (...args) => runner("git", ["-C", dir, ...args]);
+  if (!SERVER.test(serverUrl)) {
+    throw new KitTagError(`not a GitHub server URL: ${JSON.stringify(serverUrl)}`);
+  }
+  const url = remoteUrl ?? `${serverUrl}/${repo}.git`;
+  const tmp = mkdtempSync(join(tmpdir(), "agent-kit-tag-"));
+  const dir = join(tmp, "repo.git");
+  const noHooks = join(tmp, "no-hooks");
+  mkdirSync(noHooks);
+  const cleanup = () => rmSync(tmp, { recursive: true, force: true });
+  // No hooks run, whatever the adopter's global git config says.
+  const git = (...args) => runner("git", ["-C", dir, "-c", `core.hooksPath=${noHooks}`, ...args]);
   try {
-    let r = runner("git", ["init", "--bare", "--quiet", dir]);
+    let r = runner("git", ["init", "--bare", "--quiet", "--template=", dir]);
     if (r.status !== 0) throw new KitTagError(`git init failed: ${firstLine(r.stderr)}`);
     r = git(
       "fetch",
@@ -85,9 +109,9 @@ export function openKitTag({ runner, repo, tag, remoteUrl }) {
     };
 
     const manifest = readFile("kit-owned-paths.txt");
-    if (manifest === null) throw new PreManifestTagError(repo, tag);
-    const kitOwnedPaths = parseKitOwnedPaths(manifest);
-    return { repo, tag, commit, kitOwnedPaths, readFile, treeHash, cleanup };
+    if (manifest === null) throw new PreManifestTagError(repo, tag, serverUrl);
+    const kitOwnedPaths = parseKitOwnedPaths(manifest, { forDeletion });
+    return { repo, tag, commit, serverUrl, kitOwnedPaths, readFile, treeHash, cleanup };
   } catch (err) {
     cleanup();
     throw err;

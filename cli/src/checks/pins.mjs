@@ -1,6 +1,7 @@
 // Every Agent-kit `uses:` pin must name the same repository and the same
 // Release-line tag: the copied Kit-owned paths come from one tag.
 
+import { DEFAULT_KIT_REPO } from "../callers.mjs";
 import { isReleaseTag } from "../tags.mjs";
 import { result } from "./result.mjs";
 
@@ -58,14 +59,17 @@ export function checkPins(files) {
   }
   const { repo } = all[0];
   const [tag] = refs;
-  return {
-    result: result(
-      ID,
-      TITLE,
-      "pass",
-      `${all.length} pin${all.length === 1 ? "" : "s"} use ${repo}@${tag}.`,
-    ),
-    repo,
-    tag,
-  };
+  const summary = `${all.length} pin${all.length === 1 ? "" : "s"} use ${repo}@${tag}.`;
+  if (repo.toLowerCase() !== DEFAULT_KIT_REPO) {
+    return {
+      result: result(ID, TITLE, "warn", `${summary} The pins name a fork.`, {
+        details: [
+          `The pins name ${repo}, not ${DEFAULT_KIT_REPO}: the Kit-owned path checks compare against the fork's ${tag}.`,
+        ],
+      }),
+      repo,
+      tag,
+    };
+  }
+  return { result: result(ID, TITLE, "pass", summary), repo, tag };
 }

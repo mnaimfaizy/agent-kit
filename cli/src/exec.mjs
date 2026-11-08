@@ -31,12 +31,21 @@ export function systemRunner(cmd, args, opts = {}) {
   return { status: result.status, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
 }
 
-/** First non-empty line of a command's stderr, for short messages. */
+/**
+ * The line of a command's stderr that says what went wrong, for short
+ * messages: the first `fatal:` or `error:` line, else the first line that is
+ * not a `warning:` or `hint:` (git prints those before the real error, for
+ * example about line endings), else the first non-empty line.
+ */
 export function firstLine(text) {
+  const lines = String(text ?? "")
+    .split(/\r\n|\r|\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
   return (
-    String(text ?? "")
-      .split(/\r?\n/)
-      .map((l) => l.trim())
-      .find(Boolean) ?? ""
+    lines.find((l) => /^(fatal|error):/i.test(l)) ??
+    lines.find((l) => !/^(warning|hint):/i.test(l)) ??
+    lines[0] ??
+    ""
   );
 }

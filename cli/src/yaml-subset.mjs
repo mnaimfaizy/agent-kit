@@ -5,6 +5,14 @@
 // their raw text. That is enough to read a Caller's jobs and a reusable
 // workflow's `on.workflow_call.secrets`, which is all the CLI needs.
 
+const BOM = String.fromCharCode(0xfeff);
+
+/** Drop a leading UTF-8 byte-order mark, which would otherwise hide the first key. */
+export function stripBom(text) {
+  const s = String(text);
+  return s.startsWith(BOM) ? s.slice(1) : s;
+}
+
 /** Remove a trailing `# comment` that sits outside quotes. */
 export function stripComment(line) {
   let quote = null;
@@ -34,7 +42,7 @@ export function parseScalar(raw) {
 const KEY = /^("[^"]*"|'[^']*'|[^\s"'#:-][^:]*?|-[^\s:][^:]*?):(?:\s+(.*))?$/;
 
 export function parseYamlSubset(text) {
-  const lines = String(text).replace(/\r\n?/g, "\n").split("\n");
+  const lines = stripBom(text).replace(/\r\n?/g, "\n").split("\n");
   const indentOf = (l) => l.length - l.trimStart().length;
   const isBlank = (l) => stripComment(l).trim() === "";
 

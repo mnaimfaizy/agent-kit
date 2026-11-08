@@ -19,14 +19,22 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, before, describe, it } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { findKitPins, parseCaller, variableRefs } from "../cli/src/callers.mjs";
-import { triggerLabels } from "../cli/src/checks/labels.mjs";
+import {
+  findKitPins,
+  parseCaller,
+  parseKitUses,
+  readWorkflows,
+  variableRefs,
+} from "../cli/src/callers.mjs";
+import { checkLabels, triggerLabels } from "../cli/src/checks/labels.mjs";
+import { command, sanitizeLine, shellQuote } from "../cli/src/checks/result.mjs";
 import { checkPins } from "../cli/src/checks/pins.mjs";
 import {
   checkCreationRule,
   checkTagRuleset,
   checkUpdateRule,
   coversRef,
+  fnmatchToRegExp,
   riskyBypassActors,
   workflowsPushingTagsWithToken,
 } from "../cli/src/checks/rulesets.mjs";
@@ -36,11 +44,11 @@ import {
   deriveRequirements,
 } from "../cli/src/checks/secrets-and-variables.mjs";
 import { main } from "../cli/src/cli.mjs";
-import { LOCAL_ONLY_CHECKS, runDoctor } from "../cli/src/doctor.mjs";
-import { systemRunner } from "../cli/src/exec.mjs";
+import { formatReport, LOCAL_ONLY_CHECKS, runDoctor } from "../cli/src/doctor.mjs";
+import { firstLine, systemRunner } from "../cli/src/exec.mjs";
 import { parseKitOwnedPaths } from "../cli/src/kit-owned-paths.mjs";
 import { openKitTag, PreManifestTagError } from "../cli/src/kit-tag.mjs";
-import { localTreeHashes } from "../cli/src/local-tree.mjs";
+import { filterDrivers, localTreeHashes } from "../cli/src/local-tree.mjs";
 import { upgradeCommand } from "../cli/src/tags.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -142,6 +150,7 @@ function fakeGh(routes = {}) {
       );
     }
     assert.equal(args[0], "api");
+    if (args[1] === "--hostname") args = [args[0], ...args.slice(3)];
     assert.deepEqual(args.slice(1, 3), ["--method", "GET"], "gh api calls must be GETs");
     const endpoint = args[3] === "--paginate" ? args[4] : args[3];
     const route = Object.keys(routes).find((k) => endpoint === k);
@@ -161,18 +170,21 @@ const RULESETS = {
     target: "branch",
     conditions: { ref_name: { include: ["~DEFAULT_BRANCH"], exclude: [] } },
     rules: [{ type: "update" }, { type: "pull_request" }],
+    bypass_actors: [],
   }),
   "repos/acme/app/rulesets/2": JSON.stringify({
     enforcement: "active",
     target: "branch",
     conditions: { ref_name: { include: ["refs/heads/release/**/*"], exclude: [] } },
     rules: [{ type: "creation" }],
+    bypass_actors: [],
   }),
   "repos/acme/app/rulesets/3": JSON.stringify({
     enforcement: "active",
     target: "tag",
     conditions: { ref_name: { include: ["refs/tags/v*"], exclude: [] } },
     rules: [{ type: "creation" }, { type: "update" }, { type: "deletion" }],
+    bypass_actors: [],
   }),
 };
 const ALL_GOOD = {
@@ -690,7 +702,9 @@ describe("review fixes (PR #78)", () => {
       name: "default branch",
       enforcement: "active",
       target: "branch",
-      conditions: { ref_name: { include: ["~DEFAULT_BRANCH"], exclude: [] } },
+      conditions: {
+        ref_name: { include: ["~DEFAULT_BRANCH", "refs/heads/release/**/*"], exclude: [] },
+      },
       rules: rules.map((type) => ({ type })),
       bypass_actors: bypass,
     });
@@ -758,20 +772,34 @@ describe("review fixes (PR #78)", () => {
     assert.equal(trees.status, "pass", JSON.stringify(trees));
   });
 
-  it("trees: paths outside a sparse-checkout cone are skipped, not missing", () => {
+  it("trees: skip-worktree paths are compared against HEAD, not reported missing", () => {
     const dir = makeConsumer("sparse");
     git(dir, "sparse-checkout", "set", "--cone", ".github/workflows");
     assert.equal(existsSync(join(dir, ".github/agent-runtime")), false, "fixture should be sparse");
     const report = runDoctor({ cwd: dir, runner: systemRunner, ci: true, openTag });
     const trees = report.results.find((r) => r.id === "kit-owned-trees");
-    assert.equal(trees.status, "skip", JSON.stringify(trees));
-    assert.ok(
-      trees.details.some((d) =>
-        /agent-runtime\/: not checked, outside the sparse-checkout cone/.test(d),
-      ),
-    );
+    assert.equal(trees.status, "pass", JSON.stringify(trees));
+    assert.ok(trees.details.some((d) => /agent-runtime\/: .*copy committed at HEAD/.test(d)));
     assert.doesNotMatch(trees.details.join("\n"), /missing/);
-    assert.equal(report.exitCode, 0);
+  });
+
+  it("trees: a skip-worktree path HEAD does not have is skipped, never passed", () => {
+    const dir = makeConsumer("skip-worktree");
+    // A new Kit-owned path, staged but not committed, then marked skip-worktree.
+    mkdirSync(join(dir, ".github/agent-runtime/new"), { recursive: true });
+    writeFileSync(join(dir, ".github/agent-runtime/new/x.md"), "x\n");
+    rmSync(join(dir, ".github/agent-runtime"), { recursive: true });
+    git(dir, "rm", "-rq", "--cached", ".github/agent-runtime");
+    git(dir, "commit", "-qm", "drop runtime");
+    mkdirSync(join(dir, ".github/agent-runtime"), { recursive: true });
+    writeFileSync(join(dir, ".github/agent-runtime/hook.mjs"), "export const x = 1;\n");
+    git(dir, "add", ".github/agent-runtime/hook.mjs");
+    git(dir, "update-index", "--skip-worktree", ".github/agent-runtime/hook.mjs");
+    rmSync(join(dir, ".github/agent-runtime"), { recursive: true });
+    const report = runDoctor({ cwd: dir, runner: systemRunner, ci: true, openTag });
+    const trees = report.results.find((r) => r.id === "kit-owned-trees");
+    assert.equal(trees.status, "skip", JSON.stringify(trees));
+    assert.ok(trees.details.some((d) => /agent-runtime\/: not checked, .*skip-worktree/.test(d)));
   });
 
   it("parser: a || fallback on the next line keeps the variable optional", () => {
@@ -879,7 +907,8 @@ describe("review fixes (PR #78)", () => {
         "",
       ].join("\n"),
     );
-    const labels = triggerLabels([{ path: "c.yml", ...caller }], reusable);
+    const { labels, unknown } = triggerLabels([{ path: "c.yml", ...caller }], reusable);
+    assert.deepEqual(unknown, []);
     assert.deepEqual(
       labels.map((l) => [l.name, l.where]),
       [
@@ -898,6 +927,472 @@ describe("review fixes (PR #78)", () => {
     const report = runDoctor({ cwd: dir, runner, openTag });
     const labels = report.results.find((r) => r.id === "trigger-labels");
     assert.equal(labels.status, "fail", JSON.stringify(labels));
-    assert.match(labels.details.join("\n"), /agent:plan \(.*\(default\)\)/);
+    assert.match(labels.details.join("\n"), /"agent:plan" \(.*\(default\)\)/);
+  });
+});
+
+describe("hardening (PR #78, second review)", () => {
+  const reusable = (file) => readRepo(".github/workflows", file);
+  const uses = (file, owner = KIT) => `${owner}/.github/workflows/${file}@${TAG}`;
+  // Values a hostile tag or Caller could carry, aimed at bash and at PowerShell.
+  const HOSTILE = [
+    "X$(touch pwned)",
+    "X`touch pwned`",
+    "X'; touch pwned; '",
+    "X' ; Remove-Item -Recurse . ; '",
+    "X''; calc; ''",
+    "X; touch pwned",
+    "X | touch pwned",
+    "X\\' $(id)",
+    "-X",
+  ];
+  const assertSafeCommands = (fix) => {
+    for (const f of fix) {
+      // Every argument is either a plain word or single-quoted without a quote inside.
+      assert.match(
+        f,
+        /^(?:[A-Za-z0-9_.:/@=+-]+|'[^']*')(?: (?:[A-Za-z0-9_.:/@=+-]+|'[^']*'))*$/,
+        f,
+      );
+      assert.doesNotMatch(f, /[$`;|&<>()\\]/, f);
+    }
+  };
+
+  describe("printed fix commands", () => {
+    it("secret names from a tag's workflow_call block are validated before printing", () => {
+      const keys = HOSTILE.map(
+        (h, i) => `      "${h.replace(/"/g, "")}${i}":\n        required: true`,
+      );
+      const text = `on:\n  workflow_call:\n    secrets:\n${keys.join("\n")}\n      good_one:\n        required: true\njobs: {}\n`;
+      const caller = parseCaller(
+        `jobs:\n  plan:\n    uses: ${uses("agent-plan-reusable.yml")}\n    secrets: inherit\n`,
+      );
+      const req = deriveRequirements([{ path: "c.yml", ...caller }], () => text);
+      assert.ok(req.secrets.length > HOSTILE.length - 1);
+      const r = checkSecrets({
+        github: { getLines: () => [] },
+        repo: "acme/app",
+        ownerType: "User",
+        requirements: req,
+      });
+      assert.equal(r.status, "fail");
+      assertSafeCommands(r.fix);
+      assert.deepEqual(r.fix, ["gh secret set GOOD_ONE --repo acme/app"]);
+      assert.ok(r.details.some((d) => d.startsWith("fix by hand: secret named ")));
+    });
+
+    it("label names are allowlisted; anything else becomes a by-hand note", () => {
+      const callers = HOSTILE.map((h, i) => ({
+        path: `c${i}.yml`,
+        jobs: [
+          {
+            name: "plan",
+            uses: parseKitUses(uses("agent-plan-reusable.yml")),
+            with: { trigger_label: h },
+          },
+        ],
+      }));
+      callers.push({
+        path: "ok.yml",
+        jobs: [
+          {
+            name: "plan",
+            uses: parseKitUses(uses("agent-plan-reusable.yml")),
+            with: { trigger_label: "agent: plan/v1.0_x-y" },
+          },
+        ],
+      });
+      const r = checkLabels({ github: { getLines: () => [] }, repo: "acme/app", callers });
+      assert.equal(r.status, "fail");
+      assertSafeCommands(r.fix);
+      assert.deepEqual(r.fix, ["gh label create 'agent: plan/v1.0_x-y' --repo acme/app"]);
+      assert.equal(
+        r.details.filter((d) => d.startsWith("fix by hand: create the label ")).length,
+        HOSTILE.length,
+      );
+    });
+
+    it("command() refuses a value with a quote, and quoting never needs escapes", () => {
+      assert.throws(() => command("gh", "label", "create", "a'b"));
+      assert.equal(command("gh", "label", "create", "a b"), "gh label create 'a b'");
+      assert.equal(shellQuote("agent:plan"), "agent:plan");
+    });
+
+    it("the report says once that printed commands are POSIX shell", () => {
+      const report = {
+        mode: "local",
+        modeReason: null,
+        repo: "acme/app",
+        tag: TAG,
+        refusal: null,
+        exitCode: 1,
+        results: [
+          {
+            id: "a",
+            title: "A",
+            status: "fail",
+            summary: "s",
+            details: [],
+            fix: ["gh label create x"],
+          },
+          {
+            id: "b",
+            title: "B",
+            status: "fail",
+            summary: "s",
+            details: [],
+            fix: ["gh label create y"],
+          },
+        ],
+      };
+      const text = formatReport(report);
+      assert.equal(text.match(/POSIX shell/g).length, 1);
+    });
+  });
+
+  describe("output sanitizing", () => {
+    it("escapes control characters and blocks CI log commands in every printed line", () => {
+      const evil = "a\u001b[31mred\u0007\rb\nc::set-env name=X::y\u0085d\u2028e";
+      const report = {
+        mode: "local",
+        modeReason: `reason ${evil}`,
+        repo: "acme/app",
+        tag: TAG,
+        refusal: null,
+        exitCode: 1,
+        results: [
+          {
+            id: "x",
+            title: `T ${evil}`,
+            status: "fail",
+            summary: evil,
+            details: [evil, "::error::boom", "  ##[warning]w"],
+            fix: [],
+          },
+        ],
+      };
+      const text = formatReport(report);
+      // eslint-disable-next-line no-control-regex
+      assert.doesNotMatch(text.replace(/\n/g, ""), /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/);
+      for (const line of text.split("\n")) {
+        assert.doesNotMatch(line.trimStart(), /^(?:::|##\[)/, line);
+      }
+      assert.match(text, /\\u001b\[31mred/);
+      assert.equal(sanitizeLine("::error::x"), "\\::error::x");
+    });
+
+    it("main() sanitizes usage errors that echo an argument", () => {
+      const out = [];
+      main(["doctor", "--repo", "a/b\u001b]0;x\u0007"], {
+        cwd: ".",
+        stdout: (s) => out.push(s),
+        stderr: (s) => out.push(s),
+        runner: () => ({ status: 1, stdout: "", stderr: "" }),
+      });
+      // eslint-disable-next-line no-control-regex
+      assert.doesNotMatch(out.join(""), /[\u0000-\u0009\u000b-\u001f]/);
+    });
+  });
+
+  describe("git runs nothing the checkout configures", () => {
+    it("a configured clean filter is not run while hashing", () => {
+      const dir = makeConsumer("filter");
+      writeFileSync(join(dir, ".gitattributes"), "*.mjs filter=probe\n");
+      git(dir, "add", ".gitattributes");
+      git(dir, "commit", "-qm", "attributes");
+      git(dir, "config", "filter.probe.clean", "echo ran > probe-ran.txt; cat");
+      git(dir, "config", "filter.probe.required", "true");
+      // A fresh write, so git has to read the file again.
+      writeFileSync(join(dir, ".github/agent-runtime/hook.mjs"), "export const x = 1;\n");
+      const report = runDoctor({ cwd: dir, runner: systemRunner, ci: true, openTag });
+      assert.equal(existsSync(join(dir, "probe-ran.txt")), false, "the filter ran");
+      assert.equal(report.results.find((r) => r.id === "kit-owned-trees").status, "pass");
+    });
+
+    it("filterDrivers reads driver names from git config keys", () => {
+      assert.deepEqual(
+        filterDrivers(["filter.lfs.clean", "filter.lfs.smudge", "filter.a.b.process", "core.x"]),
+        ["lfs", "a.b"],
+      );
+    });
+  });
+
+  it("pins of a fork warn, and the tree check uses the fork", () => {
+    const pin = (repo) => ({ repo, file: "agent-plan-reusable.yml", ref: TAG, line: 1 });
+    const r = checkPins([{ path: "a.yml", pins: [pin("someone/agent-kit")] }]);
+    assert.equal(r.result.status, "warn");
+    assert.match(r.result.details[0], /compare against the fork/);
+    assert.equal(r.repo, "someone/agent-kit");
+    assert.equal(r.tag, TAG);
+  });
+
+  describe("edge cases", () => {
+    it("1: a UTF-8 BOM does not hide a Caller's jobs", () => {
+      const text = `\ufeff${callerFor(TAG)}`;
+      const c = parseCaller(text);
+      assert.equal(c.jobs.length, 1);
+      assert.equal(c.parseIncomplete, null);
+      const dir = makeConsumer("bom", { files: { ".github/workflows/caller.yml": text } });
+      const files = readWorkflows(dir);
+      assert.equal(files.callers[0].jobs.length, 1);
+    });
+
+    it("1: pins the parser cannot match to jobs make secrets and labels skip, not pass", () => {
+      const text = `jobs:
+  plan: &shared
+    uses: ${uses("agent-plan-reusable.yml")}
+`;
+      const c = parseCaller(text);
+      assert.ok(c.parseIncomplete, JSON.stringify(c));
+      const callers = [{ path: "c.yml", ...c }];
+      const req = deriveRequirements(callers, reusable);
+      const s = checkSecrets({
+        github: { getLines: () => ["CLAUDE_CODE_OAUTH_TOKEN"] },
+        repo: "acme/app",
+        ownerType: "User",
+        requirements: req,
+      });
+      assert.notEqual(s.status, "pass");
+      const l = checkLabels({
+        github: { getLines: () => ["agent:plan"] },
+        repo: "acme/app",
+        callers,
+        readReusable: reusable,
+      });
+      assert.notEqual(l.status, "pass");
+    });
+
+    it("2: Kit-owned files force-added under an ignored folder still compare", () => {
+      const dir = makeConsumer("ignored-dir");
+      writeFileSync(join(dir, ".gitignore"), ".github/agent-runtime/\n");
+      git(dir, "add", ".gitignore");
+      git(dir, "commit", "-qm", "ignore");
+      let report = runDoctor({ cwd: dir, runner: systemRunner, ci: true, openTag });
+      assert.equal(report.results.find((r) => r.id === "kit-owned-trees").status, "pass");
+      writeFileSync(join(dir, ".github/agent-runtime/hook.mjs"), "edited\n");
+      report = runDoctor({ cwd: dir, runner: systemRunner, ci: true, openTag });
+      const trees = report.results.find((r) => r.id === "kit-owned-trees");
+      assert.equal(trees.status, "fail");
+      assert.match(trees.details[0], /agent-runtime\/: differs/);
+    });
+
+    it("3: firstLine prefers the real error over warning and hint lines", () => {
+      const stderr =
+        "warning: in the working copy of 'a', LF will be replaced by CRLF\r\nhint: x\r\nfatal: the real problem\r\n";
+      assert.equal(firstLine(stderr), "fatal: the real problem");
+      assert.equal(firstLine("warning: w\r\nsomething else\n"), "something else");
+      assert.equal(firstLine("warning: only\n"), "warning: only");
+    });
+
+    it("4: owner and repository names match case-insensitively", () => {
+      const pin = parseKitUses(
+        "MnaimFaizy/Agent-Kit/.github/workflows/agent-plan-reusable.yml@v1.0.0",
+      );
+      assert.equal(pin.repo, "MnaimFaizy/Agent-Kit");
+      const r = checkPins([
+        {
+          path: "a.yml",
+          pins: [
+            { ...pin, line: 1 },
+            { ...parseKitUses(uses("agent-plan-reusable.yml").replace(TAG, "v1.0.0")), line: 2 },
+          ],
+        },
+      ]);
+      assert.equal(r.result.status, "pass");
+    });
+
+    it("5: a default Trigger label that cannot be read is skipped, not passed", () => {
+      const caller = parseCaller(`jobs:\n  plan:\n    uses: ${uses("agent-plan-reusable.yml")}\n`);
+      const r = checkLabels({
+        github: { getLines: () => [] },
+        repo: "acme/app",
+        callers: [{ path: "c.yml", ...caller }],
+        readReusable: null,
+      });
+      assert.equal(r.status, "skip");
+      const r2 = checkLabels({
+        github: { getLines: () => [] },
+        repo: "acme/app",
+        callers: [{ path: "c.yml", ...caller }],
+        readReusable: () => null,
+      });
+      assert.equal(r2.status, "skip");
+    });
+
+    it("6: GITHUB_* secrets are always set", () => {
+      const caller = parseCaller(
+        `jobs:\n  plan:\n    uses: ${uses("security-audit-reusable.yml")}\n    secrets:\n      advisories_token: \${{ secrets.GITHUB_TOKEN }}\n      claude_code_oauth_token: \${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}\n      dependabot_alerts_token: \${{ secrets.X || secrets.github_token }}\n`,
+      );
+      const req = deriveRequirements([{ path: "c.yml", ...caller }], reusable);
+      assert.deepEqual(
+        req.secrets.map((s) => s.names),
+        [["CLAUDE_CODE_OAUTH_TOKEN"]],
+      );
+    });
+
+    it("7: ruleset patterns use fnmatch with FNM_PATHNAME", () => {
+      const cases = [
+        ["refs/tags/**/*", "refs/tags/v1.0.0", true],
+        ["refs/heads/**/*", "refs/heads/main", true],
+        ["refs/heads/release/**/*", "refs/heads/release/1.0", true],
+        ["refs/heads/release/**/*", "refs/heads/release/a/b", true],
+        ["refs/tags/v[0-9]*", "refs/tags/v1.0.0", true],
+        ["refs/tags/v[0-9]*", "refs/tags/vx", false],
+        ["refs/tags/v[!0-9]*", "refs/tags/vx", true],
+        ["refs/heads/release/*", "refs/heads/release/a/b", false],
+        ["refs/heads/a.b", "refs/heads/axb", false],
+        ["refs/heads/?ain", "refs/heads/main", true],
+      ];
+      for (const [pattern, ref, expected] of cases) {
+        assert.equal(fnmatchToRegExp(pattern).test(ref), expected, `${pattern} vs ${ref}`);
+      }
+    });
+
+    it("8: doctor reads a manifest with a path shape the CLI does not know; deletion code does not", () => {
+      const text = "docs/extra/\n.github/agent-runtime/\n";
+      assert.deepEqual(parseKitOwnedPaths(text, { forDeletion: false }), [
+        "docs/extra/",
+        ".github/agent-runtime/",
+      ]);
+      assert.throws(() => parseKitOwnedPaths(text));
+      for (const bad of ["../x/\n", "./x/\n", "a/../b/\n", "/abs/\n", "a b/\n"]) {
+        assert.throws(() => parseKitOwnedPaths(bad, { forDeletion: false }), bad);
+      }
+    });
+
+    it("9: quoted and spaced uses keys are pins", () => {
+      const text = [
+        "jobs:",
+        "  a:",
+        `    "uses": ${uses("agent-plan-reusable.yml")}`,
+        "  b:",
+        `    uses : ${uses("agent-plan-reusable.yml")}`,
+      ].join("\n");
+      assert.equal(findKitPins(text).length, 2);
+      assert.equal(parseCaller(text).jobs.length, 2);
+    });
+
+    it("11: a parenthesised read before || is optional", () => {
+      const refs = variableRefs(
+        "a: ${{ (vars.X) || 'x' }}\nb: ${{ ( vars.Y ) || 'y' }}\nc: ${{ (vars.Z) }}\n",
+      );
+      assert.deepEqual(Object.fromEntries(refs.map((v) => [v.name, v.optional])), {
+        X: true,
+        Y: true,
+        Z: false,
+      });
+    });
+  });
+
+  describe("plausible cases degrade honestly", () => {
+    it("a ruleset whose bypass list is not visible is not treated as clean", () => {
+      const rs = {
+        name: "org rule",
+        enforcement: "active",
+        target: "branch",
+        conditions: { ref_name: { include: ["~DEFAULT_BRANCH"], exclude: [] } },
+        rules: [{ type: "update" }],
+      };
+      const r = checkUpdateRule([rs], { defaultBranch: "main" });
+      assert.equal(r.status, "warn");
+      assert.match(r.details.join("\n"), /bypass list not visible to this login/);
+    });
+
+    it("GitHub Enterprise Server: gh api targets the repository's host", () => {
+      const dir = makeConsumer("ghe");
+      const seen = [];
+      const runner = (cmd, args, opts) => {
+        if (cmd === "git") return systemRunner(cmd, args, opts);
+        seen.push(args);
+        if (args[0] === "repo") {
+          return ok(
+            JSON.stringify({
+              nameWithOwner: "acme/app",
+              isInOrganization: true,
+              viewerPermission: "ADMIN",
+              defaultBranchRef: { name: "main" },
+              url: "https://ghe.example.com/acme/app",
+            }),
+          );
+        }
+        return { status: 1, stdout: "", stderr: "HTTP 404" };
+      };
+      let server = null;
+      const tagOpener = (o) => {
+        server = o.serverUrl;
+        return openTag(o);
+      };
+      runDoctor({ cwd: dir, runner, openTag: tagOpener });
+      assert.equal(server, "https://ghe.example.com");
+      const api = seen.filter((a) => a[0] === "api");
+      assert.ok(api.length > 0);
+      for (const a of api) assert.deepEqual(a.slice(1, 3), ["--hostname", "ghe.example.com"]);
+    });
+
+    it("CI mode on GitHub Enterprise Server fetches from GITHUB_SERVER_URL", () => {
+      const dir = makeConsumer("ghe-ci");
+      let server = null;
+      runDoctor({
+        cwd: dir,
+        runner: systemRunner,
+        ci: true,
+        env: { GITHUB_SERVER_URL: "https://ghe.example.com" },
+        openTag: (o) => ((server = o.serverUrl), openTag(o)),
+      });
+      assert.equal(server, "https://ghe.example.com");
+      runDoctor({
+        cwd: dir,
+        runner: systemRunner,
+        ci: true,
+        env: { GITHUB_SERVER_URL: "https://evil.example.com/../x" },
+        openTag: (o) => ((server = o.serverUrl), openTag(o)),
+      });
+      assert.equal(server, "https://github.com");
+    });
+
+    it("the creation rule must cover a release branch, and the tag ruleset a pre-release tag", () => {
+      const branchOnly = {
+        name: "main only",
+        enforcement: "active",
+        target: "branch",
+        conditions: { ref_name: { include: ["~DEFAULT_BRANCH"], exclude: [] } },
+        rules: [{ type: "creation" }],
+        bypass_actors: [],
+      };
+      const c = checkCreationRule([branchOnly]);
+      assert.equal(c.status, "warn");
+      assert.match(c.summary, /none covers a release/);
+      const stableOnly = {
+        name: "stable tags",
+        enforcement: "active",
+        target: "tag",
+        conditions: { ref_name: { include: ["refs/tags/v*"], exclude: ["refs/tags/v*-*"] } },
+        rules: [{ type: "creation" }, { type: "update" }, { type: "deletion" }],
+        bypass_actors: [],
+      };
+      const t = checkTagRuleset([stableOnly]);
+      assert.equal(t.status, "warn");
+      assert.match(t.summary, /v1\.0\.0-alpha\.1/);
+    });
+
+    it("the variables check runs without the tag", () => {
+      const dir = makeConsumer("vars-no-tag", {
+        files: { ".github/workflows/other.yml": callerFor("v1.0.0-alpha.11") },
+      });
+      const { runner } = fakeGh({ ...ALL_GOOD, "repos/acme/app/actions/variables": [] });
+      const report = runDoctor({ cwd: dir, runner, openTag });
+      assert.equal(report.results.find((r) => r.id === "pins").status, "fail");
+      const vars = report.results.find((r) => r.id === "variables");
+      assert.equal(vars.status, "fail", JSON.stringify(vars));
+      assert.equal(report.results.find((r) => r.id === "secrets").status, "skip");
+    });
+
+    it("the local tree hash works from a linked worktree (objects in the common dir)", () => {
+      const dir = makeConsumer("worktree-main");
+      const wt = join(tmp, "worktree-linked");
+      git(dir, "worktree", "add", "-q", wt);
+      const report = runDoctor({ cwd: wt, runner: systemRunner, ci: true, openTag });
+      assert.equal(report.results.find((r) => r.id === "kit-owned-trees").status, "pass");
+    });
   });
 });

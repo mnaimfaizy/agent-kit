@@ -9,7 +9,7 @@ npx @mnaimfaizy/agent-kit doctor --strict   # warnings fail too
 ```
 
 - The package holds only code. Kit files are read from the git tag your `uses:` pins name, never bundled.
-- `doctor` is read-only. It never changes files or GitHub settings; for anything to fix it prints a `gh` command for you to run.
+- `doctor` is read-only. It runs git in your checkout without hooks or configured filter commands, never changes files or GitHub settings, and for anything to fix prints a POSIX-shell `gh` command for you to run.
 - No runtime dependencies. Needs Node.js 22 or later, `git`, and (outside `--ci`) `gh` logged in with admin on the repository.
 - Tags before `v1.0.0-alpha.11` have no `kit-owned-paths.txt`, and the CLI refuses them: adopt those by hand with that tag's `docs/adopt.md`.
 - `init` and `upgrade` are not in this version yet.

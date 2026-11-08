@@ -171,7 +171,7 @@ Delete a flow's variable to fall back to `CLAUDE_MODEL`, and delete that to fall
 
 ## Check the setup with doctor
 
-From `v1.0.0-alpha.12`, the `@mnaimfaizy/agent-kit` CLI ([cli/](../cli/README.md)) checks all of the above for you. It is read-only: it never changes files or GitHub settings, and prints a `gh` command for anything to fix. Run it from a clone of your repository, logged in to `gh` as an admin:
+From `v1.0.0-alpha.12`, the `@mnaimfaizy/agent-kit` CLI ([cli/](../cli/README.md)) checks all of the above for you. It is read-only: it runs git in your checkout without hooks or configured filter commands, never changes files or GitHub settings, and prints a POSIX-shell `gh` command for anything to fix. Run it from a clone of your repository, logged in to `gh` as an admin:
 
 ```bash
 npx @mnaimfaizy/agent-kit doctor

@@ -47,7 +47,7 @@ The steps below use `<tag>`, e.g. `v1.0.0-alpha.11`. The first cut on this line 
 
 ## Publishing the CLI to npm
 
-Each pushed `v*` tag also publishes `cli/` as `@mnaimfaizy/agent-kit` through [publish-cli.yml](../.github/workflows/publish-cli.yml), with npm trusted publishing: the job's OIDC token is exchanged for a short-lived publish credential, and `npm publish --provenance --access public` links the package to the run. The repository stores no npm token. The package version must equal the tag without its `v`: `cut-release.sh` refuses to tag otherwise, and the workflow checks again before it publishes. So in the release-prep PR, set `cli/package.json`'s `version` to the tag you are about to cut, for example `1.0.0-alpha.12` for `v1.0.0-alpha.12`. Every Release-line tag is published as `latest`, because the line only moves forward.
+Each pushed `v*` tag also publishes `cli/` as `@mnaimfaizy/agent-kit` through [publish-cli.yml](../.github/workflows/publish-cli.yml), with npm trusted publishing: the job's OIDC token is exchanged for a short-lived publish credential, and `npm publish --provenance --access public` links the package to the run. The repository stores no npm token. It publishes only a tag whose commit is on `main`. The package version must equal the tag without its `v`: `cut-release.sh` refuses to tag otherwise, and the workflow checks again before it publishes. So in the release-prep PR, set `cli/package.json`'s `version` to the tag you are about to cut, for example `1.0.0-alpha.12` for `v1.0.0-alpha.12`. Every Release-line tag is published as `latest`, because the line only moves forward.
 
 ### One-time setup
 

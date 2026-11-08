@@ -11,16 +11,53 @@ import { result } from "./result.mjs";
 
 const HARDENING = "https://github.com/mnaimfaizy/agent-kit/blob/main/docs/repository-hardening.md";
 
-function globToRegExp(pattern) {
+/**
+ * fnmatch with FNM_PATHNAME, the matching GitHub uses for ruleset ref
+ * patterns: `*` and `?` stay within one path segment, a double star
+ * followed by a slash matches zero or more whole segments, `[...]` is a character class (`[!...]` or `[^...]`
+ * negates it), and `\` escapes the next character.
+ */
+export function fnmatchToRegExp(pattern) {
   let re = "";
-  for (let i = 0; i < pattern.length; i++) {
+  let i = 0;
+  const esc = (c) => c.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
+  while (i < pattern.length) {
     const c = pattern[i];
-    if (c === "*" && pattern[i + 1] === "*") {
-      re += ".*";
-      i++;
-    } else if (c === "*") re += "[^/]*";
-    else if (c === "?") re += "[^/]";
-    else re += c.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+    if (c === "*" && pattern[i + 1] === "*" && pattern[i + 2] === "/") {
+      re += "(?:[^/]*/)*";
+      i += 3;
+    } else if (c === "*" && pattern[i + 1] === "*") {
+      re += "[^/]*";
+      i += 2;
+    } else if (c === "*") {
+      re += "[^/]*";
+      i += 1;
+    } else if (c === "?") {
+      re += "[^/]";
+      i += 1;
+    } else if (c === "\\" && i + 1 < pattern.length) {
+      re += esc(pattern[i + 1]);
+      i += 2;
+    } else if (c === "[") {
+      const close = pattern.indexOf("]", i + 2);
+      if (close === -1) {
+        re += "\\[";
+        i += 1;
+        continue;
+      }
+      let body = pattern.slice(i + 1, close);
+      let negate = false;
+      if (body.startsWith("!") || body.startsWith("^")) {
+        negate = true;
+        body = body.slice(1);
+      }
+      const cls = body.replace(/[\\\]^]/g, "\\$&");
+      re += negate ? `(?!/)[^${cls}]` : `[${cls}]`;
+      i = close + 1;
+    } else {
+      re += esc(c);
+      i += 1;
+    }
   }
   return new RegExp(`^${re}$`);
 }
@@ -31,7 +68,7 @@ export function coversRef(ruleset, ref, { defaultBranch } = {}) {
   const matches = (p) =>
     p === "~ALL" ||
     (p === "~DEFAULT_BRANCH" && defaultBranch && ref === `refs/heads/${defaultBranch}`) ||
-    globToRegExp(p).test(ref);
+    fnmatchToRegExp(p).test(ref);
   return (cond.include ?? []).some(matches) && !(cond.exclude ?? []).some(matches);
 }
 
@@ -61,8 +98,11 @@ const ROLE_NAMES = { 1: "Read", 2: "Maintain", 3: "Triage", 4: "Write", 5: "Admi
  * documented personal-account pattern.
  */
 export function riskyBypassActors(ruleset) {
+  // Only an admin sees bypass lists, and an organization ruleset's may be
+  // hidden even then: an unseen list is never assumed to be clean.
+  if (!Array.isArray(ruleset.bypass_actors)) return ["a bypass list not visible to this login"];
   const risky = [];
-  for (const actor of ruleset.bypass_actors ?? []) {
+  for (const actor of ruleset.bypass_actors) {
     const type = actor.actor_type;
     if (type === "Integration") {
       risky.push(`a GitHub App (Integration ${actor.actor_id})`);
@@ -118,60 +158,87 @@ export function checkUpdateRule(rulesets, { defaultBranch }) {
   });
 }
 
+// Release-branch names a creation rule should cover; any one is enough.
+const RELEASE_BRANCH_REFS = [
+  "refs/heads/release/1.0.0",
+  "refs/heads/releases/1.0.0",
+  "refs/heads/release-1.0.0",
+];
+
 export function checkCreationRule(rulesets) {
   const ID = "ruleset-creation";
   const TITLE = "Release branches have a creation rule";
   const recipe = `Recipe: ${HARDENING}#2-release-branches-a-creation-rule`;
-  const s = ruleStatus(
-    rulesets.filter((r) => r.target === "branch"),
-    "creation",
+  const branchRulesets = rulesets.filter((r) => r.target === "branch");
+  const covering = branchRulesets.filter((r) =>
+    RELEASE_BRANCH_REFS.some((ref) => coversRef(r, ref)),
   );
-  if (s.held) return result(ID, TITLE, "pass", "An active branch ruleset has a creation rule.");
+  const s = ruleStatus(covering, "creation");
+  if (s.held) {
+    return result(ID, TITLE, "pass", "An active creation rule covers release branches.");
+  }
   if (s.present) {
-    return result(ID, TITLE, "warn", "Every branch creation rule can be bypassed.", {
+    return result(ID, TITLE, "warn", "Every release-branch creation rule can be bypassed.", {
       details: [...s.bypassed, BYPASS_ADVICE, recipe],
     });
   }
-  return result(ID, TITLE, "warn", "No active branch ruleset has a creation rule.", {
-    details: [
-      "If you cut releases from branches, stop anyone outside the bypass list creating one.",
-      recipe,
-    ],
-  });
+  const elsewhere = ruleStatus(branchRulesets, "creation").present;
+  return result(
+    ID,
+    TITLE,
+    "warn",
+    elsewhere
+      ? "A branch creation rule exists, but none covers a release/* branch."
+      : "No active branch ruleset has a creation rule.",
+    {
+      details: [
+        "If you cut releases from branches, stop anyone outside the bypass list creating one.",
+        `Checked against ${RELEASE_BRANCH_REFS.join(", ")}.`,
+        recipe,
+      ],
+    },
+  );
 }
 
 const TAG_RULES = ["creation", "update", "deletion"];
 
+// A stable and a pre-release tag: the v* ruleset must cover both.
+const TAG_REFS = ["refs/tags/v1.0.0", "refs/tags/v1.0.0-alpha.1"];
+
 export function checkTagRuleset(rulesets) {
   const ID = "ruleset-tags";
   const TITLE = "Release tags have a v* tag ruleset";
-  const covering = rulesets.filter((r) => r.target === "tag" && coversRef(r, "refs/tags/v1.0.0"));
   const recipe = `Recipe: ${HARDENING}#3-release-tags-a-v-tag-ruleset`;
-  if (covering.length === 0) {
-    return result(ID, TITLE, "warn", "No active tag ruleset covers v* tags.", {
-      details: [recipe],
-    });
+  const problems = [];
+  const details = new Set();
+  for (const ref of TAG_REFS) {
+    const covering = rulesets.filter((r) => r.target === "tag" && coversRef(r, ref));
+    if (covering.length === 0) {
+      problems.push(`no active tag ruleset covers ${ref.slice("refs/tags/".length)}`);
+      continue;
+    }
+    const statuses = TAG_RULES.map((type) => [type, ruleStatus(covering, type)]);
+    const missing = statuses.filter(([, st]) => !st.present).map(([t]) => t);
+    const bypassed = statuses.filter(([, st]) => st.present && !st.held);
+    const tag = ref.slice("refs/tags/".length);
+    if (missing.length) problems.push(`${tag} lacks: ${missing.join(", ")}`);
+    if (bypassed.length) {
+      problems.push(`${tag} can be bypassed: ${bypassed.map(([t]) => t).join(", ")}`);
+      for (const [, st] of bypassed) for (const d of st.bypassed) details.add(d);
+      details.add(BYPASS_ADVICE);
+    }
   }
-  const statuses = TAG_RULES.map((type) => [type, ruleStatus(covering, type)]);
-  const missing = statuses.filter(([, s]) => !s.present).map(([t]) => t);
-  const bypassed = statuses.filter(([, s]) => s.present && !s.held);
-  if (missing.length || bypassed.length) {
-    const parts = [];
-    if (missing.length) parts.push(`lacks: ${missing.join(", ")}`);
-    if (bypassed.length) parts.push(`can be bypassed: ${bypassed.map(([t]) => t).join(", ")}`);
-    return result(ID, TITLE, "warn", `The v* tag ruleset ${parts.join("; ")}.`, {
-      details: [
-        ...new Set(bypassed.flatMap(([, s]) => s.bypassed)),
-        ...(bypassed.length ? [BYPASS_ADVICE] : []),
-        recipe,
-      ],
+  if (problems.length) {
+    const unique = [...new Set(problems)];
+    return result(ID, TITLE, "warn", `The v* tag ruleset: ${unique.join("; ")}.`, {
+      details: [...details, recipe],
     });
   }
   return result(
     ID,
     TITLE,
     "pass",
-    "An active tag ruleset blocks creating, moving and deleting v* tags.",
+    "An active tag ruleset blocks creating, moving and deleting v* tags, pre-releases included.",
   );
 }
 

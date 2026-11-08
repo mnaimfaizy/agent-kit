@@ -5,17 +5,50 @@
 
 import { secretNames } from "../callers.mjs";
 import { parseWorkflowCallSecrets } from "../workflow-call.mjs";
-import { result } from "./result.mjs";
+import { byHand, command, NAME_PATTERN, result } from "./result.mjs";
+
+/** GitHub provides `secrets.GITHUB_TOKEN`; no `GITHUB_*` secret can be set by hand. */
+const isProvided = (name) => /^github_/i.test(name);
+
+/** Caller parts doctor could not read fully: reported, never assumed fine. */
+function unreadable(callers) {
+  const out = [];
+  for (const caller of callers) {
+    if (caller.parseIncomplete) out.push(`${caller.path}: ${caller.parseIncomplete}`);
+    for (const job of caller.jobs) {
+      if (job.secretsUnsupported) {
+        out.push(
+          `${caller.path}:${job.name}: ${job.secretsUnsupported}; its secrets were not checked.`,
+        );
+      }
+    }
+  }
+  return out;
+}
+
+/** The variables every Caller reads. Needs no tag. */
+export function deriveVariables(callers) {
+  const variables = new Map();
+  for (const caller of callers) {
+    for (const v of caller.variables) {
+      const prev = variables.get(v.name);
+      variables.set(v.name, {
+        name: v.name,
+        optional: prev ? prev.optional && v.optional : v.optional,
+        where: [...(prev?.where ?? []), caller.path],
+      });
+    }
+  }
+  return [...variables.values()];
+}
 
 /**
  * @param {{ path: string, jobs: object[], variables: { name: string, optional: boolean }[] }[]} callers
  * @param {(workflowFile: string) => string | null} readReusable reads .github/workflows/<file> at the pinned tag
  */
 export function deriveRequirements(callers, readReusable) {
-  const secrets = new Map(); // NAME -> { name, required, alternatives: string[], where: string[] }
-  const variables = new Map();
+  const secrets = new Map();
   const problems = [];
-  const unsupported = [];
   const specs = new Map();
   const specFor = (file) => {
     if (!specs.has(file)) {
@@ -25,6 +58,8 @@ export function deriveRequirements(callers, readReusable) {
     return specs.get(file);
   };
   const addSecret = (names, required, where) => {
+    // A GITHUB_* secret is always set, so an expression that falls back to one is too.
+    if (names.some(isProvided)) return;
     const key = names.join(" || ");
     const prev = secrets.get(key);
     secrets.set(key, {
@@ -37,18 +72,16 @@ export function deriveRequirements(callers, readReusable) {
   for (const caller of callers) {
     for (const job of caller.jobs) {
       const where = `${caller.path}:${job.name}`;
-      if (job.secretsUnsupported) {
-        unsupported.push(`${where}: ${job.secretsUnsupported}; its secrets were not checked.`);
-        continue;
-      }
+      if (job.secretsUnsupported) continue;
       const spec = specFor(job.uses.file);
       if (spec === null) {
         problems.push(`${where}: ${job.uses.file} is not a reusable workflow at the pinned tag`);
         continue;
       }
       if (job.secrets === "inherit") {
-        for (const { name, required } of spec.values())
+        for (const { name, required } of spec.values()) {
           addSecret([name.toUpperCase()], required, where);
+        }
         continue;
       }
       const passed = new Set(Object.keys(job.secrets).map((k) => k.toLowerCase()));
@@ -58,7 +91,7 @@ export function deriveRequirements(callers, readReusable) {
         const declared = spec.get(input.toLowerCase());
         if (!declared) {
           problems.push(
-            `${where}: passes secret \`${input}\`, which ${job.uses.file} does not declare`,
+            `${where}: passes secret ${JSON.stringify(input)}, which ${job.uses.file} does not declare`,
           );
           continue;
         }
@@ -66,24 +99,18 @@ export function deriveRequirements(callers, readReusable) {
       }
       for (const { name, required } of spec.values()) {
         if (required && !passed.has(name.toLowerCase())) {
-          problems.push(`${where}: does not pass required secret \`${name}\` to ${job.uses.file}`);
+          problems.push(
+            `${where}: does not pass required secret ${JSON.stringify(name)} to ${job.uses.file}`,
+          );
         }
       }
-    }
-    for (const v of caller.variables) {
-      const prev = variables.get(v.name);
-      variables.set(v.name, {
-        name: v.name,
-        optional: prev ? prev.optional && v.optional : v.optional,
-        where: [...(prev?.where ?? []), caller.path],
-      });
     }
   }
   return {
     secrets: [...secrets.values()],
-    variables: [...variables.values()],
+    variables: deriveVariables(callers),
     problems,
-    unsupported,
+    unsupported: unreadable(callers),
   };
 }
 
@@ -104,6 +131,19 @@ function listNames(github, repo, kind, ownerType) {
     }
   }
   return { names: new Set([...names].map((n) => n.toUpperCase())), orgNote };
+}
+
+/** `gh secret set` / `gh variable set` for a valid name, or a by-hand note. */
+function setCommand(kind, name, repo, extra = []) {
+  if (!NAME_PATTERN.test(name)) return { note: byHand(`${kind} named`, name) };
+  return { cmd: command("gh", kind, "set", name, "--repo", repo, ...extra) };
+}
+
+function splitFixes(items) {
+  return {
+    fix: items.filter((i) => i.cmd).map((i) => i.cmd),
+    notes: items.filter((i) => i.note).map((i) => i.note),
+  };
 }
 
 export function checkSecrets({ github, repo, ownerType, requirements }) {
@@ -132,19 +172,20 @@ export function checkSecrets({ github, repo, ownerType, requirements }) {
   const missingRequired = requirements.secrets.filter((x) => x.required && !isSet(x));
   const missingOptional = requirements.secrets.filter((x) => !x.required && !isSet(x));
   const describe = (x) => `${x.names.join(" or ")} (${x.where.join(", ")})`;
+  // No --body: gh prompts for the value, so it never lands in shell history.
+  const { fix, notes } = splitFixes(
+    [...missingRequired, ...missingOptional].map((x) => setCommand("secret", x.names[0], repo)),
+  );
   const details = [
     ...problems,
     ...missingRequired.map((x) => `required, not set: ${describe(x)}`),
     ...missingOptional.map((x) => `optional, not set: ${describe(x)}`),
     ...unsupported,
+    ...notes,
   ];
   if (listed.orgNote && (missingRequired.length || missingOptional.length)) {
     details.push(listed.orgNote);
   }
-  // No --body: gh prompts for the value, so it never lands in shell history.
-  const fix = [...missingRequired, ...missingOptional].map(
-    (x) => `gh secret set ${x.names[0]} --repo ${repo}`,
-  );
   if (missingRequired.length || problems.length) {
     const summary = missingRequired.length
       ? `${missingRequired.length} required secret(s) missing.`
@@ -165,7 +206,7 @@ export function checkSecrets({ github, repo, ownerType, requirements }) {
       ID,
       TITLE,
       "skip",
-      `${unsupported.length} Caller job(s) pass secrets in a form doctor cannot read.`,
+      `${unsupported.length} Caller part(s) doctor could not read; their secrets were not checked.`,
       { details: unsupported },
     );
   }
@@ -186,25 +227,26 @@ export function checkVariables({ github, repo, ownerType, requirements }) {
   } catch (err) {
     return result(ID, TITLE, "skip", `Could not list repository variables: ${err.message}`);
   }
-  const required = requirements.variables.filter((v) => !v.optional);
+  const required = requirements.variables.filter((v) => !v.optional && !isProvided(v.name));
   const missing = required.filter((v) => !listed.names.has(v.name.toUpperCase()));
   if (missing.length === 0) {
     return result(ID, TITLE, "pass", `All ${required.length} required variable(s) are set.`);
   }
+  const killSwitch = (name) => /_ENABLED$/.test(name);
   const details = missing.map(
     (v) =>
       `not set: ${v.name} (${v.where.join(", ")})` +
-      (/_ENABLED$/.test(v.name)
-        ? " — the Kill switch: the flow never runs until it is set to true"
-        : ""),
+      (killSwitch(v.name) ? " — the Kill switch: the flow never runs until it is set to true" : ""),
   );
   if (listed.orgNote) details.push(listed.orgNote);
-  return result(ID, TITLE, "fail", `${missing.length} required variable(s) missing.`, {
-    details,
-    fix: missing.map(
-      (v) =>
-        // The Kill switch takes true; anything else, gh prompts for the value.
-        `gh variable set ${v.name} --repo ${repo}${/_ENABLED$/.test(v.name) ? " --body true" : ""}`,
+  // The Kill switch takes true; for anything else, gh prompts for the value.
+  const { fix, notes } = splitFixes(
+    missing.map((v) =>
+      setCommand("variable", v.name, repo, killSwitch(v.name) ? ["--body", "true"] : []),
     ),
+  );
+  return result(ID, TITLE, "fail", `${missing.length} required variable(s) missing.`, {
+    details: [...details, ...notes],
+    fix,
   });
 }

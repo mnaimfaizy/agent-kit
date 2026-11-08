@@ -16,7 +16,8 @@ const TITLE = "Kit-owned paths match the pinned tag";
 export function checkKitOwnedTrees({ runner, cwd, snapshot }) {
   const { tag, kitOwnedPaths } = snapshot;
   const repo = snapshot.repo ?? DEFAULT_KIT_REPO;
-  const { hashes, skipped } = localTreeHashes({ runner, cwd, paths: kitOwnedPaths });
+  const { hashes, skipped, notes } = localTreeHashes({ runner, cwd, paths: kitOwnedPaths });
+  const serverUrl = snapshot.serverUrl ?? "https://github.com";
   const bad = [];
   const notChecked = [];
   for (const path of kitOwnedPaths) {
@@ -34,9 +35,12 @@ export function checkKitOwnedTrees({ runner, cwd, snapshot }) {
       bad.push(`${path}: differs (local ${actual.slice(0, 12)}, ${tag} ${expected.slice(0, 12)})`);
     }
   }
+  const howCompared = [...notes].map(([path, note]) => `${path}: ${note}`);
   const checked = kitOwnedPaths.length - notChecked.length;
   if (bad.length === 0 && notChecked.length === 0) {
-    return result(ID, TITLE, "pass", `All ${kitOwnedPaths.length} Kit-owned paths match ${tag}.`);
+    return result(ID, TITLE, "pass", `All ${kitOwnedPaths.length} Kit-owned paths match ${tag}.`, {
+      details: howCompared,
+    });
   }
   if (bad.length === 0) {
     // A path that could not be compared is never reported as matching.
@@ -45,7 +49,7 @@ export function checkKitOwnedTrees({ runner, cwd, snapshot }) {
       TITLE,
       "skip",
       `${checked} Kit-owned path(s) match ${tag}; ${notChecked.length} could not be checked.`,
-      { details: [...notChecked, "Run doctor in a full (non-sparse) checkout to check them."] },
+      { details: [...notChecked, ...howCompared, "Run doctor in a full checkout to check them."] },
     );
   }
   return result(
@@ -57,10 +61,11 @@ export function checkKitOwnedTrees({ runner, cwd, snapshot }) {
       details: [
         ...bad,
         ...notChecked,
+        ...howCompared,
         `Kit-owned paths are replaced whole from the tag your pins name, never edited.`,
         `If a pin bump (for example from Dependabot) moved the pins to ${tag}, re-copy them on the same branch.`,
         `The command below needs \`upgrade\`, which ships in a later release; until then, ` +
-          `delete and re-copy each path by hand as ${manualCopyUrl(repo, tag)} describes.`,
+          `delete and re-copy each path by hand as ${manualCopyUrl(repo, tag, serverUrl)} describes.`,
       ],
       fix: [upgradeCommand(tag)],
     },
@@ -68,6 +73,6 @@ export function checkKitOwnedTrees({ runner, cwd, snapshot }) {
 }
 
 /** adopt.md's copy section at the tag, which links the manual delete-then-copy loop. */
-export function manualCopyUrl(repo, tag) {
-  return `https://github.com/${repo}/blob/${tag}/docs/adopt.md#copy-kit-owned-paths-from-the-same-tag`;
+export function manualCopyUrl(repo, tag, serverUrl = "https://github.com") {
+  return `${serverUrl}/${repo}/blob/${tag}/docs/adopt.md#copy-kit-owned-paths-from-the-same-tag`;
 }

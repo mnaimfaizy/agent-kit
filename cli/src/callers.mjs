@@ -4,21 +4,23 @@
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { parseScalar, parseYamlSubset, stripComment } from "./yaml-subset.mjs";
+import { parseScalar, parseYamlSubset, stripBom, stripComment } from "./yaml-subset.mjs";
 
 export const KIT_REPO_NAME = "agent-kit";
 export const DEFAULT_KIT_REPO = "mnaimfaizy/agent-kit";
 
-// owner/agent-kit/.github/workflows/<file>@<ref>
+// owner/agent-kit/.github/workflows/<file>@<ref>. GitHub owner and repository
+// names are case-insensitive, so the match is too.
 const KIT_USES =
-  /^([A-Za-z0-9-]+)\/agent-kit\/\.github\/workflows\/([A-Za-z0-9._-]+\.ya?ml)@(\S+)$/;
-const USES_LINE = /^\s*(?:-\s+)?uses:\s*(.+)$/;
+  /^([A-Za-z0-9][A-Za-z0-9-]*)\/(agent-kit)\/\.github\/workflows\/([A-Za-z0-9._-]+\.ya?ml)@(\S+)$/i;
+// `uses:`, `"uses":`, `'uses' :`, optionally as a list item.
+const USES_LINE = /^\s*(?:-\s+)?(?:uses|"uses"|'uses')\s*:\s*(.+)$/;
 const NAME = "[A-Za-z_][A-Za-z0-9_]*";
 
 /** Parse a `uses:` value; null unless it points at an Agent-kit reusable workflow. */
 export function parseKitUses(value) {
   const m = KIT_USES.exec(parseScalar(stripComment(String(value))));
-  return m ? { owner: m[1], repo: `${m[1]}/${KIT_REPO_NAME}`, file: m[2], ref: m[3] } : null;
+  return m ? { owner: m[1], repo: `${m[1]}/${m[2]}`, file: m[3], ref: m[4] } : null;
 }
 
 // `key: |` or `- key: >-`: the lines after it, indented deeper than the key,
@@ -32,7 +34,7 @@ const BLOCK_START = /^(-\s+)?[^\s:#][^:]*:\s*[|>][-+0-9]*\s*$/;
 export function findKitPins(text) {
   const pins = [];
   let blockIndent = null;
-  String(text)
+  stripBom(String(text))
     .replace(/\r\n?/g, "\n")
     .split("\n")
     .forEach((line, idx) => {
@@ -57,7 +59,7 @@ export function findKitPins(text) {
 }
 
 function lines(text) {
-  return String(text)
+  return stripBom(String(text))
     .replace(/\r\n?/g, "\n")
     .split("\n")
     .filter((l) => !l.trimStart().startsWith("#"))
@@ -72,12 +74,13 @@ export function secretNames(value) {
 /**
  * Every `vars.X` a file reads. A variable is optional when every read of it
  * falls back with `||` (as the model variables do); otherwise it is required
- * (the Kill switch variables: unset means the flow never runs). The `||`
- * may sit on the next line of a multi-line expression.
+ * (the Kill switch variables: unset means the flow never runs). The `||` may
+ * follow closing parentheses, and may sit on the next line of a multi-line
+ * expression.
  */
 export function variableRefs(text) {
   const refs = new Map();
-  const re = new RegExp(`vars\\.(${NAME})(\\s*\\|\\|)?`, "g");
+  const re = new RegExp(`vars\\.(${NAME})((?:\\s*\\))*\\s*\\|\\|)?`, "g");
   for (const m of lines(text).join("\n").matchAll(re)) {
     const optional = Boolean(m[2]);
     const prev = refs.get(m[1]);
@@ -104,7 +107,12 @@ function unsupportedSecrets(value) {
   return null;
 }
 
-/** The jobs of one workflow file that call an Agent-kit reusable workflow. */
+/**
+ * The jobs of one workflow file that call an Agent-kit reusable workflow.
+ * `parseIncomplete` is set when the file has more Agent-kit pins than jobs
+ * the parser could read, so checks built on the jobs report it instead of
+ * passing.
+ */
 export function parseCaller(text) {
   const doc = parseYamlSubset(text);
   const jobs = [];
@@ -122,7 +130,13 @@ export function parseCaller(text) {
     }
     jobs.push({ name, uses, with: withBlock, secrets, secretsUnsupported });
   }
-  return { jobs, pins: findKitPins(text), variables: variableRefs(text) };
+  const pins = findKitPins(text);
+  const parseIncomplete =
+    pins.length > jobs.length
+      ? `${pins.length} Agent-kit pin(s) but only ${jobs.length} job(s) doctor could read; ` +
+        "the rest were not checked"
+      : null;
+  return { jobs, pins, variables: variableRefs(text), parseIncomplete };
 }
 
 /** Workflow files in .github/workflows/ (relative paths, sorted). */
@@ -138,7 +152,7 @@ export function listWorkflowFiles(repoRoot) {
 /** Read every workflow file; `callers` are the ones with at least one Agent-kit pin. */
 export function readWorkflows(repoRoot) {
   const files = listWorkflowFiles(repoRoot).map((path) => {
-    const text = readFileSync(join(repoRoot, path), "utf8");
+    const text = stripBom(readFileSync(join(repoRoot, path), "utf8"));
     return { path, text, ...parseCaller(text) };
   });
   return { files, callers: files.filter((f) => f.pins.length > 0) };

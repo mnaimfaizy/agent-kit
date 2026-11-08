@@ -2,9 +2,10 @@
 // never changes GitHub settings: it only reads, and prints `gh` commands for
 // the adopter to run.
 
+import { REPO_PATTERN as REPO } from "./checks/result.mjs";
 import { firstLine } from "./exec.mjs";
 
-const REPO = /^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/;
+const HOST = /^[A-Za-z0-9.-]+(?::\d+)?$/;
 
 export class GhError extends Error {
   constructor(message, { status } = {}) {
@@ -26,19 +27,28 @@ export function checkRepoName(repo) {
   return repo;
 }
 
-export function createGitHub(runner, { cwd } = {}) {
+/**
+ * @param {import("./exec.mjs").Runner} runner
+ * @param {{ cwd?: string, hostname?: string | null }} [opts] hostname: a GitHub
+ *   Enterprise Server host; gh api then targets it with --hostname.
+ */
+export function createGitHub(runner, { cwd, hostname = null } = {}) {
+  if (hostname !== null && !HOST.test(hostname)) {
+    throw new GhError(`not a host name: ${JSON.stringify(hostname)}`);
+  }
   const gh = (args) => runner("gh", args, { cwd });
+  const host = hostname && hostname !== "github.com" ? ["--hostname", hostname] : [];
 
   /** GET an endpoint and parse its JSON. */
   function getJson(endpoint) {
-    const r = gh(["api", "--method", "GET", endpoint]);
+    const r = gh(["api", ...host, "--method", "GET", endpoint]);
     if (r.status !== 0) throw fail(r, `gh api ${endpoint}`);
     return JSON.parse(r.stdout);
   }
 
   /** GET every page of an endpoint and return one line per `jq` result. */
   function getLines(endpoint, jq) {
-    const r = gh(["api", "--method", "GET", "--paginate", endpoint, "--jq", jq]);
+    const r = gh(["api", ...host, "--method", "GET", "--paginate", endpoint, "--jq", jq]);
     if (r.status !== 0) throw fail(r, `gh api ${endpoint}`);
     return r.stdout.split(/\r?\n/).filter(Boolean);
   }
@@ -49,13 +59,23 @@ export function createGitHub(runner, { cwd } = {}) {
       "repo",
       "view",
       "--json",
-      "nameWithOwner,isInOrganization,viewerPermission,defaultBranchRef",
+      "nameWithOwner,isInOrganization,viewerPermission,defaultBranchRef,url",
     ];
     if (repo) args.splice(2, 0, checkRepoName(repo));
     const r = gh(args);
     if (r.status !== 0) throw fail(r, "gh repo view");
     const data = JSON.parse(r.stdout);
+    // The host the repository lives on: github.com, or a GitHub Enterprise Server.
+    let hostName = "github.com";
+    try {
+      if (data.url) hostName = new URL(data.url).host.toLowerCase();
+    } catch {
+      hostName = "github.com";
+    }
+    if (!HOST.test(hostName))
+      throw new GhError(`unexpected repository URL ${JSON.stringify(data.url)}`);
     return {
+      host: hostName,
       repo: checkRepoName(data.nameWithOwner),
       owner: data.nameWithOwner.split("/")[0],
       ownerType: data.isInOrganization ? "Organization" : "User",

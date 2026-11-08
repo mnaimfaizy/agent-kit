@@ -144,6 +144,11 @@ def test_publish_workflow_uses_trusted_publishing() -> None:
             assert re.match(r"^[\w.-]+/[\w.-]+@[0-9a-f]{40}$", step["uses"]), step["uses"]
         if "actions/checkout" in step.get("uses", ""):
             assert step["with"]["persist-credentials"] is False
+    # Publish only commits that are on main, checked before the publish step.
+    names = [step.get("name", "") for step in job["steps"]]
+    ancestry = names.index("Check the tagged commit is on main")
+    assert ancestry < names.index("Publish")
+    assert 'git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main' in runs
 
 
 def test_publish_workflow_stores_no_token() -> None:

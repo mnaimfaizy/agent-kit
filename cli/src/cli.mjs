@@ -4,6 +4,7 @@
 import { readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { formatReport, runDoctor } from "./doctor.mjs";
+import { REPO_PATTERN, sanitizeLine } from "./checks/result.mjs";
 import { systemRunner } from "./exec.mjs";
 
 export const VERSION = JSON.parse(
@@ -33,7 +34,12 @@ init and upgrade are not available yet.`;
  * @param {{ cwd: string, stdout: (s: string) => void, stderr: (s: string) => void, runner?: import("./exec.mjs").Runner, openTag?: Function }} io
  * @returns {number} exit code
  */
-export function main(argv, { cwd, stdout, stderr, runner = systemRunner, openTag }) {
+export function main(argv, io) {
+  const { cwd, runner = systemRunner, openTag } = io;
+  // Anything doctor prints can echo its arguments or file contents: sanitize every line.
+  const clean = (text) => String(text).split("\n").map(sanitizeLine).join("\n");
+  const stdout = (text) => io.stdout(clean(text));
+  const stderr = (text) => io.stderr(clean(text));
   let parsed;
   try {
     parsed = parseArgs({
@@ -74,8 +80,8 @@ export function main(argv, { cwd, stdout, stderr, runner = systemRunner, openTag
     stderr(`doctor takes no arguments, got: ${rest.join(" ")}`);
     return 2;
   }
-  if (values.repo !== undefined && !/^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/.test(values.repo)) {
-    stderr(`--repo must be owner/name, got: ${values.repo}`);
+  if (values.repo !== undefined && !REPO_PATTERN.test(values.repo)) {
+    stderr(`--repo must be owner/name, got: ${JSON.stringify(values.repo)}`);
     return 2;
   }
   const report = runDoctor({
