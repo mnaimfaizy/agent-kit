@@ -25,12 +25,13 @@ Full walkthrough: **[docs/getting-started.md](docs/getting-started.md)**. Short 
 
    ```bash
    TAG=v1.0.0-alpha.11
-   git clone --depth 1 --branch "$TAG" https://github.com/mnaimfaizy/agent-kit.git /tmp/agent-kit
+   rm -rf /tmp/agent-kit
+   git clone --depth 1 --branch "$TAG" https://github.com/mnaimfaizy/agent-kit.git /tmp/agent-kit &&
    grep -v -e '^#' -e '^$' /tmp/agent-kit/kit-owned-paths.txt | while read -r path; do
      path="${path%/}"
      rm -rf "./$path"
      mkdir -p "$(dirname "$path")"
-     cp -R "/tmp/agent-kit/$path" "$(dirname "$path")/"
+     cp -R "/tmp/agent-kit/$path" "$(dirname "$path")/" || { echo "copy of $path failed" >&2; exit 1; }
    done
    rm -rf /tmp/agent-kit
    ```

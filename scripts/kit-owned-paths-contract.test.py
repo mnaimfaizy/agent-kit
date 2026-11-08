@@ -19,6 +19,12 @@ README = ROOT / "README.md"
 GETTING_STARTED = ROOT / "docs" / "getting-started.md"
 
 ENTRY = re.compile(r"^[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*/$")
+# Consumers run `rm -rf` on every entry, so only these shapes may appear: one
+# Portable skill folder, or one of the three runtime folders. Anything else
+# (`.github/workflows/`, `docs/`, a parent folder) would delete Consumer files.
+ALLOWED_SHAPE = re.compile(
+    r"^(?:\.claude/skills/[A-Za-z0-9._-]+/|\.github/(?:agent-runtime|agent-pipeline|security-audit)/)$"
+)
 ADOPT_SECTION = "## Copy Kit-owned paths from the same tag"
 ADOPT_BULLET = re.compile(r"^- `([^`]+/)`", re.MULTILINE)
 
@@ -49,6 +55,10 @@ def test_manifest_format_is_trivially_parseable() -> None:
     for entry in entries:
         assert ENTRY.match(entry), f"kit-owned-paths.txt: {entry!r} is not a plain relative folder path ending in /"
         assert ".." not in entry.split("/"), f"kit-owned-paths.txt: {entry!r} leaves the repository"
+        assert ALLOWED_SHAPE.match(entry), (
+            f"kit-owned-paths.txt: {entry!r} is not a permitted Kit-owned path shape "
+            "(.claude/skills/<name>/ or a .github/ runtime folder)"
+        )
     assert len(entries) == len(set(entries)), "kit-owned-paths.txt lists a path twice"
 
 
@@ -106,6 +116,13 @@ def test_copy_steps_read_the_manifest_and_delete_before_copying() -> None:
         assert rm != -1, f"{doc}: the copy step must delete each path first"
         assert cp != -1, f"{doc}: the copy step must copy each path from the tag clone"
         assert rm < cp, f"{doc}: the copy step must delete each path before copying it"
+        # A stale clone from an earlier run would make `git clone` fail and the
+        # loop read the wrong tag: clear it first, and only loop if the clone worked.
+        clear = block.find("rm -rf /tmp/agent-kit\n")
+        clone = block.find("git clone")
+        assert clear != -1 and clear < clone, f"{doc}: remove /tmp/agent-kit before cloning"
+        assert re.search(r"git clone [^\n]*/tmp/agent-kit &&\n", block), f"{doc}: chain the loop on git clone &&"
+        assert re.search(r"cp -R [^\n]*\|\| \{", block), f"{doc}: stop the loop if a copy fails"
         # Copying the whole skills folder would overwrite or keep stale files
         # next to a Consumer's own skills.
         assert ".claude/skills/." not in block, f"{doc}: never copy the whole .claude/skills/ folder"
