@@ -290,6 +290,10 @@ describe("implement workflow wiring", () => {
       );
     }
     assert.doesNotMatch(namedStep(implement, "Run implementer (Claude Code)"), /\n {8}if: /);
+    // continue-on-error would let a failed staging leave the job in success():
+    // the agent would run, steps.confine.outcome would be failure, and the
+    // check would be skipped.
+    assert.doesNotMatch(implement.slice(stagingAt, agentAt), /\n {8}continue-on-error:/);
     // A missing checker names the missing staging, not the agent.
     assert.match(check, /test -s "\$RUNNER_TEMP\/read-confinement\/check-git-config\.mjs"/);
     // The cleanup step runs after a failed agent step, but not past a failed check.

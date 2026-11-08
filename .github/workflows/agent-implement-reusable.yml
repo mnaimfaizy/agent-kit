@@ -468,7 +468,7 @@ jobs:
           # write and OIDC credentials. git runs commands its config and
           # .git/hooks name, so check both against the staged allowlist first.
           if ! test -s "$RUNNER_TEMP/read-confinement/check-git-config.mjs"; then
-            echo "The staged git-config checker is missing; the staging step did not leave it in \$RUNNER_TEMP/read-confinement/."
+            echo "The staged git-config checker is missing from \$RUNNER_TEMP/read-confinement/; it was staged, so something removed it afterwards."
             exit 1
           fi
           if ! node "$RUNNER_TEMP/read-confinement/check-git-config.mjs" "$GITHUB_WORKSPACE/.git"; then
