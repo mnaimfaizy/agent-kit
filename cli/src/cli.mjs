@@ -1,21 +1,25 @@
 // Argument parsing and dispatch. Exit codes: 0 ok, 1 a check failed (or a
-// warning under --strict, or the tag was refused), 2 usage error.
+// warning under --strict, or the tag or the change was refused), 2 usage
+// error (including a missing answer when there is no terminal to ask on).
 
-import { readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { formatReport, runDoctor } from "./doctor.mjs";
 import { REPO_PATTERN, sanitizeLine } from "./checks/result.mjs";
 import { systemRunner } from "./exec.mjs";
+import { askYesNo } from "./prompt.mjs";
+import { CLI_VERSION, isReleaseTag } from "./tags.mjs";
+import { runUpgrade } from "./upgrade.mjs";
 
-export const VERSION = JSON.parse(
-  readFileSync(new URL("../package.json", import.meta.url), "utf8"),
-).version;
+export const VERSION = CLI_VERSION;
 
 const USAGE = `Usage: agent-kit <command> [options]
 
 Commands:
   doctor     Read-only checks of this repository against the Agent-kit tag
              its Callers pin. Never changes anything.
+  upgrade    Move this repository to another Agent-kit tag: replace the
+             Kit-owned paths, rewrite the uses: pins, print the examples/
+             diff, then run doctor's file and pin checks. Local files only.
 
 Options for doctor:
   --ci            Check only Kit-owned paths and uses: pins (no gh needed).
@@ -24,19 +28,38 @@ Options for doctor:
   --repo <o/r>    The GitHub repository to check (default: gh's choice for
                   the current directory).
 
+Options for upgrade:
+  --tag <vY>      The Agent-kit tag to move to (asked for when missing).
+  --yes           Do not ask before changing files.
+  --force         Replace Kit-owned paths even when they have uncommitted
+                  changes (those changes are lost).
+
   -h, --help      Show this help.
   -v, --version   Show the version.
 
-init and upgrade are not available yet.`;
+init is not available yet.`;
+
+const COMMAND_OPTIONS = {
+  doctor: ["ci", "strict", "repo"],
+  upgrade: ["tag", "yes", "force"],
+};
 
 /**
  * @param {string[]} argv
- * @param {{ cwd: string, stdout: (s: string) => void, stderr: (s: string) => void, runner?: import("./exec.mjs").Runner, openTag?: Function }} io
- * @returns {number} exit code
+ * @param {{
+ *   cwd: string,
+ *   stdout: (s: string) => void,
+ *   stderr: (s: string) => void,
+ *   runner?: import("./exec.mjs").Runner,
+ *   openTag?: Function,
+ *   openRepo?: Function,
+ *   prompt?: ((question: string) => Promise<string>) | null,
+ * }} io  `prompt` is null (or absent) when there is no terminal to ask on.
+ * @returns {Promise<number>} exit code
  */
-export function main(argv, io) {
-  const { cwd, runner = systemRunner, openTag } = io;
-  // Anything doctor prints can echo its arguments or file contents: sanitize every line.
+export async function main(argv, io) {
+  const { cwd, runner = systemRunner, openTag, openRepo, prompt = null } = io;
+  // Anything printed can echo arguments or file contents: sanitize every line.
   const clean = (text) => String(text).split("\n").map(sanitizeLine).join("\n");
   const stdout = (text) => io.stdout(clean(text));
   const stderr = (text) => io.stderr(clean(text));
@@ -50,6 +73,9 @@ export function main(argv, io) {
         ci: { type: "boolean" },
         strict: { type: "boolean" },
         repo: { type: "string" },
+        tag: { type: "string" },
+        yes: { type: "boolean", short: "y" },
+        force: { type: "boolean" },
         help: { type: "boolean", short: "h" },
         version: { type: "boolean", short: "v" },
       },
@@ -68,18 +94,30 @@ export function main(argv, io) {
     (command || values.help ? stdout : stderr)(USAGE);
     return values.help ? 0 : 2;
   }
-  if (command === "init" || command === "upgrade") {
-    stderr(`agent-kit ${command} is not available in ${VERSION} yet; it ships in a later release.`);
+  if (command === "init") {
+    stderr(`agent-kit init is not available in ${VERSION} yet; it ships in a later release.`);
     return 2;
   }
-  if (command !== "doctor") {
+  if (!(command in COMMAND_OPTIONS)) {
     stderr(`Unknown command: ${command}\n\n${USAGE}`);
     return 2;
   }
   if (rest.length) {
-    stderr(`doctor takes no arguments, got: ${rest.join(" ")}`);
+    stderr(`${command} takes no arguments, got: ${rest.join(" ")}`);
     return 2;
   }
+  const foreign = Object.keys(values).filter(
+    (k) => k !== "help" && k !== "version" && !COMMAND_OPTIONS[command].includes(k),
+  );
+  if (foreign.length) {
+    stderr(`${command} does not take ${foreign.map((k) => `--${k}`).join(", ")}\n\n${USAGE}`);
+    return 2;
+  }
+
+  if (command === "upgrade") {
+    return upgrade(values, { cwd, runner, openRepo, prompt, stdout, stderr });
+  }
+
   if (values.repo !== undefined && !REPO_PATTERN.test(values.repo)) {
     stderr(`--repo must be owner/name, got: ${JSON.stringify(values.repo)}`);
     return 2;
@@ -94,4 +132,36 @@ export function main(argv, io) {
   });
   stdout(formatReport(report, { version: VERSION }));
   return report.exitCode;
+}
+
+async function upgrade(values, { cwd, runner, openRepo, prompt, stdout, stderr }) {
+  if (!prompt) {
+    // No terminal: every answer must come from a flag.
+    const needed = [];
+    if (values.tag === undefined) needed.push("--tag <vY>");
+    if (!values.yes) needed.push("--yes");
+    if (needed.length) {
+      stderr(`agent-kit upgrade: there is no terminal to ask on, so pass ${needed.join(" and ")}.`);
+      return 2;
+    }
+  }
+  let tag = values.tag;
+  if (tag === undefined) tag = await prompt("Agent-kit tag to upgrade to (for example v1.0.0): ");
+  if (!isReleaseTag(tag)) {
+    stderr(
+      `--tag must be a Release-line tag (vX.Y.Z or vX.Y.Z-stage.N), got: ${JSON.stringify(tag)}`,
+    );
+    return 2;
+  }
+  stdout(`agent-kit upgrade ${VERSION}`);
+  return runUpgrade({
+    cwd,
+    runner,
+    tag,
+    force: Boolean(values.force),
+    yes: Boolean(values.yes),
+    confirm: prompt ? (q) => askYesNo(prompt, q) : null,
+    out: stdout,
+    ...(openRepo ? { openRepo } : {}),
+  });
 }

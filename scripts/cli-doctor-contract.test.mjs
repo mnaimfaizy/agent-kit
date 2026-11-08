@@ -231,10 +231,10 @@ describe("pre-manifest refusal", () => {
     );
   });
 
-  it("doctor refuses with exit 1 and runs nothing against the old tag", () => {
+  it("doctor refuses with exit 1 and runs nothing against the old tag", async () => {
     const dir = makeConsumer("old-pins", { tag: OLD_TAG });
     const out = [];
-    const code = main(["doctor", "--ci"], {
+    const code = await main(["doctor", "--ci"], {
       cwd: dir,
       stdout: (s) => out.push(s),
       stderr: (s) => out.push(s),
@@ -326,9 +326,8 @@ describe("Kit-owned tree comparison", () => {
       const report = runDoctor({ cwd: dir, runner: systemRunner, ci: true, openTag });
       const trees = report.results.find((r) => r.id === "kit-owned-trees");
       assert.equal(trees.status, "fail");
-      assert.deepEqual(trees.fix, [
-        `npx @mnaimfaizy/agent-kit@1.0.0-alpha.12 upgrade --tag ${TAG}`,
-      ]);
+      assert.deepEqual(trees.fix, [upgradeCommand(TAG)]);
+      assert.match(trees.fix[0], /^npx @mnaimfaizy\/agent-kit@1\.0\.0-alpha\.\d+ upgrade --tag /);
       assert.equal(report.exitCode, 1);
     });
   }
@@ -340,15 +339,18 @@ describe("Kit-owned tree comparison", () => {
     assert.equal(report.results.find((r) => r.id === "kit-owned-trees").status, "pass");
   });
 
-  it("upgradeCommand pins the npm version that matches the tag, from the first published one", () => {
+  it("upgradeCommand pins the tag's npm version, or this CLI's when the tag is older", () => {
     assert.equal(
-      upgradeCommand("v1.0.0-beta.1"),
+      upgradeCommand("v1.0.0-beta.1", "1.0.0-alpha.13"),
       "npx @mnaimfaizy/agent-kit@1.0.0-beta.1 upgrade --tag v1.0.0-beta.1",
     );
-    assert.equal(
-      upgradeCommand("v1.0.0-alpha.11"),
-      "npx @mnaimfaizy/agent-kit upgrade --tag v1.0.0-alpha.11",
-    );
+    // Older packages have no upgrade (and alpha.11 has no package at all).
+    for (const old of ["v1.0.0-alpha.11", "v1.0.0-alpha.12"]) {
+      assert.equal(
+        upgradeCommand(old, "1.0.0-alpha.13"),
+        `npx @mnaimfaizy/agent-kit@1.0.0-alpha.13 upgrade --tag ${old}`,
+      );
+    }
   });
 });
 
@@ -491,10 +493,10 @@ describe("fail / warn / skip exit codes", () => {
   before(() => {
     dir = makeConsumer("exit-codes");
   });
-  const run = (routes, args = ["doctor"]) => {
+  const run = async (routes, args = ["doctor"]) => {
     const gh = fakeGh(routes);
     const out = [];
-    const code = main(args, {
+    const code = await main(args, {
       cwd: dir,
       stdout: (s) => out.push(s),
       stderr: (s) => out.push(s),
@@ -504,33 +506,36 @@ describe("fail / warn / skip exit codes", () => {
     return { code, text: out.join("\n"), calls: gh.calls };
   };
 
-  it("exits 0 when every check passes", () => {
-    const { code, text } = run(ALL_GOOD);
+  it("exits 0 when every check passes", async () => {
+    const { code, text } = await run(ALL_GOOD);
     assert.equal(code, 0, text);
     assert.match(text, /0 failed, 0 warning\(s\), 0 skipped/);
   });
 
-  it("exits 0 on warnings, and 1 on the same warnings with --strict", () => {
+  it("exits 0 on warnings, and 1 on the same warnings with --strict", async () => {
     const routes = { ...ALL_GOOD, "repos/acme/app/rulesets?includes_parents=true": ["1"] };
-    const loose = run(routes);
+    const loose = await run(routes);
     assert.equal(loose.code, 0, loose.text);
     assert.match(loose.text, /WARN {2}Release branches have a creation rule/);
     assert.match(loose.text, /WARN {2}Release tags have a v\* tag ruleset/);
-    const strict = run(routes, ["doctor", "--strict"]);
+    const strict = await run(routes, ["doctor", "--strict"]);
     assert.equal(strict.code, 1, strict.text);
     assert.match(strict.text, /FAIL {2}Release tags have a v\* tag ruleset: .*failed by --strict/);
   });
 
-  it("exits 1 on a missing Trigger label or a missing Claude App", () => {
-    assert.equal(run({ ...ALL_GOOD, "repos/acme/app/labels": ["bug"] }).code, 1);
-    assert.equal(run({ ...ALL_GOOD, "orgs/acme/installations": ["other-app all"] }).code, 1);
+  it("exits 1 on a missing Trigger label or a missing Claude App", async () => {
+    assert.equal((await run({ ...ALL_GOOD, "repos/acme/app/labels": ["bug"] })).code, 1);
+    assert.equal(
+      (await run({ ...ALL_GOOD, "orgs/acme/installations": ["other-app all"] })).code,
+      1,
+    );
   });
 
-  it("reports a check it lacked permission for as skipped, never passed", () => {
+  it("reports a check it lacked permission for as skipped, never passed", async () => {
     const routes = { ...ALL_GOOD };
     delete routes["repos/acme/app/actions/secrets"];
     routes["orgs/acme/installations"] = new Error("Resource not accessible (HTTP 403)");
-    const { code, text } = run(routes);
+    const { code, text } = await run(routes);
     assert.equal(code, 0, text);
     assert.match(
       text,
@@ -540,19 +545,19 @@ describe("fail / warn / skip exit codes", () => {
     assert.match(text, /Skipped checks did not run and are not passes: secrets, claude-app\./);
   });
 
-  it("the Claude App check is skipped on a personal account, where gh cannot see installations", () => {
+  it("the Claude App check is skipped on a personal account, where gh cannot see installations", async () => {
     const repo = {
       nameWithOwner: "acme/app",
       isInOrganization: false,
       viewerPermission: "ADMIN",
       defaultBranchRef: { name: "main" },
     };
-    const { text } = run({ ...ALL_GOOD, repo });
+    const { text } = await run({ ...ALL_GOOD, repo });
     assert.match(text, /SKIP {2}Claude GitHub App installed/);
   });
 
-  it("--ci runs only the tree and pin checks, calls no gh, and lists every skipped check", () => {
-    const { code, text, calls } = run(ALL_GOOD, ["doctor", "--ci"]);
+  it("--ci runs only the tree and pin checks, calls no gh, and lists every skipped check", async () => {
+    const { code, text, calls } = await run(ALL_GOOD, ["doctor", "--ci"]);
     assert.equal(code, 0, text);
     assert.deepEqual(calls, []);
     assert.match(text, /PASS {2}uses: pins agree/);
@@ -569,28 +574,30 @@ describe("fail / warn / skip exit codes", () => {
     );
   });
 
-  it("falls back to CI mode when the gh login is not an admin", () => {
+  it("falls back to CI mode when the gh login is not an admin", async () => {
     const repo = {
       nameWithOwner: "acme/app",
       isInOrganization: true,
       viewerPermission: "WRITE",
       defaultBranchRef: { name: "main" },
     };
-    const { code, text, calls } = run({ ...ALL_GOOD, repo });
+    const { code, text, calls } = await run({ ...ALL_GOOD, repo });
     assert.equal(code, 0, text);
     assert.match(text, /mode: {7}ci \(your gh login is not an admin on acme\/app\)/);
     assert.equal(calls.length, 1, "only `gh repo view` runs");
   });
 
-  it("exits 2 on usage errors and for commands that are not built yet", () => {
+  it("exits 2 on usage errors and for commands that are not built yet", async () => {
     for (const args of [
       [],
       ["nope"],
       ["doctor", "--bogus"],
       ["doctor", "--repo", "x"],
       ["upgrade", "--tag", TAG],
+      ["init", "--tag", TAG],
+      ["doctor", "--tag", TAG],
     ]) {
-      assert.equal(run(ALL_GOOD, args).code, 2, args.join(" "));
+      assert.equal((await run(ALL_GOOD, args)).code, 2, args.join(" "));
     }
   });
 });
@@ -1088,9 +1095,9 @@ describe("hardening (PR #78, second review)", () => {
       assert.equal(sanitizeLine("::error::x"), "\\::error::x");
     });
 
-    it("main() sanitizes usage errors that echo an argument", () => {
+    it("main() sanitizes usage errors that echo an argument", async () => {
       const out = [];
-      main(["doctor", "--repo", "a/b\u001b]0;x\u0007"], {
+      await main(["doctor", "--repo", "a/b\u001b]0;x\u0007"], {
         cwd: ".",
         stdout: (s) => out.push(s),
         stderr: (s) => out.push(s),

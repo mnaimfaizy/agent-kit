@@ -64,8 +64,8 @@ export function checkKitOwnedTrees({ runner, cwd, snapshot }) {
         ...howCompared,
         `Kit-owned paths are replaced whole from the tag your pins name, never edited.`,
         `If a pin bump (for example from Dependabot) moved the pins to ${tag}, re-copy them on the same branch.`,
-        `The command below needs \`upgrade\`, which ships in a later release; until then, ` +
-          `delete and re-copy each path by hand as ${manualCopyUrl(repo, tag, serverUrl)} describes.`,
+        `Run the command below, or delete and re-copy each path by hand as ` +
+          `${manualCopyUrl(repo, tag, serverUrl)} describes.`,
       ],
       fix: [upgradeCommand(tag)],
     },

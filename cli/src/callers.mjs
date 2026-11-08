@@ -58,6 +58,44 @@ export function findKitPins(text) {
   return pins;
 }
 
+export class PinRewriteError extends Error {}
+
+const escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * Point every Agent-kit `uses:` pin in `text` at `newRef`. Only the `@ref`
+ * of each pin line changes: every other byte of the file, the line endings
+ * and a byte-order mark included, stays as it was. Throws PinRewriteError
+ * when a pin line cannot be rewritten unambiguously.
+ *
+ * @returns {{ text: string, count: number }}
+ */
+export function rewriteKitPins(text, newRef) {
+  const pins = findKitPins(text);
+  if (pins.length === 0) return { text, count: 0 };
+  // Split the raw text the way findKitPins numbers lines (\r\n, \r or \n),
+  // keeping each separator so the file is rebuilt byte for byte.
+  const parts = String(text).split(/(\r\n|\r|\n)/);
+  let count = 0;
+  for (const pin of pins) {
+    const idx = (pin.line - 1) * 2;
+    const line = parts[idx];
+    const re = new RegExp(
+      `(/${escapeRegExp(pin.file)}@)${escapeRegExp(pin.ref)}(?=$|[\\s"'#])`,
+      "g",
+    );
+    const matches = [...line.matchAll(re)];
+    if (matches.length !== 1) {
+      throw new PinRewriteError(
+        `line ${pin.line}: cannot find exactly one ${pin.file}@${pin.ref} to rewrite`,
+      );
+    }
+    parts[idx] = line.replace(re, (_, prefix) => `${prefix}${newRef}`);
+    if (parts[idx] !== line) count++;
+  }
+  return { text: parts.join(""), count };
+}
+
 function lines(text) {
   return stripBom(String(text))
     .replace(/\r\n?/g, "\n")
