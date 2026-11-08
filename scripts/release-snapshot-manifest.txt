@@ -7,6 +7,7 @@ SECURITY.md
 CHANGELOG.md
 GLOSSARY.md
 CONTRIBUTING.md
+kit-owned-paths.txt
 
 docs/getting-started.md
 docs/reference.md

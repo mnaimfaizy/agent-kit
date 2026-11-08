@@ -1,0 +1,19 @@
+# Kit-owned paths: copy each one verbatim from a tag and replace it whole on
+# upgrade (delete, then copy fresh). Never edit them; see GLOSSARY.md.
+# Your own skills next to these in .claude/skills/ are never touched.
+#
+# Format, kept trivially parseable (the README quickstart, docs/adopt.md and
+# the CLI read this file from a tag):
+# - one path per line, relative to the repository root, ending in /
+# - lines starting with # are comments; blank lines are ignored
+# - no globs, no spaces, no inline comments
+# First shipped in v1.0.0-alpha.11; earlier tags have no such file.
+
+.claude/skills/code-review/
+.claude/skills/security-audit/
+.claude/skills/security-finding-triage/
+.claude/skills/security-response/
+.claude/skills/explainer/
+.github/agent-runtime/
+.github/agent-pipeline/
+.github/security-audit/

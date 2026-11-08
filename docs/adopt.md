@@ -5,7 +5,7 @@
 Adopt follows a split contract:
 
 - live-reference reusable workflows via `uses: ...@<semver-tag>`
-- copy the shipped skill folders from the same exact tag into `.claude/skills/`
+- copy the **Kit-owned paths** from the same exact tag: the five shipped skill folders in `.claude/skills/` and three runtime folders in `.github/`
 
 Do not mix tags between workflow pins and copied skills.
 
@@ -24,9 +24,9 @@ Pin reusable jobs to an immutable SemVer tag:
 
 No floating major tags (`@v1`) are part of the contract.
 
-## Copy skills from the same tag
+## Copy Kit-owned paths from the same tag
 
-From the exact same tag used in `uses:`, copy:
+From the exact same tag used in `uses:`, copy each Kit-owned path. The source of truth is [`kit-owned-paths.txt`](../kit-owned-paths.txt) at the root of every tag from `v1.0.0-alpha.11`; the list below matches it, and a contract test keeps the two in step. Replace each path whole: delete it, then copy it fresh (the loop in [Getting started §3](getting-started.md#3-copy-the-runtime-files-from-the-same-tag) does this). Never edit these paths. Your own skills next to the kit's in `.claude/skills/` are never touched.
 
 - `.claude/skills/code-review/`
 - `.claude/skills/security-audit/`
@@ -43,7 +43,7 @@ From the exact same tag used in `uses:`, copy:
 - `.github/security-audit/` (prompt and the publish/email scripts the audit stages from a trusted commit)
 - `.github/agent-pipeline/` (planner and implementer contracts, and the draft-PR fallback script)
 
-The copied files and workflow references should always move together on upgrade.
+The copied paths and workflow references should always move together on upgrade.
 
 ## Security-audit reusable job
 

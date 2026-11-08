@@ -34,18 +34,19 @@ CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs three jobs on eve
 
 ## Repository layout
 
-| Path                                         | What                                                  |
-| -------------------------------------------- | ----------------------------------------------------- |
-| `.github/workflows/*-reusable.yml`           | The product: reusable job bodies Consumers reference. |
-| `.github/workflows/dogfood-*.yml`            | This repository as its own Caller (off by default).   |
-| `.github/workflows/ci.yml`, `links.yml`      | This repository's CI.                                 |
-| `.github/agent-*`, `.github/security-audit/` | Runtime files Consumers copy.                         |
-| `.github/CODEOWNERS`                         | Review owners for kit-critical paths.                 |
-| `.claude/skills/`                            | Portable skills Consumers copy.                       |
-| `examples/`                                  | Caller templates.                                     |
-| `scripts/*.test.py`, `*.test.mjs`            | Contract tests.                                       |
-| `scripts/gen_workflow_reference.py`          | Generates `docs/reference.md` from the workflows.     |
-| `security/`                                  | This repository's own Threat pack (dogfood audit).    |
+| Path                                         | What                                                    |
+| -------------------------------------------- | ------------------------------------------------------- |
+| `.github/workflows/*-reusable.yml`           | The product: reusable job bodies Consumers reference.   |
+| `.github/workflows/dogfood-*.yml`            | This repository as its own Caller (off by default).     |
+| `.github/workflows/ci.yml`, `links.yml`      | This repository's CI.                                   |
+| `.github/agent-*`, `.github/security-audit/` | Runtime files Consumers copy.                           |
+| `.github/CODEOWNERS`                         | Review owners for kit-critical paths.                   |
+| `.claude/skills/`                            | Portable skills Consumers copy.                         |
+| `kit-owned-paths.txt`                        | The Kit-owned paths Consumers replace whole on upgrade. |
+| `examples/`                                  | Caller templates.                                       |
+| `scripts/*.test.py`, `*.test.mjs`            | Contract tests.                                         |
+| `scripts/gen_workflow_reference.py`          | Generates `docs/reference.md` from the workflows.       |
+| `security/`                                  | This repository's own Threat pack (dogfood audit).      |
 
 ## Contract tests
 
@@ -144,8 +145,8 @@ See [docs/cutting-releases.md](docs/cutting-releases.md). In short, after the re
 
 ```bash
 git switch main && git pull
-bash scripts/cut-release.sh --tag v1.0.0-alpha.10                 # dry run
-bash scripts/cut-release.sh --tag v1.0.0-alpha.10 --apply --publish --notes-file release-notes/v1.0.0-alpha.10.md
+bash scripts/cut-release.sh --tag v1.0.0-alpha.11                 # dry run
+bash scripts/cut-release.sh --tag v1.0.0-alpha.11 --apply --publish --notes-file release-notes/v1.0.0-alpha.11.md
 ```
 
 `--publish` pushes the tag and creates the GitHub Release on it.

@@ -20,16 +20,23 @@ Every flow is gated by a **Kill switch**, an **Allowlist**, and a consumed **Tri
 
 Full walkthrough: **[docs/getting-started.md](docs/getting-started.md)**. Short version:
 
-1. **Pick a tag.** Use the latest from [Releases](https://github.com/mnaimfaizy/agent-kit/releases), e.g. `v1.0.0-alpha.10`.
-2. **Copy the runtime files from that same tag** into your repository:
+1. **Pick a tag.** Use the latest from [Releases](https://github.com/mnaimfaizy/agent-kit/releases), e.g. `v1.0.0-alpha.11`.
+2. **Copy the Kit-owned paths from that same tag** into your repository. The loop reads [`kit-owned-paths.txt`](kit-owned-paths.txt) from the tag, deletes each path, then copies it fresh, so files the kit removes don't linger after an upgrade. Your own skills in `.claude/skills/` are left alone.
 
    ```bash
-   TAG=v1.0.0-alpha.10
-   git clone --depth 1 --branch "$TAG" https://github.com/mnaimfaizy/agent-kit.git /tmp/agent-kit
-   mkdir -p .claude/skills .github
-   cp -R /tmp/agent-kit/.claude/skills/. .claude/skills/
-   cp -R /tmp/agent-kit/.github/agent-runtime /tmp/agent-kit/.github/agent-pipeline /tmp/agent-kit/.github/security-audit .github/
+   TAG=v1.0.0-alpha.11
+   rm -rf /tmp/agent-kit
+   git clone --depth 1 --branch "$TAG" https://github.com/mnaimfaizy/agent-kit.git /tmp/agent-kit &&
+   grep -v -e '^#' -e '^$' /tmp/agent-kit/kit-owned-paths.txt | while read -r path; do
+     path="${path%/}"
+     rm -rf "./$path"
+     mkdir -p "$(dirname "$path")"
+     cp -R "/tmp/agent-kit/$path" "$(dirname "$path")/" || { echo "copy of $path failed" >&2; exit 1; }
+   done
+   rm -rf /tmp/agent-kit
    ```
+
+   Tags up to `v1.0.0-alpha.10` have no `kit-owned-paths.txt`; for those, copy the paths [Adopt](docs/adopt.md#copy-kit-owned-paths-from-the-same-tag) lists.
 
 3. **Add secrets:** `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`), plus `AGENT_KIT_ADVISORIES_TOKEN` for the audit.
 4. **Copy a Caller** from [`examples/`](examples) into `.github/workflows/`, set your login in `allowlist_actors`, and keep the `@<tag>` pin equal to step 1.
