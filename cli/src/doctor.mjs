@@ -363,3 +363,43 @@ export function formatResult(r) {
   for (const f of r.fix) out.push(`      $ ${f}`);
   return out;
 }
+
+/** doctor --ci's pin and Kit-owned path checks, against an already-fetched tag. */
+export function fileAndPinChecks({ runner, root, snap }) {
+  let pins;
+  try {
+    pins = checkPins(readWorkflows(root).files);
+  } catch (err) {
+    return [result("pins", "uses: pins agree", "fail", firstLine(err?.message ?? err))];
+  }
+  const results = [pins.result];
+  if (pins.tag !== snap.tag) {
+    results.push(
+      result(
+        "kit-owned-trees",
+        "Kit-owned paths match the pinned tag",
+        "fail",
+        `The pins do not all name ${snap.tag}.`,
+      ),
+    );
+    return results;
+  }
+  try {
+    results.push(checkKitOwnedTrees({ runner, cwd: root, snapshot: snap }));
+  } catch (err) {
+    results.push(
+      result("kit-owned-trees", "Kit-owned paths match the pinned tag", "fail", err.message),
+    );
+  }
+  return results;
+}
+
+/**
+ * Print fileAndPinChecks results under a heading, for init and upgrade.
+ * Returns true when one failed.
+ */
+export function printFileAndPinChecks(out, results) {
+  out("Checks (as doctor --ci):");
+  for (const r of results) for (const line of formatResult(r)) out(line);
+  return results.some((r) => r.status === "fail");
+}

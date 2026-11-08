@@ -27,6 +27,22 @@ export class Refusal extends Error {
   }
 }
 
+/** The most items a plan or a refusal lists before "…". */
+export const MAX_LISTED = 20;
+
+/** `items`, cut to MAX_LISTED with a closing "…" when there are more. */
+export function listed(items) {
+  return items.length > MAX_LISTED ? [...items.slice(0, MAX_LISTED), "…"] : items;
+}
+
+/** Print a refusal and its details; the exit code is 1. */
+export function reportRefusal(out, err) {
+  out(`REFUSED  ${err.message}`);
+  for (const d of err.details ?? []) out(`      ${d}`);
+  out("Nothing was changed.");
+  return 1;
+}
+
 export function lstatOrNull(path) {
   try {
     return lstatSync(path);

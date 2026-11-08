@@ -11,10 +11,8 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { PinRewriteError, readWorkflows, rewriteKitPins } from "./callers.mjs";
-import { checkKitOwnedTrees } from "./checks/kit-owned-trees.mjs";
 import { checkPins } from "./checks/pins.mjs";
-import { result } from "./checks/result.mjs";
-import { formatResult } from "./doctor.mjs";
+import { fileAndPinChecks, printFileAndPinChecks } from "./doctor.mjs";
 import { firstLine } from "./exec.mjs";
 import { openKitRepo, PreManifestTagError, serverFromEnv } from "./kit-tag.mjs";
 import {
@@ -23,14 +21,15 @@ import {
   checkLocalPath,
   checkNoLinks,
   kitFileWrites,
+  listed,
   Refusal,
+  reportRefusal,
   stageFileModes,
   uncommittedChanges,
 } from "./local-writes.mjs";
 import { caseCollisions } from "./safe-paths.mjs";
 import { compareTags } from "./tags.mjs";
 
-const MAX_LISTED = 20;
 const BOM = "\ufeff";
 const utf8 = new TextDecoder("utf-8", { fatal: true });
 
@@ -95,7 +94,7 @@ export function planUpgrade({ runner, root, oldSnap, newSnap, files, force, pinn
     throw new Refusal(
       `${dirty.length} file(s) in the paths upgrade would replace or delete have uncommitted changes. ` +
         `Commit or stash them, or run again with --force to discard them.`,
-      [...dirty.slice(0, MAX_LISTED), ...(dirty.length > MAX_LISTED ? ["…"] : [])],
+      listed(dirty),
     );
   }
 
@@ -129,12 +128,7 @@ export async function runUpgrade({
   openRepo = openKitRepo,
   env = process.env,
 }) {
-  const refuse = (err) => {
-    out(`REFUSED  ${err.message}`);
-    for (const d of err.details ?? []) out(`      ${d}`);
-    out("Nothing was changed.");
-    return 1;
-  };
+  const refuse = (err) => reportRefusal(out, err);
 
   const top = runner("git", ["-C", cwd, "rev-parse", "--show-toplevel"]);
   if (top.status !== 0) return refuse(new Refusal(`${cwd} is not a git repository.`));
@@ -213,11 +207,11 @@ export async function runUpgrade({
     }
     if (plan.dirty.length) {
       out(`--force: discarding uncommitted changes in ${plan.dirty.length} file(s):`);
-      for (const d of plan.dirty.slice(0, MAX_LISTED)) out(`  ${d}`);
+      for (const d of listed(plan.dirty)) out(`  ${d}`);
     }
     if (plan.ignored.length) {
       out(`Also deleted: ${plan.ignored.length} ignored file(s) or folder(s) in those paths:`);
-      for (const d of plan.ignored.slice(0, MAX_LISTED)) out(`  ${d}`);
+      for (const d of listed(plan.ignored)) out(`  ${d}`);
     }
     out("");
 
@@ -280,10 +274,7 @@ export async function runUpgrade({
 
     // The same file and pin checks as `doctor --ci`, against the tag already fetched.
     out("");
-    out("Checks (as doctor --ci):");
-    const results = checksAfterWrite({ runner, root, snap: newSnap });
-    for (const r of results) for (const line of formatResult(r)) out(line);
-    const failed = results.some((r) => r.status === "fail");
+    const failed = printFileAndPinChecks(out, fileAndPinChecks({ runner, root, snap: newSnap }));
     out("");
     out(
       failed
@@ -294,34 +285,4 @@ export async function runUpgrade({
   } finally {
     kit.cleanup();
   }
-}
-
-/** doctor --ci's pin and Kit-owned path checks, against an already-fetched tag. */
-export function checksAfterWrite({ runner, root, snap }) {
-  let pins;
-  try {
-    pins = checkPins(readWorkflows(root).files);
-  } catch (err) {
-    return [result("pins", "uses: pins agree", "fail", firstLine(err?.message ?? err))];
-  }
-  const results = [pins.result];
-  if (pins.tag !== snap.tag) {
-    results.push(
-      result(
-        "kit-owned-trees",
-        "Kit-owned paths match the pinned tag",
-        "fail",
-        `The pins do not all name ${snap.tag}.`,
-      ),
-    );
-    return results;
-  }
-  try {
-    results.push(checkKitOwnedTrees({ runner, cwd: root, snapshot: snap }));
-  } catch (err) {
-    results.push(
-      result("kit-owned-trees", "Kit-owned paths match the pinned tag", "fail", err.message),
-    );
-  }
-  return results;
 }
