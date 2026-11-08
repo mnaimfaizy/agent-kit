@@ -21,13 +21,16 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Install lychee (pinned, checksum-verified)
+        run: bash scripts/install-lychee.sh
       - name: Check all links
         id: lychee
-        uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
-        with:
-          args: --no-progress --max-retries 3 --exclude-path node_modules --exclude-path .venv './**/*.md'
-          output: lychee-report.md
-          fail: false
+        # Broken links must not fail the job: the next step files them.
+        run: |
+          set +e
+          lychee --no-progress --max-retries 3 --format markdown --output lychee-report.md \
+            --exclude-path node_modules --exclude-path .venv './**/*.md'
+          echo "exit_code=$?" >>"$GITHUB_OUTPUT"
       - name: Open or update tracking issue
         if: ${{ steps.lychee.outputs.exit_code != '0' }}
         env:
