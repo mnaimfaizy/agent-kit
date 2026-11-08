@@ -2,7 +2,7 @@
 // reusable workflow, the secrets they pass, the repository variables they
 // read, and their Trigger labels.
 
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { parseScalar, parseYamlSubset, stripBom, stripComment } from "./yaml-subset.mjs";
 
@@ -140,9 +140,16 @@ export function parseCaller(text) {
 }
 
 /** Workflow files in .github/workflows/ (relative paths, sorted). */
+export class WorkflowsDirError extends Error {}
+
 export function listWorkflowFiles(repoRoot) {
   const dir = join(repoRoot, ".github", "workflows");
   if (!existsSync(dir)) return [];
+  if (!statSync(dir).isDirectory()) {
+    throw new WorkflowsDirError(
+      ".github/workflows is not a folder, so there are no Callers to read.",
+    );
+  }
   return readdirSync(dir, { withFileTypes: true })
     .filter((e) => e.isFile() && /\.ya?ml$/.test(e.name))
     .map((e) => `.github/workflows/${e.name}`)

@@ -1458,7 +1458,10 @@ describe("re-audit fixes (PR #78)", () => {
     it("passes when the other files match, saying how it compared", () => {
       const t = trees(prepare("mixed-clean"));
       assert.equal(t.status, "pass", JSON.stringify(t));
-      assert.match(t.details.join("\n"), /code-review\/: 1 of its files are marked skip-worktree/);
+      assert.match(
+        t.details.join("\n"),
+        /code-review\/: 1 of its 2 files are marked skip-worktree/,
+      );
     });
 
     it("fails on a local edit elsewhere in the path", () => {
@@ -1490,5 +1493,66 @@ describe("re-audit fixes (PR #78)", () => {
       assert.throws(() => parseKitOwnedPaths(bad, { forDeletion: false }), bad);
     }
     assert.deepEqual(parseKitOwnedPaths(".gitx/\n", { forDeletion: false }), [".gitx/"]);
+  });
+});
+
+describe("re-check follow-ups (PR #78)", () => {
+  const trees = (dir) =>
+    runDoctor({ cwd: dir, runner: systemRunner, ci: true, openTag }).results.find(
+      (r) => r.id === "kit-owned-trees",
+    );
+
+  it("a cone-mode sparse checkout compares excluded paths at HEAD", () => {
+    const dir = makeConsumer("cone-clean");
+    git(dir, "sparse-checkout", "set", "--cone", ".github");
+    assert.equal(
+      existsSync(join(dir, ".claude/skills/code-review")),
+      false,
+      "fixture should be sparse",
+    );
+    const t = trees(dir);
+    assert.equal(t.status, "pass", JSON.stringify(t));
+    assert.match(t.details.join("\n"), /code-review\/: .*copy committed at HEAD was compared/);
+  });
+
+  it("a stray file under an excluded path is compared, not a git add failure", () => {
+    const dir = makeConsumer("cone-stray");
+    git(dir, "sparse-checkout", "set", "--cone", ".github");
+    mkdirSync(join(dir, ".claude/skills/code-review"), { recursive: true });
+    writeFileSync(join(dir, ".claude/skills/code-review/stray.md"), "stray\n");
+    const t = trees(dir);
+    assert.equal(t.status, "fail", JSON.stringify(t));
+    assert.match(t.details.join("\n"), /code-review\/: differs/);
+    assert.doesNotMatch(t.summary + t.details.join("\n"), /git add/);
+    // Something came from the working copy, so not the HEAD-only wording.
+    assert.match(t.details.join("\n"), /code-review\/: 2 of its 3 files are marked skip-worktree/);
+    assert.doesNotMatch(
+      t.details.join("\n"),
+      /code-review\/: .*copy committed at HEAD was compared/,
+    );
+  });
+
+  it(".github/workflows as a file is a pins FAIL, not a crash", () => {
+    const dir = makeConsumer("workflows-file");
+    rmSync(join(dir, ".github/workflows"), { recursive: true });
+    writeFileSync(join(dir, ".github/workflows"), "not a folder\n");
+    const report = runDoctor({ cwd: dir, runner: systemRunner, ci: true, openTag });
+    const pins = report.results.find((r) => r.id === "pins");
+    assert.equal(pins.status, "fail");
+    assert.match(pins.summary, /\.github\/workflows is not a folder/);
+    assert.equal(report.exitCode, 1);
+  });
+
+  it("no cli/ source file contains a raw control byte (other than tab, LF, CR)", () => {
+    const walk = (d) =>
+      readdirSync(d, { withFileTypes: true }).flatMap((e) =>
+        e.isDirectory() ? walk(join(d, e.name)) : e.name.endsWith(".mjs") ? [join(d, e.name)] : [],
+      );
+    const allowed = new Set([9, 10, 13]);
+    for (const f of walk(join(root, "cli"))) {
+      const bytes = readFileSync(f);
+      const at = bytes.findIndex((b) => b < 32 && !allowed.has(b));
+      assert.equal(at, -1, `${f}: raw control byte ${bytes[at]} at offset ${at}; use an escape`);
+    }
   });
 });

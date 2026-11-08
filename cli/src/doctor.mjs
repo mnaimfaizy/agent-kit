@@ -110,7 +110,23 @@ export function runDoctor({
     });
   }
 
-  const { files, callers } = readWorkflows(root);
+  let workflows;
+  try {
+    workflows = readWorkflows(root);
+  } catch (err) {
+    // Nothing else can run without the Callers: report it, never crash.
+    results.push(result("pins", "uses: pins agree", "fail", firstLine(err?.message ?? err)));
+    return finish({
+      mode,
+      modeReason,
+      repo: info?.repo ?? null,
+      tag: null,
+      results,
+      refusal: null,
+      strict,
+    });
+  }
+  const { files, callers } = workflows;
   const pins = checkPins(files);
   results.push(pins.result);
 
