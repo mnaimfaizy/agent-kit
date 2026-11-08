@@ -1,7 +1,7 @@
 """Contract test: the `setup_commands` presets stay plain bash and the docs list each one.
 
 Each file under `examples/setup-presets/` is the single source for one preset: the
-docs link it, and the future `init --preset` inlines it verbatim into a Caller's
+docs link it, and `init --preset` inlines it verbatim into a Caller's
 `setup_commands: |` block. That block runs as one `shell: bash` step, so a preset
 must be plain bash: no `uses:` (an action cannot run inside a shell step) and no
 `${{ }}` (it would be evaluated in the Caller's workflow, not left as shell).

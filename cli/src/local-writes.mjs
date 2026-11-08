@@ -27,7 +27,7 @@ export class Refusal extends Error {
   }
 }
 
-function lstatOrNull(path) {
+export function lstatOrNull(path) {
   try {
     return lstatSync(path);
   } catch (err) {

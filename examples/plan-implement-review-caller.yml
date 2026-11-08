@@ -1,4 +1,4 @@
-name: agent-pipeline-caller-example
+name: agent-pipeline
 
 on:
   issues:
