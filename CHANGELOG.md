@@ -6,6 +6,10 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
+### Added
+
+- `setup_commands` presets under `examples/setup-presets/`: `python.sh`, `node.sh`, `mixed.sh` (Python and Node.js), and `redis-service.sh` (a Redis container via `docker run`). They pick versions from the runner tool cache and `$GITHUB_PATH`, with no download. Copy one into your Caller's `setup_commands` block; the copy is yours. Getting started now explains that `setup_commands` is a plain shell step (no `uses:` actions inside it), and warns against copying CI test env into `verify_commands`: a password variable such as `DATABASE_PASSWORD`, even with a throwaway test value, sets off secret scanners.
+
 ## [1.0.0-alpha.10] - 2026-11-07
 
 Security release for [GHSA-h5h6-4v46-73f9](https://github.com/mnaimfaizy/agent-kit/security/advisories/GHSA-h5h6-4v46-73f9). **Consumer action required** — see the first item.

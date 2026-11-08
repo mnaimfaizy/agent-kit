@@ -35,6 +35,10 @@ docs/issuebridge.md
 
 examples/security-audit-caller.yml
 examples/plan-implement-review-caller.yml
+examples/setup-presets/python.sh
+examples/setup-presets/node.sh
+examples/setup-presets/mixed.sh
+examples/setup-presets/redis-service.sh
 
 scripts/cut-release.sh
 scripts/verify_release_snapshot.py
