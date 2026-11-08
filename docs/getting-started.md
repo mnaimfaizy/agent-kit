@@ -14,7 +14,7 @@ You will:
 8. [Turn the flows on](#8-turn-the-flows-on-kill-switch-variables)
 9. [Do a first run](#9-first-run)
 
-Along the way, settle the [decisions you'll make](#decisions-youll-make). Then see [Troubleshooting](#troubleshooting) and [Upgrading](#upgrading).
+Along the way, settle the [decisions you'll make](#decisions-youll-make). Then [check the setup with `doctor`](#check-the-setup-with-doctor), and see [Troubleshooting](#troubleshooting) and [Upgrading](#upgrading).
 
 ## Decisions you'll make
 
@@ -169,6 +169,46 @@ Delete a flow's variable to fall back to `CLAUDE_MODEL`, and delete that to fall
 2. Read the plan. If you agree, add `agent:implement`. The implementer works only from the Verified plan and opens a **draft** PR (or comments the exact error and a compare link).
 3. On the PR, add `agent:review`. The reviewer comments a three-axis review. It never pushes, approves, or merges.
 
+## Check the setup with doctor
+
+From `v1.0.0-alpha.12`, the `@mnaimfaizy/agent-kit` CLI ([cli/](../cli/README.md)) checks all of the above for you. It is read-only: it never changes files or GitHub settings, and prints a `gh` command for anything to fix. Run it from a clone of your repository, logged in to `gh` as an admin:
+
+```bash
+npx @mnaimfaizy/agent-kit doctor
+```
+
+It reads the tag from your Callers' `uses:` pins and fetches that tag from GitHub. Each check reports **fail**, **warn** or **skipped**; the run exits 1 on any fail, and `--strict` turns warnings into failures too. A check it had no permission to run (for example the Claude GitHub App on a personal account, whose installations GitHub does not show to a `gh` login) is reported as skipped, never as passed. The full list of checks is in [Adopt](adopt.md#check-an-adoption-with-doctor).
+
+`doctor --ci` runs only the checks that need no GitHub login: the Kit-owned paths match the pinned tag, and every `uses:` pin agrees. It is also what `doctor` falls back to when your `gh` login is not an admin. Add it as a check on pull requests that touch the kit, so a pin bump without a re-copy fails before it merges:
+
+```yaml
+name: agent-kit doctor
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/**"
+      - ".github/agent-runtime/**"
+      - ".github/agent-pipeline/**"
+      - ".github/security-audit/**"
+      - ".claude/skills/**"
+permissions:
+  contents: read
+jobs:
+  doctor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - run: npx --yes @mnaimfaizy/agent-kit@1.0.0-alpha.12 doctor --ci
+```
+
+Pin the CLI version as you pin actions; any CLI version checks any tag from `v1.0.0-alpha.11`. Tags before that have no `kit-owned-paths.txt`, and the CLI refuses them: follow that tag's own `docs/adopt.md` instead.
+
 ## Troubleshooting
 
 | Symptom                                                                                       | Cause and fix                                                                                                                                                                                           |
@@ -198,4 +238,4 @@ Delete a flow's variable to fall back to `CLAUDE_MODEL`, and delete that to fall
 3. Bump every `uses: …@<tag>` to the new tag in the same commit.
 4. Diff your Callers against the new `examples/` for new or renamed inputs and secrets.
 
-Dependabot can open step 3's pin bumps for stable tags; see [Adopt](adopt.md#dependabot-for-stable-workflow-pins). It does not re-copy files, so do step 2 by hand in the same PR.
+Dependabot can open step 3's pin bumps for stable tags; see [Adopt](adopt.md#dependabot-for-stable-workflow-pins). It does not re-copy files, so the [`doctor --ci` check](#check-the-setup-with-doctor) fails on its pull request until the Kit-owned paths match the new tag. The failure names the command to run on that branch, `npx @mnaimfaizy/agent-kit@<version> upgrade --tag <tag>`. `upgrade` ships in a later release; until then, do step 2 by hand on the same branch.

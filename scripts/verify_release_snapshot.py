@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import sys
 from pathlib import Path
@@ -64,6 +65,17 @@ def notes_required_for_tag(tag: str) -> bool:
     if not parsed["stage"]:
         return True
     return parsed["stage"] in {"beta", "rc"}
+
+
+CLI_PACKAGE = ROOT / "cli" / "package.json"
+
+
+def cli_version_mismatch(tag: str, package: Path = CLI_PACKAGE) -> str | None:
+    """Why `cli/package.json` cannot be published from `tag`, or None if its version matches."""
+    version = json.loads(package.read_text(encoding="utf-8")).get("version")
+    if f"v{version}" != tag:
+        return f"cli/package.json version {version!r} does not match tag {tag}; set it to {tag[1:]!r} first."
+    return None
 
 
 def main() -> int:

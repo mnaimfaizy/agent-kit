@@ -101,6 +101,25 @@ updates:
           - "*-rc.*"
 ```
 
+## Check an adoption with doctor
+
+`npx @mnaimfaizy/agent-kit doctor` checks a Consumer against the tag its Callers pin (CLI from `v1.0.0-alpha.12`; how to run it: [Getting started](getting-started.md#check-the-setup-with-doctor)). It is read-only and never changes GitHub settings. Kit files come from the git tag, not from the npm package, and tags without `kit-owned-paths.txt` (up to `v1.0.0-alpha.10`) are refused: adopt those by hand with that tag's `docs/adopt.md`.
+
+| Check                        | Result when it does not hold | Runs in `--ci` | How                                                                                                                                                                                      |
+| ---------------------------- | ---------------------------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `uses:` pins agree           | fail                         | yes            | Every Agent-kit `uses:` in `.github/workflows/` names the same repository and Release-line tag.                                                                                          |
+| Kit-owned paths match        | fail                         | yes            | Each path in the tag's `kit-owned-paths.txt` has the same git tree hash in your working copy (tracked and untracked files, minus ignored ones) as at the tag.                            |
+| Secrets set                  | fail; warn if optional       | no             | Each `secrets.X` a Caller passes. Required or optional comes from the reusable workflow's `secrets:` block at the pinned tag.                                                            |
+| Variables set                | fail                         | no             | Each `vars.X` a Caller reads, unless every read falls back with `\|\|` (the model variables). The Kill switch variables are required: set them to `true` or `false`.                     |
+| Trigger labels exist         | fail                         | no             | Each Caller's `trigger_label`.                                                                                                                                                           |
+| Claude GitHub App installed  | fail                         | no             | Organization repositories only. GitHub does not show a personal account's app installations to a `gh` login, so there it is skipped.                                                     |
+| Default branch `update` rule | warn                         | no             | [Repository hardening §1](repository-hardening.md#1-default-branch-an-update-rule).                                                                                                      |
+| Branch `creation` rule       | warn                         | no             | [Repository hardening §2](repository-hardening.md#2-release-branches-a-creation-rule). Matters only if you cut releases from branches.                                                   |
+| `v*` tag ruleset             | warn                         | no             | [Repository hardening §3](repository-hardening.md#3-release-tags-a-v-tag-ruleset): creation, update and deletion blocked.                                                                |
+| Release tag pushes           | warn                         | no             | On a personal account, a workflow that pushes tags with `GITHUB_TOKEN`; see [Personal-account repositories](repository-hardening.md#personal-account-repositories-pushing-release-tags). |
+
+A check it could not run (no admin `gh` login, `--ci`, or a refused API call) is reported as **skipped** and never counts as passed. The run exits 1 on any fail; `--strict` turns warnings into failures. When the Kit-owned paths differ, the failure names the fix, `npx @mnaimfaizy/agent-kit@<version> upgrade --tag <tag>`; `upgrade` ships in a later release, so until then re-copy the paths by hand.
+
 ## Upgrading
 
 Move the `uses:` pins and the copied files to the new tag in the same commit. Read the CHANGELOG between the two tags first; a Major bump means Caller changes. Step-by-step: [Getting started → Upgrading](getting-started.md#upgrading).

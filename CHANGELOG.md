@@ -6,6 +6,13 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
+No workflow inputs, secrets or permissions changed.
+
+### Added
+
+- The `@mnaimfaizy/agent-kit` npm CLI, from `cli/`, with its first command, `doctor`: a read-only check of a Consumer against the tag its Callers pin. It fails when the Kit-owned paths differ from that tag (by git tree hash), the `uses:` pins disagree, a required secret or variable is missing (required versus optional taken from the reusable workflow's `secrets:` block at the tag), a Trigger label is missing, or the Claude GitHub App is not installed on an organization repository. It warns on an unset optional secret, a missing `update` or `creation` rule, no `v*` tag ruleset, or a personal-account repository whose workflow pushes tags with `GITHUB_TOKEN`. Checks it cannot run are reported as skipped, never passed; `--strict` turns warnings into failures. `doctor --ci` checks only files and pins, needs no GitHub login, and is the recommended guard on pin-bump pull requests; see [Getting started](docs/getting-started.md#check-the-setup-with-doctor). The package has no runtime dependencies and reads kit files from the git tag, never bundles them. Tags before `v1.0.0-alpha.11` have no `kit-owned-paths.txt` and are refused. `init` and `upgrade` follow in a later release.
+- Every Release tag publishes the CLI to npm with trusted publishing and provenance, behind a protected `npm` environment, with no stored token (`.github/workflows/publish-cli.yml`). The package version equals the tag; `cut-release.sh` refuses a tag that does not match. The first version is a one-time manual publish by the maintainer; see [Cutting releases](docs/cutting-releases.md#publishing-the-cli-to-npm).
+
 ## [1.0.0-alpha.11] - 2026-11-08
 
 Adoption release from the [#67](https://github.com/mnaimfaizy/agent-kit/issues/67) feedback. No workflow inputs, secrets or permissions changed. **Consumer action recommended**: re-copy the Kit-owned paths with the new loop.

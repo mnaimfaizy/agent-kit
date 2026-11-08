@@ -1,0 +1,31 @@
+{
+  "name": "@mnaimfaizy/agent-kit",
+  "version": "1.0.0-alpha.12",
+  "description": "Adopt, upgrade and check Agent-kit in a Consumer repository. Reads kit files from the pinned git tag.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "agent-kit": "bin/agent-kit.mjs"
+  },
+  "files": [
+    "bin/agent-kit.mjs",
+    "src/"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mnaimfaizy/agent-kit.git",
+    "directory": "cli"
+  },
+  "homepage": "https://github.com/mnaimfaizy/agent-kit/blob/main/cli/README.md",
+  "bugs": "https://github.com/mnaimfaizy/agent-kit/issues",
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "test": "node --test ../scripts/cli-*.test.mjs"
+  }
+}

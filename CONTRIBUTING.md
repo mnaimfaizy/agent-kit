@@ -43,6 +43,8 @@ CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs three jobs on eve
 | `.github/CODEOWNERS`                         | Review owners for kit-critical paths.                   |
 | `.claude/skills/`                            | Portable skills Consumers copy.                         |
 | `kit-owned-paths.txt`                        | The Kit-owned paths Consumers replace whole on upgrade. |
+| `cli/`                                       | The `@mnaimfaizy/agent-kit` npm CLI (`doctor`).         |
+| `.github/workflows/publish-cli.yml`          | Publishes `cli/` to npm on each Release tag.            |
 | `examples/`                                  | Caller templates.                                       |
 | `scripts/*.test.py`, `*.test.mjs`            | Contract tests.                                         |
 | `scripts/gen_workflow_reference.py`          | Generates `docs/reference.md` from the workflows.       |
