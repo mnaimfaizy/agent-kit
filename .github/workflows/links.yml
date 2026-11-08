@@ -22,6 +22,9 @@ jobs:
         with:
           persist-credentials: false
       - name: Install lychee (pinned, checksum-verified)
+        env:
+          # Read-only job token: lifts the API rate limit for the release download.
+          GH_TOKEN: ${{ github.token }}
         run: bash scripts/install-lychee.sh
       - name: Check all links
         id: lychee

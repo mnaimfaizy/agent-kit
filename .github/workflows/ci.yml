@@ -91,6 +91,9 @@ jobs:
         with:
           persist-credentials: false
       - name: Install lychee (pinned, checksum-verified)
+        env:
+          # Read-only job token: lifts the API rate limit for the release download.
+          GH_TOKEN: ${{ github.token }}
         run: bash scripts/install-lychee.sh
       - name: Check relative links and anchors (offline)
         run: lychee --offline --no-progress --include-fragments --exclude-path node_modules --exclude-path .venv './**/*.md'
