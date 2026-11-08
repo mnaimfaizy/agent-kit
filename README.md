@@ -43,15 +43,15 @@ Full walkthrough: **[docs/getting-started.md](docs/getting-started.md)**. Short 
 
 ## What ships
 
-| Path                                 | Purpose                                                                                                          |
-| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
-| `.github/workflows/*-reusable.yml`   | Reusable job bodies. Consumers reference these with `uses:`; never copy them.                                    |
-| `.github/agent-runtime/`             | PreToolUse hook confining Read/Grep/Glob to the workspace. Copy.                                                 |
-| `.github/agent-pipeline/`            | Planner prompt, implementer instructions, draft-PR fallback script. Copy.                                        |
-| `.github/security-audit/`            | Audit prompt, advisory publisher, optional email notifier. Copy.                                                 |
-| `.claude/skills/`                    | Four **Portable skills**: `code-review`, `security-audit`, `security-finding-triage`, `security-response`. Copy. |
-| `examples/`                          | Caller templates to copy and edit.                                                                               |
-| `.github/workflows-archive/copilot/` | Inert **Copilot archive** — an alternative runner, never live alongside Claude.                                  |
+| Path                                 | Purpose                                                                                                                  |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
+| `.github/workflows/*-reusable.yml`   | Reusable job bodies. Consumers reference these with `uses:`; never copy them.                                            |
+| `.github/agent-runtime/`             | PreToolUse hook confining Read/Grep/Glob to the workspace. Copy.                                                         |
+| `.github/agent-pipeline/`            | Planner prompt, implementer instructions, draft-PR fallback script. Copy.                                                |
+| `.github/security-audit/`            | Audit prompt, advisory publisher, optional email notifier. Copy.                                                         |
+| `.claude/skills/`                    | **Portable skills**: `code-review`, `security-audit`, `security-finding-triage`, `security-response`, `explainer`. Copy. |
+| `examples/`                          | Caller templates to copy and edit.                                                                                       |
+| `.github/workflows-archive/copilot/` | Inert **Copilot archive** — an alternative runner, never live alongside Claude.                                          |
 
 Not vendored: Consumer Threat pack (threat model + findings ledger), product playbooks, Companion skills (`implement`, `tdd`, `wayfinder`, …), subagent definitions.
 

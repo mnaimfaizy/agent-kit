@@ -57,7 +57,12 @@ def test_manifest_lists_the_expected_folders() -> None:
     for runtime in (".github/agent-runtime/", ".github/agent-pipeline/", ".github/security-audit/"):
         assert runtime in entries, f"kit-owned-paths.txt is missing {runtime}"
     skills = {e for e in entries if e.startswith(".claude/skills/")}
-    assert len(skills) == 4, f"expected the four portable skill folders, got {sorted(skills)}"
+    # Every Portable skill shipped in this repository is Kit-owned, so a new
+    # skill folder cannot ship without a manifest line.
+    shipped = {f".claude/skills/{d.name}/" for d in (ROOT / ".claude" / "skills").iterdir() if d.is_dir()}
+    assert skills == shipped, (
+        f"kit-owned-paths.txt skills {sorted(skills)} != .claude/skills/ folders {sorted(shipped)}"
+    )
     # Folder granularity, one skill per line: never the whole skills folder,
     # which would delete a Consumer's own skills on upgrade.
     assert ".claude/skills/" not in entries

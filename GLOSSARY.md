@@ -36,6 +36,10 @@ _Avoid_: kit skill, core skill
 A path a Consumer copies verbatim from one tag and replaces whole on upgrade; the Consumer never edits it.
 _Avoid_: vendored files, kit folders
 
+**Explainer Page**:
+A self-contained HTML page, produced by the `explainer` Portable skill, that lets a named reader answer one question about a system from the page alone.
+_Avoid_: design page, onboarding page
+
 **Companion skill**:
 A procedure skill (e.g. `implement`, `tdd`) that Agent-kit relies on but does not vendor; it comes from the **Companion library**.
 _Avoid_: dependency skill, bundled skill

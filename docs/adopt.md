@@ -5,7 +5,7 @@
 Adopt follows a split contract:
 
 - live-reference reusable workflows via `uses: ...@<semver-tag>`
-- copy the **Kit-owned paths** from the same exact tag: the four shipped skill folders in `.claude/skills/` and three runtime folders in `.github/`
+- copy the **Kit-owned paths** from the same exact tag: the five shipped skill folders in `.claude/skills/` and three runtime folders in `.github/`
 
 Do not mix tags between workflow pins and copied skills.
 
@@ -32,6 +32,7 @@ From the exact same tag used in `uses:`, copy each Kit-owned path. The source of
 - `.claude/skills/security-audit/`
 - `.claude/skills/security-finding-triage/`
 - `.claude/skills/security-response/`
+- `.claude/skills/explainer/` — optional; used by hand, not by a flow. Its per-repository settings live in your own `docs/agents/explainer.md` (template: [`examples/explainer-config.md`](../examples/explainer-config.md)), which you keep across upgrades.
 - `.github/agent-runtime/` — hooks and settings the jobs load from the Consumer checkout and run from a read-only copy under `$RUNNER_TEMP`:
   - `confine-reads-to-workspace.mjs`: PreToolUse hook that denies Read/Grep/Glob outside the workspace. Plan, implement, review, audit.
   - `read-confinement.settings.json`: settings that run the read hook. Plan, review, audit (implement checks it too).
