@@ -6,6 +6,10 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
+### Fixed
+
+- The plan, implement, review and audit runs no longer fail when GitHub's release CDN returns 5xx on the Bun download ([#86](https://github.com/mnaimfaizy/agent-kit/issues/86)). Each reusable workflow now installs the Bun version the pinned `claude-code-action` expects (1.3.14) before the action runs. It downloads from the npm registry first and falls back to the GitHub release through `api.github.com`, retrying each source for up to two minutes. Either download must match a pinned SHA-256 before it is extracted. The path is passed to the action as `path_to_bun_executable`, so the action skips its own install. If neither source works, the job fails with "Bun install failed" instead of a later `bun: command not found`. No inputs, secrets or permissions changed.
+
 ## [1.0.0-alpha.12] - 2026-11-08
 
 First release of the `@mnaimfaizy/agent-kit` npm CLI. No workflow inputs, secrets or permissions changed, and no Consumer action is required: upgrade the `uses:` pins and the Kit-owned paths together, as always.
