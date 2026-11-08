@@ -6,6 +6,10 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
+### Added
+
+- A new page, [docs/repository-hardening.md](docs/repository-hardening.md), with ready-to-run `gh api` commands for the rulesets the Claude GitHub App cannot bypass: an `update` rule on the default branch (a required pull request with zero approvals does not stop the App merging its own), a `creation` rule for release branches, and a `v*` tag ruleset. It also records a Consumer-side pattern for personal-account repositories, where the GitHub Actions app cannot bypass a ruleset: push release tags with a write deploy key and a `DeployKey` bypass. `getting-started.md` and `security-model.md` link to it.
+
 ## [1.0.0-alpha.10] - 2026-11-07
 
 Security release for [GHSA-h5h6-4v46-73f9](https://github.com/mnaimfaizy/agent-kit/security/advisories/GHSA-h5h6-4v46-73f9). **Consumer action required** — see the first item.
