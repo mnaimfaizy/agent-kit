@@ -12,12 +12,10 @@ export const FLOWS = {
   pipeline: {
     example: "examples/plan-implement-review-caller.yml",
     caller: ".github/workflows/agent-pipeline.yml",
-    title: "plan → implement → review",
   },
   audit: {
     example: "examples/security-audit-caller.yml",
     caller: ".github/workflows/security-audit.yml",
-    title: "security audit",
   },
 };
 
@@ -114,9 +112,22 @@ export function renderCaller(flow, text, values) {
         "Use the CLI version that matches the tag, or copy the example by hand.",
     );
   }
-  let out = text;
-  for (const p of PLACEHOLDERS) {
-    if (p.counts[flow] > 0) out = out.replace(p.pattern, p.replace(values));
+  // One pass over the original text: a value written for one placeholder
+  // (an actor called main, say) is never matched by a later one.
+  const edits = PLACEHOLDERS.filter((p) => p.counts[flow] > 0).flatMap((p) =>
+    [...text.matchAll(p.pattern)].map((m) => ({
+      start: m.index,
+      end: m.index + m[0].length,
+      text: p.replace(values)(...m),
+    })),
+  );
+  edits.sort((a, b) => a.start - b.start);
+  let out = "";
+  let at = 0;
+  for (const e of edits) {
+    if (e.start < at) throw new TemplateError(`${example}: two placeholders overlap`);
+    out += text.slice(at, e.start) + e.text;
+    at = e.end;
   }
-  return out;
+  return out + text.slice(at);
 }

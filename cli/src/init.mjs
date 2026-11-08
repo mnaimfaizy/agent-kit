@@ -10,7 +10,7 @@
 import { join } from "node:path";
 import { DEFAULT_KIT_REPO } from "./callers.mjs";
 import { command } from "./checks/result.mjs";
-import { formatResult } from "./doctor.mjs";
+import { fileAndPinChecks, printFileAndPinChecks } from "./doctor.mjs";
 import { firstLine } from "./exec.mjs";
 import { EXECUTABLE_MODE, openKitTag, PreManifestTagError, serverFromEnv } from "./kit-tag.mjs";
 import {
@@ -18,11 +18,13 @@ import {
   checkDeletable,
   checkLocalPath,
   kitFileWrites,
+  listed,
   lstatOrNull,
   Refusal,
+  reportRefusal,
   stageExecutableBits,
 } from "./local-writes.mjs";
-import { caseCollisions, checkSafePath } from "./safe-paths.mjs";
+import { caseCollisions, checkSafePath, fileDirConflicts } from "./safe-paths.mjs";
 import { isReleaseTag } from "./tags.mjs";
 import {
   DEFAULT_THREAT_PACK_DIR,
@@ -31,7 +33,6 @@ import {
   TemplateError,
   THREAT_PACK_FILES,
 } from "./templates.mjs";
-import { checksAfterWrite } from "./upgrade.mjs";
 
 const LOGIN = /^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}(?:\[bot\])?$/;
 const BRANCH = /^[A-Za-z0-9_][A-Za-z0-9._-]*(?:\/[A-Za-z0-9_][A-Za-z0-9._-]*)*$/;
@@ -40,7 +41,6 @@ const PRESET = /^[a-z0-9][a-z0-9-]*$/;
 // eslint-disable-next-line no-control-regex
 const VERIFY_CONTROL = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u2028\u2029]/;
 const DEPENDABOT_FILES = [".github/dependabot.yml", ".github/dependabot.yaml"];
-const MAX_LISTED = 20;
 
 export const DEPENDABOT_BLOCK = `version: 2
 updates:
@@ -66,7 +66,11 @@ const LABELS = [
 export const QUESTIONS = [
   { key: "tag", flag: "--tag <vX>", ask: "Agent-kit tag to adopt (for example v1.0.0)" },
   { key: "flows", flag: "--flows pipeline,audit", ask: "Flows to set up (pipeline, audit)" },
-  { key: "actors", flag: "--actors <login,...>", ask: "GitHub logins allowed to trigger runs" },
+  {
+    key: "actors",
+    flag: "--actors <login,...>",
+    ask: "Allowlist: GitHub logins allowed to trigger runs",
+  },
   { key: "defaultBranch", flag: "--default-branch <name>", ask: "Default branch" },
   {
     key: "verify",
@@ -99,7 +103,7 @@ const split = (s) =>
 /**
  * Check and normalise one answer. Returns { value } or { error }.
  */
-export function parseAnswer(key, raw) {
+export function parseAnswer(key, raw, { prompted = false } = {}) {
   const s = String(raw ?? "");
   switch (key) {
     case "tag":
@@ -129,12 +133,19 @@ export function parseAnswer(key, raw) {
         ? { value: s }
         : { error: `--default-branch is not a branch name this CLI accepts: ${JSON.stringify(s)}` };
     case "verify": {
-      const v = s
-        .replace(/\r\n?/g, "\n")
-        .replace(/\\n/g, "\n")
-        .replace(/^\n+|\s+$/g, "");
+      // A prompt takes one line, so there \n separates commands; a flag keeps it.
+      let v = s.replace(/\r\n?/g, "\n");
+      if (prompted) v = v.replace(/\\n/g, "\n");
+      v = v.replace(/^\n+|\s+$/g, "");
       if (!v.trim()) return { error: "--verify must not be empty" };
       if (VERIFY_CONTROL.test(v)) return { error: "--verify contains a control character" };
+      if (v.includes("${{")) {
+        return {
+          error:
+            "--verify must not contain ${{ }}: GitHub would expand it into the script. " +
+            "Read values from environment variables instead.",
+        };
+      }
       return { value: v };
     }
     case "preset":
@@ -149,7 +160,8 @@ export function parseAnswer(key, raw) {
       } catch (err) {
         return { error: err.message };
       }
-      if (dir === ".github/workflows" || dir.startsWith(".github/workflows/")) {
+      const lower = dir.toLowerCase();
+      if (lower === ".github/workflows" || lower.startsWith(".github/workflows/")) {
         return { error: "--threat-pack-dir must not be inside .github/workflows" };
       }
       return { value: dir };
@@ -172,17 +184,19 @@ export async function collectAnswers({ flags, prompt, yes, defaultBranch }) {
   for (const q of QUESTIONS) {
     if (q.only && answers.flows && !answers.flows.includes(q.only)) continue;
     let raw = flags[q.key];
+    let prompted = false;
     const fallback = q.key === "defaultBranch" ? defaultBranch : DEFAULTS[q.key];
     if (raw === undefined && interactive) {
       const hint = fallback !== undefined ? ` [${fallback}]` : "";
       raw = (await prompt(`${q.ask}${hint}: `)) || fallback;
+      prompted = true;
     }
     if (raw === undefined) raw = fallback;
     if (raw === undefined || raw === "") {
       missing.push(q.flag);
       continue;
     }
-    const parsed = parseAnswer(q.key, raw);
+    const parsed = parseAnswer(q.key, raw, { prompted });
     if (parsed.error) return { error: parsed.error };
     answers[q.key] = parsed.value;
   }
@@ -208,7 +222,7 @@ function tagText(snap, path) {
   const text = snap.readFile(path);
   if (text === null) return null;
   // eslint-disable-next-line no-control-regex
-  if (/[\r�]|[\u0000-\u0008\u000b-\u001f]/.test(text)) {
+  if (/[\r\ufffd\u0085\u2028\u2029]|[\u0000-\u0008\u000b-\u001f]/.test(text)) {
     throw new Refusal(`${path} at ${snap.tag} is not plain UTF-8 text with LF line endings.`);
   }
   return text;
@@ -224,7 +238,7 @@ function presetText(snap, name) {
         .listFiles("examples/setup-presets/")
         .map((f) => f.path.replace(/^.*\//, "").replace(/\.sh$/, ""));
     } catch {
-      // listed below as unknown
+      // No list to offer; the refusal still names the preset.
     }
     throw new Refusal(
       `${snap.tag} has no setup preset ${JSON.stringify(name)}` +
@@ -232,7 +246,8 @@ function presetText(snap, name) {
     );
   }
   // The same rules scripts/setup-presets-contract.test.py holds presets to.
-  if (text.includes("${{") || text.includes("<<")) {
+  // A first line that starts with a space would change the block's indentation.
+  if (text.includes("${{") || text.includes("<<") || /^[ \t]/.test(text)) {
     throw new Refusal(`${path} at ${snap.tag} cannot be inlined into setup_commands safely.`);
   }
   return text;
@@ -265,8 +280,10 @@ export function planInit({ root, snap, answers, force }) {
   writes.push(...kitFileWrites(snap));
 
   const dir = answers.threatPackDir ?? DEFAULT_THREAT_PACK_DIR;
+  // Case-insensitive: on Windows and macOS `.Claude/skills/x` is `.claude/skills/x`.
+  const lowerDir = `${dir.toLowerCase()}/`;
   const kitOwned = snap.kitOwnedPaths.find(
-    (p) => `${dir}/`.startsWith(p) || p.startsWith(`${dir}/`),
+    (p) => lowerDir.startsWith(p.toLowerCase()) || p.toLowerCase().startsWith(lowerDir),
   );
   if (answers.flows.includes("audit") && kitOwned) {
     throw new Refusal(
@@ -326,12 +343,17 @@ export function planInit({ root, snap, answers, force }) {
       `${conflicts.length} path(s) init would write already exist, and init does not overwrite them. ` +
         `To move an existing adoption to another tag, run \`npx @mnaimfaizy/agent-kit upgrade --tag ${tag}\`; ` +
         "to overwrite anyway, run init again with --force.",
-      [...conflicts.slice(0, MAX_LISTED), ...(conflicts.length > MAX_LISTED ? ["…"] : [])],
+      listed(conflicts),
     );
   }
-  const clash = caseCollisions(writes.map((w) => w.path));
+  const paths = writes.map((w) => w.path);
+  const clash = caseCollisions(paths);
   if (clash.length) {
     throw new Refusal(`Two files differ only in case: ${clash[0].join(" and ")}.`);
+  }
+  const fileDir = fileDirConflicts(paths);
+  if (fileDir.length) {
+    throw new Refusal(`${fileDir[0][0]} would be both a file and a folder (${fileDir[0][1]}).`);
   }
   return { deletes, writes, conflicts, notes, dependabot };
 }
@@ -340,41 +362,40 @@ export function planInit({ root, snap, answers, force }) {
  * The GitHub-side steps init does not take, as POSIX-shell commands built
  * with checks/result.mjs `command()` (every argument fixed or allowlisted).
  */
-export function manualSteps({ flows, tag, repo, serverUrl }) {
+export function manualSteps({ flows, tag, kitRepo, serverUrl }) {
+  const pipeline = flows.includes("pipeline");
+  const audit = flows.includes("audit");
   const lines = [];
+  let n = 0;
   const step = (title, ...cmds) => {
-    lines.push(title);
+    lines.push(`${++n}. ${title}`);
     for (const c of cmds) lines.push(`  $ ${c}`);
   };
   step(
-    "1. Secrets (gh asks for each value; CLAUDE_CODE_OAUTH_TOKEN comes from `claude setup-token`):",
+    "Secrets (gh asks for each value; CLAUDE_CODE_OAUTH_TOKEN comes from `claude setup-token`):",
     command("gh", "secret", "set", "CLAUDE_CODE_OAUTH_TOKEN"),
-    ...(flows.includes("audit")
-      ? [command("gh", "secret", "set", "AGENT_KIT_ADVISORIES_TOKEN")]
-      : []),
+    ...(audit ? [command("gh", "secret", "set", "AGENT_KIT_ADVISORIES_TOKEN")] : []),
   );
-  if (flows.includes("pipeline")) {
+  if (pipeline) {
     step(
-      "2. Trigger labels:",
+      "Trigger labels:",
       ...LABELS.map(([name, color, description]) =>
         command("gh", "label", "create", name, "--color", color, "--description", description),
       ),
     );
-    lines.push(
-      "3. Install the Claude GitHub App on this repository: https://github.com/apps/claude",
-    );
+    step("Install the Claude GitHub App on this repository: https://github.com/apps/claude");
   }
   step(
-    `${flows.includes("pipeline") ? "4" : "2"}. Rulesets the Claude GitHub App cannot bypass: list yours, then follow ` +
-      `${serverUrl}/${repo}/blob/${tag}/docs/repository-hardening.md`,
+    "Rulesets the Claude GitHub App cannot bypass: list yours, then follow " +
+      `${serverUrl}/${kitRepo}/blob/${tag}/docs/repository-hardening.md`,
     command("gh", "api", "repos/{owner}/{repo}/rulesets"),
   );
   step(
-    `${flows.includes("pipeline") ? "5" : "3"}. Last, after you have reviewed and pushed the Callers, turn the flows on (Kill switch variables):`,
-    ...(flows.includes("pipeline")
+    "Last, after you have reviewed and pushed the Callers, turn the flows on (Kill switch variables):",
+    ...(pipeline
       ? [command("gh", "variable", "set", "CLAUDE_PIPELINE_ENABLED", "--body", "true")]
       : []),
-    ...(flows.includes("audit")
+    ...(audit
       ? [command("gh", "variable", "set", "CLAUDE_SECURITY_AUDIT_ENABLED", "--body", "true")]
       : []),
   );
@@ -410,12 +431,7 @@ export async function runInit({
   openTag = openKitTag,
   env = process.env,
 }) {
-  const refuse = (e) => {
-    out(`REFUSED  ${e.message}`);
-    for (const d of e.details ?? []) out(`      ${d}`);
-    out("Nothing was changed.");
-    return 1;
-  };
+  const refuse = (e) => reportRefusal(out, e);
 
   const collected = await collectAnswers({
     flags,
@@ -438,6 +454,13 @@ export async function runInit({
     return 2;
   }
   const { answers } = collected;
+  const bots = answers.actors.filter((a) => a.endsWith("[bot]"));
+  if (bots.length) {
+    out(
+      `Note: the Allowlist includes ${bots.join(", ")}. Anything that acts as that app can then ` +
+        "trigger the flows; list people unless you mean it.",
+    );
+  }
 
   const top = runner("git", ["-C", cwd, "rev-parse", "--show-toplevel"]);
   if (top.status !== 0) return refuse(new Refusal(`${cwd} is not a git repository.`));
@@ -482,11 +505,11 @@ export async function runInit({
     }
     if (plan.conflicts.length) {
       out(`--force: overwriting ${plan.conflicts.length} existing path(s):`);
-      for (const c of plan.conflicts.slice(0, MAX_LISTED)) out(`  ${c}`);
+      for (const c of listed(plan.conflicts)) out(`  ${c}`);
     }
     out("");
 
-    if (!yes && !(await confirm("Go ahead? [y/N] "))) {
+    if (!yes && !(confirm && (await confirm("Go ahead? [y/N] ")))) {
       out("Stopped. Nothing was changed.");
       return 1;
     }
@@ -509,11 +532,11 @@ export async function runInit({
     if (plan.dependabot) {
       out("");
       out(
-        `${plan.dependabot} already exists, so init left it alone. Merge this block into its updates: by hand:`,
+        `${plan.dependabot} already exists, so init left it alone. Merge this block into it by hand:`,
       );
       out(DEPENDABOT_BLOCK.replace(/\n$/, ""));
     }
-    if (answers.flows.includes("audit")) {
+    if (plan.writes.some((w) => w.path === `${answers.threatPackDir}/threat-model.md`)) {
       out("");
       out(
         `Fill in ${answers.threatPackDir}/threat-model.md before the first audit; it is a skeleton.`,
@@ -521,10 +544,7 @@ export async function runInit({
     }
 
     out("");
-    out("Checks (as doctor --ci):");
-    const results = checksAfterWrite({ runner, root, snap });
-    for (const r of results) for (const line of formatResult(r)) out(line);
-    const failed = results.some((r) => r.status === "fail");
+    const failed = printFileAndPinChecks(out, fileAndPinChecks({ runner, root, snap }));
 
     out("");
     out(
@@ -533,7 +553,7 @@ export async function runInit({
     for (const line of manualSteps({
       flows: answers.flows,
       tag: answers.tag,
-      repo: DEFAULT_KIT_REPO,
+      kitRepo: DEFAULT_KIT_REPO,
       serverUrl,
     })) {
       out(line);

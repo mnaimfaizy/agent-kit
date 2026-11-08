@@ -141,6 +141,7 @@ function makeConsumer(files = {}) {
   return dir;
 }
 
+const FULL_VERIFY = "set -e\nnpm test";
 const FULL = [
   "--tag",
   TAG,
@@ -149,7 +150,7 @@ const FULL = [
   "--actors",
   "alice,bob",
   "--verify",
-  "set -e\\nnpm test",
+  FULL_VERIFY,
   "--preset",
   "node",
   "--yes",
@@ -248,6 +249,36 @@ describe("init: both flows from flags", () => {
 });
 
 describe("init: choices", () => {
+  it("fills placeholders from the original text: an actor called main stays main", async () => {
+    const dir = makeConsumer();
+    const res = await init(dir, [
+      "--tag",
+      TAG,
+      "--flows",
+      "pipeline",
+      "--actors",
+      "main",
+      "--verify",
+      "make test",
+      "--default-branch",
+      "develop",
+      "--yes",
+    ]);
+    assert.equal(res.code, 0, res.text);
+    const text = read(dir, ".github/workflows/agent-pipeline.yml");
+    assert.equal((text.match(/'\["main"\]'/g) ?? []).length, 4);
+    assert.match(text, /base_branch: "develop"/);
+  });
+
+  it("notes a bot login in the Allowlist", async () => {
+    const res = await init(
+      makeConsumer(),
+      FULL.map((a) => (a === "alice,bob" ? "alice,renovate[bot]" : a)),
+    );
+    assert.equal(res.code, 0, res.text);
+    assert.match(res.text, /Allowlist includes renovate\[bot\]/);
+  });
+
   it("--threat-pack-dir moves the Threat pack and both audit Caller inputs", async () => {
     const dir = makeConsumer();
     const res = await init(dir, [
@@ -401,6 +432,22 @@ describe("init: refusals change nothing", () => {
     assert.deepEqual(readdirSync(outside), []);
   });
 
+  it("refuses a Threat pack folder that would clash with a planned file, before writing", async () => {
+    await refused(
+      makeConsumer(),
+      [...FULL, "--threat-pack-dir", ".github/dependabot.yml"],
+      /\.github\/dependabot\.yml would be both a file and a folder/,
+    );
+  });
+
+  it("compares the Threat pack folder with Kit-owned paths ignoring case", async () => {
+    await refused(
+      makeConsumer(),
+      [...FULL, "--threat-pack-dir", ".GitHub/Agent-Runtime/sec"],
+      /overlaps the Kit-owned path/,
+    );
+  });
+
   it("refuses a Threat pack folder inside a Kit-owned path", async () => {
     await refused(
       makeConsumer(),
@@ -443,6 +490,8 @@ describe("init: answers and flags", () => {
       ["--threat-pack-dir", "../out"],
       ["--threat-pack-dir", ".git/x"],
       ["--threat-pack-dir", ".github/workflows"],
+      ["--threat-pack-dir", ".GitHub/Workflows/x"],
+      ["--verify", "echo ${{ github.event.issue.title }}"],
       ["--tag", "main"],
     ]) {
       const args = [...FULL];
@@ -459,7 +508,9 @@ describe("init: answers and flags", () => {
       "alice",
       "dependabot[bot]",
     ]);
-    assert.equal(parseAnswer("verify", "a\r\nb\\nc\n").value, "a\nb\nc");
+    // \n separates commands only in a prompted answer; a flag keeps it.
+    assert.equal(parseAnswer("verify", "a\r\nb\\nc\n", { prompted: true }).value, "a\nb\nc");
+    assert.equal(parseAnswer("verify", "printf 'a\\nb'").value, "printf 'a\\nb'");
     assert.equal(parseAnswer("preset", "none").value, null);
     assert.equal(parseAnswer("defaultBranch", "release/v1").value, "release/v1");
   });
@@ -468,7 +519,7 @@ describe("init: answers and flags", () => {
     const lines = manualSteps({
       flows: ["pipeline"],
       tag: TAG,
-      repo: KIT,
+      kitRepo: KIT,
       serverUrl: "https://github.com",
     });
     assert.ok(lines.some((l) => l.includes("--description 'Agent-kit: review this PR'")));
