@@ -32,7 +32,7 @@ From the exact same tag used in `uses:`, copy each Kit-owned path. The source of
 - `.claude/skills/security-audit/`
 - `.claude/skills/security-finding-triage/`
 - `.claude/skills/security-response/`
-- `.claude/skills/explainer/` — optional; used by hand, not by a flow. Its per-repository settings live in your own `docs/agents/explainer.md` (template: [`examples/explainer-config.md`](../examples/explainer-config.md)), which you keep across upgrades.
+- `.claude/skills/explainer/` — a Kit-owned path copied with the rest. No First-class flow uses it; you use it by hand. Its per-repository settings in your own `docs/agents/explainer.md` (template: [`examples/explainer-config.md`](../examples/explainer-config.md)) are not Kit-owned and survive upgrades.
 - `.github/agent-runtime/` — hooks and settings the jobs load from the Consumer checkout and run from a read-only copy under `$RUNNER_TEMP`:
   - `confine-reads-to-workspace.mjs`: PreToolUse hook that denies Read/Grep/Glob outside the workspace. Plan, implement, review, audit.
   - `read-confinement.settings.json`: settings that run the read hook. Plan, review, audit (implement checks it too).
