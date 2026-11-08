@@ -21,14 +21,33 @@ export function parseKitUses(value) {
   return m ? { owner: m[1], repo: `${m[1]}/${KIT_REPO_NAME}`, file: m[2], ref: m[3] } : null;
 }
 
-/** Every Agent-kit `uses:` line in a workflow file, with its line number. */
+// `key: |` or `- key: >-`: the lines after it, indented deeper than the key,
+// are a block scalar (a `run:` script, say), not YAML keys.
+const BLOCK_START = /^(-\s+)?[^\s:#][^:]*:\s*[|>][-+0-9]*\s*$/;
+
+/**
+ * Every Agent-kit `uses:` line in a workflow file, with its line number.
+ * Text inside block scalars, such as a `run: |` script, is not a pin.
+ */
 export function findKitPins(text) {
   const pins = [];
+  let blockIndent = null;
   String(text)
     .replace(/\r\n?/g, "\n")
     .split("\n")
     .forEach((line, idx) => {
+      const indent = line.length - line.trimStart().length;
+      if (blockIndent !== null) {
+        if (line.trim() === "" || indent > blockIndent) return;
+        blockIndent = null;
+      }
       if (line.trimStart().startsWith("#")) return;
+      const content = stripComment(line.slice(indent)).trimEnd();
+      const block = BLOCK_START.exec(content);
+      if (block) {
+        blockIndent = indent + (block[1]?.length ?? 0);
+        return;
+      }
       const m = USES_LINE.exec(line);
       if (!m) return;
       const pin = parseKitUses(m[1]);
@@ -53,19 +72,36 @@ export function secretNames(value) {
 /**
  * Every `vars.X` a file reads. A variable is optional when every read of it
  * falls back with `||` (as the model variables do); otherwise it is required
- * (the Kill switch variables: unset means the flow never runs).
+ * (the Kill switch variables: unset means the flow never runs). The `||`
+ * may sit on the next line of a multi-line expression.
  */
 export function variableRefs(text) {
   const refs = new Map();
   const re = new RegExp(`vars\\.(${NAME})(\\s*\\|\\|)?`, "g");
-  for (const line of lines(text)) {
-    for (const m of line.matchAll(re)) {
-      const optional = Boolean(m[2]);
-      const prev = refs.get(m[1]);
-      refs.set(m[1], { name: m[1], optional: prev ? prev.optional && optional : optional });
-    }
+  for (const m of lines(text).join("\n").matchAll(re)) {
+    const optional = Boolean(m[2]);
+    const prev = refs.get(m[1]);
+    refs.set(m[1], { name: m[1], optional: prev ? prev.optional && optional : optional });
   }
   return [...refs.values()];
+}
+
+/**
+ * Why a job's `secrets:` cannot be read, or null. The parser reads block
+ * mappings and `inherit`; a flow mapping, an anchor, an alias or a merge key
+ * would need a full YAML parser, so those jobs are reported, not guessed at.
+ */
+function unsupportedSecrets(value) {
+  if (value === undefined || value === null || value === "inherit") return null;
+  if (typeof value === "string") {
+    if (value.startsWith("{")) return "`secrets:` is a flow mapping ({ ... })";
+    if (value.startsWith("*")) return "`secrets:` is a YAML alias";
+    if (value.startsWith("&")) return "`secrets:` uses a YAML anchor";
+    return `\`secrets:\` is ${JSON.stringify(value)}`;
+  }
+  if (value.$seq) return "`secrets:` is a list";
+  if ("<<" in value) return "`secrets:` uses a YAML merge key (<<)";
+  return null;
 }
 
 /** The jobs of one workflow file that call an Agent-kit reusable workflow. */
@@ -78,11 +114,13 @@ export function parseCaller(text) {
     const uses = parseKitUses(job.uses);
     if (!uses) continue;
     const withBlock = job.with && typeof job.with === "object" && !job.with.$seq ? job.with : {};
+    const secretsUnsupported = unsupportedSecrets(job.secrets);
     let secrets = {};
     if (job.secrets === "inherit") secrets = "inherit";
-    else if (job.secrets && typeof job.secrets === "object" && !job.secrets.$seq)
+    else if (!secretsUnsupported && job.secrets && typeof job.secrets === "object") {
       secrets = job.secrets;
-    jobs.push({ name, uses, with: withBlock, secrets });
+    }
+    jobs.push({ name, uses, with: withBlock, secrets, secretsUnsupported });
   }
   return { jobs, pins: findKitPins(text), variables: variableRefs(text) };
 }

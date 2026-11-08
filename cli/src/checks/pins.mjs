@@ -32,7 +32,8 @@ export function checkPins(files) {
   }
   const where = (p) => `${p.path}:${p.line} → ${p.repo}@${p.ref}`;
   const refs = new Set(all.map((p) => p.ref));
-  const repos = new Set(all.map((p) => p.repo));
+  // GitHub owner names are case-insensitive: MnaimFaizy/ and mnaimfaizy/ are one repository.
+  const repos = new Set(all.map((p) => p.repo.toLowerCase()));
   const notTags = all.filter((p) => !isReleaseTag(p.ref));
   const details = [];
   if (repos.size > 1)
@@ -55,7 +56,7 @@ export function checkPins(files) {
       tag: null,
     };
   }
-  const [repo] = repos;
+  const { repo } = all[0];
   const [tag] = refs;
   return {
     result: result(

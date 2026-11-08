@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -67,14 +68,31 @@ def notes_required_for_tag(tag: str) -> bool:
     return parsed["stage"] in {"beta", "rc"}
 
 
-CLI_PACKAGE = ROOT / "cli" / "package.json"
+CLI_PACKAGE = "cli/package.json"
 
 
-def cli_version_mismatch(tag: str, package: Path = CLI_PACKAGE) -> str | None:
-    """Why `cli/package.json` cannot be published from `tag`, or None if its version matches."""
-    version = json.loads(package.read_text(encoding="utf-8")).get("version")
+def cli_version_mismatch(tag: str, root: Path = ROOT) -> str | None:
+    """Why `cli/package.json` at HEAD cannot be published from `tag`, or None if it can.
+
+    `git tag -a` tags HEAD, so the version is read from HEAD, not the working
+    tree, and an uncommitted change to the file is refused: it would not be in
+    the tag that publish-cli.yml publishes.
+    """
+    shown = subprocess.run(
+        ["git", "-C", str(root), "show", f"HEAD:{CLI_PACKAGE}"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+    )
+    if shown.returncode != 0:
+        return f"cannot read {CLI_PACKAGE} from HEAD: {shown.stderr.strip() or 'git show failed'}"
+    version = json.loads(shown.stdout).get("version")
     if f"v{version}" != tag:
-        return f"cli/package.json version {version!r} does not match tag {tag}; set it to {tag[1:]!r} first."
+        return f"{CLI_PACKAGE} version {version!r} at HEAD does not match tag {tag}; set it to {tag[1:]!r} first."
+    diff = subprocess.run(["git", "-C", str(root), "diff", "--quiet", "HEAD", "--", CLI_PACKAGE], check=False)
+    if diff.returncode != 0:
+        return f"{CLI_PACKAGE} has uncommitted changes; commit them first, because the tag is cut from HEAD."
     return None
 
 

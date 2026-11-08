@@ -1,6 +1,10 @@
 // The rulesets docs/repository-hardening.md sets up, which keep the Claude
 // GitHub App token away from the default branch, release branches and
 // release tags. Each gap is a warning: the flows still run without them.
+//
+// A rule only counts when no one the App can act as is on the ruleset's
+// bypass list: rulesets stack, so an actor on one ruleset's bypass list is
+// still held by any other ruleset with the same rule that does not list it.
 
 import { stripComment } from "../yaml-subset.mjs";
 import { result } from "./result.mjs";
@@ -31,7 +35,11 @@ export function coversRef(ruleset, ref, { defaultBranch } = {}) {
   return (cond.include ?? []).some(matches) && !(cond.exclude ?? []).some(matches);
 }
 
-/** Active rulesets with their full rules. Throws GhError on any API failure. */
+/**
+ * Active rulesets with their full rules and bypass lists. `bypass_actors` is
+ * only returned by the single-ruleset endpoint, and only to an admin, which
+ * the local checks require. Throws GhError on any API failure.
+ */
 export function loadRulesets(github, repo) {
   const ids = github.getLines(`repos/${repo}/rulesets?includes_parents=true`, ".[].id");
   return ids
@@ -39,59 +47,97 @@ export function loadRulesets(github, repo) {
     .filter((r) => r.enforcement === "active");
 }
 
-const ruleTypes = (rulesets) =>
-  new Set(rulesets.flatMap((r) => (r.rules ?? []).map((x) => x.type)));
+// Base repository roles as ruleset bypass actors (docs/repository-hardening.md).
+const ADMIN_ROLE = 5;
+const MAINTAIN_ROLE = 2;
+const ROLE_NAMES = { 1: "Read", 2: "Maintain", 3: "Triage", 4: "Write", 5: "Admin" };
+
+/**
+ * Bypass actors that undo the ruleset's protection against the Claude App:
+ * any GitHub App (the Claude App is an `Integration`), any repository role
+ * below Maintain (the Write role, or a custom role), and, on a branch
+ * ruleset, deploy keys. Admin, Maintain, teams and organization admins are
+ * the intended bypass list; a DeployKey bypass on a tag ruleset is the
+ * documented personal-account pattern.
+ */
+export function riskyBypassActors(ruleset) {
+  const risky = [];
+  for (const actor of ruleset.bypass_actors ?? []) {
+    const type = actor.actor_type;
+    if (type === "Integration") {
+      risky.push(`a GitHub App (Integration ${actor.actor_id})`);
+    } else if (type === "RepositoryRole" && ![ADMIN_ROLE, MAINTAIN_ROLE].includes(actor.actor_id)) {
+      const name = ROLE_NAMES[actor.actor_id];
+      risky.push(name ? `the ${name} role` : `custom repository role ${actor.actor_id}`);
+    } else if (type === "DeployKey" && ruleset.target !== "tag") {
+      risky.push("deploy keys");
+    }
+  }
+  return risky;
+}
+
+const hasRule = (ruleset, type) => (ruleset.rules ?? []).some((x) => x.type === type);
+const label = (r) => `"${r.name ?? `ruleset ${r.id}`}"`;
+
+/**
+ * For one rule type: the covering rulesets that have it, and whether any of
+ * them has a clean bypass list.
+ */
+function ruleStatus(covering, type) {
+  const withRule = covering.filter((r) => hasRule(r, type));
+  const clean = withRule.filter((r) => riskyBypassActors(r).length === 0);
+  const bypassed = withRule
+    .filter((r) => !clean.includes(r))
+    .map((r) => `${label(r)} lets ${riskyBypassActors(r).join(", ")} bypass its ${type} rule.`);
+  return { present: withRule.length > 0, held: clean.length > 0, bypassed };
+}
+
+const BYPASS_ADVICE =
+  "Keep the bypass list to Admin and Maintain: never a GitHub App, the Write role, or a team the App acts through.";
 
 export function checkUpdateRule(rulesets, { defaultBranch }) {
+  const ID = "ruleset-update";
+  const TITLE = "Default branch has an update rule";
+  const recipe = `Recipe: ${HARDENING}#1-default-branch-an-update-rule`;
   const ref = `refs/heads/${defaultBranch}`;
   const covering = rulesets.filter(
     (r) => r.target === "branch" && coversRef(r, ref, { defaultBranch }),
   );
-  if (ruleTypes(covering).has("update")) {
-    return result(
-      "ruleset-update",
-      "Default branch has an update rule",
-      "pass",
-      `${defaultBranch} has an active update rule.`,
-    );
+  const s = ruleStatus(covering, "update");
+  if (s.held) return result(ID, TITLE, "pass", `${defaultBranch} has an active update rule.`);
+  if (s.present) {
+    return result(ID, TITLE, "warn", `The update rule on ${defaultBranch} can be bypassed.`, {
+      details: [...s.bypassed, BYPASS_ADVICE, recipe],
+    });
   }
-  return result(
-    "ruleset-update",
-    "Default branch has an update rule",
-    "warn",
-    `No active update rule on ${defaultBranch}.`,
-    {
-      details: [
-        "A required pull request with zero approvals does not stop the Claude App merging its own pull request; an update rule does.",
-        `Recipe: ${HARDENING}#1-default-branch-an-update-rule`,
-      ],
-    },
-  );
+  return result(ID, TITLE, "warn", `No active update rule on ${defaultBranch}.`, {
+    details: [
+      "A required pull request with zero approvals does not stop the Claude App merging its own pull request; an update rule does.",
+      recipe,
+    ],
+  });
 }
 
 export function checkCreationRule(rulesets) {
-  const has = rulesets.some(
-    (r) => r.target === "branch" && (r.rules ?? []).some((x) => x.type === "creation"),
+  const ID = "ruleset-creation";
+  const TITLE = "Release branches have a creation rule";
+  const recipe = `Recipe: ${HARDENING}#2-release-branches-a-creation-rule`;
+  const s = ruleStatus(
+    rulesets.filter((r) => r.target === "branch"),
+    "creation",
   );
-  if (has)
-    return result(
-      "ruleset-creation",
-      "Release branches have a creation rule",
-      "pass",
-      "An active branch ruleset has a creation rule.",
-    );
-  return result(
-    "ruleset-creation",
-    "Release branches have a creation rule",
-    "warn",
-    "No active branch ruleset has a creation rule.",
-    {
-      details: [
-        "If you cut releases from branches, stop anyone outside the bypass list creating one.",
-        `Recipe: ${HARDENING}#2-release-branches-a-creation-rule`,
-      ],
-    },
-  );
+  if (s.held) return result(ID, TITLE, "pass", "An active branch ruleset has a creation rule.");
+  if (s.present) {
+    return result(ID, TITLE, "warn", "Every branch creation rule can be bypassed.", {
+      details: [...s.bypassed, BYPASS_ADVICE, recipe],
+    });
+  }
+  return result(ID, TITLE, "warn", "No active branch ruleset has a creation rule.", {
+    details: [
+      "If you cut releases from branches, stop anyone outside the bypass list creating one.",
+      recipe,
+    ],
+  });
 }
 
 const TAG_RULES = ["creation", "update", "deletion"];
@@ -106,11 +152,19 @@ export function checkTagRuleset(rulesets) {
       details: [recipe],
     });
   }
-  const types = ruleTypes(covering);
-  const missing = TAG_RULES.filter((t) => !types.has(t));
-  if (missing.length) {
-    return result(ID, TITLE, "warn", `The v* tag ruleset lacks: ${missing.join(", ")}.`, {
-      details: [recipe],
+  const statuses = TAG_RULES.map((type) => [type, ruleStatus(covering, type)]);
+  const missing = statuses.filter(([, s]) => !s.present).map(([t]) => t);
+  const bypassed = statuses.filter(([, s]) => s.present && !s.held);
+  if (missing.length || bypassed.length) {
+    const parts = [];
+    if (missing.length) parts.push(`lacks: ${missing.join(", ")}`);
+    if (bypassed.length) parts.push(`can be bypassed: ${bypassed.map(([t]) => t).join(", ")}`);
+    return result(ID, TITLE, "warn", `The v* tag ruleset ${parts.join("; ")}.`, {
+      details: [
+        ...new Set(bypassed.flatMap(([, s]) => s.bypassed)),
+        ...(bypassed.length ? [BYPASS_ADVICE] : []),
+        recipe,
+      ],
     });
   }
   return result(

@@ -6,6 +6,7 @@
 
 import assert from "node:assert/strict";
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -18,10 +19,22 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, before, describe, it } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { parseCaller, variableRefs } from "../cli/src/callers.mjs";
+import { findKitPins, parseCaller, variableRefs } from "../cli/src/callers.mjs";
+import { triggerLabels } from "../cli/src/checks/labels.mjs";
 import { checkPins } from "../cli/src/checks/pins.mjs";
-import { coversRef, workflowsPushingTagsWithToken } from "../cli/src/checks/rulesets.mjs";
-import { deriveRequirements } from "../cli/src/checks/secrets-and-variables.mjs";
+import {
+  checkCreationRule,
+  checkTagRuleset,
+  checkUpdateRule,
+  coversRef,
+  riskyBypassActors,
+  workflowsPushingTagsWithToken,
+} from "../cli/src/checks/rulesets.mjs";
+import {
+  checkSecrets,
+  checkVariables,
+  deriveRequirements,
+} from "../cli/src/checks/secrets-and-variables.mjs";
 import { main } from "../cli/src/cli.mjs";
 import { LOCAL_ONLY_CHECKS, runDoctor } from "../cli/src/doctor.mjs";
 import { systemRunner } from "../cli/src/exec.mjs";
@@ -638,5 +651,253 @@ describe("the CLI stays dependency-free and shell-free", () => {
       pir.jobs.map((j) => j.with.trigger_label),
       ["agent:plan", "agent:implement", "agent:review"],
     );
+  });
+});
+
+describe("review fixes (PR #78)", () => {
+  const reusable = (file) => readRepo(".github/workflows", file);
+  const failingGithub = {
+    getLines: () => {
+      throw new Error("gh api: Resource not accessible (HTTP 403)");
+    },
+  };
+
+  it("secrets: Caller problems still fail when the secrets listing is refused", () => {
+    const r = checkSecrets({
+      github: failingGithub,
+      repo: "acme/app",
+      ownerType: "User",
+      requirements: {
+        secrets: [],
+        variables: [],
+        problems: ["a.yml:plan: does not pass x"],
+        unsupported: [],
+      },
+    });
+    assert.equal(r.status, "fail");
+    assert.ok(r.details.includes("a.yml:plan: does not pass x"));
+    const clean = checkSecrets({
+      github: failingGithub,
+      repo: "acme/app",
+      ownerType: "User",
+      requirements: { secrets: [], variables: [], problems: [], unsupported: [] },
+    });
+    assert.equal(clean.status, "skip");
+  });
+
+  describe("rulesets: bypass actors", () => {
+    const branch = (bypass, rules = ["update", "creation"]) => ({
+      name: "default branch",
+      enforcement: "active",
+      target: "branch",
+      conditions: { ref_name: { include: ["~DEFAULT_BRANCH"], exclude: [] } },
+      rules: rules.map((type) => ({ type })),
+      bypass_actors: bypass,
+    });
+    const tag = (bypass) => ({
+      name: "release tags",
+      enforcement: "active",
+      target: "tag",
+      conditions: { ref_name: { include: ["refs/tags/v*"], exclude: [] } },
+      rules: [{ type: "creation" }, { type: "update" }, { type: "deletion" }],
+      bypass_actors: bypass,
+    });
+    const admin = { actor_id: 5, actor_type: "RepositoryRole", bypass_mode: "always" };
+    const maintain = { actor_id: 2, actor_type: "RepositoryRole", bypass_mode: "always" };
+    const write = { actor_id: 4, actor_type: "RepositoryRole", bypass_mode: "always" };
+    const app = { actor_id: 1236702, actor_type: "Integration", bypass_mode: "always" };
+    const deployKey = { actor_id: null, actor_type: "DeployKey", bypass_mode: "always" };
+    const opts = { defaultBranch: "main" };
+
+    it("passes with only Admin and Maintain on the bypass list", () => {
+      assert.equal(checkUpdateRule([branch([admin, maintain])], opts).status, "pass");
+      assert.equal(checkCreationRule([branch([admin, maintain])]).status, "pass");
+      assert.equal(checkTagRuleset([tag([admin, maintain])]).status, "pass");
+    });
+
+    it("warns when a GitHub App, the Write role or a custom role can bypass", () => {
+      for (const actor of [app, write, { actor_id: 77, actor_type: "RepositoryRole" }]) {
+        const update = checkUpdateRule([branch([admin, actor])], opts);
+        assert.equal(update.status, "warn", JSON.stringify(actor));
+        assert.match(update.summary, /can be bypassed/);
+        assert.equal(checkCreationRule([branch([actor])]).status, "warn");
+        const t = checkTagRuleset([tag([actor])]);
+        assert.equal(t.status, "warn");
+        assert.match(t.summary, /can be bypassed: creation, update, deletion/);
+      }
+      assert.deepEqual(riskyBypassActors(branch([app, write])), [
+        "a GitHub App (Integration 1236702)",
+        "the Write role",
+      ]);
+    });
+
+    it("a deploy-key bypass is the documented tag pattern, but not on a branch", () => {
+      assert.equal(checkTagRuleset([tag([admin, deployKey])]).status, "pass");
+      assert.equal(checkUpdateRule([branch([deployKey])], opts).status, "warn");
+    });
+
+    it("another ruleset without the bypass still holds the rule", () => {
+      const strict = { ...branch([admin]), name: "strict" };
+      assert.equal(checkUpdateRule([branch([app]), strict], opts).status, "pass");
+    });
+  });
+
+  it("trees: a merge conflict in an unrelated file does not break the comparison", () => {
+    const dir = makeConsumer("conflict", { files: { "notes.txt": "base\n" } });
+    git(dir, "checkout", "-q", "-b", "other");
+    writeFileSync(join(dir, "notes.txt"), "other\n");
+    git(dir, "commit", "-qam", "other");
+    git(dir, "checkout", "-q", "-");
+    writeFileSync(join(dir, "notes.txt"), "main\n");
+    git(dir, "commit", "-qam", "main");
+    const merge = systemRunner("git", ["-C", dir, ...GIT_ID, "merge", "-q", "other"]);
+    assert.notEqual(merge.status, 0, "the fixture merge should conflict");
+    assert.match(systemRunner("git", ["-C", dir, "ls-files", "-u"]).stdout, /notes\.txt/);
+    const report = runDoctor({ cwd: dir, runner: systemRunner, ci: true, openTag });
+    const trees = report.results.find((r) => r.id === "kit-owned-trees");
+    assert.equal(trees.status, "pass", JSON.stringify(trees));
+  });
+
+  it("trees: paths outside a sparse-checkout cone are skipped, not missing", () => {
+    const dir = makeConsumer("sparse");
+    git(dir, "sparse-checkout", "set", "--cone", ".github/workflows");
+    assert.equal(existsSync(join(dir, ".github/agent-runtime")), false, "fixture should be sparse");
+    const report = runDoctor({ cwd: dir, runner: systemRunner, ci: true, openTag });
+    const trees = report.results.find((r) => r.id === "kit-owned-trees");
+    assert.equal(trees.status, "skip", JSON.stringify(trees));
+    assert.ok(
+      trees.details.some((d) =>
+        /agent-runtime\/: not checked, outside the sparse-checkout cone/.test(d),
+      ),
+    );
+    assert.doesNotMatch(trees.details.join("\n"), /missing/);
+    assert.equal(report.exitCode, 0);
+  });
+
+  it("parser: a || fallback on the next line keeps the variable optional", () => {
+    const refs = variableRefs("model: ${{ vars.CLAUDE_MODEL_PLAN\n  || 'claude-opus-5' }}\n");
+    assert.deepEqual(refs, [{ name: "CLAUDE_MODEL_PLAN", optional: true }]);
+  });
+
+  it("parser: flow-mapping, anchor and alias secrets are reported as unreadable, not failed", () => {
+    const uses = `${KIT}/.github/workflows/agent-plan-reusable.yml@${TAG}`;
+    for (const secrets of [
+      "{ claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }} }",
+      "*shared",
+      "&shared\n      claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}",
+    ]) {
+      const caller = parseCaller(`jobs:\n  plan:\n    uses: ${uses}\n    secrets: ${secrets}\n`);
+      assert.ok(caller.jobs[0].secretsUnsupported, secrets);
+      const req = deriveRequirements([{ path: "c.yml", ...caller }], reusable);
+      assert.deepEqual(req.problems, [], secrets);
+      assert.equal(req.unsupported.length, 1);
+      const r = checkSecrets({
+        github: { getLines: () => ["CLAUDE_CODE_OAUTH_TOKEN"] },
+        repo: "acme/app",
+        ownerType: "User",
+        requirements: req,
+      });
+      assert.equal(r.status, "skip", secrets);
+    }
+  });
+
+  it("pins: owner names compare case-insensitively", () => {
+    const pin = (repo) => ({ repo, file: "agent-plan-reusable.yml", ref: TAG, line: 1 });
+    const r = checkPins([
+      { path: "a.yml", pins: [pin("MnaimFaizy/agent-kit"), pin("mnaimfaizy/agent-kit")] },
+    ]);
+    assert.equal(r.result.status, "pass");
+  });
+
+  it("pins: a uses: line inside a run: block is not a pin", () => {
+    const text = [
+      "jobs:",
+      "  plan:",
+      `    uses: ${KIT}/.github/workflows/agent-plan-reusable.yml@${TAG}`,
+      "  other:",
+      "    steps:",
+      "      - run: |",
+      `          uses: ${KIT}/.github/workflows/agent-plan-reusable.yml@main`,
+      "      - name: after",
+      "        run: >-",
+      `          uses: ${KIT}/.github/workflows/x.yml@main`,
+      `      - uses: ${KIT}/.github/workflows/agent-plan-reusable.yml@${TAG}`,
+    ].join("\n");
+    assert.deepEqual(
+      findKitPins(text).map((p) => [p.line, p.ref]),
+      [
+        [3, TAG],
+        [11, TAG],
+      ],
+    );
+  });
+
+  it("messages: the tree failure points to adopt.md's manual copy until upgrade ships", () => {
+    const dir = makeConsumer("message");
+    writeFileSync(join(dir, ".github/agent-runtime/hook.mjs"), "edited\n");
+    const report = runDoctor({ cwd: dir, runner: systemRunner, ci: true, openTag });
+    const trees = report.results.find((r) => r.id === "kit-owned-trees");
+    const url = `https://github.com/${KIT}/blob/${TAG}/docs/adopt.md#copy-kit-owned-paths-from-the-same-tag`;
+    assert.ok(
+      trees.details.some((d) => d.includes(url)),
+      trees.details.join("\n"),
+    );
+  });
+
+  it("messages: printed gh variable commands paste cleanly", () => {
+    const r = checkVariables({
+      github: { getLines: () => [] },
+      repo: "acme/app",
+      ownerType: "User",
+      requirements: {
+        variables: [
+          { name: "CLAUDE_PIPELINE_ENABLED", optional: false, where: ["c.yml"] },
+          { name: "OTHER", optional: false, where: ["c.yml"] },
+        ],
+      },
+    });
+    assert.deepEqual(r.fix, [
+      "gh variable set CLAUDE_PIPELINE_ENABLED --repo acme/app --body true",
+      "gh variable set OTHER --repo acme/app",
+    ]);
+    for (const f of r.fix) assert.doesNotMatch(f, /[<>]/);
+  });
+
+  it("labels: a Caller that leaves trigger_label out uses the reusable's default", () => {
+    const uses = (file) => `${KIT}/.github/workflows/${file}@${TAG}`;
+    const caller = parseCaller(
+      [
+        "jobs:",
+        "  plan:",
+        `    uses: ${uses("agent-plan-reusable.yml")}`,
+        "  audit:",
+        `    uses: ${uses("security-audit-reusable.yml")}`,
+        "  review:",
+        `    uses: ${uses("agent-review-reusable.yml")}`,
+        "    with:",
+        '      trigger_label: "custom:review"',
+        "",
+      ].join("\n"),
+    );
+    const labels = triggerLabels([{ path: "c.yml", ...caller }], reusable);
+    assert.deepEqual(
+      labels.map((l) => [l.name, l.where]),
+      [
+        ["agent:plan", ["c.yml:plan (default)"]],
+        ["custom:review", ["c.yml:review"]],
+      ],
+    );
+  });
+
+  it("labels: doctor fails when a default Trigger label is missing", () => {
+    const caller = callerFor(TAG).replace('      trigger_label: "agent:plan"\n', "");
+    const dir = makeConsumer("default-label", {
+      files: { ".github/workflows/caller.yml": caller },
+    });
+    const { runner } = fakeGh({ ...ALL_GOOD, "repos/acme/app/labels": ["bug"] });
+    const report = runDoctor({ cwd: dir, runner, openTag });
+    const labels = report.results.find((r) => r.id === "trigger-labels");
+    assert.equal(labels.status, "fail", JSON.stringify(labels));
+    assert.match(labels.details.join("\n"), /agent:plan \(.*\(default\)\)/);
   });
 });

@@ -8,11 +8,18 @@ token. The root package stays private dev tooling.
 
 import json
 import re
+import subprocess
+import sys
+import tempfile
 from pathlib import Path
 
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts"))
+
+from verify_release_snapshot import cli_version_mismatch  # noqa: E402 - needs the sys.path entry above
+
 CLI = ROOT / "cli"
 PACKAGE = CLI / "package.json"
 PUBLISH = ROOT / ".github" / "workflows" / "publish-cli.yml"
@@ -89,15 +96,32 @@ def _key(version: str) -> tuple:
     return (int(m[1]), int(m[2]), int(m[3]), rank, int(m[5] or 0))
 
 
+GIT_ID = ("-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false")
+
+
+def _git(cwd: Path, *args: str) -> None:
+    subprocess.run(
+        ["git", "-C", str(cwd), *GIT_ID, *args],
+        check=True,
+        capture_output=True,
+    )
+
+
 def test_cut_release_refuses_a_tag_the_package_version_does_not_match() -> None:
-    import sys
-
-    sys.path.insert(0, str(ROOT / "scripts"))
-    from verify_release_snapshot import cli_version_mismatch
-
-    version = package()["version"]
-    assert cli_version_mismatch(f"v{version}") is None
-    assert cli_version_mismatch("v0.0.1") is not None
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp)
+        _git(repo, "init", "-q")
+        (repo / "cli").mkdir()
+        package = repo / "cli" / "package.json"
+        package.write_text('{"version": "1.0.0-alpha.12"}', encoding="utf-8")
+        _git(repo, "add", "-A")
+        _git(repo, "commit", "-qm", "x")
+        assert cli_version_mismatch("v1.0.0-alpha.12", repo) is None
+        assert "does not match" in cli_version_mismatch("v1.0.0-alpha.13", repo)
+        # The tag is cut from HEAD: an uncommitted bump is not in it.
+        package.write_text('{"version": "1.0.0-alpha.13"}', encoding="utf-8")
+        assert "does not match" in cli_version_mismatch("v1.0.0-alpha.13", repo)
+        assert "uncommitted" in cli_version_mismatch("v1.0.0-alpha.12", repo)
     text = CUT.read_text(encoding="utf-8")
     assert "cli_version_mismatch(tag)" in text, "cut-release.sh must check the CLI version before tagging"
     assert text.index("cli_version_mismatch(tag)") < text.index('git tag -a "$TAG"')

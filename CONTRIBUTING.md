@@ -39,12 +39,12 @@ CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs three jobs on eve
 | `.github/workflows/*-reusable.yml`           | The product: reusable job bodies Consumers reference.   |
 | `.github/workflows/dogfood-*.yml`            | This repository as its own Caller (off by default).     |
 | `.github/workflows/ci.yml`, `links.yml`      | This repository's CI.                                   |
+| `.github/workflows/publish-cli.yml`          | Publishes `cli/` to npm on each Release tag.            |
 | `.github/agent-*`, `.github/security-audit/` | Runtime files Consumers copy.                           |
 | `.github/CODEOWNERS`                         | Review owners for kit-critical paths.                   |
 | `.claude/skills/`                            | Portable skills Consumers copy.                         |
 | `kit-owned-paths.txt`                        | The Kit-owned paths Consumers replace whole on upgrade. |
 | `cli/`                                       | The `@mnaimfaizy/agent-kit` npm CLI (`doctor`).         |
-| `.github/workflows/publish-cli.yml`          | Publishes `cli/` to npm on each Release tag.            |
 | `examples/`                                  | Caller templates.                                       |
 | `scripts/*.test.py`, `*.test.mjs`            | Contract tests.                                         |
 | `scripts/gen_workflow_reference.py`          | Generates `docs/reference.md` from the workflows.       |
@@ -139,7 +139,7 @@ EOF
 - Branch from `main`; use [Conventional Commits](https://www.conventionalcommits.org/) (`fix:`, `feat:`, `ci:`, `docs:`, `chore:`).
 - Fill in the PR template checklist. Add an `[Unreleased]` CHANGELOG line for anything a Consumer would notice.
 - Security issues: never in a public PR or issue. See [SECURITY.md](SECURITY.md).
-- Changes under the paths in [.github/CODEOWNERS](.github/CODEOWNERS) — everything in `.github/workflows/`, the runtime files, Portable skills, and Caller templates Consumers copy, `scripts/`, this repository's Threat pack, and the review/dependency routing files — request review from the maintainer once the PR is marked ready for review (draft PRs, including every pipeline PR, request no one until then).
+- Changes under the paths in [.github/CODEOWNERS](.github/CODEOWNERS) — everything in `.github/workflows/`, the runtime files, Portable skills, and Caller templates Consumers copy, `scripts/`, the npm CLI (`cli/`), this repository's Threat pack, and the review/dependency routing files — request review from the maintainer once the PR is marked ready for review (draft PRs, including every pipeline PR, request no one until then).
 
 ## Releasing
 

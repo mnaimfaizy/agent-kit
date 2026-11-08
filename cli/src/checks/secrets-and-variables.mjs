@@ -15,6 +15,7 @@ export function deriveRequirements(callers, readReusable) {
   const secrets = new Map(); // NAME -> { name, required, alternatives: string[], where: string[] }
   const variables = new Map();
   const problems = [];
+  const unsupported = [];
   const specs = new Map();
   const specFor = (file) => {
     if (!specs.has(file)) {
@@ -36,6 +37,10 @@ export function deriveRequirements(callers, readReusable) {
   for (const caller of callers) {
     for (const job of caller.jobs) {
       const where = `${caller.path}:${job.name}`;
+      if (job.secretsUnsupported) {
+        unsupported.push(`${where}: ${job.secretsUnsupported}; its secrets were not checked.`);
+        continue;
+      }
       const spec = specFor(job.uses.file);
       if (spec === null) {
         problems.push(`${where}: ${job.uses.file} is not a reusable workflow at the pinned tag`);
@@ -74,7 +79,12 @@ export function deriveRequirements(callers, readReusable) {
       });
     }
   }
-  return { secrets: [...secrets.values()], variables: [...variables.values()], problems };
+  return {
+    secrets: [...secrets.values()],
+    variables: [...variables.values()],
+    problems,
+    unsupported,
+  };
 }
 
 function listNames(github, repo, kind, ownerType) {
@@ -99,31 +109,47 @@ function listNames(github, repo, kind, ownerType) {
 export function checkSecrets({ github, repo, ownerType, requirements }) {
   const ID = "secrets";
   const TITLE = "Secrets the Callers pass are set";
+  const { problems, unsupported = [] } = requirements;
   let listed;
   try {
     listed = listNames(github, repo, "secret", ownerType);
   } catch (err) {
-    return result(ID, TITLE, "skip", `Could not list repository secrets: ${err.message}`);
-  }
-  const isSet = (s) => s.names.some((n) => listed.names.has(n.toUpperCase()));
-  const missingRequired = requirements.secrets.filter((s) => s.required && !isSet(s));
-  const missingOptional = requirements.secrets.filter((s) => !s.required && !isSet(s));
-  const describe = (s) => `${s.names.join(" or ")} (${s.where.join(", ")})`;
-  const details = [
-    ...requirements.problems,
-    ...missingRequired.map((s) => `required, not set: ${describe(s)}`),
-    ...missingOptional.map((s) => `optional, not set: ${describe(s)}`),
-  ];
-  if (listed.orgNote && (missingRequired.length || missingOptional.length))
-    details.push(listed.orgNote);
-  const fix = [...missingRequired, ...missingOptional].map(
-    (s) => `gh secret set ${s.names[0]} --repo ${repo}`,
-  );
-  if (missingRequired.length || requirements.problems.length) {
-    return result(ID, TITLE, "fail", `${missingRequired.length} required secret(s) missing.`, {
-      details,
-      fix,
+    // Problems found in the Caller files need no API call: they still fail.
+    if (problems.length) {
+      return result(ID, TITLE, "fail", `${problems.length} Caller problem(s) with secrets.`, {
+        details: [
+          ...problems,
+          ...unsupported,
+          `Could not list repository secrets, so unset secrets were not checked: ${err.message}`,
+        ],
+      });
+    }
+    return result(ID, TITLE, "skip", `Could not list repository secrets: ${err.message}`, {
+      details: unsupported,
     });
+  }
+  const isSet = (x) => x.names.some((n) => listed.names.has(n.toUpperCase()));
+  const missingRequired = requirements.secrets.filter((x) => x.required && !isSet(x));
+  const missingOptional = requirements.secrets.filter((x) => !x.required && !isSet(x));
+  const describe = (x) => `${x.names.join(" or ")} (${x.where.join(", ")})`;
+  const details = [
+    ...problems,
+    ...missingRequired.map((x) => `required, not set: ${describe(x)}`),
+    ...missingOptional.map((x) => `optional, not set: ${describe(x)}`),
+    ...unsupported,
+  ];
+  if (listed.orgNote && (missingRequired.length || missingOptional.length)) {
+    details.push(listed.orgNote);
+  }
+  // No --body: gh prompts for the value, so it never lands in shell history.
+  const fix = [...missingRequired, ...missingOptional].map(
+    (x) => `gh secret set ${x.names[0]} --repo ${repo}`,
+  );
+  if (missingRequired.length || problems.length) {
+    const summary = missingRequired.length
+      ? `${missingRequired.length} required secret(s) missing.`
+      : `${problems.length} Caller problem(s) with secrets.`;
+    return result(ID, TITLE, "fail", summary, { details, fix });
   }
   if (missingOptional.length) {
     return result(
@@ -131,10 +157,16 @@ export function checkSecrets({ github, repo, ownerType, requirements }) {
       TITLE,
       "warn",
       `${missingOptional.length} optional secret(s) referenced but not set.`,
-      {
-        details,
-        fix,
-      },
+      { details, fix },
+    );
+  }
+  if (unsupported.length) {
+    return result(
+      ID,
+      TITLE,
+      "skip",
+      `${unsupported.length} Caller job(s) pass secrets in a form doctor cannot read.`,
+      { details: unsupported },
     );
   }
   return result(
@@ -171,7 +203,8 @@ export function checkVariables({ github, repo, ownerType, requirements }) {
     details,
     fix: missing.map(
       (v) =>
-        `gh variable set ${v.name} --repo ${repo} --body ${/_ENABLED$/.test(v.name) ? "true" : "<value>"}`,
+        // The Kill switch takes true; anything else, gh prompts for the value.
+        `gh variable set ${v.name} --repo ${repo}${/_ENABLED$/.test(v.name) ? " --body true" : ""}`,
     ),
   });
 }

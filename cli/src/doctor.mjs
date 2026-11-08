@@ -191,7 +191,8 @@ function localChecks({ runner, cwd, info, files, callers, snapshot }) {
     );
   }
 
-  if (callers.length) out.push(checkLabels({ github, repo, callers }));
+  const readReusable = snapshot ? (file) => snapshot.readFile(`.github/workflows/${file}`) : null;
+  if (callers.length) out.push(checkLabels({ github, repo, callers, readReusable }));
   else
     out.push(
       result(
