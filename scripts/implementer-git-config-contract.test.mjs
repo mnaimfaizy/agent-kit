@@ -270,7 +270,28 @@ describe("implement workflow wiring", () => {
     );
     assert.ok(at("Run implementer (Claude Code)") < at("Check git configuration after the agent"));
     assert.match(check, /id: gitconfig\n/);
-    assert.match(check, /if: always\(\)\n/);
+    // #83: run after a failed agent, but not when the job failed before the
+    // hooks were staged (a failed setup_commands, say). Then the agent never
+    // ran, the staged checker does not exist, and a failure here would blame
+    // the agent for the earlier step.
+    assert.match(check, /if: always\(\) && steps\.confine\.outcome == 'success'\n/);
+    // Fail closed: if the agent ran, staging succeeded, so the check runs. The
+    // agent step and every step between staging and it run only on success.
+    const stagingAt = at("Stage read-confinement hook outside the workspace");
+    const agentAt = at("Run implementer (Claude Code)");
+    assert.ok(stagingAt >= 0 && stagingAt < agentAt);
+    const steps = implement.slice(stagingAt, agentAt).split("\n      - name: ");
+    assert.ok(steps.length >= 2, "expected steps between staging and the agent");
+    for (const step of steps) {
+      const condition = /^ {8}if: (.*)$/m.exec(step);
+      assert.ok(
+        !condition || !/always\(\)|failure\(\)|cancelled\(\)/.test(condition[1]),
+        `${step.split("\n")[0]} must run only when staging succeeded`,
+      );
+    }
+    assert.doesNotMatch(namedStep(implement, "Run implementer (Claude Code)"), /\n {8}if: /);
+    // A missing checker names the missing staging, not the agent.
+    assert.match(check, /test -s "\$RUNNER_TEMP\/read-confinement\/check-git-config\.mjs"/);
     // The cleanup step runs after a failed agent step, but not past a failed check.
     assert.match(
       namedStep(implement, "Remove extracted plan from tracked state"),
