@@ -6,6 +6,10 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
+## [1.0.0-alpha.10] - 2026-11-07
+
+Security release for [GHSA-h5h6-4v46-73f9](https://github.com/mnaimfaizy/agent-kit/security/advisories/GHSA-h5h6-4v46-73f9). **Consumer action required** — see the first item.
+
 ### Consumer action
 
 - **Required:** re-copy `.github/agent-runtime/` from this tag. Implement checks before the agent starts that the staged Bash guard refuses a commit that reads a file.
