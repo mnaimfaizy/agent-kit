@@ -14,7 +14,25 @@ You will:
 8. [Turn the flows on](#8-turn-the-flows-on-kill-switch-variables)
 9. [Do a first run](#9-first-run)
 
-Then see [Troubleshooting](#troubleshooting) and [Upgrading](#upgrading).
+Along the way, settle the [decisions you'll make](#decisions-youll-make). Then see [Troubleshooting](#troubleshooting) and [Upgrading](#upgrading).
+
+## Decisions you'll make
+
+None of these blocks the first run, but each comes up during setup. Settle them on purpose rather than by default:
+
+- [ ] **Vocabulary clashes.** The kit's docs, prompts and logs use the terms in [GLOSSARY.md](../GLOSSARY.md), such as **Allowlist**, **Kill switch** and **Threat pack**. If your repository already uses one of these words for something else, decide how your own docs tell the two apart; the kit's terms are not renamed per Consumer.
+- [ ] **Branch prefix strategy.** The implementer's branches start with `branch_prefix` (default `claude/`). It is an ordinary input, so it can be an expression over the issue's labels. For example, `fix/` for issues labelled `bug` and `feat/` for the rest:
+
+  ```yaml
+  branch_prefix: ${{ contains(github.event.issue.labels.*.name, 'bug') && 'fix/' || 'feat/' }}
+  ```
+
+  A `workflow_dispatch` run has no issue in its event, so it gets `feat/`. The prefix is checked before the agent runs (valid branch-name start, at most 24 characters); see [`branch_prefix`](reference.md) and `branch_name_template` in the workflow reference.
+
+- [ ] **Where the Threat pack lives.** The audit Caller defaults to `.security/threat-model.md` and `.security/findings-ledger.md` (step 7). Keep it out of any folder you publish, such as a `docs/` site: the threat model maps your attack paths.
+- [ ] **How much `verify_commands` covers.** A separate verify job runs them on the agent's branch on every implement run, after `setup_commands`. Keep them to fast checks (lint, typecheck, unit tests); slow suites stay in your PR CI, which runs on the draft PR anyway. If a check needs a toolchain, use a [setup preset](../examples/setup-presets/).
+- [ ] **Merge policy.** Nothing in the kit merges, but the Claude GitHub App can merge its own pull request unless a ruleset stops it. Decide who merges once your default branch has the `update` rule: see [Repository hardening](repository-hardening.md).
+- [ ] **Whether `trusted_spec_authors` is set.** Empty (the default), review checks the Spec axis only against a Verified plan. Listing logins lets their `<!-- agent-kit-brief -->` issue comment stand in as the spec when there is no plan; see [Plan → implement → review](plan-implement-review.md).
 
 ## 1. Prerequisites
 
@@ -25,26 +43,31 @@ Then see [Troubleshooting](#troubleshooting) and [Upgrading](#upgrading).
 
 ## 2. Pick a tag
 
-Use the newest tag from [Releases](https://github.com/mnaimfaizy/agent-kit/releases), for example `v1.0.0-alpha.10`. Every file you copy and every `uses:` pin must be the **same exact tag** — see [Adopt](adopt.md).
+Use the newest tag from [Releases](https://github.com/mnaimfaizy/agent-kit/releases), for example `v1.0.0-alpha.11`. Every file you copy and every `uses:` pin must be the **same exact tag** — see [Adopt](adopt.md).
 
 > Do not use `v1.0.0-alpha.1` or `v1.0.0-alpha.2`: GitHub rejects their reusable workflows ("Invalid workflow file").
 
 ## 3. Copy the runtime files from the same tag
 
-The reusable workflows run in _your_ checkout and load prompts, the read-confinement hook, and skills from it. Copy them:
+The reusable workflows run in _your_ checkout and load prompts, the read-confinement hook, and skills from it. These are the **Kit-owned paths**, listed in [`kit-owned-paths.txt`](../kit-owned-paths.txt) in every tag from `v1.0.0-alpha.11`. Copy them; the loop deletes each path, then copies it fresh, and leaves your own skills in `.claude/skills/` alone:
 
 ```bash
-TAG=v1.0.0-alpha.10
+TAG=v1.0.0-alpha.11
 git clone --depth 1 --branch "$TAG" https://github.com/mnaimfaizy/agent-kit.git /tmp/agent-kit
-mkdir -p .claude/skills .github
-cp -R /tmp/agent-kit/.claude/skills/. .claude/skills/
-cp -R /tmp/agent-kit/.github/agent-runtime /tmp/agent-kit/.github/agent-pipeline /tmp/agent-kit/.github/security-audit .github/
+grep -v -e '^#' -e '^$' /tmp/agent-kit/kit-owned-paths.txt | while read -r path; do
+  path="${path%/}"
+  rm -rf "./$path"
+  mkdir -p "$(dirname "$path")"
+  cp -R "/tmp/agent-kit/$path" "$(dirname "$path")/"
+done
 rm -rf /tmp/agent-kit
 ```
 
+Tags up to `v1.0.0-alpha.10` have no `kit-owned-paths.txt`; for those, copy the paths [Adopt](adopt.md#copy-kit-owned-paths-from-the-same-tag) lists.
+
 | Copied path               | Needed by                                                                       |
 | ------------------------- | ------------------------------------------------------------------------------- |
-| `.claude/skills/`         | review (`code-review`), audit (`security-audit`), and triage/response by hand   |
+| `.claude/skills/*/`       | review (`code-review`), audit (`security-audit`), and triage/response by hand   |
 | `.github/agent-runtime/`  | plan, implement, review, audit (hook that confines file reads to the workspace) |
 | `.github/agent-pipeline/` | plan, implement (prompts, draft-PR fallback)                                    |
 | `.github/security-audit/` | audit (prompt, advisory publisher, email notifier)                              |
@@ -170,7 +193,7 @@ Delete a flow's variable to fall back to `CLAUDE_MODEL`, and delete that to fall
 ## Upgrading
 
 1. Read the [CHANGELOG](../CHANGELOG.md) entries between your tag and the new one; Major bumps require Caller changes.
-2. Re-run step 3 with the new tag (overwrite the copied files).
+2. Re-run step 3 with the new tag. It replaces each Kit-owned path whole, so files the kit removed are gone too.
 3. Bump every `uses: …@<tag>` to the new tag in the same commit.
 4. Diff your Callers against the new `examples/` for new or renamed inputs and secrets.
 

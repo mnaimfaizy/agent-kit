@@ -10,6 +10,12 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 - A new page, [docs/repository-hardening.md](docs/repository-hardening.md), with ready-to-run `gh api` commands for the rulesets the Claude GitHub App cannot bypass: an `update` rule on the default branch (a required pull request with zero approvals does not stop the App merging its own), a `creation` rule for release branches, and a `v*` tag ruleset. It also records a Consumer-side pattern for personal-account repositories, where the GitHub Actions app cannot bypass a ruleset: push release tags with a write deploy key and a `DeployKey` bypass. `getting-started.md` and `security-model.md` link to it.
 - `setup_commands` presets under `examples/setup-presets/`: `python.sh`, `node.sh`, `mixed.sh` (Python and Node.js), and `redis-service.sh` (a Redis container via `docker run`). They pick versions from the runner tool cache and `$GITHUB_PATH`, with no download. Copy one into your Caller's `setup_commands` block; the copy is yours. Getting started now explains that `setup_commands` is a plain shell step (no `uses:` actions inside it), and warns against copying CI test env into `verify_commands`: a password variable such as `DATABASE_PASSWORD`, even with a throwaway test value, sets off secret scanners.
+- `kit-owned-paths.txt` at the repository root lists each **Kit-owned path**, one folder per line: the four portable skill folders in `.claude/skills/`, `.github/agent-runtime/`, `.github/agent-pipeline/`, and `.github/security-audit/`. It ships in every tag from `v1.0.0-alpha.11`; `docs/adopt.md`, the README quickstart, and the future `@mnaimfaizy/agent-kit` CLI read it, and a contract test keeps them in step.
+- Getting started has a "Decisions you'll make" checklist: vocabulary clashes, a `branch_prefix` expression over the issue's labels, where the Threat pack lives, how much `verify_commands` covers, merge policy, and `trusted_spec_authors`.
+
+### Changed
+
+- The README quickstart and Getting started step 3 now loop over `kit-owned-paths.txt`: each Kit-owned path is deleted, then copied fresh from the tag. Before, `cp -R` over the old copy left behind files the kit had removed. Your own skills in `.claude/skills/` are never touched. Tags up to `v1.0.0-alpha.10` have no manifest; copy the paths listed in `docs/adopt.md` for those.
 
 ## [1.0.0-alpha.10] - 2026-11-07
 
