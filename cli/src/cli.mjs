@@ -8,6 +8,7 @@ import { REPO_PATTERN, sanitizeLine } from "./checks/result.mjs";
 import { systemRunner } from "./exec.mjs";
 import { askYesNo } from "./prompt.mjs";
 import { CLI_VERSION, isReleaseTag } from "./tags.mjs";
+import { runInit } from "./init.mjs";
 import { runUpgrade } from "./upgrade.mjs";
 
 export const VERSION = CLI_VERSION;
@@ -15,6 +16,10 @@ export const VERSION = CLI_VERSION;
 const USAGE = `Usage: agent-kit <command> [options]
 
 Commands:
+  init       Adopt Agent-kit from a tag: copy the Kit-owned paths, write a
+             Caller per flow with your answers filled in, the Threat pack
+             skeleton and .github/dependabot.yml, then print the GitHub-side
+             steps as gh commands. Local files only.
   doctor     Read-only checks of this repository against the Agent-kit tag
              its Callers pin. Never changes anything.
   upgrade    Move this repository to another Agent-kit tag: replace the
@@ -28,6 +33,20 @@ Options for doctor:
   --repo <o/r>    The GitHub repository to check (default: gh's choice for
                   the current directory).
 
+Options for init (each one is asked for when missing, on a terminal):
+  --tag <vX>              The Agent-kit tag to adopt.
+  --flows <list>          pipeline, audit, or both (comma-separated).
+  --actors <logins>       GitHub logins allowed to trigger runs.
+  --default-branch <b>    Default branch (default: origin's HEAD, else main).
+  --verify <commands>     verify_commands for implement (pipeline); \n
+                          separates commands.
+  --preset <name|none>    Inline examples/setup-presets/<name>.sh as
+                          setup_commands (pipeline; default none).
+  --threat-pack-dir <d>   Where the Threat pack goes (audit; default .security).
+  --yes                   Ask nothing; every answer comes from flags.
+  --force                 Overwrite existing Callers, Threat pack files and
+                          Kit-owned paths (use upgrade to change tags).
+
 Options for upgrade:
   --tag <vY>      The Agent-kit tag to move to (asked for when missing).
   --from <vX>     The tag you are leaving, when the pins already name <vY>
@@ -38,12 +57,21 @@ Options for upgrade:
                   changes (those changes are lost).
 
   -h, --help      Show this help.
-  -v, --version   Show the version.
-
-init is not available yet.`;
+  -v, --version   Show the version.`;
 
 const COMMAND_OPTIONS = {
   doctor: ["ci", "strict", "repo"],
+  init: [
+    "tag",
+    "flows",
+    "actors",
+    "default-branch",
+    "verify",
+    "preset",
+    "threat-pack-dir",
+    "yes",
+    "force",
+  ],
   upgrade: ["tag", "from", "yes", "force"],
 };
 
@@ -78,6 +106,12 @@ export async function main(argv, io) {
         repo: { type: "string" },
         tag: { type: "string" },
         from: { type: "string" },
+        flows: { type: "string" },
+        actors: { type: "string" },
+        "default-branch": { type: "string" },
+        verify: { type: "string" },
+        preset: { type: "string" },
+        "threat-pack-dir": { type: "string" },
         yes: { type: "boolean", short: "y" },
         force: { type: "boolean" },
         help: { type: "boolean", short: "h" },
@@ -98,10 +132,6 @@ export async function main(argv, io) {
     (command || values.help ? stdout : stderr)(USAGE);
     return values.help ? 0 : 2;
   }
-  if (command === "init") {
-    stderr(`agent-kit init is not available in ${VERSION} yet; it ships in a later release.`);
-    return 2;
-  }
   if (!(command in COMMAND_OPTIONS)) {
     stderr(`Unknown command: ${command}\n\n${USAGE}`);
     return 2;
@@ -118,6 +148,29 @@ export async function main(argv, io) {
     return 2;
   }
 
+  if (command === "init") {
+    stdout(`agent-kit init ${VERSION}`);
+    return runInit({
+      cwd,
+      runner,
+      flags: {
+        tag: values.tag,
+        flows: values.flows,
+        actors: values.actors,
+        defaultBranch: values["default-branch"],
+        verify: values.verify,
+        preset: values.preset,
+        threatPackDir: values["threat-pack-dir"],
+      },
+      force: Boolean(values.force),
+      yes: Boolean(values.yes),
+      prompt,
+      confirm: prompt ? (q) => askYesNo(prompt, q) : null,
+      out: stdout,
+      err: stderr,
+      ...(openTag ? { openTag } : {}),
+    });
+  }
   if (command === "upgrade") {
     return upgrade(values, { cwd, runner, openRepo, prompt, stdout, stderr });
   }

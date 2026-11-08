@@ -1,6 +1,6 @@
 # Adopt Agent-kit
 
-> First adoption? Follow [Getting started](getting-started.md) step by step. This page is the contract behind it.
+> First adoption? Follow [Getting started](getting-started.md) step by step, or run `npx @mnaimfaizy/agent-kit init --tag <tag>` ([Adopt with the CLI](getting-started.md#adopt-with-the-cli)), which copies the Kit-owned paths, writes the Callers and the Threat pack skeleton, and prints the GitHub-side steps. This page is the contract behind both.
 
 Adopt follows a split contract:
 
@@ -26,7 +26,7 @@ No floating major tags (`@v1`) are part of the contract.
 
 ## Copy Kit-owned paths from the same tag
 
-From the exact same tag used in `uses:`, copy each Kit-owned path. The source of truth is [`kit-owned-paths.txt`](../kit-owned-paths.txt) at the root of every tag from `v1.0.0-alpha.11`; the list below matches it, and a contract test keeps the two in step. Replace each path whole: delete it, then copy it fresh (the loop in [Getting started §3](getting-started.md#3-copy-the-runtime-files-from-the-same-tag) does this). Never edit these paths. Your own skills next to the kit's in `.claude/skills/` are never touched.
+From the exact same tag used in `uses:`, copy each Kit-owned path. The source of truth is [`kit-owned-paths.txt`](../kit-owned-paths.txt) at the root of every tag from `v1.0.0-alpha.11`; the list below matches it, and a contract test keeps the two in step. Replace each path whole: delete it, then copy it fresh (the loop in [Getting started §3](getting-started.md#3-copy-the-runtime-files-from-the-same-tag) does this, and so do the CLI's `init` and `upgrade`). Never edit these paths. Your own skills next to the kit's in `.claude/skills/` are never touched.
 
 - `.claude/skills/code-review/`
 - `.claude/skills/security-audit/`

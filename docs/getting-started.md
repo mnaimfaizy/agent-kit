@@ -14,7 +14,7 @@ You will:
 8. [Turn the flows on](#8-turn-the-flows-on-kill-switch-variables)
 9. [Do a first run](#9-first-run)
 
-Along the way, settle the [decisions you'll make](#decisions-youll-make). Then [check the setup with `doctor`](#check-the-setup-with-doctor), and see [Troubleshooting](#troubleshooting) and [Upgrading](#upgrading).
+Prefer a command? [Adopt with the CLI](#adopt-with-the-cli) does steps 3, 5 and 7 and prints the rest as `gh` commands. Along the way, settle the [decisions you'll make](#decisions-youll-make). Then [check the setup with `doctor`](#check-the-setup-with-doctor), and see [Troubleshooting](#troubleshooting) and [Upgrading](#upgrading).
 
 ## Decisions you'll make
 
@@ -33,6 +33,26 @@ None of these blocks the first run, but each comes up during setup. Settle them 
 - [ ] **How much `verify_commands` covers.** A separate verify job runs them on the agent's branch on every implement run, after `setup_commands`. Keep them to fast checks (lint, typecheck, unit tests); slow suites stay in your PR CI, which runs on the draft PR anyway. If a check needs a toolchain, use a [setup preset](../examples/setup-presets/).
 - [ ] **Merge policy.** Nothing in the kit merges, but the Claude GitHub App can merge its own pull request unless a ruleset stops it. Decide who merges once your default branch has the `update` rule: see [Repository hardening](repository-hardening.md).
 - [ ] **Whether `trusted_spec_authors` is set.** Empty (the default), review checks the Spec axis only against a Verified plan. Listing logins lets their `<!-- agent-kit-brief -->` issue comment stand in as the spec when there is no plan; see [Plan → implement → review](plan-implement-review.md).
+
+## Adopt with the CLI
+
+The CLI (from `v1.0.0-alpha.13`) does steps 3, 5 and 7's files for you, then prints steps 4, 6 and 8 as `gh` commands to run yourself. Run it from a clean checkout of your repository:
+
+```bash
+npx @mnaimfaizy/agent-kit init --tag <tag>
+```
+
+On a terminal it asks for the flows (`pipeline` for plan → implement → review, `audit` for the security audit, or both), the logins for `allowlist_actors`, the default branch, `verify_commands`, a [setup preset](../examples/setup-presets/) and where the Threat pack goes. Each answer is also a flag (`--flows`, `--actors`, `--default-branch`, `--verify`, `--preset`, `--threat-pack-dir`), and `--yes` asks nothing, for scripts and CI. It then:
+
+- copies every Kit-owned path from the tag (step 3);
+- writes `.github/workflows/agent-pipeline.yml` and/or `.github/workflows/security-audit.yml` from the tag's `examples/`, with your logins, the tag, your default branch, your `verify_commands` and the preset filled in (step 5). It refuses a tag whose example does not have the placeholders it expects, rather than write a half-filled Caller;
+- writes the Threat pack skeleton to `.security/threat-model.md` and `.security/findings-ledger.md`, or to `--threat-pack-dir`, and points the audit Caller there (step 7). Fill in the threat model before the first audit;
+- creates `.github/dependabot.yml` with the `github-actions` block if you have none; otherwise it prints the block for you to merge;
+- prints the secrets, labels, Claude GitHub App, rulesets and Kill switch steps as `gh` commands, and runs the `doctor --ci` checks.
+
+It writes only local files, commits nothing and changes no GitHub setting. It refuses, before writing anything, to overwrite an existing Caller, Threat pack file or Kit-owned path (`--force` overwrites; to move an existing adoption to another tag, use [`upgrade`](#upgrading)). Review `git diff`, commit, then work through the printed steps and the [first run](#9-first-run).
+
+The steps below are the same adoption by hand.
 
 ## 1. Prerequisites
 
@@ -123,7 +143,7 @@ Each run removes its label when it finishes, so adding it again re-runs the stag
 
 Skip if you only use plan → implement → review.
 
-1. **Threat pack.** Create the two files your Caller points at (defaults: `.security/threat-model.md`, `.security/findings-ledger.md`). The threat model lists assets, trust boundaries, and attack paths; the ledger holds only fingerprints (concept id, status, dates) of known findings, never details. This repository's own [threat model](../security/threat-model.md) and [ledger](../security/findings-ledger.md) are working examples.
+1. **Threat pack.** Create the two files your Caller points at (defaults: `.security/threat-model.md`, `.security/findings-ledger.md`). Start from the skeletons in [`examples/threat-pack/`](../examples/threat-pack/) (`init` copies them for you). The threat model lists assets, trust boundaries, and attack paths; the ledger holds only fingerprints (concept id, status, dates) of known findings, never details. This repository's own [threat model](../security/threat-model.md) and [ledger](../security/findings-ledger.md) are working examples.
 2. **Advisories on.** Private repositories: Settings → Code security → make sure security advisories are available. Delivery is a draft GitHub Security Advisory. The one exception is a failed publish with `notify_email` on, which emails the full report instead of losing it (see [security-audit.md](security-audit.md)).
 
 ## 8. Turn the flows on (Kill switch variables)
