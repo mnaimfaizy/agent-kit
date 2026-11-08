@@ -32,6 +32,10 @@ _Avoid_: pipeline (alone), feature
 An agent skill vendored in Agent-kit that a Consumer copies into `.claude/skills/` unchanged.
 _Avoid_: kit skill, core skill
 
+**Kit-owned path**:
+A path a Consumer copies verbatim from one tag and replaces whole on upgrade; the Consumer never edits it.
+_Avoid_: vendored files, kit folders
+
 **Companion skill**:
 A procedure skill (e.g. `implement`, `tdd`) that Agent-kit relies on but does not vendor; it comes from the **Companion library**.
 _Avoid_: dependency skill, bundled skill
