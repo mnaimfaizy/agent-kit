@@ -33,9 +33,11 @@ docs/issuebridge.md
 .claude/skills/security-audit/
 .claude/skills/security-finding-triage/
 .claude/skills/security-response/
+.claude/skills/explainer/
 
 examples/security-audit-caller.yml
 examples/plan-implement-review-caller.yml
+examples/explainer-config.md
 examples/setup-presets/python.sh
 examples/setup-presets/node.sh
 examples/setup-presets/mixed.sh
