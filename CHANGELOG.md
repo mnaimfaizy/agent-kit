@@ -6,6 +6,10 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
+## [1.0.0-alpha.11] - 2026-11-08
+
+Adoption release from the [#67](https://github.com/mnaimfaizy/agent-kit/issues/67) feedback. No workflow inputs, secrets or permissions changed. **Consumer action recommended**: re-copy the Kit-owned paths with the new loop.
+
 ### Added
 
 - A fifth Portable skill, `explainer`, for **Explainer Pages**: self-contained HTML diagrams, walkthroughs, and reference pages that let a named reader answer one question about a system. It writes a brief first (audience and one question; facts cited to source with a repo-wide collision check, or stated assumptions from an interview), then hands it to a builder that follows the skill's `BUILD.md` conventions (no network at load, three-state theme, no SVG `<title>` tooltip, reduced motion, measured rather than claimed visual review). Optional drift-proofing in `ANCHORS.md` embeds a manifest and citation anchors for a Consumer's own checker. Per-repository settings go in `docs/agents/explainer.md`; copy [`examples/explainer-config.md`](examples/explainer-config.md). Not used by any First-class flow.
