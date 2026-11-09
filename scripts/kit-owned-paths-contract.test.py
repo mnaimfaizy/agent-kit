@@ -68,7 +68,8 @@ def test_manifest_lists_the_expected_folders() -> None:
         assert runtime in entries, f"kit-owned-paths.txt is missing {runtime}"
     skills = {e for e in entries if e.startswith(".claude/skills/")}
     # Every Portable skill shipped in this repository is Kit-owned, so a new
-    # skill folder cannot ship without a manifest line.
+    # skill folder cannot ship without a manifest line. skills-list-contract.test.py
+    # checks this too, and names every other skill list that is out of step.
     shipped = {f".claude/skills/{d.name}/" for d in (ROOT / ".claude" / "skills").iterdir() if d.is_dir()}
     assert skills == shipped, (
         f"kit-owned-paths.txt skills {sorted(skills)} != .claude/skills/ folders {sorted(shipped)}"
