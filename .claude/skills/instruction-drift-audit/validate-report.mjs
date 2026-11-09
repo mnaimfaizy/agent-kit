@@ -57,10 +57,14 @@ const cannotRun = (message) => {
  * the checkout has moved on, and a local citation is a claim about the commit
  * the brief recorded, not about whatever is on disk now. This is also what
  * lets a frozen brief stay checkable forever.
+ *
+ * `<commit>:./<file>`, not `<commit>:<file>`: git resolves a bare path from
+ * the repository root, but citations are relative to `--repo`, which may be
+ * a folder inside it. The `./` makes git resolve it from `cwd`.
  */
 export const gitSource = (commit, cwd) => (file) => {
   try {
-    return execFileSync("git", ["show", `${commit}:${file}`], {
+    return execFileSync("git", ["show", `${commit}:./${file}`], {
       cwd,
       encoding: "utf8",
       maxBuffer: 64 * 1024 * 1024,
