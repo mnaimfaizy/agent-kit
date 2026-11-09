@@ -43,6 +43,6 @@ Above the first section the brief records its date, the commit every local citat
 
 A finding without a primary-source URL is not a finding. When two official pages disagree, record both and do not pick a winner.
 
-## The unmigrated briefs
+## Briefs with no report
 
-The three briefs written before [DESIGN.md](DESIGN.md) are free Markdown with no structured report beside them. They are read like any other frozen brief and are not migrated: a rule requiring a report beside every brief would fail on three documents nobody intends to change.
+A host may already hold briefs written as free Markdown before the report contract, with no structured report beside them. They are read like any other frozen brief and are not migrated, and none of them can be a ledger: only a committed report is. A rule requiring a report beside every brief would fail on documents nobody intends to change.

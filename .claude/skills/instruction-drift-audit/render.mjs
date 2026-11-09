@@ -13,8 +13,8 @@
  *
  * SECTION ORDER IS THE CONTRACT. `BRIEF_SECTIONS` is the order, in one place,
  * and `render.test.mjs` asserts the rendered headings against it in sequence.
- * Two of the three briefs written before the report contract invented a "checked and
- * clear" section the template lacked, which is what a fixed order is for.
+ * Early free-Markdown briefs invented a "checked and clear" section the
+ * template lacked (DESIGN.md, Lessons), which is what a fixed order is for.
  */
 
 import { ENTRY_LIST_FIELDS, UPSTREAM_URGENCIES, URGENCY_TITLES } from "./report.mjs";
