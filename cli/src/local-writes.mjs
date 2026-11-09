@@ -42,24 +42,29 @@ function lstatOrNull(path) {
  * strict rules for names that come from a tag), no part of it may be a
  * symbolic link or junction, and every existing parent must be a folder.
  */
-export function checkLocalPath(root, rel) {
+export function checkLocalPath(root, rel, { deleted = [] } = {}) {
   try {
     checkSafePath(rel);
   } catch (err) {
     throw new Refusal(err.message);
   }
-  checkNoLinks(root, rel);
+  checkNoLinks(root, rel, { deleted });
 }
 
 /**
  * Refuse unless no part of `rel` is a symbolic link or junction and every
  * existing parent is a folder. For the Consumer's own files, rewritten in
  * place, whose names need not follow the strict tag rules.
+ *
+ * `deleted` lists folders the plan deletes before it writes: what is on disk
+ * inside them now (a file the new tag turns into a folder, say) is gone by
+ * the time `rel` is written, so the walk stops there.
  */
-export function checkNoLinks(root, rel) {
+export function checkNoLinks(root, rel, { deleted = [] } = {}) {
   const parts = rel.split("/");
   for (let i = 1; i <= parts.length; i++) {
     const sub = parts.slice(0, i).join("/");
+    if (deleted.includes(sub)) return;
     const st = lstatOrNull(join(root, sub));
     if (!st) return;
     if (st.isSymbolicLink()) {
@@ -203,7 +208,7 @@ export function kitFileWrites(snap) {
 export function applyPlan(root, { deletes = [], writes, rewrites = [] }) {
   // Checked again here: time may have passed at the confirmation prompt.
   for (const rel of deletes) checkDeletable(root, rel);
-  for (const w of writes) checkLocalPath(root, w.path);
+  for (const w of writes) checkLocalPath(root, w.path, { deleted: deletes });
   for (const w of rewrites) checkNoLinks(root, w.path);
   for (const rel of deletes) rmSync(join(root, rel), { recursive: true, force: true });
   for (const w of [...writes, ...rewrites]) {
@@ -229,25 +234,38 @@ export function stageFileModes({ runner, root, writes }) {
   if (writes.length === 0 || !fileModeIsOff(runner, root)) return null;
   const git = safeGit(runner, root);
   try {
-    const add = writes.filter((w) => w.mode === EXECUTABLE_MODE).map((w) => w.path);
-    const regular = new Set(writes.filter((w) => w.mode !== EXECUTABLE_MODE).map((w) => w.path));
-    const indexed = runner("git", [...git.args, "ls-files", "-s", "-z", "--", ...regular]);
-    const drop =
-      indexed.status === 0
-        ? indexed.stdout
-            .split("\0")
-            .filter((e) => e.startsWith(`${EXECUTABLE_MODE} `))
-            .map((e) => e.slice(e.indexOf("\t") + 1))
-            .filter((f) => regular.has(f))
-        : [];
     const failed = [];
+    const add = writes.filter((w) => w.mode === EXECUTABLE_MODE).map((w) => w.path);
+    const regular = writes.filter((w) => w.mode !== EXECUTABLE_MODE).map((w) => w.path);
+    const regularSet = new Set(regular);
+    const drop = [];
+    for (const batch of batches(regular)) {
+      const indexed = runner("git", [...git.args, "ls-files", "-s", "-z", "--", ...batch]);
+      if (indexed.status !== 0) {
+        failed.push(`--chmod=-x (git ls-files: ${firstLine(indexed.stderr)}): ${batch.join(", ")}`);
+        continue;
+      }
+      drop.push(
+        ...indexed.stdout
+          .split("\0")
+          .filter((e) => e.startsWith(`${EXECUTABLE_MODE} `))
+          .map((e) => e.slice(e.indexOf("\t") + 1))
+          .filter((f) => regularSet.has(f)),
+      );
+    }
     for (const [flag, files] of [
       ["--chmod=+x", add],
       ["--chmod=-x", drop],
     ]) {
-      if (files.length === 0) continue;
-      const r = runner("git", [...git.args, "add", flag, "--", ...files]);
-      if (r.status !== 0) failed.push(`${flag} (${firstLine(r.stderr)}): ${files.join(", ")}`);
+      for (const batch of batches(files)) {
+        // --sparse: a path outside a sparse-checkout cone is refused without
+        // it. git before 2.34 has no --sparse; it then gets a plain add.
+        let r = runner("git", [...git.args, "add", "--sparse", flag, "--", ...batch]);
+        if (r.status !== 0 && /unknown option|usage: git add/i.test(r.stderr)) {
+          r = runner("git", [...git.args, "add", flag, "--", ...batch]);
+        }
+        if (r.status !== 0) failed.push(`${flag} (${firstLine(r.stderr)}): ${batch.join(", ")}`);
+      }
     }
     if (failed.length) {
       return (
@@ -263,4 +281,11 @@ export function stageFileModes({ runner, root, writes }) {
   } finally {
     git.done();
   }
+}
+
+/** Command-line-sized slices of a file list. */
+function batches(files, size = 200) {
+  const out = [];
+  for (let i = 0; i < files.length; i += size) out.push(files.slice(i, i + size));
+  return out;
 }

@@ -20,6 +20,7 @@ import { openKitRepo, PreManifestTagError, serverFromEnv } from "./kit-tag.mjs";
 import {
   applyPlan,
   checkDeletable,
+  checkLocalPath,
   checkNoLinks,
   kitFileWrites,
   Refusal,
@@ -67,6 +68,7 @@ export function planUpgrade({ runner, root, oldSnap, newSnap, files, force, pinn
   const deletes = [...newPaths, ...removed].map((p) => p.replace(/\/$/, ""));
   for (const rel of deletes) checkDeletable(root, rel);
   const writes = kitFileWrites(newSnap);
+  for (const w of writes) checkLocalPath(root, w.path, { deleted: deletes });
 
   const pinEdits = [];
   if (pinnedTag !== newSnap.tag) {

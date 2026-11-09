@@ -22,10 +22,12 @@ import { dirname, join } from "node:path";
 import { after, before, describe, it } from "node:test";
 import { pathToFileURL } from "node:url";
 import { findKitPins, rewriteKitPins } from "../cli/src/callers.mjs";
+import { PassThrough } from "node:stream";
 import { sanitizeLine } from "../cli/src/checks/result.mjs";
 import { main } from "../cli/src/cli.mjs";
 import { systemRunner } from "../cli/src/exec.mjs";
 import { openKitRepo, openKitTag } from "../cli/src/kit-tag.mjs";
+import { terminalPrompt } from "../cli/src/prompt.mjs";
 import { caseCollisions, checkSafePath, fileDirConflicts } from "../cli/src/safe-paths.mjs";
 
 const KIT = "mnaimfaizy/agent-kit";
@@ -40,6 +42,9 @@ const BAD = {
   badManifest: "v1.0.0-alpha.24",
   fileDir: "v1.0.0-alpha.25",
 };
+// A file at one tag that is a folder at the next.
+const FILE_AT = "v1.0.0-alpha.30";
+const FOLDER_AT = "v1.0.0-alpha.31";
 const GIT_ID = [
   "-c",
   "user.name=t",
@@ -187,6 +192,12 @@ before(() => {
     add(run, "100644", blob("file\n"), ".github/agent-runtime/x");
     add(run, "100644", blob("nested\n"), ".github/agent-runtime/X/y");
   });
+  plumbTag(kit, TO, FILE_AT, ({ run, blob }) =>
+    add(run, "100644", blob("a file\n"), ".github/agent-runtime/x"),
+  );
+  plumbTag(kit, TO, FOLDER_AT, ({ run, blob }) =>
+    add(run, "100644", blob("now in a folder\n"), ".github/agent-runtime/x/y"),
+  );
   kitUrl = pathToFileURL(kit).href;
 });
 after(() => rmSync(tmp, { recursive: true, force: true }));
@@ -552,6 +563,40 @@ describe("upgrade: file modes and Consumer file names", () => {
     const res = await upgrade(dir);
     assert.equal(res.code, 0, res.text);
     assert.equal(read(dir, ".github/workflows/deploy+review.yml"), callerYml(TO));
+  });
+});
+
+describe("upgrade: a file that becomes a folder", () => {
+  it("replaces the file with the folder, since the old path is deleted first", async () => {
+    const dir = makeConsumer({
+      tag: FILE_AT,
+      kitFiles: { ...KIT_PATHS_OF(TO_FILES), ".github/agent-runtime/x": "a file\n" },
+    });
+    const res = await upgrade(dir, ["--tag", FOLDER_AT, "--yes"]);
+    assert.equal(res.code, 0, res.text);
+    assert.equal(read(dir, ".github/agent-runtime/x/y"), "now in a folder\n");
+  });
+});
+
+describe("prompts", () => {
+  it("Ctrl-D answers empty instead of throwing", async () => {
+    const input = new PassThrough();
+    const output = new PassThrough();
+    input.isTTY = true;
+    output.isTTY = true;
+    const ask = terminalPrompt({ input, output });
+    const answer = ask("Go ahead? [y/N] ");
+    input.end();
+    assert.equal(await answer, "");
+  });
+
+  it("a declined or abandoned confirmation stops upgrade with nothing changed", async () => {
+    const dir = makeConsumer();
+    const before = snapshot(dir);
+    const res = await upgrade(dir, ["--tag", TO], { prompt: async () => "" });
+    assert.equal(res.code, 1, res.text);
+    assert.match(res.text, /Stopped\. Nothing was changed\./);
+    assert.deepEqual(snapshot(dir), before);
   });
 });
 
