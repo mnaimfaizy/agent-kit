@@ -37,6 +37,8 @@ jobs:
         run: uv run pytest
       - name: Node contract tests
         run: node --test scripts/*.test.mjs
+      - name: Portable skill suites
+        run: node --test .claude/skills/*/*.test.mjs
       - name: Release snapshot paths present
         run: uv run python scripts/verify_release_snapshot.py
 
