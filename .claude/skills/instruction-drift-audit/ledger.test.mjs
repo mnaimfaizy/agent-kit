@@ -573,21 +573,30 @@ test("same-day ledger reports tie-break by code point, not locale", () => {
     assert.equal(selectLatestLedgerReport(order, "nx").path, "b/2026-01-01-upstream-brief-nx.json");
 });
 
-test("a pre-release Baseline is compared against a range, not refused by it", () => {
+test("a pre-release Baseline is covered only by a range naming a pre-release of its version (semver)", () => {
   const covers = (range, version) => parseVersionRange(range).covers(version);
-  assert.equal(covers(">=15.0.0 <17.0.0", "16.0.0-canary.3"), true);
-  assert.equal(covers(">=16.0.0 <17.0.0", "16.0.0-canary.3"), false);
+  // Named on the same major.minor.patch: covered, and still bounded.
   assert.equal(covers(">=16.0.0-canary.1 <17.0.0", "16.0.0-canary.3"), true);
-  assert.equal(covers("16.x", "16.0.0-canary.3+sha.1"), true);
-  assert.equal(covers("16.0.0", "16.0.0-canary.3"), false);
+  assert.equal(covers(">=16.0.0-canary.5 <17.0.0", "16.0.0-canary.3"), false);
   assert.equal(covers("16.0.0-canary.3", "16.0.0-canary.3"), true);
+  assert.equal(covers("16.0.0-canary.3", "16.0.0-canary.3+sha.1"), true);
+  // Not named: never covered, inside the bounds or at the next major.
+  assert.equal(covers(">=15.0.0 <17.0.0", "16.0.0-canary.3"), false);
+  assert.equal(covers(">=15.0.0 <17.0.0", "17.0.0-canary.1"), false);
+  assert.equal(covers("<=17.0.0", "17.0.0-rc.1"), false);
+  assert.equal(covers("16.x", "16.0.0-canary.3"), false);
+  assert.equal(covers("16.0.0", "16.0.0-canary.3"), false);
+  // Releases and build metadata are unaffected.
+  assert.equal(covers(">=15.0.0 <17.0.0", "16.2.6"), true);
+  assert.equal(covers("16.x", "16.2.6+sha.1"), true);
   assert.equal(covers("22.x", "not-a-version"), false);
 
+  // A decline at the release line resurfaces at the next major's release candidate.
   const declined = { ...DECLINED[0], baselineRange: ">=22.0.0 <23.0.0" };
   const result = applyDeclinedOpportunities(nxOpportunities(), [declined], {
     lead: "nx",
-    baseline: "22.8.0-beta.1",
+    baseline: "23.0.0-rc.1",
   });
-  assert.equal(result.suppressed.length, 1);
-  assert.deepEqual(result.resurfaced, []);
+  assert.equal(result.suppressed.length, 0);
+  assert.equal(result.resurfaced[0].reason, "baseline-left-range");
 });
