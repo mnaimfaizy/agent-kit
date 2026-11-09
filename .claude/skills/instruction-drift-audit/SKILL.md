@@ -13,7 +13,7 @@ A user-invoked audit. The human names Ecosystems and, optionally, a Horizon for 
 
 Load [ADAPTER.md](ADAPTER.md) when resolving the host adapter. Load [REPORT.md](REPORT.md) when writing or validating the structured report. Load [BRIEF.md](BRIEF.md) when naming and committing what the run leaves behind. Load [LEDGER.md](LEDGER.md) when reading the previous run — what carries forward, what the delta says, and which Upstream Opportunities were declined. Load [DESIGN.md](DESIGN.md) when a rule needs its reason, or before changing this skill.
 
-`<skill>` in a command below is the folder this file is in, relative to the repository root — `.claude/skills/instruction-drift-audit`, `.agents/skills/instruction-drift-audit`, or wherever the host installed it. Every command runs from the repository root.
+`<skill>` in a command below is the absolute path of the folder this file is in, written with forward slashes (`C:/Users/me/...` on Windows). The folder may be inside the repository (for example `<repo>/.claude/skills/instruction-drift-audit`) or in your own skills directory outside it (for example `<home>/.claude/skills/instruction-drift-audit`). The commands keep `<skill>` inside double quotes, because the path may contain spaces. Every command runs from the root of the repository being audited.
 
 ## Guardrails
 
@@ -50,7 +50,7 @@ A correction belongs in the adapter's `members.add` / `members.remove` so the ne
 
 ### 4. Read the ledger
 
-For each resolved Ecosystem, the latest structured report committed in the brief directory that carries it is its ledger. Run `node <skill>/resolve-ledger.mjs` to see, per Ecosystem: which checked-and-clear claims carry forward to the new Baseline, which go back on the research list and why, and which declined Upstream Opportunities are still suppressed. [LEDGER.md](LEDGER.md) is the rule for all three.
+For each resolved Ecosystem, the latest structured report committed in the brief directory that carries it is its ledger. Run `node "<skill>/resolve-ledger.mjs"` to see, per Ecosystem: which checked-and-clear claims carry forward to the new Baseline, which go back on the research list and why, and which declined Upstream Opportunities are still suppressed. [LEDGER.md](LEDGER.md) is the rule for all three.
 
 A carried-forward claim is **not researched again** — it is written into this run's report as checked and clear, with the citations it already carried. An Ecosystem with no ledger researches everything and its report carries no `delta`. Frozen briefs are read, never edited.
 
@@ -119,16 +119,18 @@ Write the report as JSON. For every Ecosystem that had a ledger, set the report'
 ```bash
 node --input-type=module -e "
 import { readFileSync } from 'node:fs';
-import { classifyFindings } from './<skill>/ledger.mjs';
-const [draft, ledger] = process.argv.slice(1).map((p) => JSON.parse(readFileSync(p, 'utf8')));
+import { pathToFileURL } from 'node:url';
+const [ledgerModule, ...reports] = process.argv.slice(1);
+const { classifyFindings } = await import(pathToFileURL(ledgerModule).href);
+const [draft, ledger] = reports.map((p) => JSON.parse(readFileSync(p, 'utf8')));
 console.log(JSON.stringify(classifyFindings({ previous: ledger, ecosystems: draft.ecosystems }), null, 2));
-" <draft-report.json> <the ledger report step 4 named>
+" "<skill>/ledger.mjs" <draft-report.json> <the ledger report step 4 named>
 ```
 
 It returns `{newFindings, resolved, stillPresent}` to assign to `delta`, or `null` when no named Ecosystem had a ledger — `null` means **omit the key**, which is what a first run's absent delta means. Then run the validator, which validates before it renders:
 
 ```bash
-node <skill>/validate-report.mjs <report.json> \
+node "<skill>/validate-report.mjs" <report.json> \
   --out <normalized.json> --render <brief.md>
 ```
 

@@ -17,7 +17,7 @@ skill is portable, and a validator that needed a host repository's dependencies 
 ## Running it
 
 ```bash
-node <skill>/validate-report.mjs <report.json> \
+node "<skill>/validate-report.mjs" <report.json> \
   --out <normalized.json> --render <brief.md>
 ```
 
