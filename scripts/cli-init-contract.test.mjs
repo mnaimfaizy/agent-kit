@@ -176,7 +176,7 @@ describe("init: both flows from flags", () => {
   let res;
   before(async () => {
     dir = makeConsumer();
-    res = await init(dir);
+    res = await init(dir, [...FULL, "--default-branch", "trunk"]);
   });
 
   it("exits 0 and doctor's file and pin checks pass", () => {
@@ -352,9 +352,51 @@ describe("init: choices", () => {
     const res = await init(dir, [], { prompt });
     assert.equal(res.code, 0, res.text);
     assert.equal(asked.length, 7);
-    assert.match(asked[3], /Default branch \[trunk\]/);
-    assert.match(read(dir, ".github/workflows/agent-pipeline.yml"), /base_branch: "trunk"/);
+    // No origin/HEAD here: main, never the current branch (trunk).
+    assert.match(asked[3], /Default branch \[main\]/);
+    assert.match(read(dir, ".github/workflows/agent-pipeline.yml"), /base_branch: "main"/);
     assert.match(read(dir, ".github/workflows/agent-pipeline.yml"), /PYTHON_VERSION=/);
+  });
+
+  it("takes the default branch from origin's HEAD, and says which it used", async () => {
+    const dir = makeConsumer();
+    git(dir, "update-ref", "refs/remotes/origin/develop", "HEAD");
+    git(dir, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/develop");
+    const res = await init(dir);
+    assert.equal(res.code, 0, res.text);
+    assert.match(res.text, /Default branch in the Callers: develop/);
+    assert.match(read(dir, ".github/workflows/agent-pipeline.yml"), /base_branch: "develop"/);
+  });
+
+  it("an empty answer to a required question stops with that question", async () => {
+    const dir = makeConsumer();
+    const before = snapshot(dir);
+    const answers = [TAG, ""];
+    const asked = [];
+    const res = await init(dir, [], { prompt: async (q) => (asked.push(q), answers.shift()) });
+    assert.equal(res.code, 2, res.text);
+    assert.match(res.text, /Flows to set up .* is required \(--flows/);
+    assert.doesNotMatch(res.text, /no terminal/);
+    assert.equal(asked.length, 2);
+    assert.deepEqual(snapshot(dir), before);
+  });
+
+  it("--force lists the uncommitted changes it discards in Kit-owned paths", async () => {
+    const dir = makeConsumer({ ".github/agent-runtime/hook.mjs": "old\n" });
+    writeFileSync(join(dir, ".github/agent-runtime/hook.mjs"), "local edit\n");
+    const res = await init(dir, [...FULL, "--force"]);
+    assert.equal(res.code, 0, res.text);
+    assert.match(
+      res.text,
+      /--force: discarding uncommitted changes in 1 file[^\n]*\n {2}M \.github\/agent-runtime\/hook\.mjs/,
+    );
+  });
+
+  it("a Threat pack folder may be a parent of a Kit-owned path", async () => {
+    const dir = makeConsumer();
+    const res = await init(dir, [...FULL, "--threat-pack-dir", ".github"]);
+    assert.equal(res.code, 0, res.text);
+    assert.ok(existsSync(join(dir, ".github/threat-model.md")));
   });
 
   it("a no at the confirmation writes nothing", async () => {
@@ -430,6 +472,13 @@ describe("init: refusals change nothing", () => {
     }
     await refused(dir, [...FULL, "--force"], /\.github is a symbolic link or junction/);
     assert.deepEqual(readdirSync(outside), []);
+  });
+
+  it("refuses a folder where a Caller or Threat pack file goes, even with --force", async () => {
+    for (const path of [".github/workflows/agent-pipeline.yml", ".security/findings-ledger.md"]) {
+      const dir = makeConsumer({ [`${path}/keep.txt`]: "mine\n" });
+      await refused(dir, [...FULL, "--force"], /exists and is not a file/);
+    }
   });
 
   it("refuses a Threat pack folder that would clash with a planned file, before writing", async () => {

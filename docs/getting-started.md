@@ -14,7 +14,7 @@ You will:
 8. [Turn the flows on](#8-turn-the-flows-on-kill-switch-variables)
 9. [Do a first run](#9-first-run)
 
-Prefer a command? [Adopt with the CLI](#adopt-with-the-cli) does steps 3, 5 and 7 and prints the rest as `gh` commands. Along the way, settle the [decisions you'll make](#decisions-youll-make). Then [check the setup with `doctor`](#check-the-setup-with-doctor), and see [Troubleshooting](#troubleshooting) and [Upgrading](#upgrading).
+Prefer a command? [Adopt with the CLI](#adopt-with-the-cli) does steps 3, 5 and 7 and prints steps 4, 6 and 8 as `gh` commands. Along the way, settle the [decisions you'll make](#decisions-youll-make). Then [check the setup with `doctor`](#check-the-setup-with-doctor), and see [Troubleshooting](#troubleshooting) and [Upgrading](#upgrading).
 
 ## Decisions you'll make
 
