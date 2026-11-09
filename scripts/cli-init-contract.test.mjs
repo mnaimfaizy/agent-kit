@@ -425,7 +425,6 @@ describe("init: refusals change nothing", () => {
 
   for (const [what, files] of [
     ["a Caller", { ".github/workflows/agent-pipeline.yml": "name: mine\n" }],
-    ["a Threat pack file", { ".security/threat-model.md": "# mine\n" }],
     ["a Kit-owned path", { ".github/agent-runtime/hook.mjs": "old\n" }],
   ]) {
     it(`refuses to overwrite ${what} and points to upgrade; --force overwrites`, async () => {
@@ -443,6 +442,72 @@ describe("init: refusals change nothing", () => {
       assert.notEqual(read(dir, Object.keys(files)[0]), Object.values(files)[0]);
     });
   }
+
+  it("never overwrites an existing Threat pack file, even with --force", async () => {
+    const dir = makeConsumer({ ".security/findings-ledger.md": "| mine | open |\n" });
+    for (const args of [FULL, [...FULL, "--force"]]) {
+      const res = await init(dir, args);
+      assert.equal(res.code, 0, res.text);
+      assert.equal(read(dir, ".security/findings-ledger.md"), "| mine | open |\n");
+      assert.match(res.text, /Kept the existing Threat pack file\(s\)[^\n]*findings-ledger\.md/);
+      rmSync(join(dir, ".github"), { recursive: true, force: true });
+      rmSync(join(dir, ".claude"), { recursive: true, force: true });
+    }
+  });
+
+  it("--force lists uncommitted changes in a Caller it overwrites", async () => {
+    const dir = makeConsumer({ ".github/workflows/agent-pipeline.yml": "name: mine\n" });
+    writeFileSync(join(dir, ".github/workflows/agent-pipeline.yml"), "name: mine, edited\n");
+    const res = await init(dir, [...FULL, "--force"]);
+    assert.equal(res.code, 0, res.text);
+    assert.match(
+      res.text,
+      /discarding uncommitted changes[^\n]*\n(?: {2}.*\n)* {2}M \.github\/workflows\/agent-pipeline\.yml/,
+    );
+  });
+
+  it("adds a second flow later without --force: matching Kit-owned paths are left alone", async () => {
+    const dir = makeConsumer();
+    const first = await init(dir, [
+      "--tag",
+      TAG,
+      "--flows",
+      "pipeline",
+      "--actors",
+      "alice",
+      "--verify",
+      "make test",
+      "--yes",
+    ]);
+    assert.equal(first.code, 0, first.text);
+    git(dir, "add", "-A");
+    git(dir, "commit", "-qm", "pipeline");
+    const pipeline = read(dir, ".github/workflows/agent-pipeline.yml");
+    const second = await init(dir, [
+      "--tag",
+      TAG,
+      "--flows",
+      "audit",
+      "--actors",
+      "alice",
+      "--yes",
+    ]);
+    assert.equal(second.code, 0, second.text);
+    assert.match(second.text, /Left as they are \(they already match v1\.0\.0-alpha\.13\)/);
+    assert.ok(existsSync(join(dir, ".github/workflows/security-audit.yml")));
+    assert.equal(read(dir, ".github/workflows/agent-pipeline.yml"), pipeline);
+    assert.match(second.text, /PASS {2}Kit-owned paths match the pinned tag/);
+  });
+
+  it("a Kit-owned path that differs from the tag still needs --force, and the refusal says how to add a flow", async () => {
+    const dir = makeConsumer({ ".github/agent-runtime/hook.mjs": "old\n" });
+    const res = await init(dir, FULL);
+    assert.equal(res.code, 1, res.text);
+    assert.match(
+      res.text,
+      /To add a flow to an existing adoption, run init with only the new flow/,
+    );
+  });
 
   it("refuses a tag without kit-owned-paths.txt", async () => {
     await refused(makeConsumer(), ["--tag", PRE, ...FULL.slice(2)], /has no kit-owned-paths\.txt/);

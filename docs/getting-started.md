@@ -36,7 +36,7 @@ None of these blocks the first run, but each comes up during setup. Settle them 
 
 ## Adopt with the CLI
 
-The CLI (from `v1.0.0-alpha.13`) does steps 3, 5 and 7's files for you, then prints steps 4, 6 and 8 as `gh` commands to run yourself. Run it from a clean checkout of your repository:
+The CLI (from `v1.0.0-alpha.13`) writes the files for steps 3, 5 and 7, then prints steps 4, 6 and 8 as `gh` commands to run yourself. Run it from a clean checkout of your repository:
 
 ```bash
 npx @mnaimfaizy/agent-kit init --tag <tag>
@@ -50,7 +50,7 @@ On a terminal it asks for the flows (`pipeline` for plan → implement → revie
 - creates `.github/dependabot.yml` with the `github-actions` block if you have none; otherwise it prints the block for you to merge;
 - prints the secrets, labels, Claude GitHub App, rulesets and Kill switch steps as `gh` commands, and runs the `doctor --ci` checks.
 
-It writes only local files, commits nothing and changes no GitHub setting. It refuses, before writing anything, to overwrite an existing Caller, Threat pack file or Kit-owned path (`--force` overwrites; to move an existing adoption to another tag, use [`upgrade`](#upgrading)). Review `git diff`, commit, then work through the printed steps and the [first run](#9-first-run).
+It writes only local files, commits nothing and changes no GitHub setting. It refuses, before writing anything, to overwrite an existing Caller or Kit-owned path (`--force` overwrites, and lists any uncommitted changes it would discard first), and never overwrites an existing Threat pack file. Kit-owned paths that already match the tag are left alone, so to add the other flow later, run `init` again with just that flow. To move an existing adoption to another tag, use [`upgrade`](#upgrading). Review `git diff`, commit, then work through the printed steps and the [first run](#9-first-run).
 
 The steps below are the same adoption by hand.
 
