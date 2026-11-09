@@ -11,14 +11,29 @@ import { sanitizeLine } from "./checks/result.mjs";
  */
 export function terminalPrompt({ input, output }) {
   if (!input.isTTY || !output.isTTY) return null;
-  return async (question) => {
-    const rl = createInterface({ input, output, terminal: true });
-    try {
-      return (await rl.question(sanitizeLine(question))).trim();
-    } finally {
-      rl.close();
-    }
-  };
+  // Ctrl-D (end of input) and Ctrl-C answer "" rather than throwing or
+  // ending the process, so the command stops cleanly ("Stopped. Nothing was
+  // changed.") and still removes its temporary repository.
+  return (question) =>
+    new Promise((resolve) => {
+      const rl = createInterface({ input, output, terminal: true });
+      let done = false;
+      const finish = (answer) => {
+        if (done) return;
+        done = true;
+        rl.close();
+        resolve(answer);
+      };
+      rl.on("close", () => finish(""));
+      rl.on("SIGINT", () => {
+        output.write("\n");
+        finish("");
+      });
+      rl.question(sanitizeLine(question)).then(
+        (answer) => finish(answer.trim()),
+        () => finish(""),
+      );
+    });
 }
 
 /** Ask a yes/no question; anything but y or yes is no. */
