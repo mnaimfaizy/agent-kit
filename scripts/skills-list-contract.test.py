@@ -42,10 +42,14 @@ def skill_names(root: Path) -> list[str]:
 
 INVALID_YAML = object()
 NO_SKILL_MD = object()
+NOT_UTF8 = object()
 
 
 def frontmatter(skill_md: Path) -> dict:
-    """The YAML between the opening `---` line and the next `---` line; raises yaml.YAMLError if it does not parse."""
+    """The YAML between the opening `---` line and the next `---` line.
+
+    Raises UnicodeDecodeError if the file is not UTF-8, and yaml.YAMLError if the YAML does not parse.
+    """
     lines = skill_md.read_text(encoding="utf-8-sig").splitlines()
     delimiters = [n for n, line in enumerate(lines) if line.rstrip() == "---"]
     if len(delimiters) < 2 or delimiters[0] != 0:
@@ -54,25 +58,22 @@ def frontmatter(skill_md: Path) -> dict:
     return data if isinstance(data, dict) else {}
 
 
-def declared_scope(root: Path, name: str) -> str | None:
-    skill_md = root / SKILLS / name / "SKILL.md"
-    if not skill_md.is_file():
-        return None
-    metadata = frontmatter(skill_md).get("metadata")
-    return metadata.get("agent-kit-scope") if isinstance(metadata, dict) else None
-
-
 def declared_scopes(root: Path, folders: list[str]) -> dict[str, object]:
-    """Each skill's declared scope: a value, None when it declares none, NO_SKILL_MD, or INVALID_YAML."""
+    """Each skill's declared scope: a value, None when it declares none, NO_SKILL_MD, NOT_UTF8 or INVALID_YAML."""
     scopes: dict[str, object] = {}
     for name in folders:
-        if not (root / SKILLS / name / "SKILL.md").is_file():
+        skill_md = root / SKILLS / name / "SKILL.md"
+        if not skill_md.is_file():
             scopes[name] = NO_SKILL_MD
             continue
         try:
-            scopes[name] = declared_scope(root, name)
+            metadata = frontmatter(skill_md).get("metadata")
+        except UnicodeDecodeError:
+            scopes[name] = NOT_UTF8
         except yaml.YAMLError:
             scopes[name] = INVALID_YAML
+        else:
+            scopes[name] = metadata.get("agent-kit-scope") if isinstance(metadata, dict) else None
     return scopes
 
 
@@ -184,6 +185,8 @@ def skills_list_problems(root: Path) -> list[str]:
     for name, scope in scopes.items():
         if scope is NO_SKILL_MD:
             problems.append(f"SKILL.md is missing from {name}")
+        elif scope is NOT_UTF8:
+            problems.append(f"SKILL.md is not valid UTF-8 in {name}")
         elif scope is INVALID_YAML:
             problems.append(f"SKILL.md frontmatter is not valid YAML in {name}")
         elif scope is None:
@@ -267,6 +270,12 @@ def test_gate_reads_frontmatter_closed_at_the_end_of_the_file(tmp_path: Path) ->
     assert skills_list_problems(root) == []
 
 
+def test_gate_names_a_skill_md_that_is_not_utf8(tmp_path: Path) -> None:
+    root = make_repo(tmp_path, {"alpha": "user", "beta": "repo"})
+    (root / SKILLS / "beta" / "SKILL.md").write_bytes(b"---\nname: beta\ndescription: caf\xe9\n---\n")
+    assert skills_list_problems(root) == ["SKILL.md is not valid UTF-8 in beta"]
+
+
 def test_gate_names_a_skill_folder_with_no_skill_md(tmp_path: Path) -> None:
     root = make_repo(tmp_path, {"alpha": "user", "beta": "repo"})
     (root / SKILLS / "beta" / "SKILL.md").rename(root / SKILLS / "beta" / "skill.txt")
@@ -331,6 +340,7 @@ def test_adopt_puts_no_count_on_the_shipped_skill_folders() -> None:
 def test_every_portable_skill_declares_a_valid_scope() -> None:
     for name, scope in declared_scopes(ROOT, skill_names(ROOT)).items():
         assert scope is not NO_SKILL_MD, f".claude/skills/{name}/ has no SKILL.md"
+        assert scope is not NOT_UTF8, f".claude/skills/{name}/SKILL.md is not valid UTF-8"
         assert scope is not INVALID_YAML, f".claude/skills/{name}/SKILL.md: frontmatter is not valid YAML"
         assert scope in SCOPES, (
             f".claude/skills/{name}/SKILL.md: metadata.agent-kit-scope is {scope!r}, expected one of {SCOPES}"
@@ -345,6 +355,7 @@ if __name__ == "__main__":
     test_gate_names_skills_without_a_valid_scope(Path(tempfile.mkdtemp()))
     test_gate_names_a_skill_whose_frontmatter_is_not_valid_yaml(Path(tempfile.mkdtemp()))
     test_gate_reads_frontmatter_closed_at_the_end_of_the_file(Path(tempfile.mkdtemp()))
+    test_gate_names_a_skill_md_that_is_not_utf8(Path(tempfile.mkdtemp()))
     test_gate_names_a_skill_folder_with_no_skill_md(Path(tempfile.mkdtemp()))
     test_gate_reads_frontmatter_delimiters_with_trailing_whitespace(Path(tempfile.mkdtemp()))
     test_gate_names_a_skill_listed_twice(Path(tempfile.mkdtemp()))
