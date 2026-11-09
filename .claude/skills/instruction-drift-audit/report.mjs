@@ -243,12 +243,11 @@ export const collapseWhitespace = (s) => String(s).replace(/\s+/g, " ").trim();
 const collapse = collapseWhitespace;
 
 /**
- * Compare two "x.y.z"-shaped version strings segment by segment. Not a full
- * semver implementation — there is no ordering rule here for pre-release or
- * build metadata — because every Baseline, Horizon, and `minVersion` this
- * contract compares is a released version number (the Baseline resolver
- * reads an installed package's own manifest; a Horizon and a `minVersion`
- * are named the same way), never a pre-release channel.
+ * Compare two "x.y.z"-shaped version strings segment by segment. A Baseline
+ * comes from an installed manifest, which can be a pre-release, so semver's
+ * pre-release rule applies: `16.0.0-canary.3` sorts below `16.0.0`, and two
+ * pre-releases of one version compare identifier by identifier (numeric ones
+ * as numbers, and below alphanumeric ones). Build metadata (`+…`) is ignored.
  *
  * Exported for `ledger.mjs`, whose range comparisons (a `holdsFor` range
  * against a new Baseline, a decline's range against the same) must order
@@ -257,21 +256,39 @@ const collapse = collapseWhitespace;
  * @returns {number} negative if `a` < `b`, positive if `a` > `b`, 0 if equal
  */
 export function compareVersions(a, b) {
-  const parts = (v) =>
-    String(v)
-      .trim()
-      .replace(/^v/, "")
-      .split(".")
-      .map((segment) => parseInt(segment, 10) || 0);
-  const pa = parts(a);
-  const pb = parts(b);
-  const length = Math.max(pa.length, pb.length);
+  const split = (v) => {
+    const [core, ...pre] = String(v).trim().replace(/^v/, "").split("+")[0].split("-");
+    return {
+      core: core.split(".").map((segment) => parseInt(segment, 10) || 0),
+      pre: pre.length ? pre.join("-").split(".") : [],
+    };
+  };
+  const va = split(a);
+  const vb = split(b);
+  const length = Math.max(va.core.length, vb.core.length);
   for (let i = 0; i < length; i += 1) {
-    const diff = (pa[i] ?? 0) - (pb[i] ?? 0);
+    const diff = (va.core[i] ?? 0) - (vb.core[i] ?? 0);
     if (diff !== 0) return diff;
+  }
+  // A release outranks its own pre-releases.
+  if (!va.pre.length || !vb.pre.length) return vb.pre.length - va.pre.length;
+  const numeric = /^\d+$/;
+  for (let i = 0; i < Math.max(va.pre.length, vb.pre.length); i += 1) {
+    const x = va.pre[i];
+    const y = vb.pre[i];
+    if (x === undefined || y === undefined) return x === undefined ? -1 : 1;
+    if (x === y) continue;
+    const xn = numeric.test(x);
+    const yn = numeric.test(y);
+    if (xn && yn) return Number(x) - Number(y);
+    if (xn !== yn) return xn ? -1 : 1;
+    return x < y ? -1 : 1;
   }
   return 0;
 }
+
+/** What `compareVersions` can order: `22`, `22.1`, `16.0.0-canary.3`, `v1.2.3+build`. */
+export const VERSION_NUMBER = /^v?\d+(?:\.\d+)*(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 
 /**
  * The lines of a file a `file:line` citation can name. A file ending in a
@@ -491,6 +508,11 @@ function validateEntry(kind, raw, readSource, context = {}) {
     if (!isText(raw.technique)) problem = ["malformed", "technique is absent or empty"];
     if (!problem && raw.minVersion !== undefined && !isText(raw.minVersion))
       problem = ["malformed", "minVersion, when present, is a version string"];
+    if (!problem && isText(raw.minVersion) && !VERSION_NUMBER.test(raw.minVersion.trim()))
+      problem = [
+        "malformed",
+        `minVersion ${JSON.stringify(raw.minVersion)} is not a version number such as 22.1.0`,
+      ];
     if (!problem)
       problem =
         sourceProblems(raw, {

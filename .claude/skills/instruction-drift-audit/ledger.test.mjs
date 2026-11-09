@@ -549,3 +549,26 @@ test("an unreadable declined range suppresses nothing", () => {
   assert.equal(result.kept.length, 1);
   assert.match(result.resurfaced[0].detail, /covers no Baseline/);
 });
+
+test("a decline appended at a later Baseline suppresses even when an earlier one no longer holds", () => {
+  const stale = { ...DECLINED[0], baselineRange: "21.x" };
+  const result = applyDeclinedOpportunities(nxOpportunities(), [stale, DECLINED[0]], {
+    lead: "nx",
+    baseline: "22.7.7",
+  });
+  assert.deepEqual(result.kept, []);
+  assert.equal(result.suppressed.length, 1);
+  assert.equal(result.suppressed[0].entry.baselineRange, DECLINED[0].baselineRange);
+  assert.deepEqual(result.resurfaced, []);
+});
+
+test("same-day ledger reports tie-break by code point, not locale", () => {
+  const day = (path) => ({ path, report: { date: "2026-01-01", ecosystems: [{ lead: "nx" }] } });
+  const reports = [
+    day("b/2026-01-01-upstream-brief-nx.json"),
+    day("b/2026-01-01-upstream-brief-nx-next.json"),
+  ];
+  // "." (0x2E) sorts after "-" (0x2D) whatever the machine's locale.
+  for (const order of [reports, [...reports].reverse()])
+    assert.equal(selectLatestLedgerReport(order, "nx").path, "b/2026-01-01-upstream-brief-nx.json");
+});

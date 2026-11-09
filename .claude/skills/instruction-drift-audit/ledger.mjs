@@ -410,20 +410,26 @@ export function computeLedgerDelta({ previous, ecosystems, readCurrent }) {
 /**
  * The ledger itself: the latest committed report that carries this Ecosystem.
  *
- * Latest by the report's own recorded date, ties broken by path so two reports
- * written on one day resolve the same way on every filesystem. A report that
+ * Latest by the report's own recorded date, ties broken by path (by code
+ * point, not locale) so two reports written on one day resolve the same way
+ * on every machine. The tie-break is deterministic, not chronological: a
+ * report records a date, not a time, so two runs naming the same Ecosystem on
+ * one day cannot be ordered by when they ran. A report that
  * does not name this lead is not this Ecosystem's ledger however recent it is.
  *
  * @param {Array<{path: string, report: object}>} reports
  * @param {string} lead
  * @returns {{path: string, report: object, ecosystem: object}|null}
  */
+/** Locale-independent order: `localeCompare` differs between machines. */
+const byCodePoint = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+
 export function selectLatestLedgerReport(reports, lead) {
   const candidates = (reports ?? [])
     .filter(({ report }) => findEcosystem(report, lead))
     .sort((a, b) => {
-      const byDate = String(a.report?.date ?? "").localeCompare(String(b.report?.date ?? ""));
-      return byDate !== 0 ? byDate : String(a.path).localeCompare(String(b.path));
+      const byDate = byCodePoint(String(a.report?.date ?? ""), String(b.report?.date ?? ""));
+      return byDate !== 0 ? byDate : byCodePoint(String(a.path), String(b.path));
     });
   const latest = candidates[candidates.length - 1];
   return latest
@@ -620,21 +626,32 @@ export function applyDeclinedOpportunities(opportunities, entries, { lead, basel
   const resurfaced = [];
 
   for (const opportunity of opportunities ?? []) {
-    const entry = (entries ?? []).find((candidate) => declines(candidate, opportunity, lead));
-    if (!entry) {
+    const matching = (entries ?? []).filter((candidate) => declines(candidate, opportunity, lead));
+    if (!matching.length) {
       kept.push(opportunity);
       continue;
     }
 
-    const range = parseVersionRange(entry.baselineRange);
-    const inRange = range.ok && range.covers(baseline);
-    const quoteHeld =
-      collapseWhitespace(entry.quote ?? "") === collapseWhitespace(opportunity?.benefitQuote ?? "");
-
-    if (inRange && quoteHeld) {
-      suppressed.push({ opportunity, entry });
+    const holds = (candidate) => {
+      const range = parseVersionRange(candidate.baselineRange);
+      return (
+        range.ok &&
+        range.covers(baseline) &&
+        collapseWhitespace(candidate.quote ?? "") ===
+          collapseWhitespace(opportunity?.benefitQuote ?? "")
+      );
+    };
+    // A human may decline the same Opportunity again at a later Baseline by
+    // appending an entry: any entry that still holds suppresses it. Only when
+    // none does is it resurfaced, with the reason the first one gives.
+    const holding = matching.find(holds);
+    if (holding) {
+      suppressed.push({ opportunity, entry: holding });
       continue;
     }
+    const entry = matching[0];
+    const range = parseVersionRange(entry.baselineRange);
+    const inRange = range.ok && range.covers(baseline);
     kept.push(opportunity);
     resurfaced.push({
       opportunity,

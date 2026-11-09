@@ -28,6 +28,7 @@ import {
   UPSTREAM_URGENCIES,
   URGENCY_TITLES,
   UpstreamReportRejected,
+  compareVersions,
   normalizeUpstreamReport,
   recheckUpstreamReport,
   verifyLocalEvidence,
@@ -662,4 +663,34 @@ test("incidentalOwners replaces the default owner list", () => {
   });
   assert.equal(report.unverified.length, 0);
   assert.equal(report.ecosystems[1].incidental[0].owner, "DepAudit");
+});
+
+test("compareVersions ranks a pre-release below its release (semver)", () => {
+  assert.ok(compareVersions("16.0.0-canary.3", "16.0.0") < 0);
+  assert.ok(compareVersions("16.0.0", "16.0.0-canary.3") > 0);
+  assert.ok(compareVersions("16.0.0-canary.3", "16.0.0-canary.10") < 0);
+  assert.ok(compareVersions("16.0.0-alpha", "16.0.0-beta") < 0);
+  assert.ok(compareVersions("16.0.0-1", "16.0.0-alpha") < 0);
+  assert.ok(compareVersions("16.0.0-canary.3", "15.9.9") > 0);
+  assert.equal(compareVersions("v1.2.3+build.7", "1.2.3"), 0);
+  assert.equal(compareVersions("22", "22.0.0"), 0);
+});
+
+test("an Opportunity whose minVersion is the release of a pre-release Baseline needs a Horizon", () => {
+  const raw = fixtureReport();
+  delete raw.ecosystems[0].horizon;
+  raw.ecosystems[0].baseline = "16.3.0-canary.3";
+  raw.ecosystems[0].opportunities[0].minVersion = "16.3.0";
+  const report = normalize(raw);
+  assert.equal(report.unverified.length, 1);
+  assert.equal(report.unverified[0].reason, "opportunity-beyond-horizon");
+});
+
+test("a minVersion that is not a version number is malformed, not silently ordered", () => {
+  const raw = fixtureReport();
+  raw.ecosystems[0].opportunities[0].minVersion = "Nx 22.1";
+  const report = normalize(raw);
+  assert.equal(report.unverified.length, 1);
+  assert.equal(report.unverified[0].reason, "malformed");
+  assert.match(report.unverified[0].detail, /not a version number/);
 });

@@ -12,14 +12,15 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
 import { fixtureReader, fixtureReport } from "./report.test.mjs";
 import { BRIEF_SECTIONS } from "./render.mjs";
-import { main, parseArgs } from "./validate-report.mjs";
+import { gitSource, main, parseArgs } from "./validate-report.mjs";
 
 const workspace = () => mkdtempSync(join(tmpdir(), "instruction-drift-audit-"));
 
@@ -152,4 +153,24 @@ test("exit 2: a flag that needs a path and was given none", () => {
   const { code, output } = run([writeReport(dir), "--out"]);
   assert.equal(code, 2);
   assert.match(output, /--out needs a path/);
+});
+
+test("gitSource reads a citation relative to --repo, not to the git root", () => {
+  const root = workspace();
+  const sub = join(root, "packages", "web");
+  mkdirSync(sub, { recursive: true });
+  writeFileSync(join(root, "package.json"), "root\n");
+  writeFileSync(join(sub, "package.json"), "web\n");
+  const git = (...args) =>
+    execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.com", ...args], {
+      cwd: root,
+      encoding: "utf8",
+    }).trim();
+  git("init", "--quiet");
+  git("add", ".");
+  git("commit", "--quiet", "--no-verify", "-m", "fixture");
+  const commit = git("rev-parse", "HEAD");
+  assert.equal(gitSource(commit, sub)("package.json"), "web\n");
+  assert.equal(gitSource(commit, root)("package.json"), "root\n");
+  assert.equal(gitSource(commit, sub)("missing.json"), null);
 });
