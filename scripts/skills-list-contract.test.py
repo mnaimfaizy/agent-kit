@@ -18,6 +18,11 @@ rewrites docs. The lists:
   is `` `<name>` `` or `` [`<name>`](link) ``, and its scope cell is `user` or
   `repo`, equal to the skill's own declaration;
 - each skill's `metadata.agent-kit-scope`.
+
+`kit-owned-paths-contract.test.py` also checks the first two lists, against the
+manifest's other rules. The overlap is on purpose: this gate is the one place
+whose failure names every list that is out of step after a skill is added or
+deleted. Change the two together.
 """
 
 import re
@@ -35,11 +40,15 @@ def skill_names(root: Path) -> list[str]:
     return sorted(d.name for d in (root / SKILLS).iterdir() if d.is_dir())
 
 
+INVALID_YAML = object()
+
+
 def frontmatter(skill_md: Path) -> dict:
-    text = skill_md.read_text(encoding="utf-8-sig").replace("\r\n", "\n")
-    if not text.startswith("---\n") or "\n---\n" not in text[3:]:
+    """The YAML between the opening `---` line and the next `---` line; raises yaml.YAMLError if it does not parse."""
+    lines = skill_md.read_text(encoding="utf-8-sig").splitlines()
+    if not lines or lines[0] != "---" or "---" not in lines[1:]:
         return {}
-    data = yaml.safe_load(text[4 : text.index("\n---\n", 3)])
+    data = yaml.safe_load("\n".join(lines[1 : lines.index("---", 1)]))
     return data if isinstance(data, dict) else {}
 
 
@@ -49,6 +58,17 @@ def declared_scope(root: Path, name: str) -> str | None:
         return None
     metadata = frontmatter(skill_md).get("metadata")
     return metadata.get("agent-kit-scope") if isinstance(metadata, dict) else None
+
+
+def declared_scopes(root: Path, folders: list[str]) -> dict[str, object]:
+    """Each skill's declared scope: a value, None when it declares none, or INVALID_YAML."""
+    scopes: dict[str, object] = {}
+    for name in folders:
+        try:
+            scopes[name] = declared_scope(root, name)
+        except yaml.YAMLError:
+            scopes[name] = INVALID_YAML
+    return scopes
 
 
 def kit_owned_skills(root: Path) -> list[str]:
@@ -138,6 +158,7 @@ def skills_list_problems(root: Path) -> list[str]:
     ]
     table = None
     # docs/install-skills.md ships with the Skill installer docs (#112); until then there is no table to check.
+    # #112 must drop this is_file() guard when it adds the page, so a later rename or deletion fails as "not found".
     if (root / INSTALL_SKILLS).is_file():
         table = install_scope_table(root)
         names = None if table is None else [skill for skill, _ in table]
@@ -148,15 +169,17 @@ def skills_list_problems(root: Path) -> list[str]:
             problems.append(f"{label} not found ({why_not_found})")
         else:
             problems += out_of_step(label, listed, folders)
+    scopes = declared_scopes(root, folders)
     for skill, scope in table or []:
-        declared = declared_scope(root, skill)
-        if skill in folders and declared in SCOPES and scope != declared:
+        declared = scopes.get(skill)
+        if declared in SCOPES and scope != declared:
             problems.append(
                 f"docs/install-skills.md scope table says {skill} is {scope}, but its SKILL.md declares {declared}"
             )
-    for name in folders:
-        scope = declared_scope(root, name)
-        if scope is None:
+    for name, scope in scopes.items():
+        if scope is INVALID_YAML:
+            problems.append(f"SKILL.md frontmatter is not valid YAML in {name}")
+        elif scope is None:
             problems.append(f"metadata.agent-kit-scope is missing from {name}")
         elif scope not in SCOPES:
             problems.append(f"metadata.agent-kit-scope is not user or repo in {name} ({scope!r})")
@@ -223,6 +246,20 @@ def test_gate_names_skills_without_a_valid_scope(tmp_path: Path) -> None:
     ]
 
 
+def test_gate_names_a_skill_whose_frontmatter_is_not_valid_yaml(tmp_path: Path) -> None:
+    root = make_repo(tmp_path, {"alpha": "user", "beta": "repo"})
+    (root / SKILLS / "beta" / "SKILL.md").write_text("---\nname: beta\ndescription: Foo: bar\n---\n", encoding="utf-8")
+    assert skills_list_problems(root) == ["SKILL.md frontmatter is not valid YAML in beta"]
+
+
+def test_gate_reads_frontmatter_closed_at_the_end_of_the_file(tmp_path: Path) -> None:
+    root = make_repo(tmp_path, {"alpha": "user", "beta": "repo"})
+    (root / SKILLS / "beta" / "SKILL.md").write_text(
+        "---\nname: beta\ndescription: d\nmetadata:\n  agent-kit-scope: repo\n---", encoding="utf-8"
+    )
+    assert skills_list_problems(root) == []
+
+
 def test_gate_names_a_skill_listed_twice(tmp_path: Path) -> None:
     root = make_repo(tmp_path, {"alpha": "user", "beta": "repo"})
     with (root / "kit-owned-paths.txt").open("a", encoding="utf-8") as f:
@@ -284,6 +321,8 @@ if __name__ == "__main__":
     test_gate_names_every_list_missing_a_skill_when_a_folder_is_added(Path(tempfile.mkdtemp()))
     test_gate_names_every_list_with_an_extra_skill_when_a_folder_is_deleted(Path(tempfile.mkdtemp()))
     test_gate_names_skills_without_a_valid_scope(Path(tempfile.mkdtemp()))
+    test_gate_names_a_skill_whose_frontmatter_is_not_valid_yaml(Path(tempfile.mkdtemp()))
+    test_gate_reads_frontmatter_closed_at_the_end_of_the_file(Path(tempfile.mkdtemp()))
     test_gate_names_a_skill_listed_twice(Path(tempfile.mkdtemp()))
     test_gate_reads_linked_table_cells_and_bom_frontmatter(Path(tempfile.mkdtemp()))
     test_gate_checks_the_install_skills_scope_table_once_it_exists(Path(tempfile.mkdtemp()))
