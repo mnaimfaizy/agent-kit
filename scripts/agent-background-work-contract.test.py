@@ -10,7 +10,7 @@ Every agent step therefore:
 - sets CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1, which removes the
   `run_in_background` parameter from the Bash and subagent tools, so a subagent
   can only run in the foreground (review keeps its parallel subagents);
-- denies the scheduling and messaging tools a CI run never needs.
+- denies the scheduling, messaging and background tools a CI run never needs.
 The planner and the auditor do one task in one session, so they deny Agent too.
 """
 
@@ -25,8 +25,17 @@ AGENT_STEPS = {
     "security-audit-reusable.yml": "Run security audit (Claude Code)",
 }
 SINGLE_SESSION = {"agent-plan-reusable.yml", "security-audit-reusable.yml"}
-# Tools that need no permission and can leave a run waiting or reach outside it.
-NEVER_IN_CI = ("ScheduleWakeup", "CronCreate", "RemoteTrigger", "SendMessage")
+# Tools that need no permission and can leave a run waiting or reach outside it,
+# plus Workflow and Monitor, which start background work the variable may not cover.
+NEVER_IN_CI = (
+    "ScheduleWakeup",
+    "CronCreate",
+    "RemoteTrigger",
+    "SendMessage",
+    "Workflow",
+    "Monitor",
+    "PushNotification",
+)
 AUDIT_PROMPT = ROOT / ".github" / "security-audit" / "prompt.md"
 
 

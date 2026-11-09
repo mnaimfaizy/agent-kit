@@ -236,7 +236,7 @@ jobs:
             --model ${{ inputs.model }}
             --max-turns 40
             --allowedTools "Read,Glob,Grep,Write"
-            --disallowedTools "Read(./.git/**),Edit(./.github/agent-runtime/**),Edit(./.claude/**),Edit(./.mcp.json),Bash,Agent,ScheduleWakeup,CronCreate,RemoteTrigger,SendMessage"
+            --disallowedTools "Read(./.git/**),Edit(./.github/agent-runtime/**),Edit(./.claude/**),Edit(./.mcp.json),Bash,Agent,ScheduleWakeup,CronCreate,RemoteTrigger,SendMessage,Workflow,Monitor,PushNotification"
 
       - name: Verify read-confinement hook unchanged
         env:
