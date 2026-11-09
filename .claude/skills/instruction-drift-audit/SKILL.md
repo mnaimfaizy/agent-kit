@@ -3,6 +3,8 @@ name: instruction-drift-audit
 description: Write one Upstream Brief comparing repo-owned instructions to official docs for the Ecosystems and Horizons the human names.
 disable-model-invocation: true
 argument-hint: "ecosystem[@horizon] [ecosystem[@horizon] ...]"
+metadata:
+  agent-kit-scope: user
 ---
 
 # Instruction Drift Audit
