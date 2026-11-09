@@ -113,8 +113,8 @@ def test_planner_and_reviewer_confine_reads_and_review_every_grant() -> None:
     plan = _step(read(PLAN_WORKFLOW), "Run planner (Claude Code)")
     assert '--allowedTools "Read,Glob,Grep,Write"' in plan
     assert (
-        '--disallowedTools "Read(./.git/**),Edit(./.github/agent-runtime/**),Edit(./.claude/**),Edit(./.mcp.json),Bash"'
-        in plan
+        '--disallowedTools "Read(./.git/**),Edit(./.github/agent-runtime/**),Edit(./.claude/**),Edit(./.mcp.json),'
+        'Bash,Agent,ScheduleWakeup,CronCreate,RemoteTrigger,SendMessage"' in plan
     )
     assert "read-confinement.settings.json" in plan
     assert "Bash(" not in plan
@@ -128,7 +128,8 @@ def test_planner_and_reviewer_confine_reads_and_review_every_grant() -> None:
     for forbidden in ("Edit", "Write", "MultiEdit", "Bash(npm:", "Bash(cargo:"):
         assert forbidden not in allowed
     assert (
-        '--disallowedTools "Read(./.git/**),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(gh pr comment:*)"'
+        '--disallowedTools "Read(./.git/**),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(gh pr comment:*),'
+        'ScheduleWakeup,CronCreate,RemoteTrigger,SendMessage"'
     ) in review
     assert "read-confinement.settings.json" in review
 
