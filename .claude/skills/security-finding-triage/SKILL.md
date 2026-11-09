@@ -2,6 +2,8 @@
 name: security-finding-triage
 description: Stress-check one security finding, confirm or reject with evidence, and produce a durable triage outcome for the Consumer ledger/advisory workflow.
 disable-model-invocation: true
+metadata:
+  agent-kit-scope: user
 ---
 
 # Security finding triage

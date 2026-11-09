@@ -5,7 +5,7 @@
 Adopt follows a split contract:
 
 - live-reference reusable workflows via `uses: ...@<semver-tag>`
-- copy the **Kit-owned paths** from the same exact tag: the five shipped skill folders in `.claude/skills/` and three runtime folders in `.github/`
+- copy the **Kit-owned paths** from the same exact tag: the shipped skill folders in `.claude/skills/` and three runtime folders in `.github/`
 
 Do not mix tags between workflow pins and copied skills.
 

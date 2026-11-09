@@ -2,6 +2,8 @@
 name: security-audit
 description: Medium+ threat-led security audit for a repository (`full` or `pr`) with private delivery requirements and no auto-fix.
 disable-model-invocation: true
+metadata:
+  agent-kit-scope: repo
 ---
 
 # Security audit

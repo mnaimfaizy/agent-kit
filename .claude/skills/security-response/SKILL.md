@@ -4,6 +4,8 @@ description: Reconcile private advisory findings against current code, prioritiz
 argument-hint: "[status | next | triage <concept-id|GHSA:F#> | fix <concept-id|next> | reconcile]"
 user-invocable: true
 disable-model-invocation: true
+metadata:
+  agent-kit-scope: user
 ---
 
 # Security response
