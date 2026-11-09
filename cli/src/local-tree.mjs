@@ -17,7 +17,9 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { firstLine } from "./exec.mjs";
-import { EXECUTABLE_MODE } from "./kit-tag.mjs";
+import { EXECUTABLE_MODE, REGULAR_MODE } from "./kit-tag.mjs";
+
+const MODES = new Set([EXECUTABLE_MODE, REGULAR_MODE]);
 
 const SAFE_PATH = /^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*\/$/;
 
@@ -188,13 +190,23 @@ export function localTreeHashes({ runner, cwd, paths }) {
           );
         const inReal = modes(real("ls-files", "-s", "-z", "--", path));
         const inTemp = modes(git("ls-files", "-s", "-z", "--", path));
-        const fix = [...inReal]
-          .filter(([f, mode]) => mode === EXECUTABLE_MODE && inTemp.get(f) === "100644")
-          .map(([f]) => f);
-        for (let i = 0; i < fix.length; i += 200) {
-          const chmod = git("update-index", "--chmod=+x", "--", ...fix.slice(i, i + 200));
-          if (chmod.status !== 0) {
-            throw new LocalTreeError(`git update-index --chmod failed: ${firstLine(chmod.stderr)}`);
+        // Both directions: the real index may have gained or lost the bit.
+        for (const [want, flag] of [
+          [EXECUTABLE_MODE, "--chmod=+x"],
+          [REGULAR_MODE, "--chmod=-x"],
+        ]) {
+          const fix = [...inReal]
+            .filter(
+              ([f, mode]) => mode === want && MODES.has(inTemp.get(f)) && inTemp.get(f) !== want,
+            )
+            .map(([f]) => f);
+          for (let i = 0; i < fix.length; i += 200) {
+            const chmod = git("update-index", flag, "--", ...fix.slice(i, i + 200));
+            if (chmod.status !== 0) {
+              throw new LocalTreeError(
+                `git update-index ${flag} failed: ${firstLine(chmod.stderr)}`,
+              );
+            }
           }
         }
       }
