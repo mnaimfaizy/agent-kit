@@ -14,6 +14,10 @@ _Avoid_: the kit library, framework
 A repository that adopts Agent-kit by pinning its reusable workflows and copying its skills from the same tag.
 _Avoid_: client, user repo, downstream
 
+**Skill installer**:
+Someone who installs individual Portable skills without adopting the rest of Agent-kit; not a Consumer.
+_Avoid_: skill user, standalone Consumer
+
 **Reference Consumer**:
 The Consumer (Issuebridge) whose target state defines what a complete adoption looks like.
 _Avoid_: demo repo, sample
@@ -29,8 +33,16 @@ A supported end-to-end automation shipped as reusable workflows plus their promp
 _Avoid_: pipeline (alone), feature
 
 **Portable skill**:
-An agent skill vendored in Agent-kit that a Consumer copies into `.claude/skills/` unchanged.
+An agent skill vendored in Agent-kit that a Consumer copies into `.claude/skills/` unchanged, and that a Skill installer may install on its own.
 _Avoid_: kit skill, core skill
+
+**User-scope skill**:
+A Portable skill that works from a user's own skills directory in any repository.
+_Avoid_: global skill
+
+**Repo-scope skill**:
+A Portable skill that works only inside a repository holding its supporting files (repository files it cannot do its job without, not optional configuration), so it is installed into that repository and nowhere else.
+_Avoid_: local skill, project skill
 
 **Kit-owned path**:
 A path a Consumer copies verbatim from one tag and replaces whole on upgrade; the Consumer never edits it.
