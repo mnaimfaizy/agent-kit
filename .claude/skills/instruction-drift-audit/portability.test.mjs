@@ -170,16 +170,23 @@ test("resolve-baseline runs from the repository with the skill installed outside
   assert.match(result.stdout, /nx — Baseline 22\.7\.7, 2 member\(s\): @nx\/js, nx/);
 });
 
-test("step 8's delta command imports the ledger from the skill's own folder", () => {
-  const report = join(HERE, "fixtures", "report.json");
-  const command = skillCommand("classifyFindings", outsideSkill)
-    .replace("<draft-report.json>", JSON.stringify(report))
-    .replace("<the ledger report step 4 named>", JSON.stringify(report));
-  const result = spawnSync("bash", ["-c", command], { cwd: repo, encoding: "utf8" });
-  assert.equal(result.status, 0, result.stderr);
-  const delta = JSON.parse(result.stdout);
-  assert.ok(delta.stillPresent.length > 0, result.stdout);
-});
+// SKILL.md's commands are bash. On a machine with no bash on PATH this case is skipped, not failed.
+const NO_BASH = spawnSync("bash", ["-c", "exit 0"]).status !== 0 && "no bash on PATH";
+
+test(
+  "step 8's delta command imports the ledger from the skill's own folder",
+  { skip: NO_BASH },
+  () => {
+    const report = join(HERE, "fixtures", "report.json");
+    const command = skillCommand("classifyFindings", outsideSkill)
+      .replace("<draft-report.json>", JSON.stringify(report))
+      .replace("<the ledger report step 4 named>", JSON.stringify(report));
+    const result = spawnSync("bash", ["-c", command], { cwd: repo, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+    const delta = JSON.parse(result.stdout);
+    assert.ok(delta.stillPresent.length > 0, result.stdout);
+  },
+);
 
 test("validate-report runs, and refuses no input with its usage", () => {
   const result = run("validate-report.mjs");

@@ -40,8 +40,11 @@ const IMPORTS = [
   /^\s*import\s*['"]([^'"]+)['"]/gm,
   /\b(?:import|require)\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
 ];
-// Inline `[text](target)` and reference definitions `[label]: target`.
-const LINKS = [/\]\(<?([^)#\s>]+)>?(?:#[^)]*)?\)/g, /^\s{0,3}\[[^\]]+\]:\s*<?([^\s>#]+)/gm];
+// Inline `[text](target)` and reference definitions `[label]: target`; a footnote `[^1]: …` is not a link.
+const LINKS = [
+  /\]\(<?([^)#\s>]+)>?(?:#[^)]*)?\)/g,
+  /^[ \t]{0,3}\[(?!\^)[^\]]+\]:\s*<?([^\s>#]+)/gm,
+];
 const SCRIPT = /\.(?:mjs|cjs|js)$/;
 // Test data, not part of what the skill links or imports.
 const SKIPPED_DIRS = new Set(["fixtures", "node_modules"]);
@@ -161,6 +164,19 @@ test("dynamic imports, require, subfolder documents and reference links are chec
   ]);
 });
 
+test("a footnote definition is not a link", () => {
+  const dir = fixtureSkill("footnote", {
+    "SKILL.md":
+      "---\nname: footnote\n---\nPinned to the release.[^1]\n\n[^1]: See the upstream changelog.\n",
+  });
+  assert.deepEqual(portabilityProblems(dir), []);
+});
+
+test("a skill folder with no SKILL.md declares no scope, without stopping the suite", () => {
+  const dir = fixtureSkill("no-skill-md", { "README.md": "Not a skill yet.\n" });
+  assert.equal(declaredScope(join(dir, "SKILL.md")), NO_SKILL_MD);
+});
+
 test("a quoted or flow-style scope declaration is read", () => {
   const quoted = fixtureSkill("quoted", {
     "SKILL.md": '---\nname: q\nmetadata:\n  agent-kit-scope: "user"\n---\n',
@@ -172,8 +188,11 @@ test("a quoted or flow-style scope declaration is read", () => {
   assert.equal(declaredScope(join(flow, "SKILL.md")), "repo");
 });
 
-/** `metadata.agent-kit-scope` from a SKILL.md's frontmatter, or null. */
+const NO_SKILL_MD = "(no SKILL.md)";
+
+/** `metadata.agent-kit-scope` from a SKILL.md's frontmatter, null when it declares none, or NO_SKILL_MD. */
 function declaredScope(skillMd) {
+  if (!existsSync(skillMd)) return NO_SKILL_MD;
   const text = readFileSync(skillMd, "utf8").replace(/^﻿/, "");
   const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/.exec(text)?.[1] ?? "";
   // Block (`metadata:\n  agent-kit-scope: user`) or flow (`metadata: { agent-kit-scope: user }`),
@@ -192,7 +211,12 @@ test("the User-scope skills are found, and Repo-scope skills are exempt", () => 
   // skills-list-contract.test.py makes every skill declare user or repo.
   assert.ok(userScope.length > 0, "no skill declares agent-kit-scope: user");
   for (const skill of skills)
-    assert.ok(["user", "repo"].includes(skill.scope), `${skill.name}: ${skill.scope}`);
+    assert.ok(
+      ["user", "repo"].includes(skill.scope),
+      skill.scope === NO_SKILL_MD
+        ? `.claude/skills/${skill.name}/ has no SKILL.md`
+        : `${skill.name}: agent-kit-scope is ${skill.scope}, expected user or repo`,
+    );
   assert.ok(
     !userScope.some((skill) => skill.name === "security-audit"),
     "security-audit is Repo-scope (it needs a Threat pack in the repository)",
