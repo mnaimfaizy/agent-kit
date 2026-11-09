@@ -13,6 +13,7 @@ import { command } from "./checks/result.mjs";
 import { fileAndPinChecks, printFileAndPinChecks } from "./doctor.mjs";
 import { firstLine } from "./exec.mjs";
 import { openKitTag, PreManifestTagError, serverFromEnv } from "./kit-tag.mjs";
+import { localTreeHashes } from "./local-tree.mjs";
 import {
   applyPlan,
   checkDeletable,
@@ -271,31 +272,44 @@ export function planInit({ runner, root, snap, answers, force }) {
   const deletes = [];
   const writes = [];
   const notes = [];
+  const overwrites = [];
+  const kept = [];
   const exists = (rel) => lstatOrNull(join(root, rel)) !== null;
   // A Caller or Threat pack file: refused while planning if something other
   // than a regular file is in the way, so the write cannot fail half-way.
+  // Returns whether the file already exists.
   const fileTarget = (rel, what) => {
     checkLocalPath(root, rel);
     const st = lstatOrNull(join(root, rel));
     if (st && !st.isFile()) {
       throw new Refusal(`${rel} exists and is not a file, so init cannot write the ${what} there.`);
     }
-    if (st) conflicts.push(`${rel} (${what})`);
+    return Boolean(st);
   };
 
-  // Kit-owned paths: copied whole. An existing one is an earlier adoption.
-  for (const p of snap.kitOwnedPaths) {
-    const rel = p.replace(/\/$/, "");
-    checkLocalPath(root, rel);
-    if (exists(rel)) {
-      if (!force) conflicts.push(`${p} (Kit-owned path)`);
-      else {
-        checkDeletable(root, rel);
-        deletes.push(rel);
-      }
+  // Kit-owned paths: copied whole. One that already matches the tag (an
+  // earlier init, adding a flow now) is left as it is; any other existing
+  // one is an earlier adoption, replaced only with --force.
+  const existing = snap.kitOwnedPaths.filter((p) => {
+    checkLocalPath(root, p.replace(/\/$/, ""));
+    return exists(p.replace(/\/$/, ""));
+  });
+  const local = existing.length
+    ? localTreeHashes({ runner, cwd: root, paths: existing }).hashes
+    : new Map();
+  const unchanged = existing.filter((p) => {
+    const hash = local.get(p);
+    return hash !== null && hash !== undefined && hash === snap.treeHash(p);
+  });
+  for (const p of existing.filter((x) => !unchanged.includes(x))) {
+    if (!force) conflicts.push(`${p} (Kit-owned path)`);
+    else {
+      const rel = p.replace(/\/$/, "");
+      checkDeletable(root, rel);
+      deletes.push(rel);
     }
   }
-  writes.push(...kitFileWrites(snap));
+  writes.push(...kitFileWrites(snap).filter((w) => !unchanged.some((p) => w.path.startsWith(p))));
 
   const dir = answers.threatPackDir ?? DEFAULT_THREAT_PACK_DIR;
   // Case-insensitive: on Windows and macOS `.Claude/skills/x` is `.claude/skills/x`.
@@ -328,7 +342,10 @@ export function planInit({ runner, root, snap, answers, force }) {
       if (err instanceof TemplateError) throw new Refusal(err.message);
       throw err;
     }
-    fileTarget(caller, "Caller");
+    if (fileTarget(caller, "Caller")) {
+      conflicts.push(`${caller} (Caller)`);
+      overwrites.push(caller);
+    }
     writes.push({ path: caller, bytes: Buffer.from(rendered, "utf8") });
   }
 
@@ -342,8 +359,10 @@ export function planInit({ runner, root, snap, answers, force }) {
     } else {
       for (const [f, text] of files) {
         const path = `${dir}/${f}`;
-        fileTarget(path, "Threat pack");
-        writes.push({ path, bytes: Buffer.from(text, "utf8") });
+        // The Threat pack is the Consumer's data (the ledger may hold
+        // findings): an existing file is kept, even with --force.
+        if (fileTarget(path, "Threat pack")) kept.push(path);
+        else writes.push({ path, bytes: Buffer.from(text, "utf8") });
       }
     }
   }
@@ -357,8 +376,10 @@ export function planInit({ runner, root, snap, answers, force }) {
   if (conflicts.length && !force) {
     throw new Refusal(
       `${conflicts.length} path(s) init would write already exist, and init does not overwrite them. ` +
-        `To move an existing adoption to another tag, run \`npx @mnaimfaizy/agent-kit upgrade --tag ${tag}\`; ` +
-        "to overwrite anyway, run init again with --force.",
+        "To add a flow to an existing adoption, run init with only the new flow: Kit-owned paths " +
+        `that already match ${tag} are left as they are. To move an existing adoption to another ` +
+        `tag, run \`npx @mnaimfaizy/agent-kit upgrade --tag ${tag}\`. To overwrite anyway, run ` +
+        "init again with --force.",
       listed(conflicts),
     );
   }
@@ -371,12 +392,19 @@ export function planInit({ runner, root, snap, answers, force }) {
   if (fileDir.length) {
     throw new Refusal(`${fileDir[0][0]} would be both a file and a folder (${fileDir[0][1]}).`);
   }
+  if (kept.length) {
+    notes.push(`Kept the existing Threat pack file(s), which are yours: ${kept.join(", ")}.`);
+  }
+  if (unchanged.length) {
+    notes.push(`Left as they are (they already match ${tag}): ${unchanged.join(", ")}.`);
+  }
   // --force discards whatever is uncommitted in the Kit-owned paths it
-  // replaces: list it first, as upgrade --force does.
-  const { changed: dirty, ignored } = deletes.length
-    ? uncommittedChanges({ runner, root, paths: deletes })
+  // replaces and the Callers it overwrites: list it first, as upgrade does.
+  const replaced = [...deletes, ...overwrites];
+  const { changed: dirty, ignored } = replaced.length
+    ? uncommittedChanges({ runner, root, paths: replaced })
     : { changed: [], ignored: [] };
-  return { deletes, writes, conflicts, notes, dependabot, dirty, ignored };
+  return { deletes, writes, conflicts, notes, dependabot, dirty, ignored, unchanged };
 }
 
 /**
@@ -516,7 +544,7 @@ export async function runInit({
 
     out("");
     out(`Write (from ${answers.tag}):`);
-    for (const p of snap.kitOwnedPaths) {
+    for (const p of snap.kitOwnedPaths.filter((x) => !plan.unchanged.includes(x))) {
       const n = plan.writes.filter((w) => w.path.startsWith(p)).length;
       out(
         `  ${p} (${n} file${n === 1 ? "" : "s"}${plan.deletes.includes(p.replace(/\/$/, "")) ? ", replacing the existing copy" : ""})`,
