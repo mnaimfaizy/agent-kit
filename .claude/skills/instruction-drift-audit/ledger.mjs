@@ -72,8 +72,26 @@ const COMPARATORS = /** @type {const} */ ([">=", "<=", ">", "<", "="]);
  */
 const VERSION = VERSION_NUMBER;
 
-/** `16.0.0-canary.3+sha` -> `16.0.0`: the numeric core a wildcard tail tests. */
+/** `16.0.0-canary.3+sha` -> `16.0.0`: the numeric core. */
 const coreOf = (version) => String(version).trim().replace(/^v/, "").split(/[-+]/)[0];
+
+/** Does a version carry a pre-release tail (`-canary.3`)? Build metadata does not count. */
+const isPrerelease = (version) => coreOf(version) !== stripBuild(version);
+const stripBuild = (version) => String(version).trim().replace(/^v/, "").split("+")[0];
+
+/**
+ * node-semver's pre-release rule (LEDGER.md, Version ranges): a pre-release
+ * is covered only when the range names a pre-release of the same
+ * `major.minor.patch`. Ordering alone would let `<17.0.0` cover
+ * `17.0.0-canary.1`, and `>=15.0.0 <17.0.0` carry a claim forward onto a
+ * pre-release of the next major, where breaking changes land. Not covering
+ * one sends the claim back to research, the safe direction.
+ */
+const prereleaseAllowed = (version, bounds) =>
+  !isPrerelease(version) ||
+  bounds.some(
+    (bound) => isPrerelease(bound) && compareVersions(coreOf(bound), coreOf(version)) === 0,
+  );
 
 /** A wildcard tail: `22.x`, `22.7.x`, `0.80.*`. */
 const WILDCARD = /^v?(\d+(?:\.\d+)*)\.(?:x|\*)$/i;
@@ -104,7 +122,8 @@ export function parseVersionRange(text) {
       ok: true,
       source,
       covers(version) {
-        if (!VERSION.test(String(version).trim())) return false;
+        // A wildcard names no pre-release, so it covers none (semver).
+        if (!VERSION.test(String(version).trim()) || isPrerelease(version)) return false;
         const parts = coreOf(version).split(".");
         return prefix.every((segment, index) => Number(parts[index]) === segment);
       },
@@ -141,6 +160,13 @@ export function parseVersionRange(text) {
     source,
     covers(version) {
       if (!VERSION.test(String(version).trim())) return false;
+      if (
+        !prereleaseAllowed(
+          version,
+          terms.map((term) => term.version),
+        )
+      )
+        return false;
       return terms.every(({ comparator, version: bound }) => {
         const order = compareVersions(version, bound);
         switch (comparator) {

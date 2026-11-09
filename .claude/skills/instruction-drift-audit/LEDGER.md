@@ -66,10 +66,14 @@ Three forms, and nothing else:
 | wildcard tail          | `22.x`, `0.80.*`   | that line                       |
 | comparator conjunction | `>=15.0.0 <17.0.0` | everything satisfying all terms |
 
-A version on either side may carry a pre-release or build tail (`16.0.0-canary.3`), ordered as
-semver orders it: a pre-release sorts below its release. So `>=15.0.0 <17.0.0` covers
-`16.0.0-canary.3`, the exact range `16.0.0` does not, and `16.x` does (a wildcard tail tests the
-numeric core). Build metadata is ignored.
+A version on either side may carry a pre-release or build tail (`16.0.0-canary.3`). A pre-release
+sorts below its release, and build metadata is ignored. A pre-release Baseline is covered by
+semver's rule: only when the range names a pre-release of the same `major.minor.patch`. So
+`>=16.0.0-canary.1 <17.0.0` and the exact `16.0.0-canary.3` cover `16.0.0-canary.3`, while
+`>=15.0.0 <17.0.0` and `16.x` cover neither it nor `17.0.0-canary.1`. Ordering alone would let
+`<17.0.0` cover `17.0.0-canary.1`, the pre-release of the next major where breaking changes land.
+An uncovered claim is researched again and an uncovered decline resurfaces, which is the safe
+side.
 
 Caret and tilde are refused by name rather than approximated: `^0.2.3` means `>=0.2.3 <0.3.0`
 while `^1.2.3` means `>=1.2.3 <2.0.0`, and the React Native Ecosystem sits on the 0.x line where
