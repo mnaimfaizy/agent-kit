@@ -493,7 +493,9 @@ jobs:
         # Pinned to an immutable commit SHA. Bump deliberately; `@v1` is mutable.
         uses: anthropics/claude-code-action@8cf3482550831fb35a4fc3fbf7ca139cf8028b4c # v1.0.233
         env:
-          # Foreground subagents: ending the turn must not kill the three axes.
+          # No background subagents or commands (#92): a headless run that ends its
+          # turn waiting on one ends without its result. This removes the
+          # run_in_background parameter, so the three axes run as foreground subagents.
           CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"
         with:
           # Installed above; the action then skips its own Bun download.
@@ -528,7 +530,7 @@ jobs:
             --model ${{ inputs.model }}
             --max-turns 120
             --allowedTools "Read,Glob,Grep,Task,Agent,Bash(gh pr diff:*),Bash(gh pr view:*),mcp__github_inline_comment__create_inline_comment"
-            --disallowedTools "Read(./.git/**),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(gh pr comment:*),ScheduleWakeup,CronCreate,RemoteTrigger,SendMessage"
+            --disallowedTools "Read(./.git/**),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(gh pr comment:*),ScheduleWakeup,CronCreate,RemoteTrigger,SendMessage,Workflow,Monitor,PushNotification"
             --append-system-prompt "This is a non-interactive CI session: ending your turn terminates the run. Agent subagents run in the foreground only (several in one message still run in parallel). Never end your turn until the tracking comment has the aggregated report. If Agent is denied, run the axes sequentially in this session instead."
 
       - name: Verify read-confinement hook unchanged

@@ -89,7 +89,7 @@ def test_audit_agent_cannot_see_the_advisory_token_or_widen_tools() -> None:
     assert "--max-turns 100" in agent
     assert (
         '--disallowedTools "Read(./.git/**),Edit(./.github/agent-runtime/**),Edit(./.claude/**),Edit(./.mcp.json),'
-        'Bash,Agent,ScheduleWakeup,CronCreate,RemoteTrigger,SendMessage"' in agent
+        'Bash,Agent,ScheduleWakeup,CronCreate,RemoteTrigger,SendMessage,Workflow,Monitor,PushNotification"' in agent
     )
     # Claude Code auto-approves read-only Bash commands that are not on the
     # allowlist; only a deny keeps the auditor off Bash entirely.
