@@ -56,6 +56,10 @@ const readRepo = (...p) => readFileSync(join(root, ...p), "utf8");
 const KIT = "mnaimfaizy/agent-kit";
 const TAG = "v1.0.0-alpha.12";
 const OLD_TAG = "v1.0.0-alpha.10";
+// This CLI's own version: doctor names it when the pinned tag is older.
+const CLI_VERSION = JSON.parse(
+  readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "cli", "package.json"), "utf8"),
+).version;
 const GIT_ID = [
   "-c",
   "user.name=t",
@@ -327,7 +331,7 @@ describe("Kit-owned tree comparison", () => {
       const trees = report.results.find((r) => r.id === "kit-owned-trees");
       assert.equal(trees.status, "fail");
       assert.deepEqual(trees.fix, [upgradeCommand(TAG)]);
-      assert.match(trees.fix[0], /^npx @mnaimfaizy\/agent-kit@1\.0\.0-alpha\.\d+ upgrade --tag /);
+      assert.equal(trees.fix[0], `npx @mnaimfaizy/agent-kit@${CLI_VERSION} upgrade --tag ${TAG}`);
       assert.equal(report.exitCode, 1);
     });
   }

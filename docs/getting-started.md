@@ -36,7 +36,7 @@ None of these blocks the first run, but each comes up during setup. Settle them 
 
 ## Adopt with the CLI
 
-The CLI (from `v1.0.0-alpha.13`) writes the files for steps 3, 5 and 7, then prints steps 4, 6 and 8 as `gh` commands to run yourself. Run it from a clean checkout of your repository:
+The CLI (from `v1.0.0-beta.1`) writes the files for steps 3, 5 and 7, then prints steps 4, 6 and 8 as `gh` commands to run yourself. Run it from a clean checkout of your repository:
 
 ```bash
 npx @mnaimfaizy/agent-kit init --tag <tag>
@@ -63,7 +63,7 @@ The steps below are the same adoption by hand.
 
 ## 2. Pick a tag
 
-Use the newest tag from [Releases](https://github.com/mnaimfaizy/agent-kit/releases), for example `v1.0.0-alpha.12`. Every file you copy and every `uses:` pin must be the **same exact tag** — see [Adopt](adopt.md).
+Use the newest tag from [Releases](https://github.com/mnaimfaizy/agent-kit/releases), for example `v1.0.0-beta.1`. Every file you copy and every `uses:` pin must be the **same exact tag** — see [Adopt](adopt.md).
 
 > Do not use `v1.0.0-alpha.1` or `v1.0.0-alpha.2`: GitHub rejects their reusable workflows ("Invalid workflow file").
 
@@ -72,7 +72,7 @@ Use the newest tag from [Releases](https://github.com/mnaimfaizy/agent-kit/relea
 The reusable workflows run in _your_ checkout and load prompts, the read-confinement hook, and skills from it. These are the **Kit-owned paths**, listed in [`kit-owned-paths.txt`](../kit-owned-paths.txt) in every tag from `v1.0.0-alpha.11`. Copy them; the loop deletes each path, then copies it fresh, and leaves your own skills in `.claude/skills/` alone:
 
 ```bash
-TAG=v1.0.0-alpha.12
+TAG=v1.0.0-beta.1
 rm -rf /tmp/agent-kit
 git clone --depth 1 --branch "$TAG" https://github.com/mnaimfaizy/agent-kit.git /tmp/agent-kit &&
 grep -v -e '^#' -e '^$' /tmp/agent-kit/kit-owned-paths.txt | while read -r path; do
@@ -224,7 +224,7 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
-      - run: npx --yes @mnaimfaizy/agent-kit@1.0.0-alpha.12 doctor --ci
+      - run: npx --yes @mnaimfaizy/agent-kit@1.0.0-beta.1 doctor --ci
 ```
 
 Pin the CLI version as you pin actions; any CLI version checks any tag from `v1.0.0-alpha.11`. Tags before that have no `kit-owned-paths.txt`, and the CLI refuses them: follow that tag's own `docs/adopt.md` instead.
@@ -255,7 +255,7 @@ Pin the CLI version as you pin actions; any CLI version checks any tag from `v1.
 
 Read the [CHANGELOG](../CHANGELOG.md) entries between your tag and the new one first; Major bumps require Caller changes.
 
-**With the CLI** (from the CLI's `v1.0.0-alpha.13`; your current pins must be `v1.0.0-alpha.11` or later), on a branch with no uncommitted changes in the Kit-owned paths:
+**With the CLI** (from the CLI's `v1.0.0-beta.1`; your current pins must be `v1.0.0-alpha.11` or later), on a branch with no uncommitted changes in the Kit-owned paths:
 
 ```bash
 npx @mnaimfaizy/agent-kit upgrade --tag <new-tag>
