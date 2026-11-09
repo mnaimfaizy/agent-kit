@@ -294,7 +294,7 @@ describe("upgrade: the happy path", () => {
     git(d, "config", "core.fileMode", "false");
     const r = await upgrade(d);
     assert.equal(r.code, 0, r.text);
-    assert.match(r.text, /Staged 1 executable file\(s\)/);
+    assert.match(r.text, /Staged the tag's file mode for 1 file\(s\)/);
     assert.match(git(d, "ls-files", "-s", "--", ".github/agent-runtime/run.sh"), /^100755 /);
   });
 
@@ -533,6 +533,28 @@ describe("upgrade: ignored files", () => {
   });
 });
 
+describe("upgrade: file modes and Consumer file names", () => {
+  it("with core.fileMode off, stages a file that loses its executable bit as 100644", async () => {
+    // hook.mjs is committed as executable; the new tag ships it as a regular file.
+    const d = makeConsumer();
+    git(d, "config", "core.fileMode", "false");
+    git(d, "update-index", "--chmod=+x", ".github/agent-runtime/hook.mjs");
+    git(d, "commit", "-qm", "executable hook");
+    const r = await upgrade(d);
+    assert.equal(r.code, 0, r.text);
+    assert.match(git(d, "ls-files", "-s", "--", ".github/agent-runtime/hook.mjs"), /^100644 /);
+    assert.match(git(d, "ls-files", "-s", "--", ".github/agent-runtime/run.sh"), /^100755 /);
+    assert.match(r.text, /PASS {2}Kit-owned paths match the pinned tag/);
+  });
+
+  it("rewrites pins in a workflow file whose name is outside the tag-path rules", async () => {
+    const dir = makeConsumer({ files: { ".github/workflows/deploy+review.yml": callerYml(FROM) } });
+    const res = await upgrade(dir);
+    assert.equal(res.code, 0, res.text);
+    assert.equal(read(dir, ".github/workflows/deploy+review.yml"), callerYml(TO));
+  });
+});
+
 describe("upgrade: hardening", () => {
   it("counts a file marked assume-unchanged or skip-worktree as changed", async () => {
     for (const flag of ["--assume-unchanged", "--skip-worktree"]) {
@@ -554,7 +576,7 @@ describe("upgrade: hardening", () => {
   });
 
   it("escapes bidirectional and invisible characters in what it prints", () => {
-    for (const c of ["‮", "⁦", "​", "‏", "\ufeff"]) {
+    for (const c of ["\u202e", "\u2066", "\u200b", "\u200f", "\ufeff"]) {
       assert.doesNotMatch(sanitizeLine(`a${c}b`), new RegExp(c));
     }
   });

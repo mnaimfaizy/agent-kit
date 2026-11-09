@@ -16,14 +16,14 @@ import { checkPins } from "./checks/pins.mjs";
 import { result } from "./checks/result.mjs";
 import { formatResult } from "./doctor.mjs";
 import { firstLine } from "./exec.mjs";
-import { EXECUTABLE_MODE, openKitRepo, PreManifestTagError, serverFromEnv } from "./kit-tag.mjs";
+import { openKitRepo, PreManifestTagError, serverFromEnv } from "./kit-tag.mjs";
 import {
   applyPlan,
   checkDeletable,
-  checkLocalPath,
+  checkNoLinks,
   kitFileWrites,
   Refusal,
-  stageExecutableBits,
+  stageFileModes,
   uncommittedChanges,
 } from "./local-writes.mjs";
 import { caseCollisions } from "./safe-paths.mjs";
@@ -35,7 +35,8 @@ const utf8 = new TextDecoder("utf-8", { fatal: true });
 
 /** A workflow file's text, or a Refusal when it is not UTF-8 (rewriting it would corrupt it). */
 function readWorkflowText(root, path) {
-  checkLocalPath(root, path);
+  // The Consumer's own file, rewritten in place: any name it has is fine.
+  checkNoLinks(root, path);
   const raw = readFileSync(join(root, path));
   try {
     // TextDecoder drops a leading byte-order mark: keep it, so it is written back.
@@ -230,7 +231,7 @@ export async function runUpgrade({
     }
 
     try {
-      applyPlan(root, { deletes: plan.deletes, writes: [...plan.writes, ...plan.pinEdits] });
+      applyPlan(root, { deletes: plan.deletes, writes: plan.writes, rewrites: plan.pinEdits });
     } catch (err) {
       if (err instanceof Refusal) return refuse(err);
       out(`FAILED  upgrade stopped part-way: ${firstLine(err?.message ?? err)}`);
@@ -241,11 +242,7 @@ export async function runUpgrade({
       `Copied ${plan.writes.length} file(s) from ${newTag}` +
         (plan.pinEdits.length ? ` and rewrote ${plan.pinEdits.length} workflow file(s).` : "."),
     );
-    const note = stageExecutableBits({
-      runner,
-      root,
-      files: plan.writes.filter((w) => w.mode === EXECUTABLE_MODE).map((w) => w.path),
-    });
+    const note = stageFileModes({ runner, root, writes: plan.writes });
     if (note) out(note);
 
     out("");

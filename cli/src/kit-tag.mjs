@@ -23,11 +23,12 @@ export function serverFromEnv(env) {
   return SERVER.test(fromEnv) ? fromEnv : DEFAULT_SERVER;
 }
 
-/** The git mode of an executable file. */
+/** The git modes of an executable and of a regular file. */
 export const EXECUTABLE_MODE = "100755";
+export const REGULAR_MODE = "100644";
 
 /** File modes the CLI copies: a regular file, or an executable one. */
-const FILE_MODES = new Set(["100644", EXECUTABLE_MODE]);
+const FILE_MODES = new Set([REGULAR_MODE, EXECUTABLE_MODE]);
 const MODE_NAMES = { 120000: "a symbolic link", 160000: "a submodule" };
 const OID = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/;
 
