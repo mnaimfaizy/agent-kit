@@ -66,6 +66,11 @@ Three forms, and nothing else:
 | wildcard tail          | `22.x`, `0.80.*`   | that line                       |
 | comparator conjunction | `>=15.0.0 <17.0.0` | everything satisfying all terms |
 
+A version on either side may carry a pre-release or build tail (`16.0.0-canary.3`), ordered as
+semver orders it: a pre-release sorts below its release. So `>=15.0.0 <17.0.0` covers
+`16.0.0-canary.3`, the exact range `16.0.0` does not, and `16.x` does (a wildcard tail tests the
+numeric core). Build metadata is ignored.
+
 Caret and tilde are refused by name rather than approximated: `^0.2.3` means `>=0.2.3 <0.3.0`
 while `^1.2.3` means `>=1.2.3 <2.0.0`, and the React Native Ecosystem sits on the 0.x line where
 that difference decides the answer. A range read too wide carries a claim forward that should have

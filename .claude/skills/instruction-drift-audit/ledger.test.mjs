@@ -572,3 +572,22 @@ test("same-day ledger reports tie-break by code point, not locale", () => {
   for (const order of [reports, [...reports].reverse()])
     assert.equal(selectLatestLedgerReport(order, "nx").path, "b/2026-01-01-upstream-brief-nx.json");
 });
+
+test("a pre-release Baseline is compared against a range, not refused by it", () => {
+  const covers = (range, version) => parseVersionRange(range).covers(version);
+  assert.equal(covers(">=15.0.0 <17.0.0", "16.0.0-canary.3"), true);
+  assert.equal(covers(">=16.0.0 <17.0.0", "16.0.0-canary.3"), false);
+  assert.equal(covers(">=16.0.0-canary.1 <17.0.0", "16.0.0-canary.3"), true);
+  assert.equal(covers("16.x", "16.0.0-canary.3+sha.1"), true);
+  assert.equal(covers("16.0.0", "16.0.0-canary.3"), false);
+  assert.equal(covers("16.0.0-canary.3", "16.0.0-canary.3"), true);
+  assert.equal(covers("22.x", "not-a-version"), false);
+
+  const declined = { ...DECLINED[0], baselineRange: ">=22.0.0 <23.0.0" };
+  const result = applyDeclinedOpportunities(nxOpportunities(), [declined], {
+    lead: "nx",
+    baseline: "22.8.0-beta.1",
+  });
+  assert.equal(result.suppressed.length, 1);
+  assert.deepEqual(result.resurfaced, []);
+});

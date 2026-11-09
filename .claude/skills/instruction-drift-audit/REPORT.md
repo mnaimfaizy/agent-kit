@@ -64,9 +64,10 @@ the delta, declined Upstream Opportunities — is [the ledger](LEDGER.md)'s, in 
   later that otherwise hold are Unverified as `too-many-opportunities`.
 - **An Opportunity's `minVersion` above the Baseline needs a Horizon that reaches it** (item 8).
   Adoptable at the Baseline needs nothing further; above it without a covering Horizon is
-  Unverified as `opportunity-beyond-horizon`. Version comparison is segment-by-segment on
-  `x.y.z` — not full semver, because every version this compares is a released number, never a
-  pre-release channel.
+  Unverified as `opportunity-beyond-horizon`. Versions compare segment by segment on `x.y.z`,
+  with semver's pre-release rule: a Baseline read from an installed manifest can be a
+  pre-release, and `16.0.0-canary.3` sorts below `16.0.0`. Build metadata is ignored. A
+  `minVersion` that is not a version number (`Nx 22.1`) is `malformed`.
 - **An Incidental Observation cannot carry a `disposition`** (item 7). `disposition` is an Upstream
   Finding field; one on an Incidental Observation would let it slip into the plan the same way a
   Finding does. Refused as `malformed`.

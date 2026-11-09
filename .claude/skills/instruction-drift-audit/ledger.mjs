@@ -53,15 +53,27 @@
  */
 
 import { parseAdapterYaml } from "./adapter.mjs";
-import { collapseWhitespace, compareVersions, verifyLocalEvidence } from "./report.mjs";
+import {
+  VERSION_NUMBER,
+  collapseWhitespace,
+  compareVersions,
+  verifyLocalEvidence,
+} from "./report.mjs";
 
 // ── Version ranges ──────────────────────────────────────────────────────────
 
 /** The comparators a conjunction may be built from, longest spelling first. */
 const COMPARATORS = /** @type {const} */ ([">=", "<=", ">", "<", "="]);
 
-/** A released version number as every side of this comparison writes one. */
-const VERSION = /^v?\d+(\.\d+)*$/;
+/**
+ * A version number, pre-release and build tails included: the same set
+ * `compareVersions` orders, so a pre-release Baseline is compared against a
+ * range rather than refused by it.
+ */
+const VERSION = VERSION_NUMBER;
+
+/** `16.0.0-canary.3+sha` -> `16.0.0`: the numeric core a wildcard tail tests. */
+const coreOf = (version) => String(version).trim().replace(/^v/, "").split(/[-+]/)[0];
 
 /** A wildcard tail: `22.x`, `22.7.x`, `0.80.*`. */
 const WILDCARD = /^v?(\d+(?:\.\d+)*)\.(?:x|\*)$/i;
@@ -93,7 +105,7 @@ export function parseVersionRange(text) {
       source,
       covers(version) {
         if (!VERSION.test(String(version).trim())) return false;
-        const parts = String(version).trim().replace(/^v/, "").split(".");
+        const parts = coreOf(version).split(".");
         return prefix.every((segment, index) => Number(parts[index]) === segment);
       },
     };
