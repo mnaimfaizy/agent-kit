@@ -308,8 +308,8 @@ def test_adopt_puts_no_count_on_the_shipped_skill_folders() -> None:
 
 
 def test_every_portable_skill_declares_a_valid_scope() -> None:
-    for name in skill_names(ROOT):
-        scope = declared_scope(ROOT, name)
+    for name, scope in declared_scopes(ROOT, skill_names(ROOT)).items():
+        assert scope is not INVALID_YAML, f".claude/skills/{name}/SKILL.md: frontmatter is not valid YAML"
         assert scope in SCOPES, (
             f".claude/skills/{name}/SKILL.md: metadata.agent-kit-scope is {scope!r}, expected one of {SCOPES}"
         )
