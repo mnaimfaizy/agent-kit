@@ -15,7 +15,7 @@
 // whose lead it cannot find is a failed hop with a reason, never a guessed
 // Baseline. A resolver for another package manager implements the same two
 // functions and is chosen by `resolverFor` below.
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 /**
@@ -45,9 +45,19 @@ export function npmResolver(repo) {
       const scope = prefix.replace(/\/$/, "");
       const dir = join(modules, scope);
       if (!existsSync(dir)) return [];
-      return readdirSync(dir, { withFileTypes: true })
-        .filter((entry) => entry.isDirectory())
-        .map((entry) => `${scope}/${entry.name}`);
+      return (
+        readdirSync(dir, { withFileTypes: true })
+          // pnpm, workspaces and `npm link` install a scope member as a
+          // symbolic link (a junction on Windows), which a Dirent reports as a
+          // link, not a directory: follow it, and drop one that leads nowhere.
+          .filter(
+            (entry) =>
+              entry.isDirectory() ||
+              (entry.isSymbolicLink() &&
+                statSync(join(dir, entry.name), { throwIfNoEntry: false })?.isDirectory()),
+          )
+          .map((entry) => `${scope}/${entry.name}`)
+      );
     },
   };
 }
