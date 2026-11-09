@@ -348,9 +348,9 @@ jobs:
             echo "git rev-parse, git diff, or git log, use the fixed point and head above"
             echo "and read review-diff.patch and review-log.txt in the repository root."
             echo
-            echo "This is a one-shot CI run: ending your turn kills background agents and the"
-            echo "job still goes green. Spawn Agent calls with run_in_background: false and"
-            echo "wait for their results. Do not stop until the tracking comment contains"
+            echo "This is a one-shot CI run: ending your turn ends the run, and the job still"
+            echo "goes green. Agent subagents run in the foreground only; wait for their"
+            echo "results. Do not stop until the tracking comment contains"
             echo "## Standards, ## Spec, and ## Correctness."
             echo
             echo "Post your aggregated report by updating your tracking comment on the PR."
@@ -528,8 +528,8 @@ jobs:
             --model ${{ inputs.model }}
             --max-turns 120
             --allowedTools "Read,Glob,Grep,Task,Agent,Bash(gh pr diff:*),Bash(gh pr view:*),mcp__github_inline_comment__create_inline_comment"
-            --disallowedTools "Read(./.git/**),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(gh pr comment:*)"
-            --append-system-prompt "This is a non-interactive CI session: ending your turn terminates the run and kills background work. Launch Agent/Task subagents with run_in_background: false (several in one message still run in parallel). Never end your turn until the tracking comment has the aggregated report. If Agent is denied, run the axes sequentially in this session instead."
+            --disallowedTools "Read(./.git/**),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(gh pr comment:*),ScheduleWakeup,CronCreate,RemoteTrigger,SendMessage"
+            --append-system-prompt "This is a non-interactive CI session: ending your turn terminates the run. Agent subagents run in the foreground only (several in one message still run in parallel). Never end your turn until the tracking comment has the aggregated report. If Agent is denied, run the axes sequentially in this session instead."
 
       - name: Verify read-confinement hook unchanged
         if: steps.gate.outputs.proceed == 'true'
