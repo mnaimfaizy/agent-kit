@@ -12,7 +12,7 @@ import { DEFAULT_KIT_REPO } from "./callers.mjs";
 import { command } from "./checks/result.mjs";
 import { fileAndPinChecks, printFileAndPinChecks } from "./doctor.mjs";
 import { firstLine } from "./exec.mjs";
-import { EXECUTABLE_MODE, openKitTag, PreManifestTagError, serverFromEnv } from "./kit-tag.mjs";
+import { openKitTag, PreManifestTagError, serverFromEnv } from "./kit-tag.mjs";
 import {
   applyPlan,
   checkDeletable,
@@ -22,7 +22,8 @@ import {
   lstatOrNull,
   Refusal,
   reportRefusal,
-  stageExecutableBits,
+  stageFileModes,
+  uncommittedChanges,
 } from "./local-writes.mjs";
 import { caseCollisions, checkSafePath, fileDirConflicts } from "./safe-paths.mjs";
 import { isReleaseTag } from "./tags.mjs";
@@ -193,6 +194,9 @@ export async function collectAnswers({ flags, prompt, yes, defaultBranch }) {
     }
     if (raw === undefined) raw = fallback;
     if (raw === undefined || raw === "") {
+      // Asked on a terminal and left empty: say so now, rather than asking on
+      // (later questions depend on this one) or claiming there is no terminal.
+      if (prompted) return { error: `${q.ask} is required (${q.flag}).` };
       missing.push(q.flag);
       continue;
     }
@@ -204,17 +208,21 @@ export async function collectAnswers({ flags, prompt, yes, defaultBranch }) {
   return { answers };
 }
 
-/** The default branch to suggest: origin's HEAD, else the current branch, else main. */
+/**
+ * The default branch to suggest: origin's HEAD, else main. Never the current
+ * branch, which is often the adoption branch itself.
+ */
 export function detectDefaultBranch(runner, cwd) {
-  for (const args of [
-    ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"],
-    ["symbolic-ref", "--quiet", "--short", "HEAD"],
-  ]) {
-    const r = runner("git", ["-C", cwd, ...args]);
-    const name = r.status === 0 ? r.stdout.trim().replace(/^origin\//, "") : "";
-    if (name && parseAnswer("defaultBranch", name).value) return name;
-  }
-  return "main";
+  const r = runner("git", [
+    "-C",
+    cwd,
+    "symbolic-ref",
+    "--quiet",
+    "--short",
+    "refs/remotes/origin/HEAD",
+  ]);
+  const name = r.status === 0 ? r.stdout.trim().replace(/^origin\//, "") : "";
+  return name && parseAnswer("defaultBranch", name).value ? name : "main";
 }
 
 /** Text from the tag that will be inlined into YAML or written as a file. */
@@ -257,13 +265,23 @@ function presetText(snap, name) {
  * Work out everything init would write and throw Refusal for anything that
  * stops it. Touches nothing on disk.
  */
-export function planInit({ root, snap, answers, force }) {
+export function planInit({ runner, root, snap, answers, force }) {
   const { tag } = snap;
   const conflicts = [];
   const deletes = [];
   const writes = [];
   const notes = [];
   const exists = (rel) => lstatOrNull(join(root, rel)) !== null;
+  // A Caller or Threat pack file: refused while planning if something other
+  // than a regular file is in the way, so the write cannot fail half-way.
+  const fileTarget = (rel, what) => {
+    checkLocalPath(root, rel);
+    const st = lstatOrNull(join(root, rel));
+    if (st && !st.isFile()) {
+      throw new Refusal(`${rel} exists and is not a file, so init cannot write the ${what} there.`);
+    }
+    if (st) conflicts.push(`${rel} (${what})`);
+  };
 
   // Kit-owned paths: copied whole. An existing one is an earlier adoption.
   for (const p of snap.kitOwnedPaths) {
@@ -282,9 +300,9 @@ export function planInit({ root, snap, answers, force }) {
   const dir = answers.threatPackDir ?? DEFAULT_THREAT_PACK_DIR;
   // Case-insensitive: on Windows and macOS `.Claude/skills/x` is `.claude/skills/x`.
   const lowerDir = `${dir.toLowerCase()}/`;
-  const kitOwned = snap.kitOwnedPaths.find(
-    (p) => lowerDir.startsWith(p.toLowerCase()) || p.toLowerCase().startsWith(lowerDir),
-  );
+  // Only a folder inside a Kit-owned path is replaced by upgrade; a parent
+  // such as .github is fine (.github/workflows is checked on its own).
+  const kitOwned = snap.kitOwnedPaths.find((p) => lowerDir.startsWith(p.toLowerCase()));
   if (answers.flows.includes("audit") && kitOwned) {
     throw new Refusal(
       `--threat-pack-dir ${dir} overlaps the Kit-owned path ${kitOwned}, which upgrade replaces.`,
@@ -310,8 +328,7 @@ export function planInit({ root, snap, answers, force }) {
       if (err instanceof TemplateError) throw new Refusal(err.message);
       throw err;
     }
-    checkLocalPath(root, caller);
-    if (exists(caller)) conflicts.push(`${caller} (Caller)`);
+    fileTarget(caller, "Caller");
     writes.push({ path: caller, bytes: Buffer.from(rendered, "utf8") });
   }
 
@@ -325,8 +342,7 @@ export function planInit({ root, snap, answers, force }) {
     } else {
       for (const [f, text] of files) {
         const path = `${dir}/${f}`;
-        checkLocalPath(root, path);
-        if (exists(path)) conflicts.push(`${path} (Threat pack)`);
+        fileTarget(path, "Threat pack");
         writes.push({ path, bytes: Buffer.from(text, "utf8") });
       }
     }
@@ -355,7 +371,12 @@ export function planInit({ root, snap, answers, force }) {
   if (fileDir.length) {
     throw new Refusal(`${fileDir[0][0]} would be both a file and a folder (${fileDir[0][1]}).`);
   }
-  return { deletes, writes, conflicts, notes, dependabot };
+  // --force discards whatever is uncommitted in the Kit-owned paths it
+  // replaces: list it first, as upgrade --force does.
+  const { changed: dirty, ignored } = deletes.length
+    ? uncommittedChanges({ runner, root, paths: deletes })
+    : { changed: [], ignored: [] };
+  return { deletes, writes, conflicts, notes, dependabot, dirty, ignored };
 }
 
 /**
@@ -467,6 +488,9 @@ export async function runInit({
   const root = top.stdout.trim();
   const serverUrl = serverFromEnv(env);
   out(`Adopting ${DEFAULT_KIT_REPO}@${answers.tag} (${answers.flows.join(", ")}) in ${root}.`);
+  if (answers.flows.includes("pipeline")) {
+    out(`Default branch in the Callers: ${answers.defaultBranch} (--default-branch to change).`);
+  }
 
   let snap;
   try {
@@ -484,7 +508,7 @@ export async function runInit({
   try {
     let plan;
     try {
-      plan = planInit({ root, snap, answers, force });
+      plan = planInit({ runner, root, snap, answers, force });
     } catch (e) {
       if (e instanceof Refusal) return refuse(e);
       return refuse(new Refusal(firstLine(e?.message ?? e)));
@@ -507,6 +531,14 @@ export async function runInit({
       out(`--force: overwriting ${plan.conflicts.length} existing path(s):`);
       for (const c of listed(plan.conflicts)) out(`  ${c}`);
     }
+    if (plan.dirty.length) {
+      out(`--force: discarding uncommitted changes in ${plan.dirty.length} file(s):`);
+      for (const d of listed(plan.dirty)) out(`  ${d}`);
+    }
+    if (plan.ignored.length) {
+      out(`Also deleted: ${plan.ignored.length} ignored file(s) or folder(s) in those paths:`);
+      for (const d of listed(plan.ignored)) out(`  ${d}`);
+    }
     out("");
 
     if (!yes && !(confirm && (await confirm("Go ahead? [y/N] ")))) {
@@ -522,11 +554,7 @@ export async function runInit({
       return 1;
     }
     out(`Wrote ${plan.writes.length} file(s).`);
-    const note = stageExecutableBits({
-      runner,
-      root,
-      files: plan.writes.filter((w) => w.mode === EXECUTABLE_MODE).map((w) => w.path),
-    });
+    const note = stageFileModes({ runner, root, writes: plan.writes });
     if (note) out(note);
     for (const n of plan.notes) out(n);
     if (plan.dependabot) {
