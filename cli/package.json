@@ -1,6 +1,6 @@
 {
   "name": "@mnaimfaizy/agent-kit",
-  "version": "1.0.0-alpha.12",
+  "version": "1.0.0-beta.1",
   "description": "Adopt, upgrade and check Agent-kit in a Consumer repository. Reads kit files from the pinned git tag.",
   "license": "MIT",
   "type": "module",

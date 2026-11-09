@@ -14,7 +14,7 @@ Each tag is a **whole-kit snapshot**: reusable workflows, shipped skills, docs, 
 
 ## Cut a release
 
-The steps below use `<tag>`, e.g. `v1.0.0-alpha.12`. The first cut on this line was `v1.0.0-alpha.1`.
+The steps below use `<tag>`, e.g. `v1.0.0-beta.1`. The first cut on this line was `v1.0.0-alpha.1`.
 
 1. Ensure `main` (or your default branch) is clean, up to date (`git pull`), and includes every path in `scripts/release-snapshot-manifest.txt`.
 2. Verify the snapshot:
@@ -47,7 +47,7 @@ The steps below use `<tag>`, e.g. `v1.0.0-alpha.12`. The first cut on this line 
 
 ## Publishing the CLI to npm
 
-Each pushed `v*` tag also publishes `cli/` as `@mnaimfaizy/agent-kit` through [publish-cli.yml](../.github/workflows/publish-cli.yml), with npm trusted publishing: the job's OIDC token is exchanged for a short-lived publish credential, and `npm publish --provenance --access public` links the package to the run. The repository stores no npm token. It publishes only a tag whose commit is on `main`. The package version must equal the tag without its `v`: `cut-release.sh` refuses to tag otherwise, and the workflow checks again before it publishes. So in the release-prep PR, set `cli/package.json`'s `version` to the tag you are about to cut, for example `1.0.0-alpha.12` for `v1.0.0-alpha.12`. Every Release-line tag is published as `latest`, because the line only moves forward.
+Each pushed `v*` tag also publishes `cli/` as `@mnaimfaizy/agent-kit` through [publish-cli.yml](../.github/workflows/publish-cli.yml), with npm trusted publishing: the job's OIDC token is exchanged for a short-lived publish credential, and `npm publish --provenance --access public` links the package to the run. The repository stores no npm token. It publishes only a tag whose commit is on `main`. The package version must equal the tag without its `v`: `cut-release.sh` refuses to tag otherwise, and the workflow checks again before it publishes. So in the release-prep PR, set `cli/package.json`'s `version` to the tag you are about to cut, for example `1.0.0-beta.1` for `v1.0.0-beta.1`. Every Release-line tag is published as `latest`, because the line only moves forward.
 
 ### One-time setup
 
@@ -107,7 +107,7 @@ gh api repos/mnaimfaizy/agent-kit/environments/npm/deployment-branch-policies --
 
 #### 3. The trusted publisher (within 2 days before the next tag)
 
-A newly created trusted publisher must complete a successful publish within **2 days**, or you delete it and create it again. So add it shortly before you cut the next tag (`v1.0.0-alpha.13`), not right after the first publish.
+A newly created trusted publisher must complete a successful publish within **2 days**, or you delete it and create it again. So add it shortly before you cut the next tag (`v1.0.0-beta.1`), not right after the first publish.
 
 - **On npmjs.com:**
   1. Go to **Packages → `@mnaimfaizy/agent-kit` → Settings → Trusted publishing → GitHub Actions**.

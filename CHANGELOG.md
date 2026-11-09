@@ -6,6 +6,10 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
+## [1.0.0-beta.1] - 2026-11-09
+
+First beta on the `1.0.0` line. The CLI now covers adoption end to end (`init`, `upgrade`, `doctor`), and the plan, implement, review and audit flows run in a Consumer repository that is not this one. No workflow inputs, secrets or permissions changed, and no Consumer action is required: upgrade the `uses:` pins and the Kit-owned paths together, as always (from this tag's CLI, `upgrade --tag v1.0.0-beta.1` does both).
+
 ### Added
 
 - `npx @mnaimfaizy/agent-kit upgrade --tag <vY>` ([#72](https://github.com/mnaimfaizy/agent-kit/issues/72)) moves a Consumer from the tag its pins name to vY: it replaces each Kit-owned path vY lists (delete, then copy), deletes paths only the old tag listed, rewrites only the `@<tag>` of the Agent-kit `uses:` pins, prints the `examples/` diff between the two tags for you to apply to your Callers by hand, and then runs the `doctor --ci` file and pin checks. It works out every change and checks every refusal before writing anything: it refuses pins that disagree, an old or new tag without `kit-owned-paths.txt`, uncommitted changes in a path it would replace (unless `--force`), symbolic links in or above a Kit-owned path, and a tag file that is a link, a submodule, or a name two platforms would treat differently. After a Dependabot pin bump, `--from <vX>` names the tag being left, so paths only vX listed are deleted too. It asks before writing (`--yes` skips the question and is required without a terminal), writes only local files, and commits nothing; where `core.fileMode` is off (Windows), it stages each copied file with the tag's mode (adding or removing the executable bit), and `doctor` now takes a file's mode from the index there, as git does. `doctor`'s fix command for stale Kit-owned paths now names a CLI version that has `upgrade`. See [Getting started → Upgrading](docs/getting-started.md#upgrading).
@@ -15,17 +19,12 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 ### Changed
 
 - The example Callers are named `agent-pipeline` and `security-audit` (their `name:` lines), matching the files `init` writes. A contract test holds each example to the placeholders `init` fills in.
-
-### Changed
-
 - `doctor` and the new commands now print invisible and bidirectional formatting characters (zero-width characters, LRM/RLM, embeddings, overrides, isolates and the byte-order mark) as `\uXXXX`, as they already did for control characters, so a file name or message cannot read differently from what it is.
 
 ### Fixed
 
 - A scheduled audit could fail with "Empty report" when the agent started a background subagent and ended its turn waiting for it, which ends a headless run ([#92](https://github.com/mnaimfaizy/agent-kit/issues/92)). The plan, implement and audit steps now set `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`, as review already did, so subagents and commands run only in the foreground. All four agents also deny `ScheduleWakeup`, `CronCreate`, `RemoteTrigger` and `SendMessage`, which need no permission, and `Workflow`, `Monitor` and `PushNotification`, which start background work or reach outside the run; no run uses any of them. The planner and the auditor also deny `Agent`, and the audit prompt says to finish in one turn. Review still runs its axes as parallel foreground subagents. One side effect for the implementer: a Bash command that reaches its timeout (2 minutes unless the agent sets a longer one, up to 10) now stops instead of carrying on in the background, so a test command granted through `extra_allowed_tools` that runs longer than that fails in the agent's session. The verify step after the agent is unaffected. No inputs, secrets or permissions changed.
-
 - When an implement run failed before the agent started, for example because `setup_commands` failed, the "Check git configuration after the agent" step blamed the agent with "The agent run left git configuration or hooks outside the allowlist" and a `MODULE_NOT_FOUND` error ([#83](https://github.com/mnaimfaizy/agent-kit/issues/83)). The check now runs only when the hooks were staged. It still runs after a failed agent step: the agent can only start after staging succeeds, so any run in which the agent started is still checked.
-
 - The plan, implement, review and audit runs no longer fail when GitHub's release CDN returns 5xx on the Bun download ([#86](https://github.com/mnaimfaizy/agent-kit/issues/86)). Each reusable workflow now installs the Bun version the pinned `claude-code-action` expects (1.3.14) before the action runs. It downloads from the npm registry first and falls back to the GitHub release through `api.github.com`, retrying each source for a few minutes. Either download must match a pinned SHA-256 before it is extracted. The path is passed to the action as `path_to_bun_executable`, so the action skips its own install. If neither source works, the job fails with "Bun install failed" instead of a later `bun: command not found`. No inputs, secrets or permissions changed.
 
 ## [1.0.0-alpha.12] - 2026-11-08
