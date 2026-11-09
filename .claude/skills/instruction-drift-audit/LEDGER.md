@@ -13,7 +13,7 @@ same thing — one run's decision, read by the next.
 | `resolve-ledger.mjs` | The command: what the host's Ecosystems would carry forward, and what they would not. |
 
 ```bash
-node <skill>/resolve-ledger.mjs
+node "<skill>/resolve-ledger.mjs"
 ```
 
 It asserts nothing about the ledger and exits 0, or 1 when the adapter cannot be read. The gate

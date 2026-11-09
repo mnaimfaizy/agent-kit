@@ -4,15 +4,19 @@
  * suite that fails first when a change ties the skill to the repository it
  * happens to live in.
  *
- *   1. STATIC. No script imports anything but a Node built-in or a file in
- *      this folder. No document links outside this folder. No shipped file
- *      (fixtures and tests aside) names a host's decision log, script tree,
- *      or package scripts.
+ *   1. STATIC. No shipped file (fixtures and tests aside) names a host's
+ *      decision log, script tree, or package scripts. That no script imports,
+ *      and no document links, anything outside this folder is checked for
+ *      every User-scope skill by Agent-kit's skill-portability contract test.
  *   2. COPIED. The folder is copied, alone, into an empty temporary
  *      repository at `.agents/skills/instruction-drift-audit/` — a different layout
  *      from the one it lives in here — and its own suites run there.
  *   3. SMOKE. Every command runs in that repository, with a minimal adapter
  *      and install tree, and prints what it should.
+ *   4. OUTSIDE. The folder is copied into a skills directory outside every
+ *      repository, as a User-scope install puts it, and the commands (step
+ *      8's delta snippet, read from SKILL.md, among them) run from the
+ *      repository's root with `<skill>` the folder's absolute path.
  */
 
 import assert from "node:assert/strict";
@@ -26,7 +30,6 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { builtinModules } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, before, test } from "node:test";
@@ -38,39 +41,9 @@ const SELF = "portability.test.mjs";
 const shipped = readdirSync(HERE, { withFileTypes: true })
   .filter((entry) => entry.isFile())
   .map((entry) => entry.name);
-const scripts = shipped.filter((name) => name.endsWith(".mjs"));
-const documents = shipped.filter((name) => name.endsWith(".md"));
 const read = (name) => readFileSync(join(HERE, name), "utf8");
 
 // ── 1. Static ───────────────────────────────────────────────────────────────
-
-const IMPORT =
-  /^\s*(?:import|export)\b[^'"]*?\bfrom\s*['"]([^'"]+)['"]|^\s*import\s*['"]([^'"]+)['"]/gm;
-
-test("every import is a Node built-in or a file in this folder", () => {
-  const builtins = new Set(builtinModules);
-  for (const name of scripts)
-    for (const match of read(name).matchAll(IMPORT)) {
-      const specifier = match[1] ?? match[2];
-      const local = /^\.\/[^/]+\.mjs$/.test(specifier);
-      const builtin = specifier.startsWith("node:") || builtins.has(specifier.split("/")[0]);
-      assert.ok(
-        local || builtin,
-        `${name} imports ${specifier}, which a copy of this folder does not carry`,
-      );
-    }
-});
-
-test("no document links outside this folder", () => {
-  for (const name of documents)
-    for (const [, target] of read(name).matchAll(/\]\(([^)#]+)(?:#[^)]*)?\)/g)) {
-      if (/^[a-z]+:\/\//.test(target)) continue;
-      assert.ok(
-        !target.includes("/") && shipped.includes(target),
-        `${name} links ${target}, which a copy of this folder does not carry`,
-      );
-    }
-});
 
 /** What only the repository this folder came from would understand. */
 const HOST_ONLY = [
@@ -131,7 +104,9 @@ test("the copied folder passes its own suites", () => {
   const result = spawnSync(
     process.execPath,
     ["--test", ...suites.map((name) => join(skill, name))],
-    { cwd: repo, encoding: "utf8" },
+    // Under a test runner, an inherited NODE_TEST_CONTEXT makes the child report to
+    // its parent and exit 0 even when its tests fail.
+    { cwd: repo, encoding: "utf8", env: { ...process.env, NODE_TEST_CONTEXT: undefined } },
   );
   assert.equal(result.status, 0, result.stdout.slice(-2000) + result.stderr);
 });
@@ -155,6 +130,55 @@ test("resolve-ledger, check-reports, and suggest-run run with no brief yet", () 
   const suggest = run("suggest-run.mjs");
   assert.equal(suggest.status, 0, suggest.stderr);
   assert.equal(suggest.stdout, "");
+});
+
+// ── 4. Installed outside the repository ─────────────────────────────────────
+//
+// A User-scope install (`npx skills add … -g`) puts the folder in the user's
+// own skills directory, outside every repository. The commands still run from
+// the audited repository's root, with `<skill>` the folder's absolute path.
+
+let home;
+let outsideSkill;
+
+before(() => {
+  home = mkdtempSync(join(tmpdir(), "instruction-drift-audit-user-"));
+  // A space in the path, as in many home directories: the commands must quote `<skill>`.
+  outsideSkill = join(home, "my skills", "instruction-drift-audit");
+  mkdirSync(dirname(outsideSkill), { recursive: true });
+  cpSync(HERE, outsideSkill, { recursive: true });
+});
+
+after(() => {
+  if (home) rmSync(home, { recursive: true, force: true });
+});
+
+/** A ```bash block of SKILL.md, by a line it contains, with `<skill>` replaced. */
+function skillCommand(marker, skillPath) {
+  const blocks = [...read("SKILL.md").matchAll(/```bash\n([\s\S]*?)```/g)].map((m) => m[1]);
+  const block = blocks.find((text) => text.includes(marker));
+  assert.ok(block, `SKILL.md has no bash block containing ${marker}`);
+  return block.replaceAll("<skill>", skillPath.replaceAll("\\", "/"));
+}
+
+test("resolve-baseline runs from the repository with the skill installed outside it", () => {
+  const result = spawnSync(process.execPath, [join(outsideSkill, "resolve-baseline.mjs")], {
+    cwd: repo,
+    encoding: "utf8",
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /nx — Baseline 22\.7\.7, 2 member\(s\): @nx\/js, nx/);
+});
+
+test("step 8's delta command imports the ledger from the skill's own folder", () => {
+  const report = join(HERE, "fixtures", "report.json");
+  const command = skillCommand("classifyFindings", outsideSkill)
+    .replace("<draft-report.json>", JSON.stringify(report))
+    .replace("<the ledger report step 4 named>", JSON.stringify(report));
+  const result = spawnSync("bash", ["-c", command], { cwd: repo, encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  const delta = JSON.parse(result.stdout);
+  assert.ok(delta.stillPresent.length > 0, result.stdout);
 });
 
 test("validate-report runs, and refuses no input with its usage", () => {

@@ -118,4 +118,6 @@ Every command takes `--repo <dir>` (default: the working directory) and needs No
 | `resolve-ledger.mjs`   | What a run would carry forward and re-research.                     | By hand, before a run.                                           |
 | `validate-report.mjs`  | Validates and renders one report during a run (SKILL.md step 8).    | The run itself.                                                  |
 
-The contract suites are every `*.test.mjs` in this folder: `node --test <this folder>/*.test.mjs`. `portability.test.mjs` among them copies the folder alone into an empty repository and runs everything there.
+**The gate and the hook need the skill installed in the repository.** This is a User-scope skill: a copy in your own skills directory (for example `~/.claude/skills/instruction-drift-audit/`) is enough to run the audit by hand from any repository. CI and a repository's hooks, though, can only run files committed in that repository. To wire `check-reports.mjs` or `suggest-run.mjs`, install the skill into the repository (for example `.claude/skills/instruction-drift-audit/`) and commit it.
+
+The contract suites are every `*.test.mjs` in this folder: `node --test <this folder>/*.test.mjs`. `portability.test.mjs` among them copies the folder alone into an empty repository and runs everything there, and runs the commands from a repository with the folder installed outside it.
