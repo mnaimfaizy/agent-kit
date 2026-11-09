@@ -40,6 +40,10 @@ _Avoid_: vendored files, kit folders
 A self-contained HTML page, produced by the `explainer` Portable skill, that lets a named reader answer one question about a system from the page alone.
 _Avoid_: design page, onboarding page
 
+**Upstream Brief**:
+A dated, cited report, produced by the `instruction-drift-audit` Portable skill, comparing a repository's own agent instructions to the official upstream documentation for the Ecosystems a human names. The skill's other terms (Ecosystem, Baseline, Horizon, Instruction Claim, Upstream Finding, Evidence, Upstream Opportunity, Incidental Observation) are defined in its [`DESIGN.md`](.claude/skills/instruction-drift-audit/DESIGN.md#glossary).
+_Avoid_: upgrade plan, dependency audit
+
 **Companion skill**:
 A procedure skill (e.g. `implement`, `tdd`) that Agent-kit relies on but does not vendor; it comes from the **Companion library**.
 _Avoid_: dependency skill, bundled skill

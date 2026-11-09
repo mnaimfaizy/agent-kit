@@ -35,6 +35,7 @@ docs/issuebridge.md
 .claude/skills/security-finding-triage/
 .claude/skills/security-response/
 .claude/skills/explainer/
+.claude/skills/instruction-drift-audit/
 
 examples/security-audit-caller.yml
 examples/plan-implement-review-caller.yml

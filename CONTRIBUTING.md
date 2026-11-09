@@ -21,7 +21,7 @@ Everything CI runs, locally:
 | Check                    | Command                                                               |
 | ------------------------ | --------------------------------------------------------------------- |
 | Python contract tests    | `uv run pytest`                                                       |
-| Node contract tests      | `npm test`                                                            |
+| Node contract tests      | `npm test` (also runs every `.claude/skills/*/*.test.mjs` suite)      |
 | Release snapshot paths   | `uv run python scripts/verify_release_snapshot.py`                    |
 | Workflow reference fresh | `uv run python scripts/gen_workflow_reference.py --check`             |
 | Python lint / format     | `uv run ruff check .` · `uv run ruff format --check .`                |
@@ -34,21 +34,21 @@ CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs three jobs on eve
 
 ## Repository layout
 
-| Path                                         | What                                                               |
-| -------------------------------------------- | ------------------------------------------------------------------ |
-| `.github/workflows/*-reusable.yml`           | The product: reusable job bodies Consumers reference.              |
-| `.github/workflows/dogfood-*.yml`            | This repository as its own Caller (off by default).                |
-| `.github/workflows/ci.yml`, `links.yml`      | This repository's CI.                                              |
-| `.github/workflows/publish-cli.yml`          | Publishes `cli/` to npm on each Release tag.                       |
-| `.github/agent-*`, `.github/security-audit/` | Runtime files Consumers copy.                                      |
-| `.github/CODEOWNERS`                         | Review owners for kit-critical paths.                              |
-| `.claude/skills/`                            | Portable skills Consumers copy.                                    |
-| `kit-owned-paths.txt`                        | The Kit-owned paths Consumers replace whole on upgrade.            |
-| `cli/`                                       | The `@mnaimfaizy/agent-kit` npm CLI (`init`, `doctor`, `upgrade`). |
-| `examples/`                                  | Caller templates, setup presets, Threat pack skeletons.            |
-| `scripts/*.test.py`, `*.test.mjs`            | Contract tests.                                                    |
-| `scripts/gen_workflow_reference.py`          | Generates `docs/reference.md` from the workflows.                  |
-| `security/`                                  | This repository's own Threat pack (dogfood audit).                 |
+| Path                                         | What                                                                                          |
+| -------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `.github/workflows/*-reusable.yml`           | The product: reusable job bodies Consumers reference.                                         |
+| `.github/workflows/dogfood-*.yml`            | This repository as its own Caller (off by default).                                           |
+| `.github/workflows/ci.yml`, `links.yml`      | This repository's CI.                                                                         |
+| `.github/workflows/publish-cli.yml`          | Publishes `cli/` to npm on each Release tag.                                                  |
+| `.github/agent-*`, `.github/security-audit/` | Runtime files Consumers copy.                                                                 |
+| `.github/CODEOWNERS`                         | Review owners for kit-critical paths.                                                         |
+| `.claude/skills/`                            | Portable skills Consumers copy; a skill may carry its own `*.test.mjs` suites, which CI runs. |
+| `kit-owned-paths.txt`                        | The Kit-owned paths Consumers replace whole on upgrade.                                       |
+| `cli/`                                       | The `@mnaimfaizy/agent-kit` npm CLI (`init`, `doctor`, `upgrade`).                            |
+| `examples/`                                  | Caller templates, setup presets, Threat pack skeletons.                                       |
+| `scripts/*.test.py`, `*.test.mjs`            | Contract tests.                                                                               |
+| `scripts/gen_workflow_reference.py`          | Generates `docs/reference.md` from the workflows.                                             |
+| `security/`                                  | This repository's own Threat pack (dogfood audit).                                            |
 
 ## Contract tests
 
