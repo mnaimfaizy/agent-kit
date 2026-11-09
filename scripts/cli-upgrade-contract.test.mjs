@@ -740,6 +740,30 @@ describe("tag reading", () => {
     }
   });
 
+  it("runs every git with background maintenance off, so cleanup cannot race a detached git", () => {
+    // A detached `git maintenance run --auto` left by `git fetch` can still be
+    // writing in the throwaway repository when cleanup() removes it (ENOTEMPTY).
+    const calls = [];
+    const runner = (...a) => (calls.push(a[1]), systemRunner(...a));
+    const kit = openRepo({ runner, repo: KIT });
+    let dir;
+    try {
+      const a = kit.fetchTag(FROM);
+      const b = kit.fetchTag(TO);
+      kit.diff(a, b, "examples/");
+      dir = calls[0].at(-1);
+    } finally {
+      kit.cleanup();
+    }
+    assert.ok(calls.length > 1);
+    for (const args of calls) {
+      const configs = args.filter((_, i) => args[i - 1] === "-c");
+      assert.ok(configs.includes("maintenance.auto=false"), `git ${args.join(" ")}`);
+      assert.ok(configs.includes("gc.auto=0"), `git ${args.join(" ")}`);
+    }
+    assert.equal(existsSync(dirname(dir)), false);
+  });
+
   it("systemRunner's buffer mode returns stdout as a Buffer", () => {
     const r = systemRunner("git", ["--version"], { encoding: "buffer" });
     assert.ok(Buffer.isBuffer(r.stdout));

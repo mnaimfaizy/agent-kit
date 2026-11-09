@@ -82,13 +82,22 @@ export function openKitRepo({ runner, repo, serverUrl = DEFAULT_SERVER, remoteUr
   const dir = join(tmp, "repo.git");
   const noHooks = join(tmp, "no-hooks");
   mkdirSync(noHooks);
-  const cleanup = () => rmSync(tmp, { recursive: true, force: true });
+  // The retries are a fallback only: with background maintenance off (below)
+  // no git process is left writing in `tmp` once its command has returned.
+  const cleanup = () =>
+    rmSync(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  // No background maintenance: `git fetch` ends with `git maintenance run
+  // --auto`, which newer git detaches (maintenance.autoDetach, gc.autoDetach).
+  // The detached process outlives the fetch and can still be writing in the
+  // repository (objects/maintenance.lock, gc.pid) when cleanup() removes it,
+  // which failed cleanup with ENOTEMPTY.
+  const noBackground = ["-c", "maintenance.auto=false", "-c", "gc.auto=0"];
   // No hooks run, whatever the adopter's global git config says.
-  const base = ["-C", dir, "-c", `core.hooksPath=${noHooks}`];
+  const base = ["-C", dir, "-c", `core.hooksPath=${noHooks}`, ...noBackground];
   const git = (...args) => runner("git", [...base, ...args]);
   const gitBytes = (...args) => runner("git", [...base, ...args], { encoding: "buffer" });
   try {
-    const r = runner("git", ["init", "--bare", "--quiet", "--template=", dir]);
+    const r = runner("git", [...noBackground, "init", "--bare", "--quiet", "--template=", dir]);
     if (r.status !== 0) throw new KitTagError(`git init failed: ${firstLine(r.stderr)}`);
   } catch (err) {
     cleanup();
