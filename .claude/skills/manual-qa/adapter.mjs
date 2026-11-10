@@ -1424,8 +1424,8 @@ const hostnameOf = (url) => url.hostname.toLowerCase().replace(/\.$/, "");
  * in to a hosted host with a test-environment label (`TEST_LABELS`) in its
  * subdomain, as in `qa.example.com`, and only once the QA person has named or
  * confirmed that host in chat: `confirmed` is the host as they typed it. The
- * label must sit left of the site's own name (the last two labels, or one
- * more under `MULTI_PART_SUFFIXES`), so `example.dev` (a TLD), `dev.to` and
+ * label must sit left of the site's own name (the label left of the suffix,
+ * which is the last label or one of `MULTI_PART_SUFFIXES`), so `example.dev` (a TLD), `dev.to` and
  * `qa.co.uk` (the site's own name) are not test hosts. An IP address, a host
  * with no such label, or one with a production label (`prod`, `production`,
  * `live`) is a stop, confirmed or not.
@@ -1684,7 +1684,8 @@ export function main(argv, io = {}) {
     if (address === undefined || address.startsWith("--")) return usage;
     const [target = "stack"] = option(argv, "--target");
     const [confirmed] = option(argv, "--confirmed");
-    if (argv.includes("--confirmed") && confirmed === undefined) return usage;
+    if (argv.includes("--confirmed") && (confirmed === undefined || confirmed.startsWith("--")))
+      return usage;
     if (argv.includes("--target") && !["stack", "url"].includes(option(argv, "--target")[0]))
       return usage;
     const result = hostVerdict(address, { target, confirmed });

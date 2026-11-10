@@ -535,6 +535,7 @@ test("`host` exits 0 to sign in, 1 on a stop, 3 to confirm, 2 on bad usage", () 
   assert.equal(code("https://staging.example.com", "--target"), 2);
   assert.equal(code("https://staging.example.com", "--target", "prod"), 2);
   assert.equal(code("https://staging.example.com", "--target", "--confirmed", "x"), 2);
+  assert.equal(code("https://qa.example.com", "--confirmed", "--target", "url"), 2);
   assert.deepEqual(
     JSON.parse(main(["host", "https://qa.example.com", "--target", "url"], io).out).verdict,
     "confirm",
