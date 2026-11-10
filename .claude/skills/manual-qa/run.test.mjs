@@ -2,8 +2,10 @@
  * Contract suite for `manual-qa`'s half of the config and its host rule:
  * every `run:` shape outside ADAPTER.md is a named problem with its line, the
  * readiness check names exactly what a run still needs, a problem in one
- * skill's section never stops the other, and a `stack` run signs in only to
- * a local development host.
+ * skill's section never stops the other, and the host rule: a `stack` run
+ * signs in only to a local development host, a `url` run also to a labelled
+ * test host the QA person confirmed in chat, and nothing that looks like
+ * production.
  */
 
 import assert from "node:assert/strict";
@@ -168,6 +170,27 @@ test("a `stack` target also needs the four stack commands and `accounts.print`",
       "run.stack.down",
       "run.accounts.print",
     ],
+  );
+});
+
+test("a `url` target starts nothing: no stack commands or `accounts.print` are needed", () => {
+  const roles = "    roles: [{ id: admin, purpose: x }]";
+  const read = (...lines) =>
+    runReadiness(readQaConfig(reader({ "qa.config.yml": lines.join("\n") })));
+  const bare = read("run:", "  target: url", "  surface: web", "  accounts:", roles);
+  assert.equal(bare.ready, true);
+  assert.deepEqual(bare.needs, []);
+  assert.ok(bare.notes.some((n) => /QA person types each role's test values into chat/.test(n)));
+  const seeded = read(
+    "run:",
+    "  target: url",
+    "  surface: web",
+    "  accounts:",
+    "    print: p",
+    roles,
+  );
+  assert.ok(
+    seeded.notes.some((n) => /only if the environment's owner ran the same seeder/.test(n)),
   );
 });
 
@@ -344,47 +367,177 @@ test("render refuses `run:` answers with problems", () => {
 
 // ── Host rule ───────────────────────────────────────────────────────────────
 
-test("local development hosts pass", () => {
-  for (const address of [
-    "http://localhost:3000/login",
-    "localhost:8080",
-    "http://127.0.0.1:5173",
-    "http://[::1]:4000/",
-    "https://app.localhost",
-    "http://shop.test/sign-in",
-    "HTTP://LOCALHOST",
-  ])
+const url = { target: "url" };
+/** The verdict for an address the QA person confirmed, as they typed it. */
+const confirmed = (address, typed = address) =>
+  hostVerdict(address, { target: "url", confirmed: typed }).verdict;
+
+const LOCAL = [
+  "http://localhost:3000/login",
+  "localhost:8080",
+  "http://127.0.0.1:5173",
+  "http://[::1]:4000/",
+  "https://app.localhost",
+  "http://shop.test/sign-in",
+  "HTTP://LOCALHOST",
+];
+const LABELLED = [
+  "https://staging.example.com",
+  "https://qa.example.com/login",
+  "https://dev.example.com",
+  "https://test.example.com",
+  "https://sandbox.shop.example.org",
+  "https://preview.example.co.uk",
+  "https://uat.example.com:8443",
+  "https://api.staging.example.com",
+  "https://qa.shop.co.uk",
+  "https://staging.myapp.vercel.app",
+  "http://example.test.evil.com",
+  "https://STAGING.Example.com.",
+];
+const PRODUCTION_LOOKING = [
+  "https://app.example.com",
+  "https://www.example.com",
+  "https://example.com",
+  "https://staging-example.com",
+  "https://mystaging.example.com",
+  "https://staging.prod.example.com",
+  "https://qa.production.example.com",
+  "https://live.preview.example.com",
+  "https://203.0.113.7",
+  "http://[2001:db8::1]",
+  "http://localhost.example.com",
+  "http://127.0.0.2",
+  "http://0.0.0.0:3000",
+  "http://test",
+];
+const TLD_ONLY = ["https://example.dev", "https://app.dev", "https://qa.dev", "https://dev.to"];
+/** A site's own name under a multi-part suffix: someone's site, not a test host. */
+const SITE_NAMES = [
+  "https://qa.co.uk",
+  "https://dev.com.au",
+  "https://staging.github.io",
+  "https://staging.vercel.app",
+  "https://preview.netlify.app",
+  "https://sandbox.herokuapp.com",
+];
+
+test("local development hosts pass, for either target", () => {
+  for (const address of LOCAL) {
     assert.equal(hostVerdict(address).verdict, "local", address);
+    assert.equal(hostVerdict(address, url).verdict, "local", address);
+  }
 });
 
-test("anything else stops: hosted, production-looking, a bare TLD, lookalikes", () => {
-  for (const address of [
-    "https://app.example.com",
-    "https://staging.example.com",
-    "https://example.dev",
-    "http://localhost.example.com",
-    "http://127.0.0.2",
-    "http://0.0.0.0:3000",
-    "http://test",
-    "http://example.test.evil.com",
-    "file:///etc/passwd",
-    "not a url at all",
-    "",
-  ])
-    assert.equal(hostVerdict(address).verdict, "stop", address);
+test("a labelled hosted host passes only with chat confirmation", () => {
+  for (const address of LABELLED) {
+    assert.equal(hostVerdict(address, url).verdict, "confirm", address);
+    assert.equal(confirmed(address), "hosted", address);
+  }
+  assert.equal(confirmed("https://qa.example.com/login", "qa.example.com"), "hosted");
+  assert.equal(confirmed("https://qa.example.com", "QA.example.com/"), "hosted");
 });
 
-test("an address carrying sign-in values stops, even on localhost", () => {
+test("a confirmation names this host, not another", () => {
+  for (const typed of ["staging.example.org", "example.com", "app.staging.example.com", "yes", " "])
+    assert.notEqual(confirmed("https://staging.example.com", typed), "hosted", typed);
+  assert.equal(confirmed("https://staging.example.com", "qa.example.com"), "stop");
+});
+
+test("a URL found only in the plan is not confirmation", () => {
+  const planUrl = "https://staging.example.com";
+  const text = GOOD_PLAN.replace("- **Target:** `stack`", `- **Target:** \`url\`, at ${planUrl}`);
+  const { plan, problems } = validatePlan(text);
+  assert.deepEqual(problems, []);
+  assert.equal(plan.brief.target, "url");
+  // Nothing in the plan's reading, or in readiness, carries an address to sign in at.
+  assert.doesNotMatch(JSON.stringify(plan.brief), /example\.com/);
+  const files = {
+    "qa.config.yml": [
+      "run:",
+      "  accounts:",
+      "    roles: [{ id: admin, purpose: x }, { id: member, purpose: y }]",
+    ].join("\n"),
+  };
+  const readiness = runReadiness(readQaConfig(reader(files)), plan);
+  assert.equal(readiness.ready, true);
+  assert.equal(readiness.run.target, "url");
+  assert.doesNotMatch(JSON.stringify(readiness), /example\.com/);
+  assert.ok(readiness.notes.some((n) => /ask the QA person for it in chat/.test(n)));
+  // The plan's own URL, unconfirmed, is not one a run may sign in at.
+  assert.equal(hostVerdict(planUrl, url).verdict, "confirm");
+  assert.equal(main(["host", planUrl, "--target", "url"], { read: reader(files) }).code, 3);
+});
+
+test("anything that looks like production stops, confirmed or not", () => {
+  for (const address of PRODUCTION_LOOKING) {
+    assert.equal(hostVerdict(address, url).verdict, "stop", address);
+    assert.equal(confirmed(address), "stop", address);
+  }
+  assert.match(hostVerdict("https://staging.prod.example.com", url).why, /looks like production/);
+});
+
+test("a TLD-only `.dev` host stops: a TLD is not a test-environment label", () => {
+  for (const address of TLD_ONLY) {
+    assert.equal(hostVerdict(address, url).verdict, "stop", address);
+    assert.equal(confirmed(address), "stop", address);
+  }
+  assert.match(hostVerdict("https://example.dev", url).why, /a TLD such as `\.dev` does not count/);
+});
+
+test("a site named like a label under a multi-part suffix stops: it is the site's own name", () => {
+  for (const address of SITE_NAMES) {
+    assert.equal(hostVerdict(address, url).verdict, "stop", address);
+    assert.equal(confirmed(address), "stop", address);
+  }
+});
+
+test("a `stack` run signs in only to a local host, even a confirmed labelled one", () => {
+  for (const address of [...LABELLED, ...PRODUCTION_LOOKING, ...TLD_ONLY, ...SITE_NAMES])
+    assert.equal(
+      hostVerdict(address, { target: "stack", confirmed: address }).verdict,
+      "stop",
+      address,
+    );
+  assert.equal(hostVerdict("https://staging.example.com").verdict, "stop");
+});
+
+test("not a web address stops, for either target", () => {
+  for (const address of ["file:///etc/passwd", "ftp://staging.example.com", "not a url at all", ""])
+    for (const options of [{}, url, { target: "url", confirmed: address }])
+      assert.equal(hostVerdict(address, options).verdict, "stop", address);
+  assert.equal(hostVerdict("https://staging.example.com", { target: "prod" }).verdict, "stop");
+});
+
+test("an address carrying sign-in values stops, even on localhost or confirmed", () => {
   assert.deepEqual(hostVerdict("http://admin:pw@localhost:3000"), {
     verdict: "stop",
     host: "localhost",
     why: "the address carries sign-in values; they never go in an address",
   });
+  assert.equal(confirmed("https://admin:pw@staging.example.com", "staging.example.com"), "stop");
 });
 
-test("`host` exits 0 for a local host and 1 for a stop", () => {
+test("`host` exits 0 to sign in, 1 on a stop, 3 to confirm, 2 on bad usage", () => {
   const io = { read: reader({}) };
-  assert.equal(main(["host", "http://localhost:3000"], io).code, 0);
-  assert.equal(main(["host", "https://app.example.com"], io).code, 1);
-  assert.equal(main(["host"], io).code, 2);
+  const code = (...argv) => main(["host", ...argv], io).code;
+  assert.equal(code("http://localhost:3000"), 0);
+  assert.equal(code("https://app.example.com"), 1);
+  assert.equal(code("https://staging.example.com"), 1);
+  assert.equal(code("https://staging.example.com", "--target", "url"), 3);
+  assert.equal(
+    code("https://staging.example.com", "--target", "url", "--confirmed", "staging.example.com"),
+    0,
+  );
+  assert.equal(code("https://example.dev", "--target", "url", "--confirmed", "example.dev"), 1);
+  assert.equal(code(), 2);
+  assert.equal(code("https://staging.example.com", "--target", "url", "--confirmed"), 2);
+  assert.equal(code("https://staging.example.com", "--target"), 2);
+  assert.equal(code("https://staging.example.com", "--target", "prod"), 2);
+  assert.equal(code("https://staging.example.com", "--target", "--confirmed", "x"), 2);
+  assert.equal(code("https://qa.example.com", "--confirmed", "--target", "url"), 2);
+  assert.deepEqual(
+    JSON.parse(main(["host", "https://qa.example.com", "--target", "url"], io).out).verdict,
+    "confirm",
+  );
 });

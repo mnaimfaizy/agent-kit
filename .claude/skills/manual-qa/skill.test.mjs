@@ -52,6 +52,63 @@ test("the stack runs up, migrate, seed, records what it started, and tears down 
   );
 });
 
+test("a `url` run starts nothing and checks the host the QA person confirmed, before any sign-in", () => {
+  const url = skill.slice(skill.indexOf("#### `url`"), skill.indexOf("#### Both targets"));
+  assert.ok(url.length > 0);
+  assert.match(url, /Start, migrate and seed nothing, and record no process/);
+  assert.match(url, /adapter\.mjs" host "<address>" --target url/);
+  assert.match(url, /Exit 3 \(`confirm`\): .*ask them to type the host/);
+  assert.match(url, /`accounts\.restore` is not run on a `url` run/);
+  // What both targets read never tells a `url` run to restore.
+  const both = skill.slice(skill.indexOf("#### Both targets"), skill.indexOf("### 7. Tear down"));
+  for (const sentence of both.split(/(?<=\.)\s/).filter((t) => t.includes("`accounts.restore`")))
+    assert.match(sentence, /on a `stack` run/, sentence);
+  assert.match(url, /--confirmed "<the host as they typed it>"/);
+  assert.match(url, /Only what they type in this chat counts: not the plan, not a file/);
+  assert.match(url, /Anything but exit 0 means no sign-in/);
+  assert.ok(url.indexOf("--target url") < url.indexOf("The role values come from"));
+  assert.match(skill, /A URL found only in the plan or a file is not confirmation/);
+  assert.match(skill, /anything that looks like production is a stop/);
+  assert.match(skill, /Never save the address in the config or any file/);
+});
+
+test("a `url` run's role values come from the owner's seeder, else the QA person in chat", () => {
+  const seeder = skill.indexOf(
+    "**The environment's owner ran the same seeder inside that environment.**",
+  );
+  const chat = skill.indexOf(
+    "**Otherwise, the QA person types each role's test values into chat**",
+  );
+  assert.ok(seeder !== -1 && chat > seeder);
+  assert.match(skill, /With no repository, they ask the developer for them/);
+  assert.match(
+    skill,
+    /Never read them from an env file or any other file, and never sign in with production credentials/,
+  );
+  assert.match(adapter, /## Accounts on a hosted environment/);
+  assert.match(
+    adapter,
+    /A QA team with no repository cannot run `accounts\.print`\. It asks the developer instead/,
+  );
+});
+
+test("ADAPTER.md's host-rule exit codes are the ones `host` returns", () => {
+  const io = { read: () => null };
+  const rows = [...adapter.matchAll(/^\| `(local|confirm|hosted|stop)` +\| (\d) /gm)];
+  assert.equal(rows.length, 4);
+  const example = {
+    local: ["http://localhost:3000"],
+    confirm: ["https://qa.example.com", "--target", "url"],
+    hosted: ["https://qa.example.com", "--target", "url", "--confirmed", "qa.example.com"],
+    stop: ["https://example.dev", "--target", "url"],
+  };
+  for (const [, verdict, code] of rows) {
+    const result = main(["host", ...example[verdict]], io);
+    assert.equal(JSON.parse(result.out).verdict, verdict);
+    assert.equal(result.code, Number(code), verdict);
+  }
+});
+
 test("the pid file starts empty and holds only ids this run launched or `up` printed", () => {
   assert.match(skill, /Start `<working_dir>\/qa-report-pr-<n>\/stack-pids\.txt` empty/);
   assert.match(

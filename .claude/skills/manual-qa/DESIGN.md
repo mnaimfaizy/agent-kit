@@ -32,7 +32,7 @@ Writing the plan is where the Residue is judged: what CI proves, what only a per
 
 ## A plan is data
 
-A plan travels through trackers, chats and other teams' tools, and anyone along the way can edit it. So its text is never a source of commands: the steps are actions in the product, and every command the run executes comes from the skill or from the repository's own config. For the same reason, a URL found only in a plan is not where the run signs in: the host rule decides.
+A plan travels through trackers, chats and other teams' tools, and anyone along the way can edit it. So its text is never a source of commands: the steps are actions in the product, and every command the run executes comes from the skill or from the repository's own config. For the same reason, a URL found only in a plan is not where the run signs in: the host rule decides, and a hosted host needs a person (below).
 
 ## Three results, and one only a person gives
 
@@ -46,9 +46,15 @@ A plan is about one head. A run against a newer build passes or fails scenarios 
 
 A developer's machine runs other things: their own database, another project's containers. A teardown that stopped whatever looked related would break work the run knew nothing about. So `down` is the repository's own contract (it stops what `up` started), and the skill also records the processes it launched, and stops only those.
 
+## A hosted host needs a person
+
+A QA team often tests an environment someone else deployed, so `manual-qa` may sign in beyond the local machine. Fixture accounts with public passwords must still never be tried against production, so the host rule is code the skill runs before any sign-in, not a sentence it is asked to remember. A hostname can only say so much: a test-environment label in its subdomain (`qa.example.com`) is a claim, and a TLD such as `.dev` is not even that, since anyone can register `example.dev` for a live site. So a labelled host passes only once the QA person, who knows which environment they were given, names or confirms it in chat. The plan cannot do that for them: it travels through other people's tools, and a URL in it is text anyone along the way could have changed. Anything that looks like production (no label, a `prod` label, an IP address) stops the run, confirmed or not: a person can confirm the wrong tab, and the cost of that mistake is real accounts.
+
+The role values follow the same line. A hosted environment its owner seeded with the repository's own seeder holds the fixtures `accounts.print` prints; otherwise only the QA person knows them. Never an env file: one on a QA machine is as likely to hold production values as test ones.
+
 ## Accounts are fixtures, and still stay out
 
-QA Accounts have public values derived from tracked source, and a seeder that refuses any non-local database with no override: that refusal is what keeps fixture passwords away from production. The skill holds the other half: it signs in only at a local host, only as a role the config declares. A plan that carries a credential is refused even when the value is a public fixture, because a plan that carries values teaches people to paste values, and the next ones may not be fixtures. The credential scan is a heuristic, so it names the line and the kind of value, never the value itself.
+QA Accounts have public values derived from tracked source, and a seeder that refuses any non-local database with no override: that refusal is what keeps fixture passwords away from production. The skill holds the other half: it signs in only at a host the host rule lets through, only as a role the config declares. A plan that carries a credential is refused even when the value is a public fixture, because a plan that carries values teaches people to paste values, and the next ones may not be fixtures. The credential scan is a heuristic, so it names the line and the kind of value, never the value itself.
 
 ## Posting is a second step
 
