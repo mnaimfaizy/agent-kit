@@ -6,6 +6,10 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
+### Added
+
+- A seventh Portable skill, `qa-plan` (User-scope), run by hand as `/qa-plan` on an open pull request. It writes a **QA Plan**: only the **Residue**, the manual verification a passing CI run would not establish, in a format someone elsewhere can run from the plan alone (the skill's [`ANATOMY.md`](.claude/skills/qa-plan/ANATOMY.md)), with a Run brief and no credentials. Every coverage claim is tagged `[observed]` or `[reconstructed]`; this release reconstructs them from CI, the diff and the issue history. An empty Residue is a valid result: it recommends merging without a plan. The draft is composed in a gitignored working directory, never committed, and delivered only after you confirm: kept as a working copy, or posted to one tracker issue per subject or one pull request comment, by rule, and edited on each revision. Settings go in `qa.config.yml` (or `.yaml` / `.json`) at your repository root (keys: the skill's [`ADAPTER.md`](.claude/skills/qa-plan/ADAPTER.md)); when a setting it needs is missing, it asks, and writes your answers into the file only if you agree. **Hazard packs**, Markdown files you own with `when:` globs, add _Rule out first_ checks to matching scenarios and capture rules to the Run brief. Why QA is two skills (the runner, `manual-qa`, follows): [ADR 0003](docs/adr/0003-qa-is-two-skills-joined-by-a-copied-plan-format.md).
+
 ### Changed
 
 - [Install individual skills](docs/install-skills.md) now warns that `npx skills` replaces, without asking, a skill you already have with the same name (other skill collections ship a `code-review`, for example), and shows how to check first with `npx skills list -g`.
