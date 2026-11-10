@@ -6,6 +6,10 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
+### Changed
+
+- [Install individual skills](docs/install-skills.md) now warns that `npx skills` replaces, without asking, a skill you already have with the same name (other skill collections ship a `code-review`, for example), and shows how to check first with `npx skills list -g`.
+
 ## [1.0.0-beta.2] - 2026-11-10
 
 Second beta on the `1.0.0` line, classed **Minor** (per [docs/releases.md](docs/releases.md)): Portable skills can now be installed one at a time with `npx skills`, each skill declares its scope, and `doctor` reports a linked Kit-owned path. Everything below is additive or a fix. No workflow input, secret or permission changed, and no Consumer action is required beyond the usual upgrade of the `uses:` pins and Kit-owned paths together.
