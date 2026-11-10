@@ -1,0 +1,322 @@
+/**
+ * Contract suite for posting a QA Report (`report.mjs`): one PR comment,
+ * found by its `<!-- qa-report -->` marker and updated on a re-run, never
+ * duplicated; the tracker issue's boxes and Execution record; and the upload
+ * rules, above all that a failed run's media is never uploaded.
+ */
+
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { test } from "node:test";
+import { fileURLToPath } from "node:url";
+
+import {
+  REPORT_MARKER,
+  evidenceUpload,
+  findComments,
+  main,
+  parseComments,
+  readReport,
+  reportComment,
+  trackerBody,
+} from "./report.mjs";
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const PLAN = readFileSync(join(HERE, "fixtures", "plans", "good.md"), "utf8");
+const HEAD = "2".repeat(40);
+
+/** A QA Report for fixtures/plans/good.md (subject #42, pull request #57). */
+const reportFor = (rows, record = "- S1: PASS\n- S2: PASS\n- Build: verified by `gh`") =>
+  [
+    "# QA Report: Members can be invited by email",
+    "",
+    `- **Plan:** \`tmp/qa/qa-plan-pr-57.md\`, subject #42, pull request #57, head \`${HEAD}\``,
+    "- **Build check:** verified by `gh`",
+    "- **Run:** `stack`, `web`, driven by the built-in browser, on 2026-11-10 10:00",
+    "- **Accounts:** admin",
+    "- **Teardown:** `down` run; nothing else started",
+    "",
+    "## Results",
+    "",
+    "| Scenario | Result | Evidence | Notes |",
+    "| -------- | ------ | -------- | ----- |",
+    ...rows,
+    "",
+    "## Follow-ups",
+    "",
+    "None.",
+    "",
+    "## Execution record",
+    "",
+    record,
+    "",
+  ].join("\n");
+
+const PASSED = reportFor([
+  "| S1: An admin invites a new member | PASS | `qa-report-pr-57/s1.png` | invite sent |",
+  "| S2: A signed-out visitor cannot open the members page | PASS | `qa-report-pr-57/s2.log` | redirected |",
+]);
+const FAILED = reportFor([
+  "| S1: An admin invites a new member | FAIL | `qa-report-pr-57/s1.png` | no invite appeared |",
+  "| S2: A signed-out visitor cannot open the members page | PASS | `qa-report-pr-57/s2.log` | redirected |",
+]);
+const STOPPED = reportFor([
+  "| S1: An admin invites a new member | PASS | `qa-report-pr-57/s1.png` | invite sent |",
+  "| S2: A signed-out visitor cannot open the members page | left for a person | none | the run stopped at S1: data loss |",
+]);
+const everyFile = () => true;
+const upload = (report, picks, more = {}) =>
+  evidenceUpload({
+    upload: "gh-release:qa-artifacts",
+    report: readReport(report).report,
+    picks,
+    exists: everyFile,
+    visibility: "PRIVATE",
+    release: "missing",
+    ...more,
+  });
+
+// --- Reading a report ---
+
+test("a report reads into its anchors and one result per scenario", () => {
+  const { report, problems } = readReport(PASSED);
+  assert.deepEqual(problems, []);
+  assert.equal(report.subject, 42);
+  assert.equal(report.pr, 57);
+  assert.equal(report.head, HEAD);
+  assert.deepEqual(
+    report.results.map((row) => [row.id, row.result, row.evidence]),
+    [
+      ["S1", "PASS", ["qa-report-pr-57/s1.png"]],
+      ["S2", "PASS", ["qa-report-pr-57/s2.log"]],
+    ],
+  );
+  assert.equal(report.failed, false);
+});
+
+test("a FAIL, or a run stopped on a blocking outcome, is a failed run", () => {
+  assert.equal(readReport(FAILED).report.failed, true);
+  assert.equal(readReport(STOPPED).report.failed, true);
+  assert.equal(readReport(STOPPED).report.stopped, true);
+});
+
+test("a result other than the three is a problem", () => {
+  const { problems } = readReport(reportFor(["| S1: x | passed-ish | none | |"]));
+  assert.match(problems[0], /S1's result is `passed-ish`/);
+});
+
+// --- The PR comment: one, updated, never duplicated ---
+
+test("the comment starts with the marker and carries the report", () => {
+  const { body, problems } = reportComment(PASSED);
+  assert.deepEqual(problems, []);
+  assert.equal(body.split("\n")[0], REPORT_MARKER);
+  assert.ok(body.includes("# QA Report: Members can be invited by email"));
+});
+
+test("with no report comment yet, one is created", () => {
+  const comments = [
+    { id: 1, body: "Looks good to me." },
+    { id: 2, body: "<!-- qa-plan format=1 subject=#42 pr=#57 -->\n# QA Plan: …" },
+    { id: 3, body: `Quoting it: ${REPORT_MARKER} is not on the first line` },
+  ];
+  assert.deepEqual(findComments(comments).report, { action: "create" });
+});
+
+test("a re-run updates the report comment, never adds a second", () => {
+  const first = reportComment(FAILED).body;
+  const comments = [
+    { id: 10, body: "Please run QA." },
+    { id: 11, body: first },
+  ];
+  assert.deepEqual(findComments(comments).report, { action: "update", id: 11, duplicates: [] });
+  // The re-run's body replaces it whole.
+  const second = reportComment(PASSED).body;
+  assert.notEqual(second, first);
+  assert.equal(second.split("\n")[0], REPORT_MARKER);
+});
+
+test("with two report comments, the oldest is updated and the other named, not deleted", () => {
+  const comments = [
+    { id: 21, body: `${REPORT_MARKER}\r\n\r\nold` },
+    { id: 22, body: `${REPORT_MARKER}\n\nolder duplicate` },
+  ];
+  assert.deepEqual(findComments(comments).report, { action: "update", id: 21, duplicates: [22] });
+});
+
+test("the plan's link comment names the tracker issue", () => {
+  const comments = [{ id: 5, body: "<!-- qa-plan-link -->\nQA Plan: #99" }];
+  assert.equal(findComments(comments).planIssue, 99);
+  assert.equal(findComments([]).planIssue, null);
+});
+
+test("comments read from every shape gh prints", () => {
+  const one = { id: 1, body: "a" };
+  const two = { id: 2, body: "b" };
+  assert.deepEqual(parseComments(JSON.stringify([one, two])), [one, two]);
+  assert.deepEqual(parseComments(JSON.stringify([[one], [two]])), [one, two]);
+  assert.deepEqual(parseComments(`${JSON.stringify(one)}\n${JSON.stringify(two)}\n`), [one, two]);
+  assert.deepEqual(parseComments(""), []);
+});
+
+test("uploaded evidence is linked; the rest stays a local path", () => {
+  const url = "https://github.com/o/r/releases/download/qa-artifacts/pr-57-s1.png";
+  const { body } = reportComment(PASSED, { links: { "qa-report-pr-57/s1.png": url } });
+  assert.ok(body.includes(`[\`qa-report-pr-57/s1.png\`](${url})`));
+  assert.ok(body.includes("| `qa-report-pr-57/s2.log` |"));
+});
+
+test("a report that carries a sign-in value is not posted", () => {
+  // Built at run time: no credential-looking literal is ever committed.
+  const value = ["Zq", "8v", "Lw", "3n", "Rt", "7k"].join("");
+  const leaky = PASSED.replace(
+    "- **Accounts:** admin",
+    `- **Accounts:** admin, password: ${value}`,
+  );
+  const { body, problems } = reportComment(leaky);
+  assert.equal(body, null);
+  assert.match(problems[0], /looks like a credential value; remove it before posting/);
+  assert.ok(!problems.join("\n").includes(value));
+});
+
+// --- The tracker issue ---
+
+test("on the tracker issue, PASS boxes are ticked and the Execution record replaced", () => {
+  const { body, problems } = trackerBody(PLAN, FAILED);
+  assert.deepEqual(problems, []);
+  assert.match(body, /^- \[ \] S1: An admin invites a new member$/m);
+  assert.match(body, /^- \[x\] S2: A signed-out visitor cannot open the members page$/m);
+  // A Setup box is a person's to tick.
+  assert.match(body, /^- \[ \] Setup 1:/m);
+  assert.ok(!body.includes("_Not run yet._"));
+  assert.match(body, /## Execution record\n\n- S1: PASS/);
+  assert.equal(body.split("\n")[0], PLAN.split(/\r?\n/)[0]);
+});
+
+test("a re-run on the tracker issue clears a box its scenario no longer passes", () => {
+  const passed = trackerBody(PLAN, PASSED).body;
+  assert.match(passed, /^- \[x\] S1:/m);
+  const rerun = trackerBody(passed, FAILED);
+  assert.deepEqual(rerun.problems, []);
+  assert.match(rerun.body, /^- \[ \] S1:/m);
+  assert.equal(rerun.body.match(/## Execution record/g).length, 1);
+});
+
+test("a tracker issue for another pull request or a revised head is not touched", () => {
+  const other = trackerBody(PLAN, PASSED.replace("pull request #57", "pull request #58"));
+  assert.equal(other.body, null);
+  assert.match(other.problems[0], /pull request #57; the report is for .*pull request #58/);
+  const revised = trackerBody(PLAN.replaceAll(HEAD, "3".repeat(40)), PASSED);
+  assert.equal(revised.body, null);
+  assert.match(revised.problems[0], /the plan was revised since this run/);
+});
+
+// --- QA Artifacts ---
+
+test("a failed run's media is refused, whatever the person picks", () => {
+  const result = upload(FAILED, ["qa-report-pr-57/s1.png", "qa-report-pr-57/s2.log"]);
+  assert.deepEqual(
+    result.refused.map((r) => r.file),
+    ["qa-report-pr-57/s1.png"],
+  );
+  assert.match(result.refused[0].why, /media from a failed run is never uploaded/);
+  assert.deepEqual(
+    result.accepted.map((a) => a.asset),
+    ["pr-57-s2.log"],
+  );
+  // A stopped run is a failed run too.
+  assert.equal(upload(STOPPED, ["qa-report-pr-57/s1.png"]).accepted.length, 0);
+});
+
+test("a passed run's picked media is accepted under a per-PR asset name", () => {
+  const result = upload(PASSED, ["qa-report-pr-57/s1.png"], { github: "o/r" });
+  assert.deepEqual(result.refused, []);
+  assert.equal(result.tag, "qa-artifacts");
+  assert.equal(result.release, "create");
+  assert.deepEqual(result.accepted, [
+    {
+      file: "qa-report-pr-57/s1.png",
+      asset: "pr-57-s1.png",
+      url: "https://github.com/o/r/releases/download/qa-artifacts/pr-57-s1.png",
+    },
+  ]);
+});
+
+test("only the files picked, and only ones the report lists, are uploaded", () => {
+  assert.deepEqual(upload(PASSED, []).accepted, []);
+  const result = upload(PASSED, [
+    "qa-report-pr-57/stack-pids.txt",
+    ".env",
+    "qa-report-pr-57/s1.png",
+    "qa-report-pr-57/s1.png",
+  ]);
+  assert.deepEqual(
+    result.refused.map((r) => [r.file, r.why.slice(0, 22)]),
+    [
+      ["qa-report-pr-57/stack-pids.txt", "the report lists no su"],
+      [".env", "the report lists no su"],
+      ["qa-report-pr-57/s1.png", "picked twice (asset `p"],
+    ],
+  );
+  const missing = upload(PASSED, ["qa-report-pr-57/s1.png"], { exists: () => false });
+  assert.match(missing.refused[0].why, /no such file/);
+});
+
+test("with `evidence.upload: none` nothing is uploaded", () => {
+  const result = upload(PASSED, ["qa-report-pr-57/s1.png"], { upload: "none" });
+  assert.equal(result.tag, null);
+  assert.deepEqual(result.accepted, []);
+  assert.match(result.refused[0].why, /`run.evidence.upload` is `none`/);
+});
+
+test("an existing release that is not a prerelease takes nothing; a prerelease is reused", () => {
+  const full = upload(PASSED, ["qa-report-pr-57/s1.png"], { release: "release" });
+  assert.deepEqual(full.accepted, []);
+  assert.match(full.refused[0].why, /not a prerelease/);
+  assert.equal(upload(PASSED, [], { release: "prerelease" }).release, "use");
+});
+
+test("a public repository, or one of unknown visibility, gets the QA Account warning", () => {
+  assert.deepEqual(upload(PASSED, []).warnings, []);
+  for (const visibility of ["PUBLIC", null])
+    assert.match(
+      upload(PASSED, [], { visibility }).warnings[0],
+      /only files that show QA Account data/,
+    );
+});
+
+// --- CLI ---
+
+test("the CLI refuses a failed run's media with exit 1", () => {
+  const files = {
+    "report.md": FAILED,
+  };
+  const { code, out } = main(["evidence", "report.md", "--pick", "qa-report-pr-57/s1.png"], {
+    readFile: (p) => files[p] ?? null,
+    read: (p) =>
+      p === "qa.config.yml" ? "run:\n  evidence: { upload: gh-release:qa-artifacts }\n" : null,
+    exists: everyFile,
+  });
+  assert.equal(code, 1);
+  const result = JSON.parse(out);
+  assert.equal(result.working_dir, "tmp/qa");
+  assert.match(result.refused[0].why, /media from a failed run/);
+});
+
+test("the CLI finds the comment to update from gh's JSON lines", () => {
+  const lines = [
+    JSON.stringify({ id: 1, body: "hi" }),
+    JSON.stringify({ id: 2, body: `${REPORT_MARKER}\n\n# QA Report: x` }),
+  ].join("\n");
+  const { code, out } = main(["find"], { stdin: () => lines });
+  assert.equal(code, 0);
+  assert.deepEqual(JSON.parse(out).report, { action: "update", id: 2, duplicates: [] });
+});
+
+test("the CLI prints the comment body, and names an unknown command as usage", () => {
+  const { code, out } = main(["comment", "r.md"], { readFile: () => PASSED });
+  assert.equal(code, 0);
+  assert.ok(out.startsWith(`${REPORT_MARKER}\n`));
+  assert.equal(main(["post", "r.md"]).code, 2);
+});

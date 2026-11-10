@@ -42,7 +42,7 @@ The first file present is the config: `qa.config.yml`, then `qa.config.yaml`, th
 | `run.accounts.restore` | none        | The command that puts one role's account back as seeded, with `{id}` where the role id goes. Without it, a scenario that needs a restore is left for a person. |
 | `run.accounts.roles`   | none: asked | Each role, as `{ id, purpose }`. An id is letters, digits, `_` and `-`, since it goes into `restore`. Every role a plan signs in as must be declared here.     |
 | `run.version_endpoint` | none        | A path on the build's own host (`/version`) that names the commit it was built from. Checks the build when `gh` cannot.                                        |
-| `run.evidence.upload`  | `none`      | `none`, or `gh-release:<tag>`. This copy of the skill uploads nothing, whatever it says.                                                                       |
+| `run.evidence.upload`  | `none`      | `none`, or `gh-release:<tag>`: the prerelease the QA Artifacts a person picks are uploaded to. See [QA Artifacts and posting](#qa-artifacts-and-posting).      |
 
 ## Readiness check
 
@@ -74,6 +74,21 @@ A **QA Account** is a role's sign-in on a test system. The repository's seeder m
 ## The host rule
 
 `node "<skill>/adapter.mjs" host <address>` decides whether a run may sign in at an address. A `stack` run signs in only to a local development host: `localhost`, `127.0.0.1`, `[::1]`, `*.localhost` or `*.test`. Anything else is a stop (exit 1), as is an address that carries a user name or password.
+
+## QA Artifacts and posting
+
+The QA Report file in `working_dir` is always written, and is the whole result until the person says to post it. Posting needs `gh` access and the person's yes, after they have seen the results. It goes where the plan went, by `plan.publish` (`adapter.mjs delivery`, the rules `qa-plan` delivered with):
+
+- **`working-copy`:** nothing is posted; the person hands on the file.
+- **`pr-comment`:** one comment on the pull request, whose first line is exactly `<!-- qa-report -->`. A re-run edits it; a second is never posted.
+- **`tracker-issue`:** the plan's issue, found by the pull request's `<!-- qa-plan-link -->` comment. Each scenario's Sign-off box is ticked when it passed and cleared otherwise, and its Execution record becomes the report's, with links to the uploaded evidence.
+
+**`run.evidence.upload`** decides whether any QA Artifact leaves `working_dir`:
+
+- **`none`** (the default): none does.
+- **`gh-release:<tag>`**: the files the person picks, one by one, go to the prerelease `<tag>`, created when missing, as `pr-<n>-<file>`. An existing release with that tag that is not a prerelease takes nothing. Only a file the report lists as evidence can be picked. Media (screenshots, recordings, audio) from a failed run, one with a FAIL or stopped on a blocking outcome, is never uploaded: describe the failure in the report, and keep the file local. On a public repository, or one whose visibility is not known, the person is warned first that anyone can download a release asset, so only files showing QA Account data on a test system may go.
+
+`report.mjs` builds what is posted and checks what is uploaded, and refuses any text that looks like it carries a sign-in value.
 
 ## Capture rules
 

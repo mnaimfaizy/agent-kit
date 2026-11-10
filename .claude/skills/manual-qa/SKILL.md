@@ -9,9 +9,9 @@ metadata:
 
 # Manual QA
 
-A user-invoked run skill. It takes a **QA Plan** that the `qa-plan` skill wrote, runs each scenario as written against a local **QA Stack**, and writes a **QA Report**: one row per scenario, PASS, FAIL or _left for a person_, with its evidence. It composes nothing, and it posts nothing: the report is a file the person hands on.
+A user-invoked run skill. It takes a **QA Plan** that the `qa-plan` skill wrote, runs each scenario as written against a local **QA Stack**, and writes a **QA Report**: one row per scenario, PASS, FAIL or _left for a person_, with its evidence. It composes nothing. The report is a file the person hands on; posting it to GitHub, and uploading the QA Artifacts the person picks, are an extra step taken only on their yes.
 
-Load [ANATOMY.md](ANATOMY.md) when a plan's section or field needs its meaning. Load [ADAPTER.md](ADAPTER.md) when reading or writing `qa.config.yml`, or when the repository's seeder or stack commands are in question. Load [DESIGN.md](DESIGN.md) when a rule needs its reason, or before changing this skill.
+Load [ANATOMY.md](ANATOMY.md) when a plan's section or field needs its meaning. Load [ADAPTER.md](ADAPTER.md) when reading or writing `qa.config.yml`, or when the repository's seeder or stack commands are in question. `report.mjs` builds what step 11 posts and checks what step 10 uploads; it runs no `gh` command itself. Load [DESIGN.md](DESIGN.md) when a rule needs its reason, or before changing this skill.
 
 `<skill>` in a command below is the absolute path of the folder this file is in, written with forward slashes (`C:/Users/me/...` on Windows), inside double quotes because it may contain spaces. Every command runs from the root of the repository under test.
 
@@ -23,6 +23,7 @@ Load [ANATOMY.md](ANATOMY.md) when a plan's section or field needs its meaning. 
 - **Sign in only as a role the plan names**, with the values `accounts.print` prints, at an address `adapter.mjs host` calls `local`. Register an account by hand only when registration is the scenario under test. Sign-in values stay out of the report, the evidence and every file this skill writes.
 - **Obey the Run brief's capture rules** whenever capturing evidence. Capture a screenshot, recording or log (a **QA Artifact**) only where a written result is not enough.
 - **Stop only what you started.** Teardown is `down`, then the processes this run recorded starting, and nothing else.
+- **Post only on a yes.** The QA Report file is always written, and is the whole result until the person, having seen the results, says to post them. Posting needs `gh` access; without it, the file is what they hand on. Upload only the files the person picks one by one, and never a failed run's media.
 
 ## Workflow
 
@@ -111,9 +112,84 @@ Only when this run ran `up` (step 5): run `down`, then stop each process in `sta
 
 ### 8. Write the QA Report
 
-Write `<working_dir>/qa-report-pr-<n>.md` in the shape below, and read it back: one row per scenario, no sign-in value anywhere in it or in the evidence folder. When the plan file is in `working_dir`, replace its Execution record with the report's short record. Show the person the results and the report's path. Nothing is posted.
+Write `<working_dir>/qa-report-pr-<n>.md` in the shape below, and read it back: one row per scenario, no sign-in value anywhere in it or in the evidence folder. When the plan file is in `working_dir`, replace its Execution record with the report's short record. Show the person the results and the report's path. Nothing is posted in this step.
 
-**Done when:** the report and its evidence folder are in `working_dir`, and the person has the results and the path.
+```bash
+node "<skill>/report.mjs" read "<report file>"
+```
+
+Exit 1 names what is out of shape: fix the report before anything is posted.
+
+**Done when:** the report and its evidence folder are in `working_dir`, `report.mjs read` exits 0, and the person has the results and the path.
+
+### 9. Offer to post
+
+Ask whether to post the results, saying where they would go. Post nothing without a yes; on a no, the run ends here. Without `gh` access (`gh auth status` fails), say so and stop: the report file is the result. Run every `gh` command from the repository root, write every file this step needs (`<tmp>` below) in the system's temporary directory, and delete them when done.
+
+Where they go is the plan's destination, by the rules `qa-plan` delivered it with. Pass each of the subject issue's labels (`gh issue view <subject> --json labels --jq '.labels[].name'`):
+
+```bash
+node "<skill>/adapter.mjs" delivery --label <label> --label <label> …
+```
+
+- **`working-copy`:** nothing is posted. Uploads (step 10) still may be, when the person wants links to hand on.
+- **`tracker-issue`** or **`pr-comment`:** read the pull request's comments, and find the report comment and the plan's tracker issue:
+
+  ```bash
+  gh api --paginate "repos/{owner}/{repo}/issues/<pr>/comments" --jq '.[] | {id, body}' | node "<skill>/report.mjs" find
+  ```
+
+  `report` is `update` with the comment's `id`, or `create`. `planIssue` is the issue the `<!-- qa-plan-link -->` comment names, or `null`. For `tracker-issue` with no `planIssue`, the plan's issue cannot be found: offer the pull request comment instead.
+
+**Done when:** the person has said no, or has said yes to a destination, which is known.
+
+### 10. Upload the QA Artifacts the person picks
+
+Read `run.evidence.upload` from step 2's effective config. With `none` (the default), upload nothing: say the evidence stays in `working_dir`, and go to step 11.
+
+With `gh-release:<tag>`:
+
+1. `gh repo view --json visibility,nameWithOwner`. Unless `visibility` is `PRIVATE`, say first: _anyone who can see this repository can download a release asset; upload only files that show QA Account data on a test system_.
+2. Ask about each evidence file in the report, one by one: upload it, or keep it local. Never offer to upload them all at once. When the run failed (a FAIL, or a run stopped on a blocking outcome), say that its screenshots and recordings stay local, and do not offer them.
+3. Find the release: `gh release view <tag> --json isPrerelease --jq .isPrerelease` prints `true` (`prerelease`) or `false` (`release`), or fails (`missing`).
+4. Check the picks:
+
+   ```bash
+   node "<skill>/report.mjs" evidence "<report file>" --pick <path> --pick <path> … --visibility <visibility> --release <state> --github <nameWithOwner>
+   ```
+
+   Exit 1: say each `refused` file and why. Drop them, and run it again with the rest, or with none. Say each `warnings` line.
+
+5. When `release` is `create`: `gh release create <tag> --prerelease --title "QA Artifacts" --notes "QA Artifacts uploaded by manual-qa. Not a release of the software."`. Never upload to a release that is not a prerelease.
+6. For each `accepted` file: copy `<working_dir>/<file>` to `<tmp>/<asset>`, then `gh release upload <tag> "<tmp>/<asset>" --clobber`. `--clobber` replaces this pull request's asset of the same name from an earlier run.
+
+**Done when:** each accepted file is uploaded to the prerelease and has its `url`, or nothing is uploaded and the person knows why.
+
+### 11. Post the report
+
+With `working-copy`, skip this step. Otherwise pass `--link <file>=<url>` for each file uploaded in step 10, so the posted text links it. A command below that exits 1 names what it refused: show it, and post nothing.
+
+- **`pr-comment`:** one comment, whose first line is exactly `<!-- qa-report -->`.
+
+  ```bash
+  node "<skill>/report.mjs" comment "<report file>" --link <file>=<url> … > "<tmp>/comment.md"
+  ```
+
+  With `report: update`, edit that comment: `gh api -X PATCH "repos/{owner}/{repo}/issues/comments/<id>" -F body=@<tmp>/comment.md`. With `create`: `gh pr comment <pr> --body-file "<tmp>/comment.md"`. A re-run edits the comment it finds; it never posts a second. When the edit fails, say why and post nothing new. Name each `duplicates` id for a person to delete; delete none.
+
+- **`tracker-issue`:** the plan's issue gets the ticks and the record, not the whole report.
+
+  ```bash
+  gh issue view <planIssue> --json body --jq .body > "<tmp>/issue.md"
+  node "<skill>/report.mjs" tracker "<report file>" --issue-body "<tmp>/issue.md" --link <file>=<url> … > "<tmp>/issue-new.md"
+  gh issue edit <planIssue> --body-file "<tmp>/issue-new.md"
+  ```
+
+  Each scenario's Sign-off box is ticked when it passed and cleared otherwise; a Setup box stays a person's to tick. The issue's Execution record becomes the report's. An issue whose plan is for another pull request or another head is refused: the plan was revised after this run.
+
+Give the person the comment or issue URL, and each uploaded file's URL.
+
+**Done when:** the results are on the destination the person said yes to, or nothing was posted and the person knows why.
 
 ## The QA Report
 
