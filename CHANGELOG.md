@@ -18,6 +18,8 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 - `manual-qa` can post its QA Report to GitHub, only with `gh` access and only after you have seen the results and said yes. It goes where the plan went: one pull request comment starting `<!-- qa-report -->`, edited on each re-run and never duplicated, or, for a plan on a tracker issue, ticks on that issue's Sign-off checklist for each scenario that passed and its Execution record filled in, with links to uploaded evidence. **QA Artifacts** stay in the working directory unless `run.evidence.upload` is `gh-release:<tag>`: then only the files you pick, one by one, go to that prerelease (created when missing), screenshots and recordings from a failed run are never uploaded, and on a public repository you are warned first that only QA Account data may appear. The rules are in the skill's [`ADAPTER.md`](.claude/skills/manual-qa/ADAPTER.md#qa-artifacts-and-posting).
 
+- A [QA](docs/qa.md) guide walks the two QA skills end to end: the developer → remote QA team handoff, the readiness check, the `stack` and `url` targets and the host rule, the QA Account contract with a minimal seeder outline, Hazard packs, and posting. Two templates to copy: [`examples/qa.config.yml`](examples/qa.config.yml), showing every key of both sections, and a sample Hazard pack, [`examples/qa-hazards/sign-in.md`](examples/qa-hazards/sign-in.md). A contract test reads both through the skills' own `adapter.mjs`.
+
 ### Changed
 
 - [Install individual skills](docs/install-skills.md) now warns that `npx skills` replaces, without asking, a skill you already have with the same name (other skill collections ship a `code-review`, for example), and shows how to check first with `npx skills list -g`.

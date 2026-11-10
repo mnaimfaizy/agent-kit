@@ -51,8 +51,14 @@ def reusable_workflows() -> list[Path]:
     return sorted(WORKFLOWS.glob("*-reusable.yml"))
 
 
+def example_callers() -> list[Path]:
+    # Caller templates are named `*-caller.yml`; other YAML under examples/
+    # (such as `qa.config.yml`) is not a workflow.
+    return sorted(EXAMPLES.glob("*-caller.yml"))
+
+
 def callers() -> list[Path]:
-    return sorted(EXAMPLES.glob("*.yml")) + sorted(WORKFLOWS.glob("dogfood-*.yml"))
+    return example_callers() + sorted(WORKFLOWS.glob("dogfood-*.yml"))
 
 
 def workflow_call(path: Path) -> dict:
@@ -87,7 +93,7 @@ def test_reusable_secret_references_are_declared() -> None:
 
 
 def test_permission_scopes_are_valid() -> None:
-    for path in live_workflows() + sorted(EXAMPLES.glob("*.yml")):
+    for path in live_workflows() + example_callers():
         for block in all_permission_blocks(load(path)):
             unknown = set(block) - PERMISSION_SCOPES
             assert not unknown, f"{path.name}: unknown permission scopes {sorted(unknown)}"
