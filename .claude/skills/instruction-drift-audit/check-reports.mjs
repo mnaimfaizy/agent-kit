@@ -2,7 +2,7 @@
 // The gate: re-validates every committed structured report, and the adapter
 // it is read with (DESIGN.md §10 and §12).
 //
-//   node <skill>/check-reports.mjs [--repo <dir>] [--print]
+//   node "<skill>/check-reports.mjs" [--repo <dir>] [--print]
 //
 // A host wires this into whatever runs its checks: a CI step, a pre-commit
 // hook, or a thin wrapper its own gate runner can discover. The logic lives

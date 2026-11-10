@@ -2,7 +2,7 @@
 // Prints what an Upstream Brief run would remember (DESIGN.md §11 and §12),
 // so a human can see the carry-forward before any research hop spends a token.
 //
-//   node <skill>/resolve-ledger.mjs [--repo <dir>]
+//   node "<skill>/resolve-ledger.mjs" [--repo <dir>]
 //
 // For every Ecosystem the adapter declares, it resolves the new Baseline the
 // same way `resolve-baseline.mjs` does, finds that Ecosystem's ledger — the

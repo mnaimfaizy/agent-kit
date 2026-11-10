@@ -42,7 +42,7 @@ const IMPORTS = [
 ];
 // Inline `[text](target)` and reference definitions `[label]: target`; a footnote `[^1]: …` is not a link.
 const LINKS = [
-  /\]\(<?([^)#\s>]+)>?(?:#[^)]*)?\)/g,
+  /\]\(<?([^)#\s>]+)>?(?:#[^)\s]*)?(?:\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?\s*\)/g,
   /^[ \t]{0,3}\[(?!\^)[^\]]+\]:\s*<?([^\s>#]+)/gm,
 ];
 const SCRIPT = /\.(?:mjs|cjs|js)$/;
@@ -130,7 +130,7 @@ test("a link outside the folder, or to a file it does not ship, is named", () =>
       "---",
       "See [the format](FORMAT.md#fields), [the web](https://example.com/x.md),",
       "[the sibling](../security-finding-triage/SKILL.md), [the repo](../../../docs/adopt.md)",
-      "and [a typo](FROMAT.md).",
+      "and [a typo](FROMAT.md). [Titled](../titled.md \"Adopt\") and [titled local](FORMAT.md 'Format').",
       "",
     ].join("\n"),
     "FORMAT.md": "# Format\n",
@@ -139,6 +139,7 @@ test("a link outside the folder, or to a file it does not ship, is named", () =>
     "SKILL.md links ../security-finding-triage/SKILL.md, which a copy of this folder does not carry",
     "SKILL.md links ../../../docs/adopt.md, which a copy of this folder does not carry",
     "SKILL.md links FROMAT.md, which a copy of this folder does not carry",
+    "SKILL.md links ../titled.md, which a copy of this folder does not carry",
   ]);
 });
 
