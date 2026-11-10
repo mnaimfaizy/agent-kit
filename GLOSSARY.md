@@ -103,3 +103,39 @@ Security finding bodies never appear in Actions logs, artifacts, or public issue
 **Private delivery**:
 Handing security findings only to a draft GitHub Security Advisory (plus optional email).
 _Avoid_: report upload, publishing findings
+
+### Manual QA
+
+The `qa-plan` and `manual-qa` Portable skills; why they are two skills: [ADR 0003](docs/adr/0003-qa-is-two-skills-joined-by-a-copied-plan-format.md).
+
+**QA Plan**:
+The Markdown file `qa-plan` writes for one pull request at one head, in the format its `ANATOMY.md` gives, carrying only the Residue and runnable from the plan alone.
+_Avoid_: test plan, QA checklist
+
+**Residue**:
+The manual verification a passing CI run would not establish; the only thing a QA Plan's scenarios cover.
+_Avoid_: manual tests, remaining tests
+
+**QA Account**:
+A role's sign-in on a test system, with fixed public values derived from tracked source, created by an idempotent seeder that refuses any non-local database. Never copied into a QA Plan.
+_Avoid_: test user, demo account
+
+**QA Stack**:
+A local copy of the application a tester starts and stops with the repository's `up`, `migrate`, `seed` and `down` commands; teardown touches only what `up` started.
+_Avoid_: test environment, local env
+
+**Hazard pack**:
+A repository-owned Markdown file naming one area where QA is easily fooled: `when:` globs, a _Rule out first_ list `qa-plan` copies into matching scenarios, and _Capture rules_ `manual-qa` obeys.
+_Avoid_: QA gotchas, known issues
+
+**Execution record**:
+A QA Plan's last section, empty after compose, where whoever runs the plan records each scenario's result.
+_Avoid_: results section, test log
+
+**QA Artifact**:
+A screenshot, recording or log captured during a QA run, only where a written result is not enough; private by default.
+_Avoid_: evidence upload, attachment
+
+**QA Report**:
+The self-contained Markdown file `manual-qa` writes for one run of one QA Plan: the build it checked, one row per scenario (PASS, FAIL, or left for a person), and the evidence.
+_Avoid_: test report, QA results

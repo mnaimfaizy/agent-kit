@@ -15,6 +15,7 @@
 .claude/skills/security-response/
 .claude/skills/explainer/
 .claude/skills/instruction-drift-audit/
+.claude/skills/qa-plan/
 .github/agent-runtime/
 .github/agent-pipeline/
 .github/security-audit/
