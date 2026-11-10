@@ -88,7 +88,7 @@ Run each with `npx @mnaimfaizy/agent-kit <command>`. `init` and `upgrade` ask be
 | `.github/security-audit/`            | Audit prompt, advisory publisher, PR counts comment, optional email notifier. Copy.                                                                                         |
 | `.claude/skills/`                    | **Portable skills**: `code-review`, `security-audit`, `security-finding-triage`, `security-response`, `explainer`, `instruction-drift-audit`, `qa-plan`, `manual-qa`. Copy. |
 | `kit-owned-paths.txt`                | The list of paths above that you copy from a tag and replace whole on upgrade.                                                                                              |
-| `examples/`                          | Caller templates, setup presets, Threat pack skeletons and QA config and Hazard pack templates to copy and edit.                                                            |
+| `examples/`                          | Caller templates, setup presets, Threat pack skeletons, QA config and Hazard pack templates to copy and edit.                                                               |
 | `cli/`                               | Source of the `@mnaimfaizy/agent-kit` npm CLI. Run with `npx`; never copy.                                                                                                  |
 | `.github/workflows-archive/copilot/` | Inert **Copilot archive** — an alternative runner, never live alongside Claude.                                                                                             |
 
