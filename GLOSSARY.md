@@ -106,7 +106,7 @@ _Avoid_: report upload, publishing findings
 
 ### Manual QA
 
-The `qa-plan` and `manual-qa` Portable skills; why they are two skills: [ADR 0003](docs/adr/0003-qa-is-two-skills-joined-by-a-copied-plan-format.md).
+The `qa-plan` and `manual-qa` Portable skills; why they are two skills: [ADR 0003](docs/adr/0003-qa-is-two-skills-joined-by-a-copied-plan-format.md). The `qa-plan` skill's [`DESIGN.md`](.claude/skills/qa-plan/DESIGN.md#glossary) carries the same definitions, word for word, so the skill keeps them when it is installed alone; `scripts/qa-glossary-contract.test.py` keeps the two the same.
 
 **QA Plan**:
 The Markdown file `qa-plan` writes for one pull request at one head, in the format its `ANATOMY.md` gives, carrying only the Residue and runnable from the plan alone.
@@ -117,7 +117,7 @@ The manual verification a passing CI run would not establish; the only thing a Q
 _Avoid_: manual tests, remaining tests
 
 **QA Account**:
-A role's sign-in on a test system, with fixed public values derived from tracked source, created by an idempotent seeder that refuses any non-local database. Never copied into a QA Plan.
+A role's sign-in on a test system, with fixed public values derived from tracked source and a reserved-domain email (`*.test`), created by an idempotent seeder that refuses any non-local database. Never copied into a QA Plan.
 _Avoid_: test user, demo account
 
 **QA Stack**:

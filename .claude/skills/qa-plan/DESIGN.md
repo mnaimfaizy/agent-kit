@@ -4,21 +4,23 @@ Why the skill is shaped the way it is. The skill carries this file so its rules 
 
 ## Glossary
 
-**QA Plan**: the Markdown file this skill writes for one pull request at one head, in the format [ANATOMY.md](ANATOMY.md) gives. It carries only the Residue, and is runnable from the plan alone.
+These are word for word the definitions in Agent-kit's root glossary, where a contract test keeps the two the same.
 
-**Residue**: the manual verification a passing CI run would not establish. What is left over after automation, never a re-test of it.
+**QA Plan**: The Markdown file `qa-plan` writes for one pull request at one head, in the format its `ANATOMY.md` gives, carrying only the Residue and runnable from the plan alone.
 
-**QA Account**: a role's sign-in on a test system, with fixed public values derived from tracked source and a reserved-domain email (`*.test`), created by an idempotent seeder that refuses any non-local database. Public, but never copied into a plan.
+**Residue**: The manual verification a passing CI run would not establish; the only thing a QA Plan's scenarios cover.
 
-**QA Stack**: a local copy of the application a tester starts and stops with four commands: `up`, `migrate`, `seed`, `down`. Teardown touches only what `up` started.
+**QA Account**: A role's sign-in on a test system, with fixed public values derived from tracked source and a reserved-domain email (`*.test`), created by an idempotent seeder that refuses any non-local database. Never copied into a QA Plan.
 
-**Hazard pack**: a repository-owned Markdown file naming one area where QA is easily fooled: `when:` globs, a _Rule out first_ list copied into matching scenarios, and _Capture rules_ the run obeys.
+**QA Stack**: A local copy of the application a tester starts and stops with the repository's `up`, `migrate`, `seed` and `down` commands; teardown touches only what `up` started.
 
-**Execution record**: the plan's last section, empty after compose; whoever runs the plan records each scenario's result there.
+**Hazard pack**: A repository-owned Markdown file naming one area where QA is easily fooled: `when:` globs, a _Rule out first_ list `qa-plan` copies into matching scenarios, and _Capture rules_ `manual-qa` obeys.
 
-**QA Artifact**: a screenshot, recording or log captured during a run, only where a written result is not enough.
+**Execution record**: A QA Plan's last section, empty after compose, where whoever runs the plan records each scenario's result.
 
-**QA Report**: the self-contained Markdown file `manual-qa` writes for one run of one plan: the build it checked, one row per scenario, and the evidence.
+**QA Artifact**: A screenshot, recording or log captured during a QA run, only where a written result is not enough; private by default.
+
+**QA Report**: The self-contained Markdown file `manual-qa` writes for one run of one QA Plan: the build it checked, one row per scenario (PASS, FAIL, or left for a person), and the evidence.
 
 ## Two skills, one format
 

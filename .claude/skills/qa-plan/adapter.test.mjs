@@ -572,3 +572,109 @@ test("ADAPTER.md's examples read with no problems", async () => {
   assert.deepEqual(parseConfig("qa.config.yml", config).problems, []);
   assert.deepEqual(parseHazardPack(pack).problems, []);
 });
+
+// ── Review fixes ────────────────────────────────────────────────────────────
+
+test("a backslash inside double quotes is a problem; inside single quotes it is literal", () => {
+  assert.deepEqual(yaml('working_dir: "tmp\\qa"').problems, [
+    'line 1: escapes inside "…" are outside the YAML subset ADAPTER.md documents — use single quotes, or write the config as JSON',
+  ]);
+  assert.match(yaml('run: { cmd: "printf \\n" }').problems[0], /^line 1: escapes inside/);
+  const single = yaml("plan:", "  suites:", "    - { name: a, command: 'printf \\n' }");
+  assert.deepEqual(single.problems, []);
+  assert.equal(single.config.plan.suites[0].command, "printf \\n");
+});
+
+test("render quotes a backslash safely, and refuses a newline", () => {
+  // A backslash and both quote kinds: no quoting reads back the same.
+  const config = { plan: { suites: [{ name: "a", command: `printf 'x' "\\n"` }] } };
+  assert.throws(() => renderConfigYaml(config), /cannot write/);
+  const ok = { plan: { suites: [{ name: "a", command: "printf x\\n" }] } };
+  assert.deepEqual(parseConfig("qa.config.yml", renderConfigYaml(ok)).config, ok);
+  assert.throws(
+    () => renderConfigYaml({ plan: { suites: [{ name: "a", command: "make\nmake test" }] } }),
+    /cannot write/,
+  );
+});
+
+test("render merges the answers into the config found, and keeps its dialect", () => {
+  const yml =
+    "working_dir: tmp/qa\nhazards:\n  - { pack: p.md }\nrun: { target: stack }\nplan:\n  tracker: github\n";
+  const answers = JSON.stringify({ plan: { base_ref: "origin/main" } });
+  const fromYml = main(["render"], {
+    read: reader({ "qa.config.yml": yml }),
+    stdin: () => answers,
+  });
+  assert.equal(fromYml.code, 0);
+  assert.deepEqual(parseConfig("qa.config.yml", fromYml.out).config, {
+    working_dir: "tmp/qa",
+    plan: { tracker: "github", base_ref: "origin/main" },
+    hazards: [{ pack: "p.md" }],
+    run: { target: "stack" },
+  });
+
+  const written = {};
+  const fromJson = main(["render", "--write"], {
+    read: reader({ "qa.config.json": '{"run": {"target": "url"}}' }),
+    stdin: () => answers,
+    write: (path, text) => (written[path] = text),
+  });
+  assert.equal(fromJson.out, "wrote qa.config.json\n");
+  assert.deepEqual(JSON.parse(written["qa.config.json"]), {
+    run: { target: "url" },
+    plan: { base_ref: "origin/main" },
+  });
+
+  const fresh = {};
+  main(["render", "--write"], {
+    read: reader({}),
+    stdin: () => answers,
+    write: (p, t) => (fresh[p] = t),
+  });
+  assert.deepEqual(Object.keys(fresh), ["qa.config.yml"]);
+});
+
+test("render refuses over a config with problems", () => {
+  const { code, out } = main(["render"], {
+    read: reader({ "qa.config.yml": "nope: 1\n" }),
+    stdin: () => "{}",
+  });
+  assert.equal(code, 1);
+  assert.match(out, /has problems/);
+});
+
+test("a `#` line inside a fenced block does not end a Hazard pack section", () => {
+  const pack = parseHazardPack(
+    [
+      "---",
+      "when: [a]",
+      "---",
+      "## Rule out first",
+      "~~~sh",
+      "## not a heading",
+      "~~~",
+      "- Cookie.",
+      "## Capture rules",
+      "```sh",
+      "# clear the session first",
+      "```",
+      "- Never capture the password field.",
+      "",
+    ].join("\n"),
+  );
+  assert.deepEqual(pack.problems, []);
+  assert.match(pack.ruleOutFirst, /- Cookie\.$/);
+  assert.match(pack.captureRules, /- Never capture the password field\.$/);
+});
+
+test("a heading inside a fence is not taken for a section", () => {
+  const { problems } = parseHazardPack(
+    "---\nwhen: [a]\n---\n```\n## Rule out first\n```\n## Capture rules\nx\n",
+  );
+  assert.deepEqual(problems, ["no `## Rule out first` section"]);
+});
+
+test("labels match without regard to case", () => {
+  const { config } = yaml(...SPEC_EXAMPLE);
+  assert.equal(pickDelivery(config, { labels: ["PRD"] }).to, "tracker-issue");
+});

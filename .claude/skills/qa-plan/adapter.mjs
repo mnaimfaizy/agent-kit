@@ -30,10 +30,12 @@
 //   node adapter.mjs check --for plan      config, problems, effective values, readiness
 //   node adapter.mjs hazards < files.txt   Hazard packs matching the changed paths
 //   node adapter.mjs delivery [--label L]… where the plan goes, by `plan.publish`
-//   node adapter.mjs render < answers.json a `qa.config.yml` body for the answers
-//   Each prints JSON (render prints YAML) and exits 1 on any problem, 2 on bad usage.
+//   node adapter.mjs render [--write] < answers.json
+//                                          the config with the answers merged in
+//   Each prints JSON (render prints the new file body, or writes it with --write)
+//   and exits 1 on any problem, 2 on bad usage.
 
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -134,7 +136,15 @@ function parseFlow(text, i, problem, stops = ",]}") {
       problem(`unterminated ${open} quote`);
       return [text.slice(i + 1), text.length];
     }
-    return [text.slice(i + 1, end), end + 1];
+    const quoted = text.slice(i + 1, end);
+    // Real YAML reads `\` escapes inside "…"; this subset does not, so a
+    // backslash there would be read differently from every other YAML tool.
+    if (open === '"' && quoted.includes("\\"))
+      problem(
+        'escapes inside "…" are outside the YAML subset ADAPTER.md documents — ' +
+          "use single quotes, or write the config as JSON",
+      );
+    return [quoted, end + 1];
   }
   let j = i;
   while (j < text.length && !stops.includes(text[j])) j += 1;
@@ -559,7 +569,10 @@ export function pickDelivery(config, { labels = [] } = {}) {
   const rules = plan.publish;
   const index = rules.findIndex(
     (rule) =>
-      isTrue(rule.default) || (present(rule.when_label) && labels.includes(rule.when_label)),
+      isTrue(rule.default) ||
+      // GitHub label names are case-insensitive.
+      (present(rule.when_label) &&
+        labels.some((label) => label.toLowerCase() === String(rule.when_label).toLowerCase())),
   );
   if (index === -1)
     return { to: "working-copy", label: null, rule: null, why: "no `plan.publish` rule matched" };
@@ -651,19 +664,39 @@ export function parseHazardPack(text) {
   problems.push(...sink.problems);
 
   const body = lines.slice(end + 1);
+  // A `#` line inside a fenced code block (a shell comment, say) is not a heading.
+  const fenced = [];
+  let fence = null;
+  for (const line of body) {
+    const marker = /^\s{0,3}(`{3,}|~{3,})/.exec(line)?.[1];
+    if (fence === null && marker) {
+      fence = marker;
+      fenced.push(true);
+    } else if (fence !== null) {
+      fenced.push(true);
+      if (
+        marker &&
+        marker[0] === fence[0] &&
+        marker.length >= fence.length &&
+        line.trim() === marker
+      )
+        fence = null;
+    } else fenced.push(false);
+  }
+  const headingLevel = (n) =>
+    fenced[n] ? 0 : (/^ {0,3}(#{1,6})\s/.exec(body[n])?.[1].length ?? 0);
   for (const [key, title] of SECTIONS) {
-    const start = body.findIndex((line) =>
-      new RegExp(`^#{2,6}\\s+${title}\\s*#*\\s*$`, "i").test(line.trim()),
-    );
+    const pattern = new RegExp(`^#{2,6}\\s+${title}\\s*#*\\s*$`, "i");
+    const start = body.findIndex((line, n) => !fenced[n] && pattern.test(line.trim()));
     if (start === -1) {
       problems.push(`no \`## ${title}\` section`);
       continue;
     }
-    const level = /^#+/.exec(body[start].trim())[0].length;
+    const level = headingLevel(start);
     let stop = body.length;
     for (let n = start + 1; n < body.length; n += 1) {
-      const heading = /^(#{1,6})\s/.exec(body[n]);
-      if (heading && heading[1].length <= level) {
+      const heading = headingLevel(n);
+      if (heading && heading <= level) {
         stop = n;
         break;
       }
@@ -722,10 +755,14 @@ const RESERVED = /^(?:true|false|null|yes|no|on|off|~)$/i;
 /** A scalar the subset reads back unchanged. */
 function emitScalar(value) {
   const text = String(value);
+  const cannot = () =>
+    new Error(`cannot write ${JSON.stringify(text)} in the YAML subset; use qa.config.json`);
+  // A value spans one line, and a backslash inside "…" is an escape to real YAML.
+  if (/[\r\n]/.test(text)) throw cannot();
   if (PLAIN_SAFE.test(text) && !RESERVED.test(text) && !/^[-?]/.test(text)) return text;
-  if (!text.includes('"')) return `"${text}"`;
+  if (!text.includes('"') && !text.includes("\\")) return `"${text}"`;
   if (!text.includes("'")) return `'${text}'`;
-  throw new Error(`cannot write ${JSON.stringify(text)} in the YAML subset; use qa.config.json`);
+  throw cannot();
 }
 
 function emitFlow(value) {
@@ -777,6 +814,50 @@ export function renderConfigYaml(config) {
   return `${emitBlock(ordered, 0).join("\n")}\n`;
 }
 
+/**
+ * The repository's config with the person's answers laid over it: a top-level
+ * answer replaces that key, except `plan` and `run`, whose keys are merged one
+ * level down. Nothing the answers do not name is lost.
+ *
+ * @param {Record<string, any>} existing
+ * @param {Record<string, any>} answers
+ */
+export function mergeAnswers(existing, answers) {
+  const merged = { ...existing };
+  for (const [key, value] of Object.entries(answers))
+    merged[key] =
+      (key === "plan" || key === "run") && isMapping(existing[key]) && isMapping(value)
+        ? { ...existing[key], ...value }
+        : value;
+  return merged;
+}
+
+/**
+ * The file to write the answers to, and its new body: the config file the
+ * lookup found (in its own dialect), or `qa.config.yml` when there is none.
+ * Writing anywhere else would leave a second file that one of the two
+ * shadows. YAML comments in the old file are not kept.
+ *
+ * @param {{path: string | null, config: Record<string, any>, problems: string[]}} loaded
+ * @param {Record<string, any>} answers
+ * @returns {{path: string, body: string}}
+ */
+export function renderConfigUpdate(loaded, answers) {
+  if (loaded.problems.length)
+    throw new Error(
+      `${loaded.path} has problems; fix them first:\n- ${loaded.problems.join("\n- ")}`,
+    );
+  if (!isMapping(answers)) throw new Error("the answers must be a JSON object");
+  const merged = mergeAnswers(loaded.config, answers);
+  const path = loaded.path ?? CONFIG_FILES[0];
+  if (path.endsWith(".json")) {
+    const problems = configProblems(merged);
+    if (problems.length) throw new Error(`the answers have problems:\n- ${problems.join("\n- ")}`);
+    return { path, body: `${JSON.stringify(merged, null, 2)}\n` };
+  }
+  return { path, body: renderConfigYaml(merged) };
+}
+
 // ── CLI ─────────────────────────────────────────────────────────────────────
 
 function repoReader(repo) {
@@ -823,12 +904,15 @@ export function main(argv, io = {}) {
     code: 2,
     out:
       "usage: node adapter.mjs check --for plan | hazards < changed-paths | " +
-      "delivery [--label <name>]… | render < answers.json   [--repo <dir>]\n",
+      "delivery [--label <name>]… | render [--write] < answers.json   [--repo <dir>]\n",
   };
 
   if (command === "render") {
     try {
-      return { code: 0, out: renderConfigYaml(JSON.parse(stdin())) };
+      const { path, body } = renderConfigUpdate(loaded, JSON.parse(stdin()));
+      if (!argv.includes("--write")) return { code: 0, out: body };
+      (io.write ?? ((p, text) => writeFileSync(join(repo, p), text)))(path, body);
+      return { code: 0, out: `wrote ${path}\n` };
     } catch (error) {
       return { code: 1, out: `${error instanceof Error ? error.message : error}\n` };
     }

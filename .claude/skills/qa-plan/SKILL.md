@@ -46,7 +46,7 @@ node "<skill>/adapter.mjs" check --for plan
 ```
 
 - Exit 1: the config has **problems**. Show each one, with its line, and stop until the config is fixed. A misread config composes against the wrong base or the wrong suites.
-- `readiness.needs` not empty: list exactly what is missing, and ask for it in one message. Compose goes on with the answers given in chat. Then offer to write them into `qa.config.yml`, and write it only on a yes: put the answers in a JSON file in `working_dir` and run `node "<skill>/adapter.mjs" render < <answers.json>` for the file body ([ADAPTER.md](ADAPTER.md#readiness-check)).
+- `readiness.needs` not empty: list exactly what is missing, and ask for it in one message. Compose goes on with the answers given in chat. Then offer to save them in the config. Put the answers in a JSON file in `working_dir`, run `node "<skill>/adapter.mjs" render < <answers.json>`, and show the person the result: the config the lookup found (or a new `qa.config.yml`) with the answers merged in, every other key kept, and YAML comments dropped. Only on a yes, run it again with `--write` ([ADAPTER.md](ADAPTER.md#readiness-check)).
 - `readiness.notes`: say each one, and go on.
 
 Check that `working_dir` is ignored: `git check-ignore -q <working_dir>/x`. If it is not, say so and ask before writing there: everything in it must stay out of commits.
@@ -107,7 +107,13 @@ node "<skill>/adapter.mjs" delivery --label <label> --label <label> …
 Pass each of the subject issue's labels. It prints `to`, and the rule that chose it:
 
 - **`working-copy`:** the file from step 7 is the plan. Give the person its path to hand on.
-- **`tracker-issue`:** one issue per subject. Search first, `gh issue list --state all --search "\"qa-plan format=1 subject=#<n>\" in:body"`, and edit the issue it finds (`gh issue edit <m> --body-file <plan>`); create one only when there is none (`gh issue create --title "QA Plan: #<n> <title>" --body-file <plan>`, with `--label <label>` when the rule names one). Link it from the pull request in one comment the first time.
+- **`tracker-issue`:** one issue per subject. Find the one already there before creating one, in this order, and accept a candidate only when its body's first line starts with `<!-- qa-plan format=1 subject=#<n> `:
+  1. the issue named in the pull request's link comment (the comment whose body starts with `<!-- qa-plan-link -->`);
+  2. with a rule `label`, each issue carrying it: `gh issue list --state all --label <label> --limit 200 --json number,body`;
+  3. otherwise a search, `gh issue list --state all --search "qa-plan subject=#<n> in:body" --json number,body`, which can lag behind an issue created minutes ago.
+
+  Edit the issue found (`gh issue edit <m> --body-file <plan>`). Create one only when none is found (`gh issue create --title "QA Plan: #<n> <title>" --body-file <plan>`, with `--label <label>` when the rule names one), then post the link comment on the pull request: `<!-- qa-plan-link -->` on its first line, then `QA Plan: #<m>`.
+
 - **`pr-comment`:** one comment on the pull request. Find the comment whose body starts with the plan's marker and edit it; post a new one only when there is none.
 
 A revision of the plan replaces the delivered one; it never adds a second. With `tracker: none`, the plan stays in the working copy whatever the rules say.
