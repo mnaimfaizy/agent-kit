@@ -53,12 +53,12 @@ Tabs, anchors, aliases, multi-line scalars, flow collections that span lines, es
 
 ### `plan.suites` entries
 
-| Key        | Required | Meaning                                                                                                                                  |
-| ---------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `name`     | yes      | Unique among the suites. Coverage claims name it.                                                                                        |
-| `command`  | yes      | The command that runs it, from the repository root.                                                                                      |
-| `junit`    | no       | The JUnit XML file the command writes. Without it, what the suite proves is read from its exit code alone, and tagged `[reconstructed]`. |
-| `surfaces` | no       | Globs of the paths it covers, so a changed path can be matched to the suites that test it.                                               |
+| Key        | Required | Meaning                                                                                                                                                                                            |
+| ---------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`     | yes      | Unique among the suites. Coverage claims name it.                                                                                                                                                  |
+| `command`  | yes      | The command that runs it, from the repository root. `two-point.mjs` runs it at the head and at the merge-base.                                                                                     |
+| `junit`    | no       | The JUnit XML file the command writes, relative to the repository root; deleted before each run. Without it, what the suite proves is read from its exit code alone, and tagged `[reconstructed]`. |
+| `surfaces` | no       | Globs of the paths it covers, so a changed path can be matched to the suites that test it.                                                                                                         |
 
 ### `plan.publish` rules
 
