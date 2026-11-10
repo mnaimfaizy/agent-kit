@@ -549,7 +549,7 @@ def test_security_audit_stops_first_without_a_threat_pack() -> None:
     # security-audit is a Repo-scope skill (ADR 0002): installed anywhere but a
     # repository holding a Threat pack, it must say so before doing any work.
     first = process_steps(read(AUDIT_SKILL))[0]
-    assert first.startswith("1. "), first
+    assert first.startswith("1. Find the Threat pack"), first
     for needed in ("Threat pack", "stop before any other work", "Repo-scope", "docs/install-skills.md"):
         assert needed in first, f"security-audit step 1 must say {needed!r}: {first}"
     # In CI the reusable workflow inlines both files into the brief, so the stop
