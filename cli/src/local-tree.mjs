@@ -13,7 +13,15 @@
 // configured clean/process filter drivers, so hashing a checkout runs no
 // command that the checkout's or the adopter's git config names.
 
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { firstLine } from "./exec.mjs";
@@ -76,11 +84,52 @@ export function gitSafetyArgs({ runner, root, noHooks }) {
   return safety;
 }
 
+/** `lstat`, or null when nothing is there. */
+export function lstatOrNull(path) {
+  try {
+    return lstatSync(path);
+  } catch (err) {
+    if (err.code === "ENOENT" || err.code === "ENOTDIR") return null;
+    throw err;
+  }
+}
+
+/**
+ * The first symbolic link or junction at, above or inside the folder `path`
+ * (relative to `root`, ending in /), as a path without a trailing slash, or
+ * null. git looks straight through a Windows junction, stops at a symlink
+ * with "beyond a symbolic link", and stores a symlink inside a folder as a
+ * link entry, so this is checked before git ever sees the path.
+ */
+export function linkAt(root, path) {
+  const folder = path.replace(/\/$/, "");
+  const parts = folder.split("/");
+  for (let i = 1; i <= parts.length; i++) {
+    const sub = parts.slice(0, i).join("/");
+    const st = lstatOrNull(join(root, sub));
+    if (!st) return null;
+    if (st.isSymbolicLink()) return sub;
+  }
+  const walk = (sub) => {
+    for (const name of readdirSync(join(root, sub)).sort()) {
+      const child = `${sub}/${name}`;
+      const st = lstatOrNull(join(root, child));
+      if (st?.isSymbolicLink()) return child;
+      const inner = st?.isDirectory() ? walk(child) : null;
+      if (inner) return inner;
+    }
+    return null;
+  };
+  return lstatOrNull(join(root, folder))?.isDirectory() ? walk(folder) : null;
+}
+
 /**
  * @param {{ runner: import("./exec.mjs").Runner, cwd: string, paths: string[] }} opts
- * @returns {{ root: string, hashes: Map<string, string | null>, skipped: Map<string, string>, notes: Map<string, string> }}
+ * @returns {{ root: string, hashes: Map<string, string | null>, skipped: Map<string, string>, notes: Map<string, string>, links: Map<string, string> }}
  *   A null hash means the path is missing locally; `skipped` holds paths that
- *   could not be compared, with the reason; `notes` explains how a path was compared.
+ *   could not be compared, with the reason; `notes` explains how a path was compared;
+ *   `links` maps a path that is, sits under, or holds a symbolic link or junction to
+ *   that link. A linked path is never hashed.
  */
 export function localTreeHashes({ runner, cwd, paths }) {
   for (const p of paths) {
@@ -137,7 +186,13 @@ export function localTreeHashes({ runner, cwd, paths }) {
     const hashes = new Map();
     const skipped = new Map();
     const notes = new Map();
+    const links = new Map();
     for (const path of paths) {
+      const link = linkAt(root, path);
+      if (link !== null) {
+        links.set(path, link);
+        continue;
+      }
       // The real index (read only) knows skip-worktree entries (`S`), which
       // have no files on disk. Everything else comes from the working copy
       // (`git add`); only the S files are then reset to HEAD's copy, so local
@@ -233,7 +288,7 @@ export function localTreeHashes({ runner, cwd, paths }) {
       }
       hashes.set(path, tree.stdout.trim());
     }
-    return { root, hashes, skipped, notes };
+    return { root, hashes, skipped, notes, links };
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }

@@ -12,6 +12,7 @@ kit-owned-paths.txt
 docs/getting-started.md
 docs/reference.md
 docs/adopt.md
+docs/install-skills.md
 docs/releases.md
 docs/cutting-releases.md
 docs/security-model.md

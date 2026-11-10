@@ -56,6 +56,10 @@ Full walkthrough: **[docs/getting-started.md](docs/getting-started.md)**. Short 
 
 Not vendored: Consumer Threat pack (threat model + findings ledger), product playbooks, Companion skills (`implement`, `tdd`, `wayfinder`, …), subagent definitions.
 
+## Use one skill without adopting the kit
+
+Each Portable skill can be installed on its own, pinned to a release tag, with the `npx skills` CLI: `npx skills add mnaimfaizy/agent-kit#<tag> --skill <name>`. Which skills work from your own skills directory and which need a repository, and the exact command for each: **[Install individual skills](docs/install-skills.md)**. If you adopt the kit, skip it: adoption already copies every skill.
+
 ## Companion library
 
 For procedure skills such as `implement`, `tdd`, and `wayfinder`, adopt **[Matt Pocock's skills](https://github.com/mattpocock/skills)** separately — copy from that repo or use its Claude plugin. That library is not on the Agent-kit Release line; this README does not pin a version for it.
@@ -66,6 +70,7 @@ For procedure skills such as `implement`, `tdd`, and `wayfinder`, adopt **[Matt 
 | ---------------------------------------------------------- | ----------------------------------------------------------------------------- |
 | [Getting started](docs/getting-started.md)                 | Step-by-step first adoption, secrets, variables, labels, troubleshooting      |
 | [Adopt](docs/adopt.md)                                     | Split contract: tag-pinned `uses:` + same-tag file copy; upgrades; Dependabot |
+| [Install individual skills](docs/install-skills.md)        | One Portable skill at a time with `npx skills`, without adopting the kit      |
 | [Security audit](docs/security-audit.md)                   | `full` / `pr` modes, private delivery, Threat pack                            |
 | [Plan → implement → review](docs/plan-implement-review.md) | Labels, Verified plan, implementer and reviewer contracts                     |
 | [Workflow reference](docs/reference.md)                    | Every input, secret, and required permission (generated)                      |
@@ -77,7 +82,7 @@ For procedure skills such as `implement`, `tdd`, and `wayfinder`, adopt **[Matt 
 | [GLOSSARY.md](GLOSSARY.md)                                 | Glossary of the terms used across these docs                                  |
 | [CHANGELOG.md](CHANGELOG.md)                               | Release history                                                               |
 
-Distribution is tags only: no Marketplace listing, no binaries, and no skills zip.
+Distribution is tags only, including skill installs: no Marketplace listing, no binaries, and no skills zip.
 
 ## Contributing
 
