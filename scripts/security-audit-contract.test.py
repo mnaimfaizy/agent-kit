@@ -14,6 +14,10 @@ PUBLISH = ROOT / ".github" / "security-audit" / "publish-draft-advisory.sh"
 COMMENT = ROOT / ".github" / "security-audit" / "comment-pr-counts.sh"
 SECURITY_AUDIT_DOC = ROOT / "docs" / "security-audit.md"
 CALLER_EXAMPLE = ROOT / "examples" / "security-audit-caller.yml"
+AUDIT_SKILL = ROOT / ".claude" / "skills" / "security-audit" / "SKILL.md"
+RESPONSE_SKILL = ROOT / ".claude" / "skills" / "security-response" / "SKILL.md"
+# The headings the reusable workflow prints before the Threat pack it inlines into the brief.
+BRIEF_THREAT_PACK_HEADINGS = ("Threat model (inline for CI reliability)", "Findings ledger")
 
 
 def read(path: Path) -> str:
@@ -526,6 +530,53 @@ def test_notifier_says_when_an_empty_report_transcript_was_not_emailed(tmp_path:
     assert SECRET not in result.stdout + result.stderr
 
 
+def markdown_section(text: str, heading: str) -> str:
+    """The body under `## <heading>`, up to the next `## ` heading."""
+    return text.split(f"\n## {heading}\n", 1)[1].split("\n## ", 1)[0]
+
+
+def first_line(text: str, starts_with: str) -> str:
+    return next((line for line in text.splitlines() if line.lstrip().startswith(starts_with)), "")
+
+
+def process_steps(skill_md: str) -> list[str]:
+    """The numbered items under `## Process`, each with its indented sub-bullets."""
+    body = markdown_section(skill_md, "Process").strip()
+    return [step.strip() for step in re.split(r"\n(?=\d+\. )", body) if re.match(r"\d+\. ", step)]
+
+
+def test_security_audit_stops_first_without_a_threat_pack() -> None:
+    # security-audit is a Repo-scope skill (ADR 0002): installed anywhere but a
+    # repository holding a Threat pack, it must say so before doing any work.
+    first = process_steps(read(AUDIT_SKILL))[0]
+    assert first.startswith("1. "), first
+    for needed in ("Threat pack", "stop before any other work", "Repo-scope", "docs/install-skills.md"):
+        assert needed in first, f"security-audit step 1 must say {needed!r}: {first}"
+    # In CI the reusable workflow inlines both files into the brief, so the stop
+    # must count them as found, or the audit flow (dogfood included) halts.
+    workflow = read(WORKFLOW)
+    for heading in BRIEF_THREAT_PACK_HEADINGS:
+        assert f'echo "{heading}' in workflow, f"the reusable workflow no longer prints {heading!r}"
+        assert f'"{heading}"' in first, f"step 1 must accept the brief's {heading!r} section"
+    # Where the skill is installed says nothing about the repository it audits.
+    assert "Do not check the install location." in first, "step 1 must say not to check the install location"
+
+
+def test_security_audit_says_who_files_the_draft_advisory() -> None:
+    # Only the reusable workflow files the draft GHSA; a hand run must not imply it happens.
+    delivery = first_line(markdown_section(read(AUDIT_SKILL), "Contract rules"), "- Deliver full findings")
+    assert "By hand" in delivery and "yourself" in delivery, f"say a hand run files the draft itself: {delivery!r}"
+    assert "In CI the reusable workflow files" in delivery, f"say the reusable workflow files it in CI: {delivery!r}"
+
+
+def test_security_response_requires_security_finding_triage() -> None:
+    # Its `triage` mode runs the security-finding-triage skill, so installing it alone breaks that mode.
+    text = read(RESPONSE_SKILL)
+    requires = first_line(text, "Requires ")
+    assert "`security-finding-triage`" in requires, f"security-response must name the skill it requires: {requires!r}"
+    assert "security-finding-triage" in first_line(text, "- `triage <target>`"), "triage mode must name the skill"
+
+
 if __name__ == "__main__":
     import tempfile
 
@@ -560,4 +611,7 @@ if __name__ == "__main__":
     test_publisher_keeps_the_start_and_end_of_a_large_transcript(Path(tempfile.mkdtemp()))
     test_notifier_sends_a_large_transcript_through_a_private_file(Path(tempfile.mkdtemp()))
     test_notifier_says_when_an_empty_report_transcript_was_not_emailed(Path(tempfile.mkdtemp()))
+    test_security_audit_stops_first_without_a_threat_pack()
+    test_security_audit_says_who_files_the_draft_advisory()
+    test_security_response_requires_security_finding_triage()
     print("security-audit contract seam tests passed")

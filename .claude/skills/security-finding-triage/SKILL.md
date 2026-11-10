@@ -29,4 +29,4 @@ Outcome shape: [OUTCOME-FORMAT.md](OUTCOME-FORMAT.md)
    - `accepted-risk`
    - `duplicate`
 4. Emit triage output using `OUTCOME-FORMAT.md`.
-5. If a Consumer ledger is in use, update only fingerprint-safe fields there.
+5. If a Consumer ledger is in use, update only fingerprint-safe fields there. It is the file the repository's security-audit Caller passes as `findings_ledger_path`, by default `.security/findings-ledger.md`.
