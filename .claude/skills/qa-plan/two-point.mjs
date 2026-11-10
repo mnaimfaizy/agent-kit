@@ -38,8 +38,8 @@
 //   run was interrupted; nothing was compared.
 
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync } from "node:fs";
-import { isAbsolute, join, resolve } from "node:path";
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { effectiveConfig, readQaConfig } from "./adapter.mjs";
@@ -231,7 +231,23 @@ export function compareSuite(suite, head, base) {
         tag: "[observed]",
       });
     if (skipped) row(`${skipped} tests`, "—", "skipped", "skipped at head", "[observed]");
-    return { name, observed: true, degraded: null, rows };
+    // A head that failed or timed out with no failing test in its report left
+    // tests out of it (an import error, a run killed part way): its exit code
+    // is the only sign, so it is compared too.
+    let degraded = null;
+    const headUnexplained =
+      head.timedOut || (head.code !== 0 && ![...head.tests.values()].includes("fail"));
+    if (headUnexplained) {
+      degraded = `at the head the suite ended ${exitText(head)} with no failing test in its JUnit`;
+      row(
+        "(whole suite, by exit code)",
+        exitText(base),
+        exitText(head),
+        base.code === 0 && !base.timedOut ? "regression (suite exit)" : "unknown",
+        "[reconstructed]",
+      );
+    }
+    return { name, observed: true, degraded, rows };
   }
 
   const baseBroken = base.code !== 0;
@@ -364,6 +380,31 @@ function git(repo, args) {
   return result.stdout.trim();
 }
 
+/** The `two-point-*` worktrees git lists directly under `parent`. */
+export function leftoverWorktrees(repo, parent) {
+  spawnSync("git", ["-C", repo, "worktree", "prune"], { encoding: "utf8" });
+  const listed = spawnSync("git", ["-C", repo, "worktree", "list", "--porcelain"], {
+    encoding: "utf8",
+  });
+  // Compared as real paths: git prints them resolved (`/private/var` on macOS
+  // for a `/var` temp folder), and Windows paths ignore case.
+  const key = (path) => {
+    let full = resolve(path);
+    try {
+      full = realpathSync.native(full);
+    } catch {
+      // gone already: compare as given
+    }
+    return process.platform === "win32" ? full.toLowerCase() : full;
+  };
+  const home = key(parent);
+  return (listed.stdout ?? "")
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith("worktree "))
+    .map((line) => resolve(line.slice("worktree ".length)))
+    .filter((path) => key(dirname(path)) === home && basename(path).startsWith("two-point-"));
+}
+
 /** Removes the worktree at `path`, by git if it can and by hand if it cannot. */
 export function removeWorktree(repo, path) {
   spawnSync("git", ["-C", repo, "worktree", "remove", "--force", path], { encoding: "utf8" });
@@ -430,12 +471,11 @@ export async function runTwoPoint({
 
   // Every worktree an earlier, killed run left behind, at this merge-base or
   // another, goes before the head runs, so no suite in the checkout collects
-  // its copy of the tests.
+  // its copy of the tests. Only what git lists as a worktree is removed: a
+  // file or folder that merely shares the name is the person's own.
   const parent = resolve(repo, workingDir);
   const tree = join(parent, `two-point-${mergeBase.slice(0, 12)}`);
-  if (existsSync(parent))
-    for (const entry of readdirSync(parent))
-      if (entry.startsWith("two-point-")) removeWorktree(repo, join(parent, entry));
+  for (const path of leftoverWorktrees(repo, parent)) removeWorktree(repo, path);
 
   const headRuns = [];
   for (const suite of suites) {
@@ -445,15 +485,19 @@ export async function runTwoPoint({
 
   const baseRuns = [];
   mkdirSync(parent, { recursive: true });
+  // Removed only once this run has made it: a folder already at that path
+  // makes `worktree add` fail, and stays.
+  let created = false;
   try {
     check();
     git(repo, ["worktree", "add", "--detach", tree, mergeBase]);
+    created = true;
     for (const suite of suites) {
       check();
       baseRuns.push(await runSuite(suite, tree, exec, options));
     }
   } finally {
-    removeWorktree(repo, tree);
+    if (created) removeWorktree(repo, tree);
   }
 
   const compared = suites.map((suite, n) => ({
@@ -546,7 +590,9 @@ export async function main(argv, io = {}) {
   const known = new Set(["--base", "--suite", "--timeout", "--repo", "--json"]);
   for (let n = 0; n < argv.length; n++) {
     if (!known.has(argv[n])) return { code: 2, out: USAGE };
-    if (argv[n] !== "--json") n++;
+    if (argv[n] === "--json") continue;
+    n++;
+    if (argv[n] === undefined || argv[n].startsWith("--")) return { code: 2, out: USAGE };
   }
   const repo = resolve(option(argv, "--repo")[0] ?? process.cwd());
   const read = (path) => {
@@ -618,7 +664,9 @@ const real = (path) => {
 if (process.argv[1] && real(fileURLToPath(import.meta.url)) === real(process.argv[1])) {
   // Ctrl-C stops the running suite and still removes the worktree.
   const controller = new AbortController();
-  for (const sig of ["SIGINT", "SIGTERM"]) process.once(sig, () => controller.abort());
+  // The suite runs in its own process group (shellExec), so the terminal's
+  // signals reach only this process: each one it can catch stops the suite.
+  for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"]) process.once(sig, () => controller.abort());
   const { code, out } = await main(process.argv.slice(2), { signal: controller.signal });
   process.stdout.write(out);
   process.exitCode = code;
