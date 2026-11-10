@@ -10,7 +10,7 @@ fails here until the README says so:
 - the tags the Quickstart tells a reader to use are the current version;
 - every `docs/*.md` page, `docs/adr/` and `cli/README.md` are linked;
 - "What ships" has a row for every Kit-owned path, and for the other shipped
-  top-level paths;
+  paths listed in `OTHER_SHIPPED` (add a new shipped top-level path there);
 - "The CLI" has a row for every command the CLI accepts;
 - every workflow badge and local image points at a file that exists.
 
@@ -30,10 +30,18 @@ STATUS = re.compile(r"\*\*Status:\*\* pre-release \(`([^`]+)`\)")
 # A tag the reader is told to use: `TAG=v…`, `--tag v…`, or "e.g. `v…`".
 USED_TAG = re.compile(r"(?:TAG=|--tag |e\.g\. `)(v\d[0-9A-Za-z.\-]*)")
 WORKFLOW_BADGE = re.compile(r"actions/workflows/([^/)\s]+)/badge\.svg")
-LOCAL_IMAGE = re.compile(r'<img\s[^>]*src="(?!https?://)([^"]+)"|!\[[^\]]*\]\((?!https?://)([^)\s]+)\)')
+IMAGE = re.compile(r"""<img\s[^>]*src=["']([^"']+)["']|!\[[^\]]*\]\(([^)\s]+)\)""")
+# A URL with a scheme (`https:`, `data:`) or a protocol-relative one is not a file in this repository.
+REMOTE = re.compile(r"^(?:[A-Za-z][A-Za-z0-9+.\-]*:|//)")
 COMMAND_OPTIONS = re.compile(r"const COMMAND_OPTIONS = \{(.*?)\n\};", re.DOTALL)
-# Shipped top-level paths that are not Kit-owned but belong in "What ships".
-OTHER_SHIPPED = ("kit-owned-paths.txt", "examples/", "cli/")
+# Shipped paths that are not Kit-owned but belong in "What ships", as their rows name them.
+OTHER_SHIPPED = (
+    ".github/workflows/*-reusable.yml",
+    ".github/workflows-archive/copilot/",
+    "kit-owned-paths.txt",
+    "examples/",
+    "cli/",
+)
 SKILLS_DIR = ".claude/skills/"
 
 
@@ -117,9 +125,9 @@ def file_problems(text: str, root: Path = ROOT) -> list[str]:
         for name in WORKFLOW_BADGE.findall(text)
         if not (root / ".github" / "workflows" / name).is_file()
     ]
-    for html, markdown in LOCAL_IMAGE.findall(text):
+    for html, markdown in IMAGE.findall(text):
         target = (html or markdown).split("#", 1)[0]
-        if not (root / target).is_file():
+        if not REMOTE.match(target) and not (root / target).is_file():
             problems.append(f"README shows image {target}, which does not exist")
     return problems
 
@@ -151,12 +159,19 @@ def test_badges_and_images_point_at_real_files() -> None:
 def test_the_checks_can_fail() -> None:
     """Each check reports the staleness it exists for, so none passes by never matching."""
     text, current = readme(), version()
-    assert STAGED.match(current), "rewrite the stale-status cases below for a stable version"
     core = current.split("-", 1)[0]
 
-    assert status_problems(text.replace("**Status:**", "**State:**"), current)
-    assert status_problems(STATUS.sub(f"**Status:** pre-release (`{core}-nightly`)", text), current)
-    assert status_problems(text, core), "a stable version must reject a pre-release status line"
+    # Both version shapes, whichever one the repository is on: a pre-release
+    # needs its status line, and a stable version must not keep one.
+    staged = current if STAGED.match(current) else f"{core}-beta.1"
+    stage = STAGED.match(staged).group(2)
+    without_status = STATUS.sub("", text)
+    with_status = f"{without_status}\n> **Status:** pre-release (`{core}-{stage}`).\n"
+    assert status_problems(with_status, staged) == []
+    assert status_problems(without_status, staged)
+    assert status_problems(with_status.replace(f"`{core}-{stage}`", f"`{core}-nightly`"), staged)
+    assert status_problems(without_status, core) == []
+    assert status_problems(with_status, core), "a stable version must reject a pre-release status line"
 
     assert tag_problems(text.replace(f"TAG=v{current}", "TAG=v0.0.1"), current)
     assert tag_problems(text.replace(f"--tag v{current}", "--tag v0.0.1"), current)
@@ -168,7 +183,8 @@ def test_the_checks_can_fail() -> None:
 
     owned = next(path for path in kit_owned_paths() if not path.startswith(SKILLS_DIR))
     assert ships_problems(text.replace(f"| `{owned}`", "| `elsewhere/`"))
-    assert ships_problems(text.replace("| `cli/`", "| `tools/`"))
+    for path in OTHER_SHIPPED:
+        assert ships_problems(text.replace(f"| `{path}`", "| `elsewhere/`")), path
     assert len(ships_problems(text.replace("## What ships", "## Contents"))) >= len(OTHER_SHIPPED)
 
     command = cli_commands()[0]
@@ -176,7 +192,10 @@ def test_the_checks_can_fail() -> None:
 
     assert file_problems(text + "\n![x](https://github.com/o/r/actions/workflows/gone.yml/badge.svg)\n")
     assert file_problems(text + '\n<img src="docs/assets/gone.svg" alt="">\n')
+    assert file_problems(text + "\n<img src='docs/assets/gone.svg' alt=''>\n")
     assert file_problems(text + "\n![gone](docs/assets/gone.png)\n")
+    remote = '\n<img src="data:image/png;base64,AAAA" alt="">\n![cdn](//example.com/a.png)\n'
+    assert file_problems(text + remote) == file_problems(text)
 
 
 if __name__ == "__main__":
@@ -187,3 +206,4 @@ if __name__ == "__main__":
     test_the_cli_section_covers_every_command()
     test_badges_and_images_point_at_real_files()
     test_the_checks_can_fail()
+    print("readme freshness contract tests passed")
