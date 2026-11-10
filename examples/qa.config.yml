@@ -1,0 +1,57 @@
+# qa.config.yml: settings for the qa-plan and manual-qa skills.
+#
+# Template from Agent-kit's examples/. Copy it to your repository root as
+# qa.config.yml and edit every value: the commands, globs and paths below are
+# placeholders for a repository with a Python backend and a Node.js frontend.
+# This file is yours (not Kit-owned) and survives upgrades. Guide: docs/qa.md.
+#
+# qa-plan reads working_dir, plan: and hazards. manual-qa reads working_dir and
+# run:. A problem in one section never stops the other skill.
+#
+# The skills read a YAML subset (see either skill's ADAPTER.md): no tabs,
+# anchors or multi-line values, and a flow mapping must open and close on one
+# line. Long entries are in block style below so a formatter keeps them there.
+# Every scalar is a string: `default: true` and `default: "true"` read the same.
+# Never put a password, token or hosted address in this file.
+
+working_dir: tmp/qa # gitignored; plans, reports and evidence are written here
+
+plan:
+  base_ref: origin/main # the ref pull requests merge into
+  suites: # each suite CI runs; two-point.mjs runs it at the head and the merge-base
+    - name: backend
+      command: "uv run pytest --junitxml=reports/backend.xml"
+      junit: reports/backend.xml # optional; without it, claims are [reconstructed]
+      surfaces: ["backend/**"]
+    - name: frontend
+      command: "npm ci && npm test -- --reporter=junit --outputFile=reports/frontend.xml"
+      junit: reports/frontend.xml
+      surfaces: ["frontend/**", "package.json"]
+  publish: # where a confirmed plan goes; the first matching rule wins
+    - { when_label: prd, to: tracker-issue, label: qa }
+    - { when_label: hotfix, to: pr-comment }
+    - { default: true, to: working-copy } # last: rules after a default are never reached
+  tracker: github # github | none; none keeps every plan in the working copy
+
+hazards: # Hazard packs; each path is relative to the repository root
+  - pack: docs/qa-hazards/sign-in.md # start from examples/qa-hazards/sign-in.md
+
+run:
+  target: stack # stack (a local QA Stack) | url (a hosted test environment, address asked in chat)
+  surface: web # web | desktop | mobile | api
+  stack: # the QA Stack contract; all four are needed for target: stack
+    up: "docker compose up -d"
+    migrate: "uv run alembic upgrade head"
+    seed: "uv run python -m app.qa_accounts seed"
+    down: "docker compose down"
+  accounts: # the QA Account contract
+    print: "uv run python -m app.qa_accounts print"
+    restore: "uv run python -m app.qa_accounts restore --account {id}"
+    roles: # every role a plan signs in as; an id is letters, digits, _ and -
+      - id: admin
+        purpose: "manages members and their roles"
+      - id: member
+        purpose: "an ordinary member with no admin rights"
+  version_endpoint: /version # a path on the build's own host that names its commit
+  evidence:
+    upload: none # none | gh-release:<tag>, such as gh-release:qa-artifacts

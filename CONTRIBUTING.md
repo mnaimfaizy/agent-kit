@@ -45,7 +45,7 @@ CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs three jobs on eve
 | `.claude/skills/`                            | Portable skills Consumers copy; a skill may carry its own `*.test.mjs` suites, which CI runs. |
 | `kit-owned-paths.txt`                        | The Kit-owned paths Consumers replace whole on upgrade.                                       |
 | `cli/`                                       | The `@mnaimfaizy/agent-kit` npm CLI (`init`, `doctor`, `upgrade`).                            |
-| `examples/`                                  | Caller templates, setup presets, Threat pack skeletons.                                       |
+| `examples/`                                  | Caller templates, setup presets, Threat pack skeletons, QA config and Hazard pack templates.  |
 | `scripts/*.test.py`, `*.test.mjs`            | Contract tests.                                                                               |
 | `scripts/gen_workflow_reference.py`          | Generates `docs/reference.md` from the workflows.                                             |
 | `security/`                                  | This repository's own Threat pack (dogfood audit).                                            |

@@ -82,7 +82,7 @@ jobs:
           # Pinned by digest; bump alongside the version comment.
           ACTIONLINT_IMAGE: rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
         run: |
-          docker run --rm -v "$PWD:/repo" --workdir /repo "$ACTIONLINT_IMAGE" -color             .github/workflows/*.yml examples/*.yml .github/workflows-archive/copilot/*.yml
+          docker run --rm -v "$PWD:/repo" --workdir /repo "$ACTIONLINT_IMAGE" -color             .github/workflows/*.yml examples/*-caller.yml .github/workflows-archive/copilot/*.yml
 
   links:
     name: Internal links

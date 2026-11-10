@@ -88,7 +88,7 @@ Run each with `npx @mnaimfaizy/agent-kit <command>`. `init` and `upgrade` ask be
 | `.github/security-audit/`            | Audit prompt, advisory publisher, PR counts comment, optional email notifier. Copy.                                                                                         |
 | `.claude/skills/`                    | **Portable skills**: `code-review`, `security-audit`, `security-finding-triage`, `security-response`, `explainer`, `instruction-drift-audit`, `qa-plan`, `manual-qa`. Copy. |
 | `kit-owned-paths.txt`                | The list of paths above that you copy from a tag and replace whole on upgrade.                                                                                              |
-| `examples/`                          | Caller templates and setup presets to copy and edit.                                                                                                                        |
+| `examples/`                          | Caller templates, setup presets, Threat pack skeletons, QA config and Hazard pack templates to copy and edit.                                                               |
 | `cli/`                               | Source of the `@mnaimfaizy/agent-kit` npm CLI. Run with `npx`; never copy.                                                                                                  |
 | `.github/workflows-archive/copilot/` | Inert **Copilot archive** — an alternative runner, never live alongside Claude.                                                                                             |
 
@@ -104,24 +104,25 @@ For procedure skills such as `implement`, `tdd`, and `wayfinder`, adopt **[Matt 
 
 ## Documentation
 
-| Doc                                                        | For                                                                              |
-| ---------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| [Getting started](docs/getting-started.md)                 | Step-by-step first adoption, secrets, variables, labels, troubleshooting         |
-| [Adopt](docs/adopt.md)                                     | Split contract: tag-pinned `uses:` + same-tag file copy; upgrades; Dependabot    |
-| [Install individual skills](docs/install-skills.md)        | One Portable skill at a time with `npx skills`, without adopting the kit         |
-| [Security audit](docs/security-audit.md)                   | `full` / `pr` modes, private delivery, Threat pack                               |
-| [Plan → implement → review](docs/plan-implement-review.md) | Labels, Verified plan, implementer and reviewer contracts                        |
-| [Workflow reference](docs/reference.md)                    | Every input, secret, and required permission (generated)                         |
-| [Security model](docs/security-model.md)                   | Public-log rule, trust boundaries, runner controls                               |
-| [Repository hardening](docs/repository-hardening.md)       | Rulesets for the default branch, release branches and release tags               |
-| [CLI](cli/README.md)                                       | `init`, `doctor` and `upgrade` in full                                           |
-| [Releases](docs/releases.md)                               | Whole-kit SemVer, pre-release stages, changelog policy                           |
-| [Cutting releases](docs/cutting-releases.md)               | Maintainers: how to tag a release                                                |
-| [Copilot restore](docs/copilot-restore.md)                 | Swapping the runner to the inert Copilot archive                                 |
-| [Issuebridge](docs/issuebridge.md)                         | Reference Consumer target state + stand-up checklist                             |
-| [Decision records](docs/adr/)                              | Why the CLI ships on npm, skills install with `npx skills`, and QA is two skills |
-| [GLOSSARY.md](GLOSSARY.md)                                 | Glossary of the terms used across these docs                                     |
-| [CHANGELOG.md](CHANGELOG.md)                               | Release history                                                                  |
+| Doc                                                        | For                                                                                    |
+| ---------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| [Getting started](docs/getting-started.md)                 | Step-by-step first adoption, secrets, variables, labels, troubleshooting               |
+| [Adopt](docs/adopt.md)                                     | Split contract: tag-pinned `uses:` + same-tag file copy; upgrades; Dependabot          |
+| [Install individual skills](docs/install-skills.md)        | One Portable skill at a time with `npx skills`, without adopting the kit               |
+| [Security audit](docs/security-audit.md)                   | `full` / `pr` modes, private delivery, Threat pack                                     |
+| [Plan → implement → review](docs/plan-implement-review.md) | Labels, Verified plan, implementer and reviewer contracts                              |
+| [QA](docs/qa.md)                                           | `qa-plan` → `manual-qa` handoff, `qa.config.yml`, host rule, QA Accounts, Hazard packs |
+| [Workflow reference](docs/reference.md)                    | Every input, secret, and required permission (generated)                               |
+| [Security model](docs/security-model.md)                   | Public-log rule, trust boundaries, runner controls                                     |
+| [Repository hardening](docs/repository-hardening.md)       | Rulesets for the default branch, release branches and release tags                     |
+| [CLI](cli/README.md)                                       | `init`, `doctor` and `upgrade` in full                                                 |
+| [Releases](docs/releases.md)                               | Whole-kit SemVer, pre-release stages, changelog policy                                 |
+| [Cutting releases](docs/cutting-releases.md)               | Maintainers: how to tag a release                                                      |
+| [Copilot restore](docs/copilot-restore.md)                 | Swapping the runner to the inert Copilot archive                                       |
+| [Issuebridge](docs/issuebridge.md)                         | Reference Consumer target state + stand-up checklist                                   |
+| [Decision records](docs/adr/)                              | Why the CLI ships on npm, skills install with `npx skills`, and QA is two skills       |
+| [GLOSSARY.md](GLOSSARY.md)                                 | Glossary of the terms used across these docs                                           |
+| [CHANGELOG.md](CHANGELOG.md)                               | Release history                                                                        |
 
 Distribution is tags only, including skill installs: no Marketplace listing, no binaries, and no skills zip.
 
