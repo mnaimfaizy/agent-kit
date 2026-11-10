@@ -77,7 +77,7 @@ It runs each `plan.suites` command in the checkout, at the head, then in a detac
 - **Exit 1: a regression.** A test that passes at the merge-base, or a new test, fails at the head. Stop: show the person those rows, and tell them to fix it before a plan is worth writing.
 - **Exit 2:** nothing was compared (a config problem, a ref git cannot find, an interrupted run). Show the message. When it cannot be fixed, go on without the runner, and tag every claim `[reconstructed]`.
 - **Exit 0:** read the table, row by row:
-  - `covered`, `covered (new)`, `covered (fixed at head)`: a claim, with the tag the row prints. Name each new test.
+  - `covered`, `covered (new)`, `covered (unskipped)`, `covered (fixed at head)`: a claim, with the tag the row prints. Name each new or unskipped test.
   - `expected red herring`: it fails at both points; it goes in _Expected red herrings_, with its tag.
   - `unknown`: it fails at the head, and the merge-base did not build or run, so it cannot be told from a red herring. Ask the person which it is before going on.
   - `removed at head`: coverage the change took away; the promise that test proved may now be Residue.

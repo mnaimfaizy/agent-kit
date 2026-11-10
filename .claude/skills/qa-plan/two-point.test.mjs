@@ -130,6 +130,32 @@ test("a new test that fails is a regression", () => {
   );
 });
 
+test("a test skipped at the merge-base counts as new", () => {
+  assert.deepEqual(
+    byTest(
+      compareSuite(
+        { name: "u", junit: "r" },
+        junitRun({ p: "pass", f: "fail" }),
+        junitRun({ p: "skipped", f: "skipped" }),
+      ),
+    ),
+    {
+      p: "covered (unskipped) [observed]",
+      f: "regression (unskipped test fails) [observed]",
+    },
+  );
+});
+
+test("a head that wrote no JUnit and failed, against a merge-base whose tests ran, is a regression", () => {
+  // The merge-base exits 1 too, for a failure it already had: that is not a red herring.
+  const result = compareSuite(
+    { name: "unit", junit: "r.xml" },
+    exitRun(1, "no JUnit written at `r.xml`"),
+    junitRun({ a: "pass", old: "fail" }, 1),
+  );
+  assert.deepEqual(byTest(result), { "(whole suite, by exit code)": "regression [reconstructed]" });
+});
+
 test("with no junit configured, the exit codes decide, [reconstructed]", () => {
   const suite = { name: "lint" };
   const cases = [
@@ -428,7 +454,7 @@ test("an interrupted run exits 2 and removes the worktree", async () => {
   assertNoWorktreeLeft(repo);
 });
 
-test("a worktree an earlier run left behind is removed first", async () => {
+test("every worktree an earlier run left behind is removed before the head runs", async () => {
   const repo = makeRepo(
     "leftover",
     [UNIT],
@@ -436,18 +462,50 @@ test("a worktree an earlier run left behind is removed first", async () => {
     { unit: { junit: "reports/unit.xml", exit: 0, tests: { a: "pass" } } },
   );
   const base = sh(repo, "rev-parse", "main");
-  sh(
-    repo,
-    "worktree",
-    "add",
-    "-q",
-    "--detach",
-    join(repo, "tmp", "qa", `two-point-${base.slice(0, 12)}`),
-    base,
-  );
-  const { code, out } = await run(repo);
+  // One at this merge-base, and one from a run against an older merge-base.
+  for (const name of [base.slice(0, 12), "000000000000"])
+    sh(
+      repo,
+      "worktree",
+      "add",
+      "-q",
+      "--detach",
+      join(repo, "tmp", "qa", `two-point-${name}`),
+      base,
+    );
+  let headRunSawLeftovers = null;
+  const exec = async (command, cwd, options) => {
+    if (headRunSawLeftovers === null)
+      headRunSawLeftovers = readdirSync(join(repo, "tmp", "qa")).length > 0;
+    return shellExec(command, cwd, options);
+  };
+  const { code, out } = await main(["--repo", repo], { exec });
   assert.equal(code, 0, out);
+  assert.equal(headRunSawLeftovers, false);
   assertNoWorktreeLeft(repo);
+});
+
+// A shell that starts a grandchild which outlives it and holds the output
+// pipes, as `npm ci && npm test` or a test runner's workers do.
+const GRANDCHILD = `node -e "require('child_process').spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { stdio: 'inherit' }); setTimeout(() => {}, 60000)"`;
+
+test("a timeout kills every process the suite started, not just the shell", async () => {
+  const started = Date.now();
+  const result = await shellExec(GRANDCHILD, scratch, { timeoutMs: 500 });
+  assert.equal(result.timedOut, true);
+  assert.equal(result.code, null);
+  assert.ok(Date.now() - started < 20000, `settled after ${Date.now() - started} ms`);
+});
+
+test("an abort kills every process the suite started, and rejects", async () => {
+  const controller = new AbortController();
+  const started = Date.now();
+  setTimeout(() => controller.abort(), 500);
+  await assert.rejects(
+    shellExec(GRANDCHILD, scratch, { signal: controller.signal }),
+    /interrupted/,
+  );
+  assert.ok(Date.now() - started < 20000, `settled after ${Date.now() - started} ms`);
 });
 
 test("usage, config and git trouble exit 2 and compare nothing", async () => {
