@@ -1,18 +1,21 @@
-<p align="center">
+<div align="center">
   <img src="docs/assets/logo.svg" width="128" height="128" alt="Agent-kit logo">
+  <h1>Agent-kit</h1>
+</div>
+
+<p align="center">
+  <a href="https://github.com/mnaimfaizy/agent-kit/actions/workflows/ci.yml"><img src="https://github.com/mnaimfaizy/agent-kit/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/mnaimfaizy/agent-kit/actions/workflows/links.yml"><img src="https://github.com/mnaimfaizy/agent-kit/actions/workflows/links.yml/badge.svg" alt="External links"></a>
+  <a href="https://github.com/mnaimfaizy/agent-kit/commits/main"><img src="https://img.shields.io/github/last-commit/mnaimfaizy/agent-kit" alt="Last commit"></a>
+  <br>
+  <a href="https://github.com/mnaimfaizy/agent-kit/releases"><img src="https://img.shields.io/github/v/release/mnaimfaizy/agent-kit?include_prereleases&sort=semver&label=release" alt="Release"></a>
+  <a href="https://www.npmjs.com/package/@mnaimfaizy/agent-kit"><img src="https://img.shields.io/npm/v/%40mnaimfaizy%2Fagent-kit?label=npm%20cli" alt="npm"></a>
+  <a href="cli/package.json"><img src="https://img.shields.io/node/v/%40mnaimfaizy%2Fagent-kit?label=node" alt="Node.js"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
+  <br>
+  <a href="https://www.conventionalcommits.org/"><img src="https://img.shields.io/badge/Conventional%20Commits-1.0.0-fe5196?logo=conventionalcommits&logoColor=white" alt="Conventional Commits"></a>
+  <a href="https://docs.anthropic.com/en/docs/claude-code"><img src="https://img.shields.io/badge/runs-Claude%20Code-d97757" alt="Runs Claude Code"></a>
 </p>
-
-# Agent-kit
-
-[![CI](https://github.com/mnaimfaizy/agent-kit/actions/workflows/ci.yml/badge.svg)](https://github.com/mnaimfaizy/agent-kit/actions/workflows/ci.yml)
-[![External links](https://github.com/mnaimfaizy/agent-kit/actions/workflows/links.yml/badge.svg)](https://github.com/mnaimfaizy/agent-kit/actions/workflows/links.yml)
-[![Release](https://img.shields.io/github/v/release/mnaimfaizy/agent-kit?include_prereleases&sort=semver&label=release)](https://github.com/mnaimfaizy/agent-kit/releases)
-[![npm](https://img.shields.io/npm/v/%40mnaimfaizy%2Fagent-kit?label=npm%20cli)](https://www.npmjs.com/package/@mnaimfaizy/agent-kit)
-[![Node.js](https://img.shields.io/node/v/%40mnaimfaizy%2Fagent-kit?label=node)](cli/package.json)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Last commit](https://img.shields.io/github/last-commit/mnaimfaizy/agent-kit)](https://github.com/mnaimfaizy/agent-kit/commits/main)
-[![Conventional Commits](https://img.shields.io/badge/Conventional%20Commits-1.0.0-fe5196?logo=conventionalcommits&logoColor=white)](https://www.conventionalcommits.org/)
-[![Runs Claude Code](https://img.shields.io/badge/runs-Claude%20Code-d97757)](https://docs.anthropic.com/en/docs/claude-code)
 
 A kit of agent skills and reusable GitHub Actions workflows that runs [Claude Code](https://docs.anthropic.com/en/docs/claude-code) inside your repository. You adopt it by tag. Your repository (the **Consumer**) keeps everything product-specific.
 
