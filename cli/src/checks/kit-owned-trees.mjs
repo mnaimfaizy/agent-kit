@@ -51,6 +51,14 @@ export function checkKitOwnedTrees({ runner, cwd, snapshot }) {
     }
   }
   const howCompared = [...notes].map(([path, note]) => `${path}: ${note}`);
+  // A link at or inside a Kit-owned path goes when upgrade replaces the path whole
+  // (with --force, since its files then show as deleted). One above every Kit-owned
+  // path (a linked .claude/skills, say) is the Consumer's to sort out.
+  const linked = [...links].map(([path, link]) => ({ folder: path.replace(/\/$/, ""), link }));
+  const linkAtOrInside = linked.some(
+    ({ folder, link }) => link === folder || link.startsWith(`${folder}/`),
+  );
+  const linkAbove = linked.some(({ folder, link }) => folder.startsWith(`${link}/`));
   const checked = kitOwnedPaths.length - notChecked.length;
   if (bad.length === 0 && notChecked.length === 0) {
     return result(ID, TITLE, "pass", `All ${kitOwnedPaths.length} Kit-owned paths match ${tag}.`, {
@@ -83,10 +91,17 @@ export function checkKitOwnedTrees({ runner, cwd, snapshot }) {
             `.agents/skills/${skill}/), then run the command below: a Consumer gets Kit-owned ` +
             `skills from the tag, not from npx skills.`,
         ),
-        ...(links.size
+        ...(linkAtOrInside
           ? [
               `--force: once the link is gone its files show as deleted, which upgrade otherwise ` +
                 `refuses as uncommitted changes. It discards changes in Kit-owned paths only.`,
+            ]
+          : []),
+        ...(linkAbove
+          ? [
+              `Kit-owned paths must be real folders in the repository, not reached through a link ` +
+                `to somewhere else. Whether to replace that link (and keep what it points to) is ` +
+                `your call; upgrade refuses to write through it.`,
             ]
           : []),
         `Kit-owned paths are replaced whole from the tag your pins name, never edited.`,
@@ -94,7 +109,7 @@ export function checkKitOwnedTrees({ runner, cwd, snapshot }) {
         `Run the command below, or delete and re-copy each path by hand as ` +
           `${manualCopyUrl(repo, tag, serverUrl)} describes.`,
       ],
-      fix: [links.size ? `${upgradeCommand(tag)} --force` : upgradeCommand(tag)],
+      fix: [linkAtOrInside ? `${upgradeCommand(tag)} --force` : upgradeCommand(tag)],
     },
   );
 }
