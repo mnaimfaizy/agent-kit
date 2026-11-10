@@ -43,8 +43,10 @@ A plan is about one head. When the head moves, the plan is stale: compose it aga
 
 What the passing CI run on the head establishes, so the reader knows what not to spend time on. One bullet per claim: what is proved, by which suite or check, and its tag.
 
-- `[observed]`: seen in a run made at both the merge-base and the head (passes at both, or new and passing).
-- `[reconstructed]`: read from CI results, the diff or the issue history, without such a run.
+- `[observed]`: seen test by test, from JUnit results of a run made at both the merge-base and the head (passes at both, new or unskipped and passing, fixed at the head, or failing at both as a red herring).
+- `[reconstructed]`: compared only by a suite's exit code, or read from CI results, the diff or the issue history.
+
+A failure at the head that could not be told from a red herring (the merge-base did not build) is settled with the person before the plan is composed; a plan never carries one undecided.
 
 Every claim carries exactly one tag. A claim with no tag is not a claim.
 

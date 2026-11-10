@@ -121,6 +121,36 @@ test("compared test by test, every class is named and [observed]", () => {
   });
 });
 
+test("a head that fails with no failing test in its JUnit is compared by exit code too", () => {
+  // Tests the head never collected are missing from its report, not failed.
+  const regression = compareSuite(
+    { name: "u", junit: "r" },
+    junitRun({ a: "pass" }, 1),
+    junitRun({ a: "pass", b: "pass" }, 0),
+  );
+  assert.equal(regression.observed, true);
+  assert.match(regression.degraded, /ended fail \(exit 1\) with no failing test/);
+  assert.deepEqual(byTest(regression), {
+    "1 tests": "covered [observed]",
+    b: "removed at head [observed]",
+    "(whole suite, by exit code)": "regression (suite exit) [reconstructed]",
+  });
+  const timedOut = compareSuite(
+    { name: "u", junit: "r" },
+    { ...junitRun({ a: "pass" }, null), timedOut: true },
+    junitRun({ a: "pass" }, 1),
+  );
+  assert.equal(byTest(timedOut)["(whole suite, by exit code)"], "unknown [reconstructed]");
+  // A failing test explains a failing exit: no extra row.
+  const explained = compareSuite(
+    { name: "u", junit: "r" },
+    junitRun({ a: "fail" }, 1),
+    junitRun({ a: "pass" }, 0),
+  );
+  assert.deepEqual(byTest(explained), { a: "regression [observed]" });
+  assert.equal(explained.degraded, null);
+});
+
 test("a new test that fails is a regression", () => {
   assert.deepEqual(
     byTest(compareSuite({ name: "u", junit: "r" }, junitRun({ n: "fail" }), junitRun({}))),
@@ -473,15 +503,53 @@ test("every worktree an earlier run left behind is removed before the head runs"
       join(repo, "tmp", "qa", `two-point-${name}`),
       base,
     );
-  let headRunSawLeftovers = null;
+  // The person's own files that merely share the prefix stay.
+  writeFileSync(join(repo, "tmp", "qa", "two-point-notes.md"), "mine\n");
+  mkdirSync(join(repo, "tmp", "qa", "two-point-scratch"));
+  writeFileSync(join(repo, "tmp", "qa", "two-point-scratch", "keep.txt"), "mine\n");
+  let headRunSaw = null;
   const exec = async (command, cwd, options) => {
-    if (headRunSawLeftovers === null)
-      headRunSawLeftovers = readdirSync(join(repo, "tmp", "qa")).length > 0;
+    headRunSaw ??= readdirSync(join(repo, "tmp", "qa")).sort();
     return shellExec(command, cwd, options);
   };
   const { code, out } = await main(["--repo", repo], { exec });
   assert.equal(code, 0, out);
-  assert.equal(headRunSawLeftovers, false);
+  assert.deepEqual(headRunSaw, ["two-point-notes.md", "two-point-scratch"]);
+  assert.deepEqual(readdirSync(join(repo, "tmp", "qa")).sort(), [
+    "two-point-notes.md",
+    "two-point-scratch",
+  ]);
+  assert.ok(existsSync(join(repo, "tmp", "qa", "two-point-scratch", "keep.txt")));
+});
+
+test("a folder already at the worktree's path is left alone, and the run exits 2", async () => {
+  const repo = makeRepo(
+    "occupied",
+    [UNIT],
+    { unit: { junit: "reports/unit.xml", exit: 0, tests: { a: "pass" } } },
+    { unit: { junit: "reports/unit.xml", exit: 0, tests: { a: "pass" } } },
+  );
+  const occupied = join(
+    repo,
+    "tmp",
+    "qa",
+    `two-point-${sh(repo, "rev-parse", "main").slice(0, 12)}`,
+  );
+  mkdirSync(occupied, { recursive: true });
+  writeFileSync(join(occupied, "keep.txt"), "mine\n");
+  const { code, out } = await main(["--repo", repo]);
+  assert.equal(code, 2, out);
+  assert.match(out, /worktree add/);
+  assert.ok(existsSync(join(occupied, "keep.txt")));
+});
+
+test("value flags need a value", async () => {
+  const repo = makeRepo("flags", [UNIT], {}, {});
+  for (const argv of [["--base", "--json"], ["--suite", "--json"], ["--base"], ["--timeout"]]) {
+    const result = await main(["--repo", repo, ...argv]);
+    assert.equal(result.code, 2, argv.join(" "));
+    assert.match(result.out, /^usage:/, argv.join(" "));
+  }
   assertNoWorktreeLeft(repo);
 });
 
