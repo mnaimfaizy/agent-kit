@@ -18,7 +18,7 @@ Load [ANATOMY.md](ANATOMY.md) before writing the plan: it is the format, section
 ## Rules
 
 - **Residue only.** A scenario earns its place by naming what no passing suite establishes. Re-testing what CI proves wastes the tester and hides the scenarios that matter.
-- **Every coverage claim is tagged** `[observed]` or `[reconstructed]` ([ANATOMY.md](ANATOMY.md#what-automation-already-proves)). This skill has no two-point runner yet, so every claim it writes is `[reconstructed]`: read from CI results, the diff and the issue history.
+- **Every coverage claim is tagged** `[observed]` or `[reconstructed]` ([ANATOMY.md](ANATOMY.md#what-automation-already-proves)). A claim `two-point.mjs` saw test by test, at the merge-base and at the head, is `[observed]`; one it could only compare by exit code, or one read from CI results, the diff and the issue history, is `[reconstructed]`.
 - **Read the UI from source.** Every step quotes the real label, button text or copy from the code or templates the pull request ships. When the source does not say, write that the step needs the label confirmed, rather than a guess.
 - **No credentials in the plan**, not even a public QA Account's values: role ids, at most emails, and where the values come from ([ANATOMY.md](ANATOMY.md#no-credentials-travel-with-a-plan)).
 - **Compose in `working_dir`, commit nothing**, and deliver only after the person has seen the draft and said yes.
@@ -66,13 +66,29 @@ Read the subject, each child, and their comments: their acceptance criteria are 
 
 ### 4. Establish what automation already proves
 
-For each promise, find what proves it: the CI checks on the head (`gh pr checks`), the configured suites whose `surfaces` cover the changed paths, the tests the diff adds or changes (`git diff --stat <merge-base> HEAD`), and what the issue history says was tested. Write each as a claim tagged `[reconstructed]`, naming the suite or check.
+Run the configured suites at both points:
 
-A check that fails on the head and also fails at the merge-base is an **expected red herring**, not a regression; a failure only on the head is a regression: stop, and tell the person to fix it before a plan is worth writing.
+```bash
+node "<skill>/two-point.mjs" --base <base_ref>
+```
+
+It runs each `plan.suites` command in the checkout, at the head, then in a detached worktree at the merge-base under `working_dir`, which it removes afterwards, whether the run succeeds or fails. It compares the two runs' JUnit XML test by test and prints a table. It takes as long as the suites, twice: say so before it starts. To run fewer, pass `--suite <name>` once for each suite whose `surfaces` cover the changed paths.
+
+- **Exit 1: a regression.** A test that passes at the merge-base, or a new test, fails at the head. Stop: show the person those rows, and tell them to fix it before a plan is worth writing.
+- **Exit 2:** nothing was compared (a config problem, a ref git cannot find, an interrupted run). Show the message. When it cannot be fixed, go on without the runner, and tag every claim `[reconstructed]`.
+- **Exit 0:** read the table, row by row:
+  - `covered`, `covered (new)`, `covered (unskipped)`, `covered (fixed at head)`: a claim, with the tag the row prints. Name each new or unskipped test.
+  - `expected red herring`: it fails at both points; it goes in _Expected red herrings_, with its tag.
+  - `unknown`: it fails at the head, and the merge-base did not build or run, so it cannot be told from a red herring. Ask the person which it is before going on.
+  - `removed at head`: coverage the change took away; the promise that test proved may now be Residue.
+  - `skipped at head`: proves nothing.
+  - _Degraded suites_: say each one and why. A suite with no JUnit, or with a merge-base that will not build, is compared by exit code only, and its claims stay `[reconstructed]`.
+
+Then, for each promise, find what proves it: the rows for the tests the diff adds or changes (`git diff --stat <merge-base> HEAD`), the suites whose `surfaces` cover the changed paths, and what the issue history says was tested. A CI check on the head (`gh pr checks`) that is not a configured suite gives a `[reconstructed]` claim; so does a failure on it, which is a red herring only when it also fails at the merge-base.
 
 Optional, when a claim carries the plan: perturb the code it covers (comment out the guard, invert the condition) and run the suite. A green suite that stays green is not a proving suite; the promise moves to the Residue. Revert the change before going on.
 
-**Done when:** every promise is either covered by a named claim or left for the Residue.
+**Done when:** no regression is left, every `unknown` row has the person's answer, and every promise is either covered by a named claim or left for the Residue.
 
 ### 5. Match the Hazard packs
 
