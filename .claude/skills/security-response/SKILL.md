@@ -14,13 +14,15 @@ Backlog and remediation orchestrator for security findings.
 
 This skill is portable and does not include product-specific playbooks, threat packs, or ledgers. Consumers provide those assets.
 
+Requires the `security-finding-triage` skill, installed alongside this one: `triage` mode runs it.
+
 Status output shape: [STATUS-FORMAT.md](STATUS-FORMAT.md)
 
 ## Modes
 
 - `status`: reconcile and show backlog status
 - `next`: recommend one prioritized next action
-- `triage <target>`: run evidence-first triage for one finding
+- `triage <target>`: run evidence-first triage for one finding with the `security-finding-triage` skill
 - `fix <target>`: only with explicit authorization; implement and validate fix
 - `reconcile`: refresh stale evidence/status after merges/releases
 
