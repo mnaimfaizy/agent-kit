@@ -56,7 +56,7 @@ The tests are contracts, not unit tests: they pin behavior a Consumer depends on
 
 - If a test fails, decide whether the contract changed. If it did, update the test **and** the CHANGELOG `[Unreleased]` section, and classify the bump per [docs/releases.md](docs/releases.md).
 - New test files follow the existing shape: `scripts/<area>-contract.test.py`, plain `assert`s, and an `if __name__ == "__main__":` block calling each test so the file also runs with plain `python`.
-- `readme-freshness-contract.test.py` keeps the root README in step with the repository: the status line's stage and the Quickstart tag (from `cli/package.json`), a link to every `docs/*.md` page, a "What ships" row for every Kit-owned path, and a "The CLI" row for every command. It checks that a row exists, not what the row says, so re-read the row when you change what a path does.
+- `readme-freshness-contract.test.py` keeps the root README in step with the repository: the status line's stage and the Quickstart tag (from `cli/package.json`), a link to every `docs/*.md` page, to `docs/adr/` and to `cli/README.md`, a "What ships" row for every Kit-owned path and the other shipped paths, a "The CLI" row for every command, and a real file behind every workflow badge and local image. It checks that a row exists, not what the row says, so re-read the row when you change what a path does.
 - `workflow-validity-contract.test.py` covers what GitHub rejects at load time but actionlint misses (reserved secret names, undeclared secrets, invalid permission scopes, Caller/reusable mismatches). Keep it passing; a failure there means Consumers get "Invalid workflow file".
 - Changed a reusable workflow's inputs, secrets, or permissions? Regenerate the reference:
 

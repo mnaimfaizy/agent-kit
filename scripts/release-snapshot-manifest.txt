@@ -21,6 +21,8 @@ docs/security-audit.md
 docs/plan-implement-review.md
 docs/copilot-restore.md
 docs/issuebridge.md
+docs/adr/
+docs/assets/logo.svg
 
 .github/workflows/security-audit-reusable.yml
 .github/workflows/agent-plan-reusable.yml
