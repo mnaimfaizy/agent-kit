@@ -935,7 +935,11 @@ describe("review fixes (PR #78)", () => {
     // Removing a link the Consumer made is their call, so no --force is suggested.
     assert.deepEqual(trees.fix, [upgradeCommand(TAG)]);
     assert.ok(
-      trees.details.some((d) => /Kit-owned paths must be real folders in the repository/.test(d)),
+      trees.details.some((d) =>
+        /^\.claude\/skills is a link: Kit-owned paths must be real folders in the repository/.test(
+          d,
+        ),
+      ),
       JSON.stringify(trees.details),
     );
   });
@@ -960,6 +964,12 @@ describe("review fixes (PR #78)", () => {
     const line = trees.details.find((d) => d.startsWith(".github/agent-runtime/: "));
     assert.match(line, /is a symbolic link or junction/);
     assert.doesNotMatch(JSON.stringify(trees), /npx skills/);
+    // upgrade replaces the path whole, link included: --force, naming the link it covers.
+    assert.deepEqual(trees.fix, [`${upgradeCommand(TAG)} --force`]);
+    assert.ok(
+      trees.details.some((d) => d.startsWith("--force: once .github/agent-runtime is gone")),
+      JSON.stringify(trees.details),
+    );
   });
 
   it("parser: a || fallback on the next line keeps the variable optional", () => {

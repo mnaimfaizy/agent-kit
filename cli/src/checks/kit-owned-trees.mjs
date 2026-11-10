@@ -55,10 +55,12 @@ export function checkKitOwnedTrees({ runner, cwd, snapshot }) {
   // (with --force, since its files then show as deleted). One above every Kit-owned
   // path (a linked .claude/skills, say) is the Consumer's to sort out.
   const linked = [...links].map(([path, link]) => ({ folder: path.replace(/\/$/, ""), link }));
-  const linkAtOrInside = linked.some(
-    ({ folder, link }) => link === folder || link.startsWith(`${folder}/`),
+  const unique = (list) => [...new Set(list.map(({ link }) => link))];
+  const linksAtOrInside = unique(
+    linked.filter(({ folder, link }) => link === folder || link.startsWith(`${folder}/`)),
   );
-  const linkAbove = linked.some(({ folder, link }) => folder.startsWith(`${link}/`));
+  const linksAbove = unique(linked.filter(({ folder, link }) => folder.startsWith(`${link}/`)));
+  const named = (list) => (list.length === 1 ? `${list[0]} is` : `${list.join(", ")} are`);
   const checked = kitOwnedPaths.length - notChecked.length;
   if (bad.length === 0 && notChecked.length === 0) {
     return result(ID, TITLE, "pass", `All ${kitOwnedPaths.length} Kit-owned paths match ${tag}.`, {
@@ -91,25 +93,24 @@ export function checkKitOwnedTrees({ runner, cwd, snapshot }) {
             `.agents/skills/${skill}/), then run the command below: a Consumer gets Kit-owned ` +
             `skills from the tag, not from npx skills.`,
         ),
-        ...(linkAtOrInside
+        ...(linksAtOrInside.length
           ? [
-              `--force: once the link is gone its files show as deleted, which upgrade otherwise ` +
-                `refuses as uncommitted changes. It discards changes in Kit-owned paths only.`,
+              `--force: once ${named(linksAtOrInside)} gone, the files show as deleted, which upgrade ` +
+                `otherwise refuses as uncommitted changes. It discards changes in Kit-owned paths only.`,
             ]
           : []),
-        ...(linkAbove
-          ? [
-              `Kit-owned paths must be real folders in the repository, not reached through a link ` +
-                `to somewhere else. Whether to replace that link (and keep what it points to) is ` +
-                `your call; upgrade refuses to write through it.`,
-            ]
-          : []),
+        ...linksAbove.map(
+          (link) =>
+            `${link} is a link: Kit-owned paths must be real folders in the repository, not reached ` +
+            `through a link to somewhere else. Whether to replace it (and keep what it points to) ` +
+            `is your call; upgrade refuses to write through it, with or without --force.`,
+        ),
         `Kit-owned paths are replaced whole from the tag your pins name, never edited.`,
         `If a pin bump (for example from Dependabot) moved the pins to ${tag}, re-copy them on the same branch.`,
         `Run the command below, or delete and re-copy each path by hand as ` +
           `${manualCopyUrl(repo, tag, serverUrl)} describes.`,
       ],
-      fix: [linkAtOrInside ? `${upgradeCommand(tag)} --force` : upgradeCommand(tag)],
+      fix: [linksAtOrInside.length ? `${upgradeCommand(tag)} --force` : upgradeCommand(tag)],
     },
   );
 }
