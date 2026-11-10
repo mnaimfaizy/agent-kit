@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">Agent-kit logo: a robot head whose eyes are the letters A and K</title>
+  <path d="M32 18v-6" stroke="#4338CA" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="32" cy="9" r="3.8" fill="#FBBF24"/>
+  <rect x="2" y="30" width="6" height="14" rx="3" fill="#6366F1"/>
+  <rect x="56" y="30" width="6" height="14" rx="3" fill="#6366F1"/>
+  <rect x="7" y="18" width="50" height="38" rx="12" fill="#4338CA"/>
+  <path d="M15 47l7-19 7 19M18 41h8" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M36 28v19M47 28L36 38.5l11 8.5" fill="none" stroke="#A5B4FC" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

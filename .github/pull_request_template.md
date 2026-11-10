@@ -8,4 +8,5 @@
 - [ ] `uv run pre-commit run --all-files` is clean
 - [ ] Caller-facing change (inputs, secrets, permissions)? Examples and docs updated, and CHANGELOG `[Unreleased]` notes it
 - [ ] New shipped path? Added to `scripts/release-snapshot-manifest.txt`
+- [ ] New doc page, Kit-owned path, CLI command or release stage? `README.md` says so (`scripts/readme-freshness-contract.test.py` checks)
 - [ ] Security-relevant? Checked against `docs/security-model.md` (Public-log rule, Verified plan, read confinement)
