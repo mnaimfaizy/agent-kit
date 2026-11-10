@@ -390,6 +390,9 @@ const LABELLED = [
   "https://preview.example.co.uk",
   "https://uat.example.com:8443",
   "https://api.staging.example.com",
+  "https://qa.shop.co.uk",
+  "https://staging.myapp.vercel.app",
+  "http://example.test.evil.com",
   "https://STAGING.Example.com.",
 ];
 const PRODUCTION_LOOKING = [
@@ -409,6 +412,15 @@ const PRODUCTION_LOOKING = [
   "http://test",
 ];
 const TLD_ONLY = ["https://example.dev", "https://app.dev", "https://qa.dev", "https://dev.to"];
+/** A site's own name under a multi-part suffix: someone's site, not a test host. */
+const SITE_NAMES = [
+  "https://qa.co.uk",
+  "https://dev.com.au",
+  "https://staging.github.io",
+  "https://staging.vercel.app",
+  "https://preview.netlify.app",
+  "https://sandbox.herokuapp.com",
+];
 
 test("local development hosts pass, for either target", () => {
   for (const address of LOCAL) {
@@ -473,8 +485,15 @@ test("a TLD-only `.dev` host stops: a TLD is not a test-environment label", () =
   assert.match(hostVerdict("https://example.dev", url).why, /a TLD such as `\.dev` does not count/);
 });
 
+test("a site named like a label under a multi-part suffix stops: it is the site's own name", () => {
+  for (const address of SITE_NAMES) {
+    assert.equal(hostVerdict(address, url).verdict, "stop", address);
+    assert.equal(confirmed(address), "stop", address);
+  }
+});
+
 test("a `stack` run signs in only to a local host, even a confirmed labelled one", () => {
-  for (const address of [...LABELLED, ...PRODUCTION_LOOKING, ...TLD_ONLY])
+  for (const address of [...LABELLED, ...PRODUCTION_LOOKING, ...TLD_ONLY, ...SITE_NAMES])
     assert.equal(
       hostVerdict(address, { target: "stack", confirmed: address }).verdict,
       "stop",
@@ -513,6 +532,9 @@ test("`host` exits 0 to sign in, 1 on a stop, 3 to confirm, 2 on bad usage", () 
   assert.equal(code("https://example.dev", "--target", "url", "--confirmed", "example.dev"), 1);
   assert.equal(code(), 2);
   assert.equal(code("https://staging.example.com", "--target", "url", "--confirmed"), 2);
+  assert.equal(code("https://staging.example.com", "--target"), 2);
+  assert.equal(code("https://staging.example.com", "--target", "prod"), 2);
+  assert.equal(code("https://staging.example.com", "--target", "--confirmed", "x"), 2);
   assert.deepEqual(
     JSON.parse(main(["host", "https://qa.example.com", "--target", "url"], io).out).verdict,
     "confirm",

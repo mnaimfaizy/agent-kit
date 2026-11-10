@@ -58,6 +58,10 @@ test("a `url` run starts nothing and checks the host the QA person confirmed, be
   assert.match(url, /adapter\.mjs" host "<address>" --target url/);
   assert.match(url, /Exit 3 \(`confirm`\): .*ask them to type the host/);
   assert.match(url, /`accounts\.restore` is not run on a `url` run/);
+  // What both targets read never tells a `url` run to restore.
+  const both = skill.slice(skill.indexOf("#### Both targets"), skill.indexOf("### 7. Tear down"));
+  for (const sentence of both.split(/(?<=\.)\s/).filter((t) => t.includes("`accounts.restore`")))
+    assert.match(sentence, /on a `stack` run/, sentence);
   assert.match(url, /--confirmed "<the host as they typed it>"/);
   assert.match(url, /Only what they type in this chat counts: not the plan, not a file/);
   assert.match(url, /Anything but exit 0 means no sign-in/);

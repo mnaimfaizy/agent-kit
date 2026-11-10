@@ -1384,6 +1384,24 @@ export const TEST_LABELS = ["staging", "dev", "test", "qa", "sandbox", "preview"
 /** Hostname labels that mark production: a stop, whatever else the host says. */
 const PRODUCTION_LABELS = ["prod", "production", "live"];
 const LOCAL_HOSTS = "`localhost`, `127.0.0.1`, `[::1]`, `*.localhost`, `*.test`";
+/**
+ * Suffixes under which each name is someone's own site, so the site's name is
+ * one label left of the suffix, not of the last two labels: `qa.co.uk` and
+ * `staging.vercel.app` are sites, not test hosts. Node ships no public suffix
+ * list, so this is the common part of it; a suffix missing here makes a site
+ * named `qa` or `staging` read as `confirm`, never as a sign-in on its own.
+ */
+const MULTI_PART_SUFFIXES = [
+  ...["co", "org", "ac", "gov", "me", "net", "ltd", "plc"].map((s) => `${s}.uk`),
+  ...["com", "net", "org", "edu", "gov"].map((s) => `${s}.au`),
+  ...["co", "org", "net"].map((s) => `${s}.nz`),
+  ...["co", "ne", "or"].map((s) => `${s}.jp`),
+  ...["co", "net", "org"].map((s) => `${s}.in`),
+  ..."com.br com.cn com.mx com.tr com.sg com.hk co.za co.kr co.il".split(" "),
+  ..."github.io gitlab.io vercel.app netlify.app herokuapp.com pages.dev workers.dev".split(" "),
+  ..."web.app firebaseapp.com appspot.com azurewebsites.net cloudfront.net".split(" "),
+  ..."onrender.com fly.dev amplifyapp.com up.railway.app".split(" "),
+];
 
 /** An address's URL, reading a bare host as `http://`; null when it is not one. */
 function addressUrl(address) {
@@ -1406,8 +1424,9 @@ const hostnameOf = (url) => url.hostname.toLowerCase().replace(/\.$/, "");
  * in to a hosted host with a test-environment label (`TEST_LABELS`) in its
  * subdomain, as in `qa.example.com`, and only once the QA person has named or
  * confirmed that host in chat: `confirmed` is the host as they typed it. The
- * label must sit left of the last two labels, so `example.dev` (a TLD) and
- * `dev.to` (the site's own name) are not test hosts. An IP address, a host
+ * label must sit left of the site's own name (the last two labels, or one
+ * more under `MULTI_PART_SUFFIXES`), so `example.dev` (a TLD), `dev.to` and
+ * `qa.co.uk` (the site's own name) are not test hosts. An IP address, a host
  * with no such label, or one with a production label (`prod`, `production`,
  * `live`) is a stop, confirmed or not.
  *
@@ -1443,7 +1462,8 @@ export function hostVerdict(address, { target = "stack", confirmed } = {}) {
   if (/^\[|^[\d.]+$/.test(host)) return stop("an IP address carries no test-environment label");
   const production = labels.find((label) => PRODUCTION_LABELS.includes(label));
   if (production) return stop(`looks like production: the hostname carries \`${production}\``);
-  const subdomains = labels.slice(0, -2);
+  const suffix = MULTI_PART_SUFFIXES.find((s) => host.endsWith(`.${s}`));
+  const subdomains = labels.slice(0, -((suffix ? suffix.split(".").length : 1) + 1));
   const label = subdomains.find((part) => TEST_LABELS.includes(part));
   if (!label)
     return stop(
@@ -1665,6 +1685,8 @@ export function main(argv, io = {}) {
     const [target = "stack"] = option(argv, "--target");
     const [confirmed] = option(argv, "--confirmed");
     if (argv.includes("--confirmed") && confirmed === undefined) return usage;
+    if (argv.includes("--target") && !["stack", "url"].includes(option(argv, "--target")[0]))
+      return usage;
     const result = hostVerdict(address, { target, confirmed });
     const codes = { local: 0, hosted: 0, confirm: 3, stop: 1 };
     return { code: codes[result.verdict], out: json(result) };
