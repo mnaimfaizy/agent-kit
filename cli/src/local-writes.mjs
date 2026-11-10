@@ -3,20 +3,12 @@
 // and carrying out a plan. Both commands plan first and write second: every
 // refusal (a Refusal) is raised while planning, before anything is written.
 
-import {
-  chmodSync,
-  lstatSync,
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { firstLine } from "./exec.mjs";
 import { EXECUTABLE_MODE } from "./kit-tag.mjs";
-import { fileModeIsOff, gitSafetyArgs, lstatOrNull } from "./local-tree.mjs";
+import { fileModeIsOff, gitSafetyArgs, linksUnder, lstatOrNull } from "./local-tree.mjs";
 import { checkSafePath } from "./safe-paths.mjs";
 
 /** A reason not to start. Nothing has been written when this is thrown. */
@@ -87,21 +79,6 @@ export function checkNoLinks(root, rel, { deleted = [] } = {}) {
       throw new Refusal(`${sub} is a file, but ${rel} needs it to be a folder.`);
     }
   }
-}
-
-/** Links inside `rel`: never followed or guessed at. */
-function linksUnder(root, rel) {
-  const found = [];
-  const walk = (sub) => {
-    const st = lstatOrNull(join(root, sub));
-    if (!st) return;
-    if (st.isSymbolicLink()) found.push(sub);
-    else if (st.isDirectory()) {
-      for (const name of readdirSync(join(root, sub)).sort()) walk(`${sub}/${name}`);
-    }
-  };
-  walk(rel);
-  return found;
 }
 
 /** Refuse unless folder `rel` can be deleted whole: checkLocalPath, and no link inside it. */

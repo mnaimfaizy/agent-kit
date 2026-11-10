@@ -906,6 +906,29 @@ describe("review fixes (PR #78)", () => {
     assert.equal(trees.status, "fail", JSON.stringify(trees));
     const line = trees.details.find((d) => d.startsWith(".claude/skills/code-review/: "));
     assert.match(line, /\.claude\/skills\/code-review\/notes is a symbolic link or junction/);
+    // npx skills links the skill folder itself, never something inside it.
+    assert.doesNotMatch(JSON.stringify(trees), /npx skills|\.agents\/skills/);
+  });
+
+  it("trees: a link above the skill folders is reported, without advice to remove it as npx skills' doing", () => {
+    // .claude/skills linked to a shared folder of the Consumer's own skills.
+    const dir = makeConsumer("skills-dir-link");
+    renameSync(join(dir, ".claude/skills"), join(dir, "shared-skills"));
+    const type = process.platform === "win32" ? "junction" : "dir";
+    symlinkSync(
+      type === "junction" ? join(dir, "shared-skills") : join("..", "shared-skills"),
+      join(dir, ".claude/skills"),
+      type,
+    );
+    const report = runDoctor({ cwd: dir, runner: systemRunner, ci: true, openTag });
+    const trees = report.results.find((r) => r.id === "kit-owned-trees");
+    assert.equal(trees.status, "fail", JSON.stringify(trees));
+    const line = trees.details.find((d) => d.startsWith(".claude/skills/code-review/: "));
+    assert.match(
+      line,
+      /^\.claude\/skills\/code-review\/: \.claude\/skills is a symbolic link or junction/,
+    );
+    assert.doesNotMatch(JSON.stringify(trees), /npx skills|\.agents\/skills|remove the link/);
   });
 
   it(
