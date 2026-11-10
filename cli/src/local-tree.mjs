@@ -110,17 +110,27 @@ export function linkAt(root, path) {
     if (!st) return null;
     if (st.isSymbolicLink()) return sub;
   }
+  return linksUnder(root, folder)[0] ?? null;
+}
+
+/**
+ * Every symbolic link or junction at or inside `rel` (relative to `root`, no
+ * trailing slash), in sorted walk order: never followed or guessed at. doctor
+ * reports what it finds and upgrade refuses to delete through it, so both
+ * agree on what is linked.
+ */
+export function linksUnder(root, rel) {
+  const found = [];
   const walk = (sub) => {
-    for (const name of readdirSync(join(root, sub)).sort()) {
-      const child = `${sub}/${name}`;
-      const st = lstatOrNull(join(root, child));
-      if (st?.isSymbolicLink()) return child;
-      const inner = st?.isDirectory() ? walk(child) : null;
-      if (inner) return inner;
+    const st = lstatOrNull(join(root, sub));
+    if (!st) return;
+    if (st.isSymbolicLink()) found.push(sub);
+    else if (st.isDirectory()) {
+      for (const name of readdirSync(join(root, sub)).sort()) walk(`${sub}/${name}`);
     }
-    return null;
   };
-  return lstatOrNull(join(root, folder))?.isDirectory() ? walk(folder) : null;
+  walk(rel);
+  return found;
 }
 
 /**

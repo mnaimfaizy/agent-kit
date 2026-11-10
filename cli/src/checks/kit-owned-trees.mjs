@@ -26,7 +26,9 @@ export function checkKitOwnedTrees({ runner, cwd, snapshot }) {
   for (const path of kitOwnedPaths) {
     if (links.has(path)) {
       const link = links.get(path);
-      const skill = SKILL_DIR.exec(path)?.[1];
+      // npx skills links the skill folder itself. A link inside it, or above it
+      // (a shared .claude/skills, say), is the Consumer's own, so no hint to remove it.
+      const skill = link === path.replace(/\/$/, "") ? SKILL_DIR.exec(path)?.[1] : undefined;
       bad.push(
         `${path}: ${link} is a symbolic link or junction, where the tag ships plain files` +
           (skill ? ` (installing the skill with \`npx skills\` does this)` : ""),
