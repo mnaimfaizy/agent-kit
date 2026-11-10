@@ -22,7 +22,7 @@ Each skill declares where it works, in its `SKILL.md` frontmatter (`metadata.age
 
 ## Install
 
-Replace `<tag>` with the release you want, for example `v1.0.0-beta.1` (see the [releases](https://github.com/mnaimfaizy/agent-kit/releases)). Every install names a tag: an install without one follows `main`, which no release promises anything about, and is not supported.
+Replace `<tag>` with the release you want, for example `v1.0.0-beta.2` (see the [releases](https://github.com/mnaimfaizy/agent-kit/releases)). Every install names a tag: an install without one follows `main`, which no release promises anything about, and is not supported.
 
 `code-review`:
 

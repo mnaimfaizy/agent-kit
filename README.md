@@ -20,11 +20,11 @@ Every flow is gated by a **Kill switch**, an **Allowlist**, and a consumed **Tri
 
 Full walkthrough: **[docs/getting-started.md](docs/getting-started.md)**. Short version:
 
-1. **Pick a tag.** Use the latest from [Releases](https://github.com/mnaimfaizy/agent-kit/releases), e.g. `v1.0.0-beta.1`.
+1. **Pick a tag.** Use the latest from [Releases](https://github.com/mnaimfaizy/agent-kit/releases), e.g. `v1.0.0-beta.2`.
 2. **Copy the Kit-owned paths from that same tag** into your repository. The loop reads [`kit-owned-paths.txt`](kit-owned-paths.txt) from the tag, deletes each path, then copies it fresh, so files the kit removes don't linger after an upgrade. Your own skills in `.claude/skills/` are left alone.
 
    ```bash
-   TAG=v1.0.0-beta.1
+   TAG=v1.0.0-beta.2
    rm -rf /tmp/agent-kit
    git clone --depth 1 --branch "$TAG" https://github.com/mnaimfaizy/agent-kit.git /tmp/agent-kit &&
    grep -v -e '^#' -e '^$' /tmp/agent-kit/kit-owned-paths.txt | while read -r path; do

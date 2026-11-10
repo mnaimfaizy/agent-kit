@@ -6,7 +6,9 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
-Bump class: **Minor** (per [docs/releases.md](docs/releases.md)). Everything below is additive or a fix. No workflow input, secret or permission changed, and no Consumer action is required beyond the usual upgrade of the `uses:` pins and Kit-owned paths together.
+## [1.0.0-beta.2] - 2026-11-10
+
+Second beta on the `1.0.0` line, classed **Minor** (per [docs/releases.md](docs/releases.md)): Portable skills can now be installed one at a time with `npx skills`, each skill declares its scope, and `doctor` reports a linked Kit-owned path. Everything below is additive or a fix. No workflow input, secret or permission changed, and no Consumer action is required beyond the usual upgrade of the `uses:` pins and Kit-owned paths together.
 
 ### Added
 
