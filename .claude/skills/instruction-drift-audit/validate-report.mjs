@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Validates a structured Upstream Brief report and renders the Markdown brief.
 //
-//   node <skill>/validate-report.mjs <report.json> \
+//   node "<skill>/validate-report.mjs" <report.json> \
 //     [--out <normalized.json>] [--render <brief.md>] [--repo <dir>]
 //
 // The skill is portable (DESIGN.md, Boundary), so this file imports only Node

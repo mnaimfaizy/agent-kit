@@ -3,7 +3,7 @@
 // and §2), so a developer can see what an Upstream Brief would anchor to
 // before any research hop runs.
 //
-//   node <skill>/resolve-baseline.mjs [--repo <dir>]
+//   node "<skill>/resolve-baseline.mjs" [--repo <dir>]
 //
 // Reads `ecosystems` and `version_record.path` through the adapter reader
 // (`adapter.mjs`, ADAPTER.md). Installed versions come from the package

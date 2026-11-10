@@ -2,7 +2,7 @@
 // Suggests a new brief for each Ecosystem whose Baseline has left the range
 // its latest committed report recorded (DESIGN.md §14).
 //
-//   node <skill>/suggest-run.mjs [--repo <dir>]
+//   node "<skill>/suggest-run.mjs" [--repo <dir>]
 //
 // Meant for a host's dependency-change hook: after an install, upgrade, or
 // removal, print one line per Ecosystem worth a new run. It prints and exits
