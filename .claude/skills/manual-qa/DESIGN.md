@@ -56,6 +56,10 @@ The role values follow the same line. A hosted environment its owner seeded with
 
 QA Accounts have public values derived from tracked source, and a seeder that refuses any non-local database with no override: that refusal is what keeps fixture passwords away from production. The skill holds the other half: it signs in only at a host the host rule lets through, only as a role the config declares. A plan that carries a credential is refused even when the value is a public fixture, because a plan that carries values teaches people to paste values, and the next ones may not be fixtures. The credential scan is a heuristic, so it names the line and the kind of value, never the value itself.
 
-## Nothing is posted, yet
+## Posting is a second step
 
-The report is a self-contained Markdown file in a gitignored folder, ready to post anywhere. Posting it to a tracker, and uploading evidence, are outward-facing steps that need the person to see the results first; this release stops at the file.
+The report is a self-contained Markdown file in a gitignored folder, ready to post anywhere, and it is always written: a team on another tracker, or a person with no `gh` access, still has the whole result. Posting it to GitHub is outward-facing, so it waits until the person has seen the results and said yes. It goes where the plan went, so the people who read the plan find its results beside it. On a pull request it is one comment found by its `<!-- qa-report -->` marker and edited on each re-run: a second comment would leave readers to work out which run is current.
+
+## Evidence stays local unless picked
+
+A QA Artifact can show more than the scenario needed: another account's row, a notification, a stack trace. So nothing is uploaded by default, and with a release configured only the files the person picks, one at a time, go; "upload all" would carry the one nobody looked at. A failed run's media is never uploaded: a failure is when the screen most often shows what it must not, and the written result says what went wrong. Uploads go to a prerelease, never a full release that people download as the software, and a public repository gets a warning first, since anyone can download what is uploaded there.

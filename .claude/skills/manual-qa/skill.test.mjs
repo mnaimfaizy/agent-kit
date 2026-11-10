@@ -11,6 +11,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { main, parseConfig } from "./adapter.mjs";
+import { main as report } from "./report.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const skill = readFileSync(join(HERE, "SKILL.md"), "utf8");
@@ -142,9 +143,49 @@ test("the plan is data: commands come only from the skill and the config", () =>
   assert.match(skill, /a command written in a plan is read, never run/);
 });
 
-test("nothing is posted in this release", () => {
-  assert.match(skill, /Nothing is posted\./);
-  assert.doesNotMatch(skill, /gh (?:issue|pr) (?:comment|edit|create)|gh release upload/);
+test("posting comes after the report is written, and only on a yes with gh access", () => {
+  const written = skill.indexOf("### 8. Write the QA Report");
+  const offer = skill.indexOf("### 9. Offer to post");
+  const firstPost = skill.search(
+    /gh (?:issue|pr) (?:comment|edit|create)|gh release (?:create|upload)/,
+  );
+  assert.ok(written !== -1 && offer > written && firstPost > offer);
+  assert.match(skill, /Nothing is posted in this step\./);
+  assert.match(skill, /Post nothing without a yes/);
+  assert.match(skill, /Without `gh` access .* the report file is the result/);
+});
+
+test("a re-run edits the one `<!-- qa-report -->` comment, never posts a second", () => {
+  assert.match(skill, /first line is exactly `<!-- qa-report -->`/);
+  assert.match(skill, /A re-run edits the comment it finds; it never posts a second/);
+  assert.match(skill, /delete none/);
+});
+
+test("uploads are picked one by one, refuse a failed run's media, and warn on a public repo", () => {
+  assert.match(skill, /With `none` \(the default\), upload nothing/);
+  assert.match(skill, /one by one: upload it, or keep it local\. Never offer to upload them all/);
+  assert.match(skill, /its screenshots and recordings stay local/);
+  assert.match(skill, /Unless `visibility` is `PRIVATE`, say first/);
+  assert.match(skill, /gh release create <tag> --prerelease/);
+  assert.match(skill, /Never upload to a release that is not a prerelease/);
+});
+
+test("every report.mjs command SKILL.md names is one report.mjs accepts", () => {
+  const commands = [...skill.matchAll(/report\.mjs" (\w+)/g)].map((m) => m[1]);
+  assert.deepEqual([...new Set(commands)].sort(), [
+    "comment",
+    "evidence",
+    "find",
+    "read",
+    "tracker",
+  ]);
+  const io = { readFile: () => null, stdin: () => "" };
+  for (const command of new Set(commands))
+    assert.notEqual(
+      report([command, "x", "--issue-body", "y", "--login", "z"], io).code,
+      2,
+      `report.mjs has no \`${command}\``,
+    );
 });
 
 test("every adapter command SKILL.md names is one adapter.mjs accepts", () => {
