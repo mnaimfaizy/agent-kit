@@ -13,7 +13,7 @@ rewrites docs. The lists:
 - `docs/adopt.md`: one `` - `.claude/skills/<name>/` `` bullet per skill under
   "Copy Kit-owned paths from the same tag";
 - `README.md`: the backticked names in the `` `.claude/skills/` `` row under "What ships";
-- `docs/install-skills.md`, once it exists: the first table with a header cell
+- `docs/install-skills.md`: the first table with a header cell
   that is exactly `agent-kit-scope` (backticks optional). Each row's first cell
   is `` `<name>` `` or `` [`<name>`](link) ``, and its scope cell is `user` or
   `repo`, equal to the skill's own declaration;
@@ -162,13 +162,16 @@ def skills_list_problems(root: Path) -> list[str]:
         ("docs/adopt.md copy list", adopt_skills(root), f"no '{ADOPT_SECTION}' section"),
         ("README.md What ships row", readme_skills(root), "no `.claude/skills/` row under What ships"),
     ]
-    table = None
-    # docs/install-skills.md ships with the Skill installer docs (#112); until then there is no table to check.
-    # #112 must drop this is_file() guard when it adds the page, so a later rename or deletion fails as "not found".
-    if (root / INSTALL_SKILLS).is_file():
-        table = install_scope_table(root)
-        names = None if table is None else [skill for skill, _ in table]
-        lists.append(("docs/install-skills.md scope table", names, "no table with an agent-kit-scope column"))
+    # A renamed or deleted page fails here as "not found": the gate never skips it.
+    table = install_scope_table(root) if (root / INSTALL_SKILLS).is_file() else None
+    names = None if table is None else [skill for skill, _ in table]
+    lists.append(
+        (
+            "docs/install-skills.md scope table",
+            names,
+            "no docs/install-skills.md, or no table with an agent-kit-scope column",
+        )
+    )
     problems = []
     for label, listed, why_not_found in lists:
         if listed is None:
@@ -218,6 +221,7 @@ def make_repo(root: Path, scopes: dict[str, str]) -> Path:
         f"| `.claude/skills/` | **Portable skills**: {names}. Each ships a `SKILL.md`. Copy. |\n",
         encoding="utf-8",
     )
+    write_install_table(root, {n: str(s) for n, s in scopes.items()})
     return root
 
 
@@ -235,6 +239,7 @@ def test_gate_names_every_list_missing_a_skill_when_a_folder_is_added(tmp_path: 
         "kit-owned-paths.txt is missing gamma",
         "docs/adopt.md copy list is missing gamma",
         "README.md What ships row is missing gamma",
+        "docs/install-skills.md scope table is missing gamma",
     ]
 
 
@@ -245,6 +250,7 @@ def test_gate_names_every_list_with_an_extra_skill_when_a_folder_is_deleted(tmp_
         "kit-owned-paths.txt lists beta, with no folder in .claude/skills/",
         "docs/adopt.md copy list lists beta, with no folder in .claude/skills/",
         "README.md What ships row lists beta, with no folder in .claude/skills/",
+        "docs/install-skills.md scope table lists beta, with no folder in .claude/skills/",
     ]
 
 
@@ -315,7 +321,16 @@ def write_install_table(root: Path, rows: dict[str, str]) -> None:
     )
 
 
-def test_gate_checks_the_install_skills_scope_table_once_it_exists(tmp_path: Path) -> None:
+def test_gate_names_a_missing_install_skills_page(tmp_path: Path) -> None:
+    root = make_repo(tmp_path, {"alpha": "user", "beta": "repo"})
+    (root / "docs" / "install-skills.md").unlink()
+    assert skills_list_problems(root) == [
+        "docs/install-skills.md scope table not found (no docs/install-skills.md, or no table with an "
+        "agent-kit-scope column)"
+    ]
+
+
+def test_gate_checks_the_install_skills_scope_table(tmp_path: Path) -> None:
     root = make_repo(tmp_path, {"alpha": "user", "beta": "repo", "gamma": "user"})
     write_install_table(root, {"alpha": "user", "beta": "user", "delta": "repo"})
     assert skills_list_problems(root) == [
@@ -323,6 +338,53 @@ def test_gate_checks_the_install_skills_scope_table_once_it_exists(tmp_path: Pat
         "docs/install-skills.md scope table lists delta, with no folder in .claude/skills/",
         "docs/install-skills.md scope table says beta is user, but its SKILL.md declares repo",
     ]
+
+
+INSTALL = re.compile(r"^npx skills add (\S+)((?: [^\n]*)?)$", re.MULTILINE)
+PINNED_SOURCE = "mnaimfaizy/agent-kit#<tag>"
+
+
+def install_commands(root: Path) -> list[tuple[str, list[str]]]:
+    """(source, flags) of every `npx skills add` line on docs/install-skills.md."""
+    text = (root / INSTALL_SKILLS).read_text(encoding="utf-8")
+    return [(source, flags.split()) for source, flags in INSTALL.findall(text)]
+
+
+GLOBAL_FLAGS = {"-g", "--global"}
+
+
+def skills_installed(flags: list[str]) -> list[str]:
+    """The `--skill` values of one command, in order: the first is the skill the command is for."""
+    return [flags[i + 1] for i, flag in enumerate(flags[:-1]) if flag == "--skill"]
+
+
+def commands_by_skill(root: Path) -> dict[str, list[str]]:
+    """Each command's flags, keyed by the skill it installs first."""
+    commands = install_commands(root)
+    for source, _flags in commands:
+        # An install without a tag follows main, which no release promises anything about.
+        assert source == PINNED_SOURCE, f"install from {PINNED_SOURCE}, not {source}"
+    primary = [skills_installed(flags)[0] for _, flags in commands]
+    assert len(primary) == len(set(primary)), f"one command per skill, not {primary}"
+    return {skills_installed(flags)[0]: flags for _, flags in commands}
+
+
+def test_install_skills_page_pins_one_command_per_skill_to_a_tag() -> None:
+    commands = commands_by_skill(ROOT)
+    assert sorted(commands) == skill_names(ROOT), f"one command per skill: {sorted(commands)}"
+    scopes = declared_scopes(ROOT, skill_names(ROOT))
+    for skill, flags in commands.items():
+        is_global = bool(GLOBAL_FLAGS & set(flags))
+        if scopes[skill] == "repo":
+            # A Repo-scope skill only works inside the repository that holds its supporting files.
+            assert not is_global, f"{skill} is Repo-scope: install it without -g"
+        else:
+            assert is_global, f"{skill} is User-scope: install it with -g"
+
+
+def test_install_skills_page_installs_security_response_with_its_triage_skill() -> None:
+    flags = commands_by_skill(ROOT)["security-response"]
+    assert "security-finding-triage" in skills_installed(flags), "security-response needs triage installed too"
 
 
 def test_every_skill_list_in_this_repository_follows_the_skill_folders() -> None:
@@ -360,7 +422,10 @@ if __name__ == "__main__":
     test_gate_reads_frontmatter_delimiters_with_trailing_whitespace(Path(tempfile.mkdtemp()))
     test_gate_names_a_skill_listed_twice(Path(tempfile.mkdtemp()))
     test_gate_reads_linked_table_cells_and_bom_frontmatter(Path(tempfile.mkdtemp()))
-    test_gate_checks_the_install_skills_scope_table_once_it_exists(Path(tempfile.mkdtemp()))
+    test_gate_names_a_missing_install_skills_page(Path(tempfile.mkdtemp()))
+    test_gate_checks_the_install_skills_scope_table(Path(tempfile.mkdtemp()))
+    test_install_skills_page_pins_one_command_per_skill_to_a_tag()
+    test_install_skills_page_installs_security_response_with_its_triage_skill()
     test_every_skill_list_in_this_repository_follows_the_skill_folders()
     test_adopt_puts_no_count_on_the_shipped_skill_folders()
     test_every_portable_skill_declares_a_valid_scope()

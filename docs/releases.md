@@ -15,6 +15,8 @@ Agent-kit releases are whole-kit snapshots, not partial artifacts.
 
 Each release is paired with a GitHub Release entry.
 
+Every tag's Portable skills are also installable one at a time with `npx skills`, from that tag (`npx skills add mnaimfaizy/agent-kit#<tag> --skill <name>`; see [Install individual skills](install-skills.md)). That is the same tag, not a separate artifact.
+
 ## What is intentionally not shipped
 
 - no floating major/minor tags (no moving `v1` or `v1.2`)
@@ -30,6 +32,11 @@ The strongest Consumer-facing change determines the bump.
 - **Major**: Consumer contract break (required caller changes, renamed workflow path, removed input/output, required new permission/secret, incompatible workflow/skill contract).
 - **Minor**: additive capability that keeps old callers and copied skills working (new optional input, new reusable job, additive skill section).
 - **Patch**: fixes/polish with no contract break.
+
+Skill installers get the same skill contract as Consumers. For a skill's scope (`metadata.agent-kit-scope`, see [Install individual skills](install-skills.md#scope)):
+
+- a skill moving from User-scope to Repo-scope, or gaining a new required supporting file, is **Major**: an existing install stops working;
+- a skill moving from Repo-scope to User-scope is **Minor**: existing installs keep working, and it can now also be installed with `-g`.
 
 ## Pre-release stages
 

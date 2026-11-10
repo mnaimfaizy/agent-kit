@@ -16,7 +16,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { firstLine } from "./exec.mjs";
 import { EXECUTABLE_MODE } from "./kit-tag.mjs";
-import { fileModeIsOff, gitSafetyArgs } from "./local-tree.mjs";
+import { fileModeIsOff, gitSafetyArgs, lstatOrNull } from "./local-tree.mjs";
 import { checkSafePath } from "./safe-paths.mjs";
 
 /** A reason not to start. Nothing has been written when this is thrown. */
@@ -43,14 +43,8 @@ export function reportRefusal(out, err) {
   return 1;
 }
 
-export function lstatOrNull(path) {
-  try {
-    return lstatSync(path);
-  } catch (err) {
-    if (err.code === "ENOENT" || err.code === "ENOTDIR") return null;
-    throw err;
-  }
-}
+// Defined beside the link walk doctor uses (local-tree.mjs imports nothing from here).
+export { lstatOrNull };
 
 /**
  * Refuse unless `rel` (a repository-relative path, no trailing slash) can be

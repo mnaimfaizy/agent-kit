@@ -28,6 +28,8 @@ No floating major tags (`@v1`) are part of the contract.
 
 From the exact same tag used in `uses:`, copy each Kit-owned path. The source of truth is [`kit-owned-paths.txt`](../kit-owned-paths.txt) at the root of every tag from `v1.0.0-alpha.11`; the list below matches it, and a contract test keeps the two in step. Replace each path whole: delete it, then copy it fresh (the loop in [Getting started §3](getting-started.md#3-copy-the-runtime-files-from-the-same-tag) does this, and so do the CLI's `init` and `upgrade`). Never edit these paths. Your own skills next to the kit's in `.claude/skills/` are never touched.
 
+Don't install a Kit-owned skill with `npx skills` in a Consumer: [Install individual skills](install-skills.md) is for Skill installers who don't adopt the kit. A project install turns the Kit-owned path into a symlink to `.agents/skills/<name>/` (a junction on Windows), which `agent-kit upgrade` refuses to replace and `agent-kit doctor` reports. To undo it, remove the link and `.agents/skills/<name>/`, then run `agent-kit upgrade --tag <the tag your pins name> --force`: with the link gone its files show as deleted, and `--force` lets `upgrade` restore them (it discards changes in Kit-owned paths only).
+
 - `.claude/skills/code-review/`
 - `.claude/skills/security-audit/`
 - `.claude/skills/security-finding-triage/`

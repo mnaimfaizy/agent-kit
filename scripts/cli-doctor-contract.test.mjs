@@ -11,8 +11,10 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -47,7 +49,7 @@ import { main } from "../cli/src/cli.mjs";
 import { formatReport, guarded, LOCAL_ONLY_CHECKS, runDoctor } from "../cli/src/doctor.mjs";
 import { firstLine, systemRunner } from "../cli/src/exec.mjs";
 import { parseKitOwnedPaths } from "../cli/src/kit-owned-paths.mjs";
-import { openKitTag, PreManifestTagError } from "../cli/src/kit-tag.mjs";
+import { openKitRepo, openKitTag, PreManifestTagError } from "../cli/src/kit-tag.mjs";
 import { filterDrivers, localTreeHashes } from "../cli/src/local-tree.mjs";
 import { upgradeCommand } from "../cli/src/tags.mjs";
 
@@ -818,6 +820,114 @@ describe("review fixes (PR #78)", () => {
     const trees = report.results.find((r) => r.id === "kit-owned-trees");
     assert.equal(trees.status, "skip", JSON.stringify(trees));
     assert.ok(trees.details.some((d) => /agent-runtime\/: not checked, .*skip-worktree/.test(d)));
+  });
+
+  /**
+   * What `npx skills add … --skill code-review` does in a project install: the
+   * folder moves to .agents/skills/code-review/ and the Kit-owned path becomes
+   * a link to it (a relative symlink, or a junction on Windows).
+   */
+  function linkKitOwnedSkill(dir, type) {
+    mkdirSync(join(dir, ".agents/skills"), { recursive: true });
+    renameSync(join(dir, ".claude/skills/code-review"), join(dir, ".agents/skills/code-review"));
+    const target =
+      type === "junction"
+        ? join(dir, ".agents/skills/code-review")
+        : join("..", "..", ".agents", "skills", "code-review");
+    symlinkSync(target, join(dir, ".claude/skills/code-review"), type);
+  }
+
+  function assertLinkReported(dir) {
+    const report = runDoctor({ cwd: dir, runner: systemRunner, ci: true, openTag });
+    const trees = report.results.find((r) => r.id === "kit-owned-trees");
+    assert.equal(trees.status, "fail", JSON.stringify(trees));
+    // Its own words, never git's raw "beyond a symbolic link".
+    assert.doesNotMatch(JSON.stringify(trees), /beyond a symbolic link|git add/);
+    assert.equal(trees.summary, `1 of 2 Kit-owned paths do not match ${TAG}.`);
+    const line = trees.details.find((d) => d.startsWith(".claude/skills/code-review/: "));
+    assert.match(line, /is a symbolic link or junction/);
+    assert.match(line, /npx skills/);
+    assert.ok(
+      trees.details.some((d) =>
+        /remove the link.*\.agents\/skills\/code-review\/.*the command below/.test(d),
+      ),
+      JSON.stringify(trees.details),
+    );
+    // The other Kit-owned path is still compared: it matches, so it is not listed.
+    assert.ok(
+      !trees.details.some((d) => d.startsWith(".github/agent-runtime/")),
+      JSON.stringify(trees.details),
+    );
+    // Removing the link leaves the skill's committed files deleted, which upgrade
+    // only replaces with --force (it discards changes in Kit-owned paths only).
+    assert.deepEqual(trees.fix, [`${upgradeCommand(TAG)} --force`]);
+    return trees;
+  }
+
+  /** Do what the hint says, then run the fix command, and doctor passes again. */
+  async function followTheHint(dir, trees) {
+    rmSync(join(dir, ".claude/skills/code-review"), { recursive: true, force: true });
+    rmSync(join(dir, ".agents"), { recursive: true, force: true });
+    const args = trees.fix[0].split(" ").slice(2); // drop `npx <package>@<version>`
+    const out = [];
+    const code = await main([...args, "--yes"], {
+      cwd: dir,
+      stdout: (s) => out.push(s),
+      stderr: (s) => out.push(s),
+      runner: systemRunner,
+      openRepo: (opts) => openKitRepo({ ...opts, remoteUrl: kitUrl }),
+    });
+    assert.equal(code, 0, out.join("\n"));
+    const after = runDoctor({ cwd: dir, runner: systemRunner, ci: true, openTag });
+    const fixed = after.results.find((r) => r.id === "kit-owned-trees");
+    assert.equal(fixed.status, "pass", JSON.stringify(fixed));
+  }
+
+  it("trees: a Kit-owned skill replaced by a symlink (npx skills) fails with the hint", async () => {
+    const dir = makeConsumer("skill-symlink");
+    linkKitOwnedSkill(dir, "dir");
+    await followTheHint(dir, assertLinkReported(dir));
+  });
+
+  it("trees: a link inside a Kit-owned folder fails too, not only one at its root", () => {
+    const dir = makeConsumer("inner-link");
+    const notes = join(dir, ".claude/skills/code-review/notes");
+    renameSync(notes, join(dir, "notes-elsewhere"));
+    const type = process.platform === "win32" ? "junction" : "dir";
+    symlinkSync(
+      type === "junction"
+        ? join(dir, "notes-elsewhere")
+        : join("..", "..", "..", "notes-elsewhere"),
+      notes,
+      type,
+    );
+    const report = runDoctor({ cwd: dir, runner: systemRunner, ci: true, openTag });
+    const trees = report.results.find((r) => r.id === "kit-owned-trees");
+    assert.equal(trees.status, "fail", JSON.stringify(trees));
+    const line = trees.details.find((d) => d.startsWith(".claude/skills/code-review/: "));
+    assert.match(line, /\.claude\/skills\/code-review\/notes is a symbolic link or junction/);
+  });
+
+  it(
+    "trees: a Kit-owned skill replaced by a junction (npx skills on Windows) fails with the hint",
+    { skip: process.platform !== "win32" && "junctions exist only on Windows" },
+    async () => {
+      const dir = makeConsumer("skill-junction");
+      linkKitOwnedSkill(dir, "junction");
+      await followTheHint(dir, assertLinkReported(dir));
+    },
+  );
+
+  it("trees: a link at a runtime path fails without the npx skills hint", () => {
+    const dir = makeConsumer("runtime-symlink");
+    renameSync(join(dir, ".github/agent-runtime"), join(dir, "runtime-elsewhere"));
+    symlinkSync(join("..", "runtime-elsewhere"), join(dir, ".github/agent-runtime"), "dir");
+    const report = runDoctor({ cwd: dir, runner: systemRunner, ci: true, openTag });
+    const trees = report.results.find((r) => r.id === "kit-owned-trees");
+    assert.equal(trees.status, "fail", JSON.stringify(trees));
+    const line = trees.details.find((d) => d.startsWith(".github/agent-runtime/: "));
+    assert.match(line, /is a symbolic link or junction/);
+    assert.doesNotMatch(JSON.stringify(trees), /npx skills/);
   });
 
   it("parser: a || fallback on the next line keeps the variable optional", () => {
