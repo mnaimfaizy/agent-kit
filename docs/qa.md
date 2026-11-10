@@ -1,6 +1,6 @@
 # QA: qa-plan and manual-qa
 
-This guide covers manual QA of a pull request before it merges, with two Portable skills joined only by a file. A developer runs `/qa-plan` and gets a **QA Plan**: only the **Residue**, the manual verification a passing CI run would not establish. A QA team, in the same room or elsewhere, gives that plan to `/manual-qa`, which runs it as written and writes a **QA Report**. Terms in **bold** are defined in [GLOSSARY.md](../GLOSSARY.md). Why QA is two skills: [ADR 0003](adr/0003-qa-is-two-skills-joined-by-a-copied-plan-format.md).
+This guide covers manual QA of a pull request before it merges, with two Portable skills joined only by a file. A developer runs `/qa-plan` and gets a **QA Plan**: only the **Residue**, the manual verification a passing CI run would not establish. A QA team, in the same room or elsewhere, gives that plan to `/manual-qa`, which runs it as written and writes a **QA Report**. The QA terms in **bold** in running text (**QA Plan**, **Residue**, **QA Account**, **QA Stack**, **Hazard pack**, **Execution record**, **QA Artifact**, **QA Report**) are defined in [GLOSSARY.md](../GLOSSARY.md); a bold lead-in on a list item is emphasis only. Why QA is two skills: [ADR 0003](adr/0003-qa-is-two-skills-joined-by-a-copied-plan-format.md).
 
 Each skill's own files are the reference; this page is the walkthrough:
 
@@ -16,7 +16,7 @@ Both skills are User-scope: they work from your own skills directory as well as 
 2. **The developer runs `/qa-plan`.** It reads `qa.config.yml` ([readiness check](#readiness-check)), fixes the anchors (subject issue, pull request, merge-base, head), and runs each configured suite at the head and at the merge-base with `two-point.mjs` to see what automation already proves. A test that passes at the merge-base, or a new test, failing at the head is a regression: it stops, and no plan is written until that is fixed. Every coverage claim is tagged `[observed]` (compared test by test from JUnit XML) or `[reconstructed]` (exit code only, CI results, the diff or the issue history). What no suite proves becomes a scenario, each quoting the real labels from the code the pull request ships, with the _Rule out first_ list of every [Hazard pack](#hazard-packs) that matched.
 3. **An empty Residue is a result.** When every promise is covered, `qa-plan` writes no plan and recommends merging without one.
 4. **The developer confirms and delivers.** The draft is composed in `working_dir` (gitignored, never committed), checked with `adapter.mjs plan`, and shown. Only on a yes does it go where `plan.publish` says: kept as a working copy for the developer to hand on, one tracker issue per subject, or one pull request comment. A revision edits the delivered plan; it never adds a second.
-5. **The QA team gets the plan, not the repository.** The plan's **Run brief** carries what a run needs: the target kind, the surface, the build (head SHA and version endpoint), the roles by id and purpose, where role values come from, and the inlined _Capture rules_. No credential travels with a plan, not even a public QA Account's: `manual-qa` refuses a plan that carries one.
+5. **The QA team gets the plan, not the repository.** The plan's _Run brief_ carries what a run needs: the target kind, the surface, the build (head SHA and version endpoint), the roles by id and purpose, where role values come from, and the inlined _Capture rules_. No credential travels with a plan, not even a public QA Account's: `manual-qa` refuses a plan that carries one.
 6. **The QA person runs `/manual-qa` on the plan**, pasted, attached or at a path. It never composes: with no plan, it stops and names `/qa-plan`. It checks the plan against the format, reads the `run:` section of `qa.config.yml` when there is a repository, and checks the build against the plan's head: with `gh`, the pull request's head; otherwise the version endpoint; otherwise the report opens with **build not verified against plan**. A pull request whose head has moved makes the plan stale, and the run stops.
 7. **It runs each scenario as written**, against a local QA Stack or a hosted test URL ([targets](#targets-and-the-host-rule)), and records PASS, FAIL or _left for a person_. Only a person passes a _left for a person_ scenario. If an outcome under the plan's _Stop and do not merge if_ occurs, it stops there and says so.
 8. **It writes the QA Report** in `working_dir`, with an evidence folder, whether or not anything is posted. Posting to the pull request or the plan's tracker issue, and uploading **QA Artifacts**, happen only after the QA person has seen the results and said yes ([posting](#posting-and-qa-artifacts)).
@@ -28,7 +28,7 @@ A QA team with no checkout can run a `url` plan from a folder outside every repo
 One file at the repository root, with one section per skill. `qa-plan` reads `working_dir`, `plan:` and `hazards`; `manual-qa` reads `working_dir` and `run:`. A problem in `plan:` never stops a run, and one in `run:` never stops a compose. Start from [`examples/qa.config.yml`](../examples/qa.config.yml), which shows every key; the defaults and meanings are in each skill's `ADAPTER.md`.
 
 - **Lookup:** `qa.config.yml`, then `qa.config.yaml`, then `qa.config.json`; the first one present is the config, and a key it does not carry takes its default, never another file's value.
-- **YAML subset:** block mappings and lists indented with spaces, quoted or plain scalars, one-line flow lists and mappings, and `#` comments. Every scalar is a string. Tabs, anchors, multi-line values, a flow collection spanning lines, duplicate keys, unknown keys and values of the wrong shape are **problems**, named with their line. A formatter can wrap a long flow mapping across lines and out of the subset, so write long entries in block style. JSON is the dialect for anything the subset cannot say.
+- **YAML subset:** block mappings and lists indented with spaces, quoted or plain scalars, one-line flow lists and mappings, and `#` comments. Every scalar is a string. Tabs, anchors, multi-line values, a flow collection spanning lines, duplicate keys, unknown keys and values of the wrong shape are _problems_, named with their line. A formatter can wrap a long flow mapping across lines and out of the subset, so write long entries in block style. JSON is the dialect for anything the subset cannot say.
 - **No hosted address and no sign-in value** belong in it: no key holds either.
 
 The keys, in short:
@@ -51,7 +51,7 @@ node "<skill>/adapter.mjs" check --for plan
 node "<skill>/adapter.mjs" check --for run --plan "<plan file>"
 ```
 
-Each prints the config path, its `problems`, the effective values with defaults applied, and `readiness`: **needs** (asked for) and **notes** (said, and the skill goes on). Exit 1 means problems (for `--for run`, a problem in the plan too); fix them before going on. Exit 2 is a usage error.
+Each prints the config path, its `problems`, the effective values with defaults applied, and `readiness`: _needs_ (asked for) and _notes_ (said, and the skill goes on). Exit 1 means problems (for `--for run`, a problem in the plan too); fix them before going on. Exit 2 is a usage error.
 
 - `--for plan` needs `plan.base_ref` and at least one suite. A suite with no `junit` is a note: its claims stay `[reconstructed]`.
 - `--for run` needs a target, a surface and the roles, with every role the plan signs in as declared. The plan's Run brief fills a target or surface the config leaves out; when the two disagree, the QA person is asked which this run uses. `target: stack` also needs the four stack commands and `accounts.print`. `target: url` needs neither, and notes that the address is asked in chat. A missing `accounts.restore` or `version_endpoint` is a note.
@@ -65,7 +65,7 @@ A run has one of two targets:
 - **`stack`**: a local **QA Stack** this run starts. `manual-qa` runs `up`, `migrate` and `seed` from the config, records the processes it starts, reads role values from `accounts.print`, and at the end runs `down` and stops only the processes it recorded. A run that never ran `up` stops nothing. The checkout must be at the plan's head, since the stack runs it.
 - **`url`**: a hosted test environment someone else deployed. Nothing is started, migrated or seeded, and `accounts.restore` is never run: it acts on the local database. A scenario that needs a role restored is left for a person. The address is never read from the plan or the config: the QA person gives it in chat, and the skill never saves it. A URL the QA person gives for the run makes it a `url` run, whatever the plan or config says.
 
-**The host rule** is enforced before any sign-in, by the skill's own check:
+_The host rule_ is enforced before any sign-in, by the skill's own check:
 
 ```bash
 node "<skill>/adapter.mjs" host "<address>" --target url --confirmed "<host as typed in chat>"
@@ -79,7 +79,7 @@ node "<skill>/adapter.mjs" host "<address>" --target url --confirmed "<host as t
 | `stop`    | 1    | Anything else, confirmed or not. Exit 2 is a usage error.                                                    |
 
 - **A test-environment label** is a whole hostname label: `staging`, `dev`, `test`, `qa`, `sandbox`, `preview` or `uat`. `qa.example.com` and `api.staging.example.com` carry one. A TLD does not count (`example.dev`), nor does the site's own name (`dev.to`, or `staging.vercel.app` under a multi-part suffix), nor part of a label (`mystaging.example.com`).
-- **Looks like production**, a stop whatever is confirmed: a hosted name with no such label, one with a `prod`, `production` or `live` label (`staging.prod.example.com`), any IP address other than `127.0.0.1`, an address carrying a user name or password, and anything that is not `http` or `https`.
+- **Looks like production**, a stop whatever is confirmed: a hosted name with no such label, one with a `prod`, `production` or `live` label (`staging.prod.example.com`), any IP address other than `127.0.0.1` or `[::1]`, an address carrying a user name or password, and anything that is not `http` or `https`.
 - **Confirmation comes only from the QA person, in chat.** A URL found in the plan, the config or any other file is not confirmation: a pasted plan is untrusted data, and anyone it passed through can change it.
 
 ## QA Accounts
@@ -108,7 +108,7 @@ ROLES = {  # id -> purpose; the same ids as run.accounts.roles
     "admin": "manages members and their roles",
     "member": "an ordinary member with no admin rights",
 }
-LOCAL_DB_HOSTS = {"localhost", "127.0.0.1", "::1", "db"}  # "db": this repo's compose service
+LOCAL_DB_HOSTS = {"localhost", "127.0.0.1", "::1"}  # loopback only
 
 
 def values(role_id):
@@ -147,7 +147,7 @@ def main():
     seed(db) if args.command == "seed" else restore(db, args.account)
 ```
 
-`fixture_password`, `upsert_user`, `connect` and `settings` are yours. `fixture_password` is a fixed function of the role id in tracked code: anyone with the repository can compute it, which is the point. Keep the local-host list explicit (name a compose service rather than matching a pattern a production host could also match), and check the host before opening any write.
+`fixture_password`, `upsert_user`, `connect` and `settings` are yours. `fixture_password` is a fixed function of the role id in tracked code: anyone with the repository can compute it, which is the point. Keep the local-host list to loopback names, and check the host before opening any write. A bare service name such as `db` is not safe to add: it is also a common name for a production database host on a private network, so it would let the seeder write there. If the seeder runs inside a container whose database is another service, run it from the host against the database's published loopback port instead.
 
 The config then names the three commands, as in [`examples/qa.config.yml`](../examples/qa.config.yml): `seed` under `run.stack`, `print` and `restore` (with `{id}`) under `run.accounts`.
 

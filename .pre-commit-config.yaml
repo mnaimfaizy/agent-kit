@@ -29,7 +29,7 @@ repos:
     rev: v1.7.12
     hooks:
       - id: actionlint
-        files: ^(\.github/workflows/|\.github/workflows-archive/copilot/|examples/).*\.ya?ml$
+        files: ^((\.github/workflows/|\.github/workflows-archive/copilot/).*\.ya?ml|examples/[^/]*-caller\.ya?ml)$
 
   - repo: local
     hooks:
