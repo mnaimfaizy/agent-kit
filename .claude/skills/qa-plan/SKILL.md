@@ -110,7 +110,7 @@ Each promise step 4 left uncovered becomes a scenario ([ANATOMY.md](ANATOMY.md#s
 
 ### 7. Write the draft and show it
 
-Write the plan to `<working_dir>/qa-plan-pr-<n>.md`, in the shape [ANATOMY.md](ANATOMY.md) gives, with the _Execution record_ exactly `_Not run yet._`. Read it back against [ANATOMY.md](ANATOMY.md): nine sections in order, the marker on line 1, every claim tagged, no credentials. Show the person the draft and where it would be delivered (step 8), and ask them to confirm or correct it.
+Write the plan to `<working_dir>/qa-plan-pr-<n>.md`, in the shape [ANATOMY.md](ANATOMY.md) gives, with the _Execution record_ exactly `_Not run yet._`. Read it back against [ANATOMY.md](ANATOMY.md): nine sections in order, the marker on line 1, every claim tagged, no credentials. `node "<skill>/adapter.mjs" plan <file>` must exit 0: it is the check `manual-qa` runs before it accepts a plan. Show the person the draft and where it would be delivered (step 8), and ask them to confirm or correct it.
 
 **Done when:** the person has confirmed the draft, as written or after the corrections they asked for.
 

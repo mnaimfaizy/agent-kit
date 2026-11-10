@@ -40,6 +40,7 @@ docs/assets/logo.svg
 .claude/skills/explainer/
 .claude/skills/instruction-drift-audit/
 .claude/skills/qa-plan/
+.claude/skills/manual-qa/
 
 examples/security-audit-caller.yml
 examples/plan-implement-review-caller.yml

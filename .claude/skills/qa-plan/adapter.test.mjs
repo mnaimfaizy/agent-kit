@@ -76,7 +76,12 @@ test("the first file present wins, and the others are not read or merged", () =>
 });
 
 test("no config file is not a problem", () => {
-  assert.deepEqual(readQaConfig(reader({})), { path: null, config: {}, problems: [] });
+  assert.deepEqual(readQaConfig(reader({})), {
+    path: null,
+    config: {},
+    problems: [],
+    runProblems: [],
+  });
 });
 
 // ── What reads ──────────────────────────────────────────────────────────────
