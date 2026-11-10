@@ -197,6 +197,14 @@ test("each Run brief field is required, and target and surface are checked", () 
   );
 });
 
+test("a version endpoint on another host is a problem", () => {
+  for (const endpoint of ["//prod.example.com/version", "/\\prod.example.com/version"])
+    assertProblem(
+      broken("version endpoint `/version`", `version endpoint \`${endpoint}\``),
+      /\*\*Build:\*\* the version endpoint must be a path on the build's own host/,
+    );
+});
+
 test("roles must be named as `id`: purpose", () => {
   const text = GOOD.replace(
     /- \*\*Roles:\*\*\n(?: {2}- .*\n)+/,
@@ -282,6 +290,15 @@ test("each way a credential travels is caught", () => {
     "Open http://admin:pa55@localhost:3000/",
     "-----BEGIN RSA PRIVATE KEY-----",
     `key sk-ant-${"z".repeat(30)}`,
+    "DB_PASSWORD=Fixture123!",
+    'ADMIN_PASSWORD: "hunter22"',
+    "SECRET_KEY_BASE=abc123def456",
+    'adminPassword: "Fixture1!"',
+    "admin.password = `Qa-pass-1`",
+    'Password: n/a; API token: "s3cr3t-value-123"',
+    `authorization: bearer ${"y".repeat(24)}`,
+    "Authorization: Basic YWRtaW46cGFzc3dvcmQ=",
+    "Connect to redis://:pw@localhost:6379",
   ];
   for (const leak of leaks)
     assert.equal(credentialProblems([leak]).length, 1, `not caught: ${leak}`);
@@ -318,6 +335,10 @@ test("talking about credentials is not carrying one", () => {
     "Click **Reset password**.",
     "The token expires after 10 minutes.",
     "- **Pin:** none",
+    "Follow the Basic configuration steps.",
+    "- **Password reset page:** `/account/reset`",
+    "The SECRET_KEY_BASE comes from the environment.",
+    "Open https://localhost:3000/@admin",
   ];
   assert.deepEqual(credentialProblems(prose), []);
 });

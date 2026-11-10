@@ -30,13 +30,13 @@ Load [ANATOMY.md](ANATOMY.md) when a plan's section or field needs its meaning. 
 
 The plan comes pasted into the prompt, attached, or as a path that exists. With none, stop: _this skill runs a QA Plan; write one first with `/qa-plan` on the pull request_. Never compose one here.
 
-Save a pasted or attached plan, unchanged, as `<working_dir>/qa-plan-pr-<n>.md` (`working_dir` is `tmp/qa` until step 2 says otherwise; `<n>` is the `pr=` on its marker line), then:
+A plan at a path is checked where it is. A pasted or attached plan is checked before it is saved anywhere in the repository, since it may carry a value the check refuses: write it, unchanged, to a new file in the system's temporary directory (outside every repository), and check that file:
 
 ```bash
 node "<skill>/adapter.mjs" plan "<plan file>"
 ```
 
-Exit 1: show each problem, with its line, and stop. A plan that fails is not run in part. A problem saying the plan _looks like_ it carries a credential stops the run too: tell the person to remove the value and give the role's id and where its values come from instead ([ANATOMY.md](ANATOMY.md#no-credentials-travel-with-a-plan)). `plan.executed: true` means the plan's Execution record is already filled: say so, and ask whether to run it again.
+Exit 1: show each problem, with its line, delete the temporary file, and stop. A plan that fails is not run in part. A problem saying the plan _looks like_ it carries a credential stops the run too: tell the person to remove the value and give the role's id and where its values come from instead ([ANATOMY.md](ANATOMY.md#no-credentials-travel-with-a-plan)). `plan.executed: true` means the plan's Execution record is already filled: say so, and ask whether to run it again.
 
 **Done when:** the plan reads with no problems, and its anchors, Run brief and scenarios are known.
 
@@ -51,9 +51,9 @@ node "<skill>/adapter.mjs" check --for run --plan "<plan file>"
 - `readiness.notes`: say each one, and go on.
 - `readiness.run.target` is `url`: stop. This copy of the skill runs a local QA Stack only; ask the person to run the plan against a stack, or to use a release of `manual-qa` that runs hosted targets.
 
-Check that `working_dir` is ignored: `git check-ignore -q <working_dir>/x`. If it is not, say so and ask before writing there.
+Check that `working_dir` is ignored: `git check-ignore -q <working_dir>/x`. If it is not, say so and ask before writing there. Once it is ignored, or the person has said yes, move a pasted or attached plan from the temporary file to `<working_dir>/qa-plan-pr-<n>.md` (`<n>` is the `pr=` on its marker line), unchanged; that is the plan file from here on.
 
-**Done when:** the target is `stack`, and the surface, the roles and the four stack commands are known, each from the config or from an answer.
+**Done when:** the target is `stack`, the surface, the roles and the four stack commands are known, each from the config or from an answer, and the plan file is in `working_dir` or at the path it came from.
 
 ### 3. Check the build against the plan
 
@@ -75,13 +75,13 @@ The Run brief's **Surface** says what the scenarios drive; find a tool this sess
 - `desktop` or `mobile`: desktop control, with the app or its simulator on screen.
 - `api`: the shell's HTTP client (`curl`), or a browser tool.
 
-With none, every scenario on that surface is **left for a person** (_no tool here can drive a `<surface>` surface_); the rest of the run still goes ahead. With no scenario left to run, skip to step 7.
+With none, every scenario on that surface is **left for a person** (_no tool here can drive a `<surface>` surface_); the rest of the run still goes ahead. With no scenario left to run, skip to step 8: nothing was started, so there is nothing to tear down.
 
 **Done when:** each scenario has a driver, or is recorded as left for a person, with the reason.
 
 ### 5. Start the QA Stack
 
-Run `up`, `migrate` and `seed`, in that order, from the config. Start `up` in the background when it does not return, and record in `<working_dir>/qa-report-pr-<n>/stack-pids.txt` the process ids it started: the one you launched, and any it prints or leaves running. A command that fails stops the run: show its output, run step 7, and write the report with every scenario left for a person.
+Start `<working_dir>/qa-report-pr-<n>/stack-pids.txt` empty, replacing any file an earlier run left: its ids may belong to other processes by now. Run `up`, `migrate` and `seed`, in that order, from the config. Start `up` in the background when it does not return. Record in `stack-pids.txt` only the ids of processes this run launched, and the ids `up` itself prints; never an id found by looking through the running processes, which may be the developer's own. A command that fails stops the run: show its output, run step 7, and write the report with every scenario left for a person.
 
 Find the address the stack serves (from `up`'s output, or ask the person), then check it before any sign-in:
 
@@ -105,9 +105,9 @@ A step that does not match the product (a label the screen does not show) leaves
 
 ### 7. Tear down
 
-Run `down`. Then stop each process in `stack-pids.txt` that is still running, and only those. Say what was stopped.
+Only when this run ran `up` (step 5): run `down`, then stop each process in `stack-pids.txt` that is still running, and only those. Say what was stopped. A run that never ran `up` runs nothing here: `down` would stop a stack the developer started.
 
-**Done when:** `down` has run, and no recorded process is left running.
+**Done when:** `down` has run and no recorded process is left running, or this run never ran `up`.
 
 ### 8. Write the QA Report
 

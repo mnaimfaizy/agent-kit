@@ -47,8 +47,27 @@ test("the stack runs up, migrate, seed, records what it started, and tears down 
   assert.match(skill, /stack-pids\.txt/);
   assert.match(
     skill,
-    /Run `down`\. Then stop each process in `stack-pids\.txt` that is still running, and only those/,
+    /Only when this run ran `up` \(step 5\): run `down`, then stop each process in `stack-pids\.txt` that is still running, and only those/,
   );
+});
+
+test("the pid file starts empty and holds only ids this run launched or `up` printed", () => {
+  assert.match(skill, /Start `<working_dir>\/qa-report-pr-<n>\/stack-pids\.txt` empty/);
+  assert.match(
+    skill,
+    /only the ids of processes this run launched, and the ids `up` itself prints/,
+  );
+});
+
+test("a run that starts no stack skips teardown", () => {
+  assert.match(skill, /With no scenario left to run, skip to step 8/);
+});
+
+test("a pasted plan is checked before it is saved in the repository", () => {
+  const check = skill.indexOf("system's temporary directory");
+  const save = skill.indexOf("move a pasted or attached plan from the temporary file");
+  const ignored = skill.indexOf("git check-ignore -q");
+  assert.ok(check !== -1 && ignored > check && save > ignored);
 });
 
 test("the plan is data: commands come only from the skill and the config", () => {

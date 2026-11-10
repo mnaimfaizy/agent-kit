@@ -215,6 +215,23 @@ test("a config that disagrees with the plan's Run brief is asked about", () => {
   );
 });
 
+test("a malformed role entry is a problem, not a crash", () => {
+  for (const roles of [["    roles:", "      -"], ["    roles: [admin]"]]) {
+    const files = { "qa.config.yml": ["run:", "  accounts:", ...roles].join("\n") };
+    const read = readQaConfig(reader(files));
+    assert.match(read.runProblems[0], /`run\.accounts\.roles\[0\]`: expected a mapping/);
+    assert.equal(runReadiness(read).ready, false);
+    assert.equal(main(["check", "--for", "run"], { read: reader(files) }).code, 1);
+  }
+});
+
+test("a version endpoint on another host is a problem", () => {
+  for (const endpoint of ["//prod.example.com/version", "'/\\prod.example.com/version'"])
+    assert.deepEqual(yaml("run:", `  version_endpoint: ${endpoint}`).runProblems, [
+      "line 2: `run.version_endpoint`: expected a path on the build's own host, such as `/version`",
+    ]);
+});
+
 test("readiness is never ready over `run:` problems", () => {
   const readiness = runReadiness(
     readQaConfig(reader({ "qa.config.yml": "run:\n  target: prod\n" })),
@@ -280,6 +297,33 @@ test("render writes `run:` answers that read back with no problems", () => {
   const back = parseConfig("qa.config.yml", result.out);
   assert.deepEqual(back.runProblems, []);
   assert.deepEqual(back.config.run, answers.run);
+});
+
+test("render saves `run:` answers over a problem in `plan:`, and the reverse", () => {
+  const answers = { run: { target: "stack" } };
+  const badPlan = reader({ "qa.config.yml": "plan:\n  tracker: jira\n" });
+  const runResult = main(["render"], { read: badPlan, stdin: () => JSON.stringify(answers) });
+  assert.equal(runResult.code, 0, runResult.out);
+  const back = parseConfig("qa.config.yml", runResult.out);
+  assert.equal(back.config.plan.tracker, "jira");
+  assert.deepEqual(back.runProblems, []);
+
+  const badRun = reader({ "qa.config.yml": "run:\n  target: prod\n" });
+  const planAnswers = { plan: { base_ref: "origin/main" } };
+  const planResult = main(["render"], { read: badRun, stdin: () => JSON.stringify(planAnswers) });
+  assert.equal(planResult.code, 0, planResult.out);
+});
+
+test("render refuses over a problem in the section it writes, or one both skills read", () => {
+  const answers = JSON.stringify({ run: { surface: "web" } });
+  for (const text of ["run:\n  target: prod\n", "nope: 1\n", "\tworking_dir: x\n"]) {
+    const result = main(["render"], {
+      read: reader({ "qa.config.yml": text }),
+      stdin: () => answers,
+    });
+    assert.equal(result.code, 1, text);
+    assert.match(result.out, /has problems; fix them first/);
+  }
 });
 
 test("render refuses `run:` answers with problems", () => {

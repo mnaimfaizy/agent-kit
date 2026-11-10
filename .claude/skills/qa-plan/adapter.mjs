@@ -491,6 +491,8 @@ function planProblems(sink, plan) {
 const nonEmpty = (v) => typeof v === "string" && v.trim() !== "";
 /** A role id goes into a shell command (`restore`'s `{id}`), so it is a plain word. */
 const ROLE_ID = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
+/** A path on the build's own host: `//host/…` and `/\\host/…` name another host. */
+const ENDPOINT_PATH = /^\/(?![/\\])[^\s\\]*$/;
 const UPLOAD = /^(?:none|gh-release:[A-Za-z0-9][A-Za-z0-9._/-]*)$/;
 
 /**
@@ -567,7 +569,7 @@ export function runProblems(config, lines) {
 
   if (
     present(run.version_endpoint) &&
-    !(nonEmpty(run.version_endpoint) && /^\/\S*$/.test(run.version_endpoint))
+    !(nonEmpty(run.version_endpoint) && ENDPOINT_PATH.test(run.version_endpoint))
   )
     sink.add("run.version_endpoint", "expected a path on the build's own host, such as `/version`");
 
@@ -748,7 +750,12 @@ const STACK_NEEDS = {
 export function runReadiness({ path, config, runProblems: problems = [] }, plan = null) {
   const brief = plan?.brief ?? null;
   const run = isMapping(config.run) ? config.run : {};
-  const declared = Array.isArray(run.accounts?.roles) ? run.accounts.roles.map((r) => r.id) : [];
+  // A malformed entry is a `run:` problem, reported below; it declares no role.
+  const declared = Array.isArray(run.accounts?.roles)
+    ? run.accounts.roles.flatMap((role) =>
+        isMapping(role) && typeof role.id === "string" ? [role.id] : [],
+      )
+    : [];
   const effective = {
     target: run.target ?? brief?.target ?? null,
     surface: run.surface ?? brief?.surface ?? null,
@@ -1028,8 +1035,14 @@ const SECRET_SHAPES = [
   ["a chat-service token", /\bxox[abprs]-[A-Za-z0-9-]{10,}/],
   ["a JSON Web Token", /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/],
   ["a private key", /-----BEGIN [A-Z ]*PRIVATE KEY-----/],
-  ["a bearer token", /\bBearer\s+[A-Za-z0-9._~+/-]{16,}=*/],
-  ["a password inside an address", /\b[a-z][a-z0-9+.-]*:\/\/[^\s/:@]+:[^\s/@]+@/i],
+  ["a bearer token", /\bBearer\s+[A-Za-z0-9._~+/-]{16,}=*/i],
+  // Base64 of `user:password`; prose ("Basic configuration") has no digit, `+` or `/`.
+  [
+    "a basic-auth value",
+    /\bBasic\s+(?=[A-Za-z0-9+/]*[0-9+/])[A-Za-z0-9+/]{12,}={0,2}(?![A-Za-z0-9+/])/i,
+  ],
+  // `scheme://user:password@`, or `scheme://:password@` with no user.
+  ["a password inside an address", /\b[a-z][a-z0-9+.-]*:\/\/[^\s/:@]*:[^\s/@]+@/i],
 ];
 
 /** Names a sign-in form gives its secret fields. */
@@ -1039,20 +1052,26 @@ const SECRET_NAME =
   "(?:api|access|secret|private)[ _-]?key|session[ _-]?(?:id|cookie)|cookie|otp|" +
   "one[ -]time (?:code|password)|(?:recovery|backup|2fa|mfa|verification) code|pin)";
 const LITERAL = "(?:`([^`]+)`|\"([^\"]+)\"|'([^']+)')";
+/**
+ * A secret name, alone or inside a longer key: `DB_PASSWORD`,
+ * `SECRET_KEY_BASE`, `admin.password`. camelCase (`adminPassword`) is split
+ * to `admin_Password` before matching, so it reads the same.
+ */
+const KEYED_NAME = `(?<![A-Za-z0-9])(?:[A-Za-z0-9]+[_.-])*${SECRET_NAME}(?:[_.-][A-Za-z0-9]+)*(?![A-Za-z0-9])`;
 const NAMED_VALUE = new RegExp(
-  `\\b${SECRET_NAME}\\b[*_]*\\s*(?:[:=]|\\bis\\b)\\s*[*_]*\\s*(?:${LITERAL}|([^\\s,;)]+)\\s*(?:$|[,;)]))`,
-  "i",
+  `${KEYED_NAME}[*_]*\\s*(?:[:=]|\\bis\\b)\\s*[*_]*\\s*(?:${LITERAL}|([^\\s,;)]+)\\s*(?=$|[,;)]))`,
+  "gi",
 );
-const NAMED_LITERAL = new RegExp(`\\b${SECRET_NAME}\\b[*_]*\\s+${LITERAL}`, "i");
+const NAMED_LITERAL = new RegExp(`${KEYED_NAME}[*_]*\\s+${LITERAL}`, "gi");
 const TYPED_INTO = new RegExp(
   `\\b(?:type|enter|fill in|paste|input|use)\\s+${LITERAL}\\s+(?:in|into|as|for)\\s+(?:the\\s+)?[*_]*${SECRET_NAME}\\b`,
-  "i",
+  "gi",
 );
 const TABLE_SEPARATOR = /^\s*\|(?:\s*:?-+:?\s*\|)+\s*$/;
 const SECRET_HEADER = new RegExp(`^\\s*[*_\`]*${SECRET_NAME}[*_\`]*\\s*$`, "i");
 /** What stands in for a value without being one. */
 const PLACEHOLDER =
-  /^(?:<[^>]*>|\{[^}]*\}|\[[^\]]*\]|\*+|•+|\.{3}|…|x{3,}|redacted|none|n\/a|not shown|hidden|-+|accounts\.(?:print|restore)\b.*)$/i;
+  /^(?:<[^>]*>|\{[^}]*\}|\[[^\]]*\]|\*+|•+|\.{3}|…|x{3,}|redacted|none|n\/a|not shown|hidden|-+|accounts\.(?:print|restore)\b.*|\/\S*)$/i;
 /** A bare word after `password:` is a value only if it looks like one. */
 const looksSecret = (word) => word.length >= 6 && /[0-9!@#$%^&*+=_~-]/.test(word);
 
@@ -1088,15 +1107,17 @@ export function credentialProblems(lines) {
 
     const shape = SECRET_SHAPES.find(([, pattern]) => pattern.test(line));
     if (shape) return flag(shape[0]);
-    for (const pattern of [NAMED_VALUE, NAMED_LITERAL, TYPED_INTO]) {
-      const match = pattern.exec(line);
-      if (!match) continue;
-      const [literal, bare] = [match[1] ?? match[2] ?? match[3], match[4]];
-      const value = (literal ?? bare ?? "").trim();
-      if (value === "" || PLACEHOLDER.test(value)) continue;
-      if (literal === undefined && !looksSecret(value)) continue;
-      return flag("a credential value");
-    }
+    // Every match on the line: a placeholder first (`Password: n/a; token: "…"`)
+    // must not hide a value after it.
+    const split = line.replace(/([a-z0-9])([A-Z])/g, "$1_$2");
+    for (const pattern of [NAMED_VALUE, NAMED_LITERAL, TYPED_INTO])
+      for (const match of split.matchAll(pattern)) {
+        const [literal, bare] = [match[1] ?? match[2] ?? match[3], match[4]];
+        const value = (literal ?? bare ?? "").trim();
+        if (value === "" || PLACEHOLDER.test(value)) continue;
+        if (literal === undefined && !looksSecret(value)) continue;
+        return flag("a credential value");
+      }
   });
   return problems;
 }
@@ -1269,7 +1290,14 @@ export function validatePlan(text) {
     const build = get("Build");
     if (build && plan.anchors.head && !build.text.includes(plan.anchors.head))
       at(build.n, "**Build:** expected the head SHA from Anchors");
-    plan.brief.versionEndpoint = build ? (/`(\/[^`\s]*)`/.exec(build.text)?.[1] ?? null) : null;
+    const endpoint = build ? /`(\/[^`\s]*)`/.exec(build.text)?.[1] : undefined;
+    const goodEndpoint = endpoint !== undefined && ENDPOINT_PATH.test(endpoint);
+    if (endpoint !== undefined && !goodEndpoint)
+      at(
+        build.n,
+        "**Build:** the version endpoint must be a path on the build's own host, such as `/version`",
+      );
+    plan.brief.versionEndpoint = goodEndpoint ? endpoint : null;
     const roles = get("Roles");
     if (roles && roles.text !== "" && roles.text !== "None.") {
       plan.brief.roles = [
@@ -1425,10 +1453,12 @@ function emitBlock(map, indent) {
  * Written only with the person's consent (SKILL.md, step 2).
  *
  * @param {Record<string, any>} config
+ * @param {(config: Record<string, any>) => string[]} [check] the problems
+ *   that refuse it; by default `qa-plan`'s
  * @returns {string}
  */
-export function renderConfigYaml(config) {
-  const problems = configProblems(config);
+export function renderConfigYaml(config, check = configProblems) {
+  const problems = check(config);
   if (problems.length) throw new Error(`the answers have problems:\n- ${problems.join("\n- ")}`);
   const ordered = Object.fromEntries(
     TOP_KEYS.filter((key) => present(config[key])).map((key) => [key, config[key]]),
@@ -1460,28 +1490,34 @@ export function mergeAnswers(existing, answers) {
  * Writing anywhere else would leave a second file that one of the two
  * shadows. YAML comments in the old file are not kept.
  *
- * @param {{path: string | null, config: Record<string, any>, problems: string[]}} loaded
+ * @param {{path: string | null, config: Record<string, any>, problems: string[], runProblems?: string[]}} loaded
  * @param {Record<string, any>} answers
  * @returns {{path: string, body: string}}
  */
 export function renderConfigUpdate(loaded, answers) {
-  if (loaded.problems.length)
-    throw new Error(
-      `${loaded.path} has problems; fix them first:\n- ${loaded.problems.join("\n- ")}`,
-    );
   if (!isMapping(answers)) throw new Error("the answers must be a JSON object");
+  // Only the sections the answers write can refuse them: `run:` answers are
+  // checked as `manual-qa` reads the file, anything else as `qa-plan` does.
+  // A YAML syntax problem, or one in the keys both skills read, is in both
+  // lists, so it always refuses: rewriting a file that did not parse loses
+  // what it says. The other skill's section is carried over as it is.
+  const keys = Object.keys(answers);
+  const forRun = keys.includes("run");
+  const forPlan = !forRun || keys.some((key) => key !== "run");
+  const unique = (lists) => [...new Set(lists.flat())];
+  const before = unique([forPlan ? loaded.problems : [], forRun ? (loaded.runProblems ?? []) : []]);
+  if (before.length)
+    throw new Error(`${loaded.path} has problems; fix them first:\n- ${before.join("\n- ")}`);
+  const check = (config) =>
+    unique([forPlan ? configProblems(config) : [], forRun ? runProblems(config) : []]);
   const merged = mergeAnswers(loaded.config, answers);
-  if (Object.hasOwn(answers, "run")) {
-    const problems = runProblems(merged);
-    if (problems.length) throw new Error(`the answers have problems:\n- ${problems.join("\n- ")}`);
-  }
   const path = loaded.path ?? CONFIG_FILES[0];
   if (path.endsWith(".json")) {
-    const problems = configProblems(merged);
+    const problems = check(merged);
     if (problems.length) throw new Error(`the answers have problems:\n- ${problems.join("\n- ")}`);
     return { path, body: `${JSON.stringify(merged, null, 2)}\n` };
   }
-  return { path, body: renderConfigYaml(merged) };
+  return { path, body: renderConfigYaml(merged, check) };
 }
 
 // ── CLI ─────────────────────────────────────────────────────────────────────
