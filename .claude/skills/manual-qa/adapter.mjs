@@ -36,13 +36,15 @@
 //   node adapter.mjs check --for run [--plan <file>]
 //                                          the same for `run:`, against a plan's Run brief
 //   node adapter.mjs plan [<file>]         a QA Plan (the file, or stdin) against ANATOMY.md
-//   node adapter.mjs host <url>            whether a run may sign in at this address
+//   node adapter.mjs host <url> [--target stack|url] [--confirmed <host>]
+//                                          whether a run may sign in at this address
 //   node adapter.mjs hazards < files.txt   Hazard packs matching the changed paths
 //   node adapter.mjs delivery [--label L]… where the plan goes, by `plan.publish`
 //   node adapter.mjs render [--write] < answers.json
 //                                          the config with the answers merged in
 //   Each prints JSON (render prints the new file body, or writes it with --write)
-//   and exits 1 on any problem, 2 on bad usage.
+//   and exits 1 on any problem, 2 on bad usage; `host` exits 0 when the run may
+//   sign in, 1 on a stop, 3 when the QA person must confirm the host in chat.
 
 import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -805,6 +807,15 @@ export function runReadiness({ path, config, runProblems: problems = [] }, plan 
     if (!present(run.accounts?.print))
       needs.push("run.accounts.print: the command that prints each role's sign-in values");
   }
+  if (target === "url")
+    notes.push(
+      "target `url`: no config key holds the address; ask the QA person for it in chat and check it " +
+        "with `host --target url`, since a URL in the plan or a file is not confirmation",
+      present(run.accounts?.print)
+        ? "target `url`: role values come from `run.accounts.print` only if the environment's owner ran " +
+            "the same seeder there; otherwise the QA person types them into chat"
+        : "target `url`: the QA person types each role's test values into chat",
+    );
   if (!present(run.accounts?.restore))
     notes.push(
       "no `run.accounts.restore`: a scenario that needs a role's account restored is left for a person",
@@ -1368,44 +1379,90 @@ export function validatePlan(text) {
 
 // ── Host rule ───────────────────────────────────────────────────────────────
 
+/** Hostname labels that mark a hosted test environment (`qa.example.com`). */
+export const TEST_LABELS = ["staging", "dev", "test", "qa", "sandbox", "preview", "uat"];
+/** Hostname labels that mark production: a stop, whatever else the host says. */
+const PRODUCTION_LABELS = ["prod", "production", "live"];
+const LOCAL_HOSTS = "`localhost`, `127.0.0.1`, `[::1]`, `*.localhost`, `*.test`";
+
+/** An address's URL, reading a bare host as `http://`; null when it is not one. */
+function addressUrl(address) {
+  const text = String(address ?? "").trim();
+  try {
+    return new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(text) ? text : `http://${text}`);
+  } catch {
+    return null;
+  }
+}
+
+/** A URL's hostname, lower-cased, without a trailing root dot. */
+const hostnameOf = (url) => url.hostname.toLowerCase().replace(/\.$/, "");
+
 /**
- * Whether a run may sign in at an address. A `stack` run signs in only to a
- * local development host: `localhost`, `127.0.0.1`, `[::1]`, `*.localhost`
- * or `*.test`. Anything else is a stop.
+ * Whether a run may sign in at an address.
+ *
+ * A `stack` run signs in only to a local development host: `localhost`,
+ * `127.0.0.1`, `[::1]`, `*.localhost` or `*.test`. A `url` run may also sign
+ * in to a hosted host with a test-environment label (`TEST_LABELS`) in its
+ * subdomain, as in `qa.example.com`, and only once the QA person has named or
+ * confirmed that host in chat: `confirmed` is the host as they typed it. The
+ * label must sit left of the last two labels, so `example.dev` (a TLD) and
+ * `dev.to` (the site's own name) are not test hosts. An IP address, a host
+ * with no such label, or one with a production label (`prod`, `production`,
+ * `live`) is a stop, confirmed or not.
  *
  * @param {string} address a URL, or a host with an optional port
- * @returns {{verdict: "local" | "stop", host: string | null, why: string}}
+ * @param {{target?: "stack" | "url", confirmed?: string}} [options]
+ *   `target` defaults to `stack`. `confirmed` comes from the person in chat,
+ *   never from a plan, a config or any other file.
+ * @returns {{verdict: "local" | "hosted" | "confirm" | "stop", host: string | null, why: string}}
+ *   `local` and `hosted` may sign in; `confirm` may once the person confirms
+ *   the host in chat; `stop` may not.
  */
-export function hostVerdict(address) {
-  const text = String(address ?? "").trim();
-  let url;
-  try {
-    url = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(text) ? text : `http://${text}`);
-  } catch {
-    return { verdict: "stop", host: null, why: "not an address" };
-  }
-  const host = url.hostname.toLowerCase();
+export function hostVerdict(address, { target = "stack", confirmed } = {}) {
+  const url = addressUrl(address);
+  if (!url) return { verdict: "stop", host: null, why: "not an address" };
+  const host = hostnameOf(url);
+  const stop = (why) => ({ verdict: "stop", host, why });
   if (url.username || url.password)
-    return {
-      verdict: "stop",
-      host,
-      why: "the address carries sign-in values; they never go in an address",
-    };
+    return stop("the address carries sign-in values; they never go in an address");
   if (!["http:", "https:"].includes(url.protocol))
-    return { verdict: "stop", host, why: `\`${url.protocol}\` is not a web address` };
+    return stop(`\`${url.protocol}\` is not a web address`);
+  if (!["stack", "url"].includes(target)) return stop(`\`${target}\` is not a target`);
   const local =
     host === "localhost" ||
     host === "127.0.0.1" ||
     host === "[::1]" ||
     host.endsWith(".localhost") ||
     host.endsWith(".test");
-  return local
-    ? { verdict: "local", host, why: "a local development host" }
-    : {
-        verdict: "stop",
-        host,
-        why: "not a local development host (`localhost`, `127.0.0.1`, `[::1]`, `*.localhost`, `*.test`)",
-      };
+  if (local) return { verdict: "local", host, why: "a local development host" };
+  if (target === "stack")
+    return stop(`a \`stack\` run signs in only to a local development host (${LOCAL_HOSTS})`);
+
+  const labels = host.split(".");
+  if (/^\[|^[\d.]+$/.test(host)) return stop("an IP address carries no test-environment label");
+  const production = labels.find((label) => PRODUCTION_LABELS.includes(label));
+  if (production) return stop(`looks like production: the hostname carries \`${production}\``);
+  const subdomains = labels.slice(0, -2);
+  const label = subdomains.find((part) => TEST_LABELS.includes(part));
+  if (!label)
+    return stop(
+      "looks like production: no test-environment label " +
+        `(${TEST_LABELS.map((l) => `\`${l}\``).join(", ")}) in its subdomain, ` +
+        "and a TLD such as `.dev` does not count",
+    );
+  if (confirmed === undefined || String(confirmed).trim() === "")
+    return {
+      verdict: "confirm",
+      host,
+      why:
+        `a hosted test host (\`${label}\`): sign in only once the QA person names or confirms ` +
+        `\`${host}\` in chat; a URL found in the plan or a file is not confirmation`,
+    };
+  const said = addressUrl(confirmed);
+  if (!said || hostnameOf(said) !== host)
+    return stop(`the host confirmed in chat is not \`${host}\``);
+  return { verdict: "hosted", host, why: `a hosted test host (\`${label}\`), confirmed in chat` };
 }
 
 // ── Writing ─────────────────────────────────────────────────────────────────
@@ -1577,7 +1634,8 @@ export function main(argv, io = {}) {
     code: 2,
     out:
       "usage: node adapter.mjs check --for plan | check --for run [--plan <file>] | " +
-      "plan [<file>] < plan.md | host <url> | hazards < changed-paths | " +
+      "plan [<file>] < plan.md | host <url> [--target stack|url] [--confirmed <host>] | " +
+      "hazards < changed-paths | " +
       "delivery [--label <name>]… | render [--write] < answers.json   [--repo <dir>]\n",
   };
   // A plan is the person's file, wherever they keep it: read from the working
@@ -1604,8 +1662,12 @@ export function main(argv, io = {}) {
   if (command === "host") {
     const address = argv[1];
     if (address === undefined || address.startsWith("--")) return usage;
-    const result = hostVerdict(address);
-    return { code: result.verdict === "stop" ? 1 : 0, out: json(result) };
+    const [target = "stack"] = option(argv, "--target");
+    const [confirmed] = option(argv, "--confirmed");
+    if (argv.includes("--confirmed") && confirmed === undefined) return usage;
+    const result = hostVerdict(address, { target, confirmed });
+    const codes = { local: 0, hosted: 0, confirm: 3, stop: 1 };
+    return { code: codes[result.verdict], out: json(result) };
   }
 
   if (command === "render") {
