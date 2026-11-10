@@ -170,8 +170,11 @@ test("resolve-baseline runs from the repository with the skill installed outside
   assert.match(result.stdout, /nx — Baseline 22\.7\.7, 2 member\(s\): @nx\/js, nx/);
 });
 
-// SKILL.md's commands are bash. On a machine with no bash on PATH this case is skipped, not failed.
-const NO_BASH = spawnSync("bash", ["-c", "exit 0"]).status !== 0 && "no bash on PATH";
+// SKILL.md's commands are bash. This case is skipped, not failed, on a machine with no bash on
+// PATH, or with one that cannot see this folder by its forward-slash path (WSL's bash on Windows).
+const NO_BASH =
+  spawnSync("bash", ["-c", 'test -d "$1"', "_", HERE.replaceAll("\\", "/")]).status !== 0 &&
+  "no bash on PATH that sees this folder's path";
 
 test(
   "step 8's delta command imports the ledger from the skill's own folder",

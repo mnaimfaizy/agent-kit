@@ -42,8 +42,9 @@ const IMPORTS = [
 ];
 // Inline `[text](target)` and reference definitions `[label]: target`; a footnote `[^1]: …` is not a link.
 const LINKS = [
-  /\]\(<?([^)#\s>]+)>?(?:#[^)\s]*)?(?:\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?\s*\)/g,
-  /^[ \t]{0,3}\[(?!\^)[^\]]+\]:\s*<?([^\s>#]+)/gm,
+  // A target is `<anything but >>` (spaces allowed) or bare; then an optional #anchor and title.
+  /\]\((?:<([^>]*)>|([^)#\s>]+))(?:#[^)\s]*)?(?:\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?\s*\)/g,
+  /^[ \t]{0,3}\[(?!\^)[^\]]+\]:\s*(?:<([^>]*)>|([^\s>#]+))/gm,
 ];
 const SCRIPT = /\.(?:mjs|cjs|js)$/;
 // Test data, not part of what the skill links or imports.
@@ -81,8 +82,9 @@ function portabilityProblems(dir) {
         if (!builtin && !local) outside(file, "imports", specifier);
       }
     if (file.endsWith(".md"))
-      for (const [, target] of LINKS.flatMap((pattern) => [...text.matchAll(pattern)])) {
-        if (/^[a-z][a-z0-9+.-]*:/i.test(target)) continue;
+      for (const [, angled, bare] of LINKS.flatMap((pattern) => [...text.matchAll(pattern)])) {
+        const target = (angled ?? bare).split("#")[0];
+        if (target === "" || /^[a-z][a-z0-9+.-]*:/i.test(target)) continue;
         if (!containsFile(dir, file, target)) outside(file, "links", target);
       }
   }
@@ -131,6 +133,9 @@ test("a link outside the folder, or to a file it does not ship, is named", () =>
       "See [the format](FORMAT.md#fields), [the web](https://example.com/x.md),",
       "[the sibling](../security-finding-triage/SKILL.md), [the repo](../../../docs/adopt.md)",
       "and [a typo](FROMAT.md). [Titled](../titled.md \"Adopt\") and [titled local](FORMAT.md 'Format').",
+      "Spaces: [mine](<../my notes.md>), [kept](<FORMAT.md#fields>) and [theirs][t].",
+      "",
+      "[t]: <../their notes.md>",
       "",
     ].join("\n"),
     "FORMAT.md": "# Format\n",
@@ -140,6 +145,8 @@ test("a link outside the folder, or to a file it does not ship, is named", () =>
     "SKILL.md links ../../../docs/adopt.md, which a copy of this folder does not carry",
     "SKILL.md links FROMAT.md, which a copy of this folder does not carry",
     "SKILL.md links ../titled.md, which a copy of this folder does not carry",
+    "SKILL.md links ../my notes.md, which a copy of this folder does not carry",
+    "SKILL.md links ../their notes.md, which a copy of this folder does not carry",
   ]);
 });
 
