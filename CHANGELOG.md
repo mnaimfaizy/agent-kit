@@ -6,6 +6,10 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
+## [1.0.0-beta.3] - 2026-11-11
+
+Third beta on the `1.0.0` line, classed **Minor** (per [docs/releases.md](docs/releases.md)): two new User-scope Portable skills, `qa-plan` and `manual-qa`, turn a pull request's manual verification into a plan someone else can run and a report of that run, with a [QA](docs/qa.md) guide and config templates. Everything below is additive. No workflow input, secret or permission changed, no existing skill changed, and no Consumer action is required beyond the usual upgrade of the `uses:` pins and Kit-owned paths together.
+
 ### Added
 
 - A seventh Portable skill, `qa-plan` (User-scope), run by hand as `/qa-plan` on an open pull request. It writes a **QA Plan**: only the **Residue**, the manual verification a passing CI run would not establish, in a format someone elsewhere can run from the plan alone (the skill's [`ANATOMY.md`](.claude/skills/qa-plan/ANATOMY.md)), with a Run brief and no credentials. Every coverage claim is tagged `[observed]` or `[reconstructed]`. An empty Residue is a valid result: it recommends merging without a plan. The draft is composed in a gitignored working directory, never committed, and delivered only after you confirm: kept as a working copy, or posted to one tracker issue per subject or one pull request comment, by rule, and edited on each revision. Settings go in `qa.config.yml` (or `.yaml` / `.json`) at your repository root (keys: the skill's [`ADAPTER.md`](.claude/skills/qa-plan/ADAPTER.md)); when a setting it needs is missing, it asks, and writes your answers into the file only if you agree. **Hazard packs**, Markdown files you own with `when:` globs, add _Rule out first_ checks to matching scenarios and capture rules to the Run brief. Why QA is two skills (the runner, `manual-qa`, follows): [ADR 0003](docs/adr/0003-qa-is-two-skills-joined-by-a-copied-plan-format.md).
