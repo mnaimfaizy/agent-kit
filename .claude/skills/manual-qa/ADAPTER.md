@@ -86,9 +86,9 @@ The QA Report file in `working_dir` is always written, and is the whole result u
 **`run.evidence.upload`** decides whether any QA Artifact leaves `working_dir`:
 
 - **`none`** (the default): none does.
-- **`gh-release:<tag>`**: the files the person picks, one by one, go to the prerelease `<tag>`, created when missing, as `pr-<n>-<file>`. An existing release with that tag that is not a prerelease takes nothing. Only a file the report lists as evidence can be picked. Media (screenshots, recordings, audio) from a failed run, one with a FAIL or stopped on a blocking outcome, is never uploaded: describe the failure in the report, and keep the file local. On a public repository, or one whose visibility is not known, the person is warned first that anyone can download a release asset, so only files showing QA Account data on a test system may go.
+- **`gh-release:<tag>`**: the files the person picks, one by one, go to the prerelease `<tag>`, created when missing, as `pr-<n>-<file>`, any character other than letters, digits, `.`, `_` and `-` made `-`. An existing release with that tag that is not a prerelease takes nothing. Only a file the report lists as evidence can be picked. Media (screenshots, recordings, audio) from a failed run, one with a FAIL or stopped on a blocking outcome, is never uploaded: describe the failure in the report, and keep the file local. On a public repository, or one whose visibility is not known, the person is warned first that anyone can download a release asset, so only files showing QA Account data on a test system may go.
 
-`report.mjs` builds what is posted and checks what is uploaded, and refuses any text that looks like it carries a sign-in value.
+`report.mjs` builds what is posted and checks what is uploaded, and refuses any text that looks like it carries a sign-in value: a posted body, or a picked text file such as a log or HAR.
 
 ## Capture rules
 

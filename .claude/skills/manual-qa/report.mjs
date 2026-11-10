@@ -1,5 +1,5 @@
 // Posting a QA Report, and choosing which QA Artifacts to upload (SKILL.md
-// step 9, DESIGN.md "Posting is a second step").
+// steps 8 to 11, DESIGN.md "Posting is a second step").
 //
 // WHAT IT DOES
 //   Builds the text the skill posts and checks what it may upload. It runs no
@@ -24,8 +24,9 @@
 //      is refused; media from a failed run is refused; a public repository
 //      gets a warning.
 //
-//   Every body it builds is checked for sign-in values with the plan's own
-//   credential scan, and refused when one looks present.
+//   Every body it builds, and every picked text file (a log, a HAR), is
+//   checked for sign-in values with the plan's own credential scan, and
+//   refused when one looks present.
 //
 // CLI (run from the repository root; `--repo <dir>` points elsewhere)
 //   node report.mjs read <report>
@@ -64,16 +65,50 @@ const PUBLIC_WARNING =
 
 const lf = (text) => String(text).replace(/^﻿/, "").replace(/\r\n/g, "\n");
 
-/** `## <name>` section bodies, keyed by name, each with its line range. */
+/**
+ * Which lines sit inside a fenced code block, fences included: the rule
+ * `adapter.mjs` reads a plan by, so a `## ` line in a fence is no heading.
+ *
+ * @param {string[]} lines
+ * @returns {boolean[]}
+ */
+function fencedLines(lines) {
+  const fenced = [];
+  let fence = null;
+  for (const line of lines) {
+    const marker = /^\s{0,3}(`{3,}|~{3,})/.exec(line)?.[1];
+    if (fence === null && marker) {
+      fence = marker;
+      fenced.push(true);
+    } else if (fence !== null) {
+      fenced.push(true);
+      if (
+        marker &&
+        marker[0] === fence[0] &&
+        marker.length >= fence.length &&
+        line.trim() === marker
+      )
+        fence = null;
+    } else fenced.push(false);
+  }
+  return fenced;
+}
+
+/**
+ * `## <name>` section bodies, keyed by name, each with its line range,
+ * headings read as `validatePlan` reads them: outside fences, closing `#`s
+ * dropped.
+ */
 function sections(lines) {
   const found = {};
+  const fenced = fencedLines(lines);
   let current = null;
   lines.forEach((line, n) => {
-    const heading = /^## (.+?)\s*$/.exec(line);
+    const heading = !fenced[n] && /^## (.+?)\s*#*\s*$/.exec(line);
     if (heading) {
       if (current) current.end = n;
       current = { start: n, end: lines.length };
-      found[heading[1]] = current;
+      found[heading[1].trim()] = current;
     }
   });
   return found;
@@ -117,10 +152,11 @@ export function readReport(text) {
   else {
     report.subject = Number(/subject #(\d+)/.exec(planLine)?.[1]) || null;
     report.pr = Number(/pull request #(\d+)/.exec(planLine)?.[1]) || null;
-    report.head = /head `([0-9a-f]{7,40})`/.exec(planLine)?.[1] ?? null;
+    // The full head, as the plan's anchor carries it (SHA-1 or SHA-256).
+    report.head = /head `([0-9a-f]{40}(?:[0-9a-f]{24})?)`/.exec(planLine)?.[1] ?? null;
     if (!report.subject) problems.push("the **Plan:** line names no `subject #<n>`");
     if (!report.pr) problems.push("the **Plan:** line names no `pull request #<n>`");
-    if (!report.head) problems.push("the **Plan:** line names no head `<sha>`");
+    if (!report.head) problems.push("the **Plan:** line names no full head `<sha>`");
   }
 
   const found = sections(lines);
@@ -153,7 +189,9 @@ export function readReport(text) {
     }
     if (report.results.length === 0) problems.push("the Results table has no scenario rows");
   }
-  report.stopped = report.results.some((row) => /\bthe run stopped at S\d+/i.test(row.notes));
+  report.stopped = report.results.some((row) =>
+    /(?<![A-Za-z])the run stopped at S\d+/i.test(row.notes),
+  );
   report.failed = report.stopped || report.results.some((row) => row.result === "FAIL");
 
   const record = found["Execution record"];
@@ -272,6 +310,16 @@ export function trackerBody(issueBody, reportText, { links = {} } = {}) {
       `the issue's plan is for head ${plan.anchors.head}, the report's for ${report.head}: ` +
         "the plan was revised since this run; post the report as a file instead",
     );
+  else {
+    // One result per plan scenario, or a stale tick would outlive the run.
+    const want = plan.scenarios.map((scenario) => scenario.id).join(" ");
+    const got = report.results.map((row) => row.id).join(" ");
+    if (want !== got)
+      problems.push(
+        `the plan's scenarios are ${want}; the report's results are ${got || "none"}: ` +
+          "the report needs exactly one row per scenario, in order",
+      );
+  }
   if (problems.length) return { body: null, problems };
 
   const lines = lf(issueBody).split("\n");
@@ -300,7 +348,7 @@ export function trackerBody(issueBody, reportText, { links = {} } = {}) {
  * @param {string} input.upload `run.evidence.upload`: `none` or `gh-release:<tag>`
  * @param {ReturnType<typeof readReport>["report"]} input.report
  * @param {string[]} input.picks evidence paths, as the report writes them
- * @param {(path: string) => boolean} input.exists whether a path under `working_dir` is a file
+ * @param {(path: string) => string | null} input.read a file under `working_dir`, or null when there is none
  * @param {string | null} [input.visibility] `gh repo view --json visibility`: PUBLIC, PRIVATE, INTERNAL
  * @param {"missing" | "prerelease" | "release" | null} [input.release] what `gh release view <tag>` found
  * @param {string | null} [input.github] `owner/name`, for the download URLs
@@ -312,7 +360,7 @@ export function evidenceUpload({
   upload,
   report,
   picks,
-  exists,
+  read,
   visibility = null,
   release = null,
   github = null,
@@ -355,16 +403,23 @@ export function evidenceUpload({
   const listed = new Map(report.results.flatMap((row) => row.evidence.map((p) => [p, row])));
   const folder = report.pr ? `qa-report-pr-${report.pr}/` : null;
   const assets = new Set();
+  let text, leak;
   for (const file of picks) {
     const refuse = (why) => out.refused.push({ file, why });
     const normal = posix.normalize(file.replace(/\\/g, "/"));
     if (!listed.has(file)) refuse("the report lists no such evidence: pick a path from its table");
     else if (!folder || !normal.startsWith(folder) || normal.includes(".."))
       refuse(`evidence is uploaded only from \`${folder}\` in \`working_dir\``);
-    else if (!exists(normal)) refuse("no such file in `working_dir`");
     else if (report.failed && MEDIA.test(normal)) refuse(NO_UPLOAD_FROM_FAILED);
+    else if ((text = read(normal)) === null) refuse("no such file in `working_dir`");
+    else if (!MEDIA.test(normal) && (leak = credentialProblems(lf(text).split("\n"))[0]))
+      refuse(`${leak.replace(/; a plan carries.*/, "")}: a sign-in value is never uploaded`);
     else {
-      const asset = `pr-${report.pr}-${normal.slice(folder.length).replace(/\//g, "-")}`;
+      // GitHub renames an asset with other characters, and the link would 404.
+      const asset = `pr-${report.pr}-${normal.slice(folder.length)}`.replace(
+        /[^A-Za-z0-9._-]/g,
+        "-",
+      );
       if (assets.has(asset)) refuse(`picked twice (asset \`${asset}\`)`);
       else {
         assets.add(asset);
@@ -401,7 +456,7 @@ function parseLinks(argv) {
 /**
  * @param {string[]} argv the arguments after the script
  * @param {{readFile?: (path: string) => string | null, stdin?: () => string,
- *   read?: (path: string) => string | null, exists?: (path: string) => boolean}} [io]
+ *   read?: (path: string) => string | null, readEvidence?: (path: string) => string | null}} [io]
  * @returns {{code: number, out: string}}
  */
 export function main(argv, io = {}) {
@@ -468,19 +523,21 @@ export function main(argv, io = {}) {
   if (loaded.runProblems.length)
     return { code: 1, out: json({ path: loaded.path, problems: loaded.runProblems }) };
   const { working_dir: workingDir, run } = effectiveConfig(loaded.config);
-  const exists =
-    io.exists ??
+  const readEvidence =
+    io.readEvidence ??
     ((path) => {
       const absolute = join(repo, workingDir, path);
-      return existsSync(absolute) && statSync(absolute).isFile();
+      return existsSync(absolute) && statSync(absolute).isFile()
+        ? readFileSync(absolute, "utf8")
+        : null;
     });
   const release = option(argv, "--release")[0] ?? null;
   if (release !== null && !["missing", "prerelease", "release"].includes(release)) return usage;
   const result = evidenceUpload({
-    upload: run.evidence?.upload ?? "none",
+    upload: run?.evidence?.upload ?? "none",
     report,
     picks: option(argv, "--pick"),
-    exists,
+    read: readEvidence,
     visibility: option(argv, "--visibility")[0] ?? null,
     release: /** @type {any} */ (release),
     github: option(argv, "--github")[0] ?? null,

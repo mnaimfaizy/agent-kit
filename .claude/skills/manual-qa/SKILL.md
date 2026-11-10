@@ -198,7 +198,7 @@ Give the person the comment or issue URL, and each uploaded file's URL.
 
 **build not verified against plan** ← only when step 3 could not verify it
 
-- **Plan:** `<plan file>`, subject #<n>, pull request #<n>, head `<sha>`
+- **Plan:** `<plan file>`, subject #<n>, pull request #<n>, head `<full sha>`
 - **Build check:** verified by `gh` | verified by `<version endpoint>` | not verified
 - **Run:** `stack`, `<surface>`, driven by `<tool>`, on <date and time>
 - **Accounts:** roles signed in as; each restore and why
