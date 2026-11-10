@@ -15,6 +15,8 @@
 //        fails at both             expected red herring     [observed]
 //        passes at base, fails     REGRESSION: qa-plan stops [observed]
 //        new, and fails            REGRESSION               [observed]
+//      A test skipped at the merge-base counts as new: `covered (unskipped)`
+//      when it passes, a regression when it fails.
 //   4. A suite with no `junit`, no JUnit written, or JUnit that will not
 //      parse, is compared by exit code only, and a merge-base that will not
 //      build or run tells nothing about a test failing at the head. Those
@@ -36,7 +38,7 @@
 //   run was interrupted; nothing was compared.
 
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -173,6 +175,19 @@ export function normalizeId(id, root) {
 const exitText = (run) =>
   run.timedOut ? "timed out" : run.code === 0 ? "pass" : `fail (exit ${run.code ?? "none"})`;
 
+/** A test passing at the head, by what it was at the merge-base (passing at both is summed). */
+const PASSING_AT_HEAD = {
+  new: "covered (new)",
+  fail: "covered (fixed at head)",
+  skipped: "covered (unskipped)",
+};
+/** A test failing at the head, by what it was at the merge-base (failing at both is a red herring). */
+const FAILING_AT_HEAD = {
+  new: "regression (new test fails)",
+  pass: "regression",
+  skipped: "regression (unskipped test fails)",
+};
+
 /**
  * Compares one suite's run at the head with its run at the merge-base.
  *
@@ -200,23 +215,9 @@ export function compareSuite(suite, head, base) {
       const b = base.tests.get(id);
       if (h === "skipped") skipped++;
       else if (h === "pass" && b === "pass") both++;
-      else if (h === "pass")
-        row(
-          id,
-          b ?? "—",
-          h,
-          b === undefined ? "covered (new)" : "covered (fixed at head)",
-          "[observed]",
-        );
+      else if (h === "pass") row(id, b ?? "—", h, PASSING_AT_HEAD[b ?? "new"], "[observed]");
       else if (b === "fail") row(id, b, h, "expected red herring", "[observed]");
-      else
-        row(
-          id,
-          b ?? "—",
-          h,
-          b === undefined ? "regression (new test fails)" : "regression",
-          "[observed]",
-        );
+      else row(id, b ?? "—", h, FAILING_AT_HEAD[b ?? "new"], "[observed]");
     }
     for (const [id, b] of base.tests)
       if (!head.tests.has(id)) row(id, b, "—", "removed at head", "[observed]");
@@ -240,7 +241,8 @@ export function compareSuite(suite, head, base) {
   else
     degraded = baseBroken
       ? `the merge-base did not build or run (${exitText(base)}, ${base.junitProblem}); ` +
-        "a failure at the head cannot be told from a red herring"
+        "a failure at the head cannot be told from a red herring. The worktree holds tracked " +
+        "files only, so a suite command must install what it needs (ADAPTER.md)"
       : `at the merge-base, ${base.junitProblem}; compared with the merge-base's exit code`;
 
   if (head.tests) {
@@ -265,21 +267,17 @@ export function compareSuite(suite, head, base) {
     return { name, observed: false, degraded, rows };
   }
 
-  // Exit codes only. With `junit` configured but missing at the merge-base
-  // too, a failing merge-base is a build that did not run, not a red herring.
-  const baseDidNotRun = baseBroken && Boolean(suite.junit) && !base.tests;
+  // Exit codes only. A failing exit is a red herring only when nothing says
+  // the two failures differ: with `junit` configured, a head that wrote no
+  // JUnit did not build or run. Against a merge-base whose tests ran, that is
+  // a regression; against one that did not run either, it is unknown.
   const h = exitText(head);
   const b = exitText(base);
-  const result =
-    head.code === 0
-      ? baseBroken
-        ? "covered (fixed at head)"
-        : "covered"
-      : baseDidNotRun
-        ? "unknown"
-        : baseBroken
-          ? "expected red herring"
-          : "regression";
+  let result;
+  if (head.code === 0) result = baseBroken ? "covered (fixed at head)" : "covered";
+  else if (!baseBroken || (suite.junit && base.tests)) result = "regression";
+  else if (suite.junit) result = "unknown";
+  else result = "expected red herring";
   row("(whole suite, by exit code)", b, h, result, "[reconstructed]");
   return { name, observed: false, degraded, rows };
 }
@@ -287,37 +285,74 @@ export function compareSuite(suite, head, base) {
 // ── Running ─────────────────────────────────────────────────────────────────
 
 /**
- * Runs `command` through the shell in `cwd`. Resolves with its exit code;
- * a run past `timeoutMs` is killed and reported as timed out.
+ * Stops `child` and everything it started. `shell: true` puts a shell between
+ * us and the suite, and a suite often starts more processes (`npm ci && npm
+ * test`, test workers); killing the shell alone leaves them running, holding
+ * the output pipes open and working in a worktree about to be removed.
+ */
+function killTree(child) {
+  if (child.exitCode !== null || child.signalCode !== null || !child.pid) return;
+  if (process.platform === "win32")
+    spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore" });
+  else
+    try {
+      process.kill(-child.pid, "SIGKILL"); // the process group `detached` made
+    } catch {
+      child.kill("SIGKILL");
+    }
+}
+
+/**
+ * Runs `command` through the shell in `cwd`. Resolves with its exit code; a
+ * run past `timeoutMs` is killed, with every process it started, and reported
+ * as timed out. On `signal` the same happens, and the promise rejects.
  *
  * @returns {Promise<{code: number | null, timedOut: boolean, output: string}>}
  */
 export function shellExec(command, cwd, { timeoutMs, signal } = {}) {
   return new Promise((done, fail) => {
-    const child = spawn(command, { cwd, shell: true, stdio: ["ignore", "pipe", "pipe"], signal });
+    if (signal?.aborted) return fail(new TwoPointError("interrupted"));
+    // On POSIX, a process group of its own, so the whole tree can be killed.
+    const child = spawn(command, {
+      cwd,
+      shell: true,
+      stdio: ["ignore", "pipe", "pipe"],
+      detached: process.platform !== "win32",
+      windowsHide: true,
+    });
     let output = "";
     let timedOut = false;
+    let settled = false;
     const keep = (chunk) => {
       output = (output + chunk).slice(-4000);
     };
     child.stdout.on("data", keep);
     child.stderr.on("data", keep);
+    const stop = () => killTree(child);
     const timer = timeoutMs
       ? setTimeout(() => {
           timedOut = true;
-          child.kill();
+          stop();
         }, timeoutMs)
       : null;
-    child.on("error", (error) => {
+    signal?.addEventListener("abort", stop, { once: true });
+    const settle = (code, extra = "") => {
+      if (settled) return;
+      settled = true;
       if (timer) clearTimeout(timer);
-      if (error.name === "AbortError") fail(new TwoPointError("interrupted"));
-      else done({ code: null, timedOut, output: `${output}${error.message}` });
-    });
-    child.on("close", (code) => {
-      if (timer) clearTimeout(timer);
+      signal?.removeEventListener("abort", stop);
+      child.stdout.destroy();
+      child.stderr.destroy();
       if (signal?.aborted) fail(new TwoPointError("interrupted"));
-      else done({ code: timedOut ? null : code, timedOut, output });
+      else done({ code: timedOut ? null : code, timedOut, output: `${output}${extra}` });
+    };
+    child.on("error", (error) => settle(null, error.message));
+    // A killed run settles on its exit: a process that escaped the kill may
+    // still hold the pipes, and must not hold the run.
+    child.on("exit", (code) => {
+      if (timedOut || signal?.aborted) settle(code);
     });
+    child.on("close", (code) => settle(code));
   });
 }
 
@@ -393,11 +428,14 @@ export async function runTwoPoint({
     if (signal?.aborted) throw new TwoPointError("interrupted");
   };
 
-  // A worktree an earlier, killed run left behind goes before the head runs,
-  // so no suite in the checkout collects its copy of the tests.
+  // Every worktree an earlier, killed run left behind, at this merge-base or
+  // another, goes before the head runs, so no suite in the checkout collects
+  // its copy of the tests.
   const parent = resolve(repo, workingDir);
   const tree = join(parent, `two-point-${mergeBase.slice(0, 12)}`);
-  if (existsSync(tree)) removeWorktree(repo, tree);
+  if (existsSync(parent))
+    for (const entry of readdirSync(parent))
+      if (entry.startsWith("two-point-")) removeWorktree(repo, join(parent, entry));
 
   const headRuns = [];
   for (const suite of suites) {
