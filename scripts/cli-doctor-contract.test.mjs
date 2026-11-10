@@ -928,7 +928,16 @@ describe("review fixes (PR #78)", () => {
       line,
       /^\.claude\/skills\/code-review\/: \.claude\/skills is a symbolic link or junction/,
     );
-    assert.doesNotMatch(JSON.stringify(trees), /npx skills|\.agents\/skills|remove the link/);
+    assert.doesNotMatch(
+      JSON.stringify(trees),
+      /npx skills|\.agents\/skills|remove the link|once the link is gone/,
+    );
+    // Removing a link the Consumer made is their call, so no --force is suggested.
+    assert.deepEqual(trees.fix, [upgradeCommand(TAG)]);
+    assert.ok(
+      trees.details.some((d) => /Kit-owned paths must be real folders in the repository/.test(d)),
+      JSON.stringify(trees.details),
+    );
   });
 
   it(
