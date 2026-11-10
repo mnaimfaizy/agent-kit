@@ -75,7 +75,7 @@ With no rule matching, or no `publish` key, the plan stays in the working copy. 
 
 ## Readiness check
 
-`node "<skill>/adapter.mjs" check --for plan` prints the config path, its problems, the effective values (defaults applied), and `readiness`: what compose still **needs** (asked for), and **notes** (said, and compose goes on). It needs `plan.base_ref` and at least one suite; a suite without `junit` is a note. The skill asks for what is missing, composes on the answers given in chat, and writes them into `qa.config.yml` only when the person says yes: `adapter.mjs render < answers.json` prints a body in the subset above that reads back with no problems. Nothing is assumed.
+`node "<skill>/adapter.mjs" check --for plan` prints the config path, its problems, the effective values (defaults applied), and `readiness`: what compose still **needs** (asked for), and **notes** (said, and compose goes on). It needs `plan.base_ref` and at least one suite; a suite without `junit` is a note. The skill asks for what is missing, composes on the answers given in chat, and saves them only when the person says yes. `adapter.mjs render < answers.json` prints the new body of the config the lookup found, in its own dialect, or of a new `qa.config.yml` when there is none. The answers are merged in (`plan` and `run` key by key) and every other key is kept. Writing a second file instead would shadow the first or be shadowed by it. YAML comments are not kept, and a YAML body reads back with no problems. `render --write` writes it. Nothing is assumed.
 
 ## Hazard packs
 
