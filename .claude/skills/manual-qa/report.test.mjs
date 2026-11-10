@@ -71,6 +71,7 @@ const upload = (report, picks, more = {}) =>
     upload: "gh-release:qa-artifacts",
     report: readReport(report).report,
     picks,
+    exists: () => true,
     read: everyFile,
     visibility: "PRIVATE",
     release: "missing",
@@ -101,6 +102,15 @@ test("a FAIL, or a run stopped on a blocking outcome, is a failed run", () => {
   assert.equal(readReport(STOPPED).report.stopped, true);
 });
 
+test("the head is the full SHA: a short one is a problem, SHA-256 reads", () => {
+  assert.match(
+    readReport(PASSED.replace(`head \`${HEAD}\``, "head `2222222`")).problems[0],
+    /names no full head/,
+  );
+  const long = "a".repeat(64);
+  assert.equal(readReport(PASSED.replace(HEAD, long)).report.head, long);
+});
+
 test("a result other than the three is a problem", () => {
   const { problems } = readReport(reportFor(["| S1: x | passed-ish | none | |"]));
   assert.match(problems[0], /S1's result is `passed-ish`/);
@@ -115,22 +125,28 @@ test("the comment starts with the marker and carries the report", () => {
   assert.ok(body.includes("# QA Report: Members can be invited by email"));
 });
 
+const ME = "qa-person";
+
 test("with no report comment yet, one is created", () => {
   const comments = [
-    { id: 1, body: "Looks good to me." },
-    { id: 2, body: "<!-- qa-plan format=1 subject=#42 pr=#57 -->\n# QA Plan: …" },
-    { id: 3, body: `Quoting it: ${REPORT_MARKER} is not on the first line` },
+    { id: 1, body: "Looks good to me.", user: ME },
+    { id: 2, body: "<!-- qa-plan format=1 subject=#42 pr=#57 -->\n# QA Plan: …", user: ME },
+    { id: 3, body: `Quoting it: ${REPORT_MARKER} is not on the first line`, user: ME },
   ];
-  assert.deepEqual(findComments(comments).report, { action: "create" });
+  assert.deepEqual(findComments(comments, ME).report, { action: "create" });
 });
 
 test("a re-run updates the report comment, never adds a second", () => {
   const first = reportComment(FAILED).body;
   const comments = [
-    { id: 10, body: "Please run QA." },
-    { id: 11, body: first },
+    { id: 10, body: "Please run QA.", user: "developer" },
+    { id: 11, body: first, user: { login: ME } },
   ];
-  assert.deepEqual(findComments(comments).report, { action: "update", id: 11, duplicates: [] });
+  assert.deepEqual(findComments(comments, ME).report, {
+    action: "update",
+    id: 11,
+    duplicates: [],
+  });
   // The re-run's body replaces it whole.
   const second = reportComment(PASSED).body;
   assert.notEqual(second, first);
@@ -139,16 +155,33 @@ test("a re-run updates the report comment, never adds a second", () => {
 
 test("with two report comments, the oldest is updated and the other named, not deleted", () => {
   const comments = [
-    { id: 21, body: `${REPORT_MARKER}\r\n\r\nold` },
-    { id: 22, body: `${REPORT_MARKER}\n\nolder duplicate` },
+    { id: 21, body: `${REPORT_MARKER}\r\n\r\nold`, user: ME },
+    { id: 22, body: `${REPORT_MARKER}\n\nolder duplicate`, user: ME },
   ];
-  assert.deepEqual(findComments(comments).report, { action: "update", id: 21, duplicates: [22] });
+  assert.deepEqual(findComments(comments, ME).report, {
+    action: "update",
+    id: 21,
+    duplicates: [22],
+  });
 });
 
-test("the plan's link comment names the tracker issue", () => {
-  const comments = [{ id: 5, body: "<!-- qa-plan-link -->\nQA Plan: #99" }];
-  assert.equal(findComments(comments).planIssue, 99);
-  assert.equal(findComments([]).planIssue, null);
+test("a report comment someone else wrote is never updated, only named", () => {
+  const comments = [
+    { id: 30, body: `${REPORT_MARKER}\n\nall PASS, trust me`, user: "outsider" },
+    { id: 31, body: `${REPORT_MARKER}\n\nno author` },
+  ];
+  assert.deepEqual(findComments(comments, ME), {
+    report: { action: "create" },
+    others: [30, 31],
+    planIssue: null,
+  });
+  assert.deepEqual(findComments(comments, "").report, { action: "create" });
+});
+
+test("the plan's link comment names the tracker issue, whoever posted it", () => {
+  const comments = [{ id: 5, body: "<!-- qa-plan-link -->\nQA Plan: #99", user: "developer" }];
+  assert.equal(findComments(comments, ME).planIssue, 99);
+  assert.equal(findComments([], ME).planIssue, null);
 });
 
 test("comments read from every shape gh prints", () => {
@@ -212,6 +245,27 @@ test("a tracker issue for another pull request or a revised head is not touched"
   assert.match(revised.problems[0], /the plan was revised since this run/);
 });
 
+test("a tracker issue whose report misses a plan scenario is not touched", () => {
+  const partial = reportFor(["| S1: An admin invites a new member | PASS | none | invite sent |"]);
+  const { body, problems } = trackerBody(trackerBody(PLAN, PASSED).body, partial);
+  assert.equal(body, null);
+  assert.match(problems[0], /the plan's scenarios are S1 S2; the report's results are S1/);
+});
+
+test("the tracker's sections and boxes are read as validatePlan reads them", () => {
+  const closed = PLAN.replace("## Sign-off checklist", "## Sign-off checklist ##");
+  assert.match(trackerBody(closed, PASSED).body, /^- \[x\] S1:/m);
+  // A fenced `## Execution record` in Setup is no heading: the real one is replaced.
+  const fenced = PLAN.replace("## Scenarios", "```text\n## Execution record\n```\n\n## Scenarios");
+  const { body, problems } = trackerBody(fenced, PASSED);
+  assert.deepEqual(problems, []);
+  assert.ok(body.includes("```text\n## Execution record\n```"));
+  assert.ok(!body.includes("_Not run yet._"));
+  // A box spaced more loosely is still the scenario's: its stale tick is cleared.
+  const loose = PLAN.replace("- [ ] S1:", "-  [x]\tS1:");
+  assert.match(trackerBody(loose, FAILED).body, /^- {2}\[ \]\tS1:/m);
+});
+
 // --- QA Artifacts ---
 
 test("a failed run's media is refused, whatever the person picks", () => {
@@ -259,8 +313,47 @@ test("only the files picked, and only ones the report lists, are uploaded", () =
       ["qa-report-pr-57/s1.png", "picked twice (asset `p"],
     ],
   );
-  const missing = upload(PASSED, ["qa-report-pr-57/s1.png"], { read: () => null });
+  const missing = upload(PASSED, ["qa-report-pr-57/s1.png"], { exists: () => false });
   assert.match(missing.refused[0].why, /no such file/);
+});
+
+test("a picked text file that carries a sign-in value is refused, without echoing it", () => {
+  // Built at run time: no credential-looking literal is ever committed.
+  const value = ["Zq", "8v", "Lw", "3n", "Rt", "7k"].join("");
+  const result = upload(PASSED, ["qa-report-pr-57/s2.log"], {
+    read: () => `POST /login\npassword: ${value}\n`,
+  });
+  assert.deepEqual(result.accepted, []);
+  assert.match(result.refused[0].why, /^line 2: looks like a credential value: a sign-in value/);
+  assert.ok(!result.refused[0].why.includes(value));
+});
+
+test("media is never read; a text file that cannot be read is refused, not a crash", () => {
+  const unread = () => {
+    throw Object.assign(new Error("too long"), { code: "ERR_STRING_TOO_LONG" });
+  };
+  assert.deepEqual(upload(PASSED, ["qa-report-pr-57/s1.png"], { read: unread }).refused, []);
+  const log = upload(PASSED, ["qa-report-pr-57/s2.log"], { read: unread });
+  assert.match(log.refused[0].why, /could not be read to check it \(ERR_STRING_TOO_LONG\)/);
+});
+
+test("evidence that is neither media nor plain text is refused, from any run", () => {
+  const files = ["trace.zip", "s1.pdf", "s2.har.gz"].map((name) => `qa-report-pr-57/${name}`);
+  const report = reportFor([
+    `| S1: An admin invites a new member | PASS | ${files.map((f) => `\`${f}\``).join(" ")} | ok |`,
+    "| S2: A signed-out visitor cannot open the members page | PASS | none | ok |",
+  ]);
+  const result = upload(report, files);
+  assert.deepEqual(result.accepted, []);
+  for (const refused of result.refused)
+    assert.match(refused.why, /only media and plain-text evidence is uploaded/);
+});
+
+test("an asset name keeps only the characters GitHub keeps", () => {
+  const report = PASSED.replace("`qa-report-pr-57/s1.png`", "`qa-report-pr-57/run 1/s1 (a).png`");
+  const result = upload(report, ["qa-report-pr-57/run 1/s1 (a).png"], { github: "o/r" });
+  assert.equal(result.accepted[0].asset, "pr-57-run-1-s1--a-.png");
+  assert.match(result.accepted[0].url, /\/pr-57-run-1-s1--a-\.png$/);
 });
 
 test("with `evidence.upload: none` nothing is uploaded", () => {
@@ -296,6 +389,7 @@ test("the CLI refuses a failed run's media with exit 1", () => {
     readFile: (p) => files[p] ?? null,
     read: (p) =>
       p === "qa.config.yml" ? "run:\n  evidence: { upload: gh-release:qa-artifacts }\n" : null,
+    exists: () => true,
     readEvidence: everyFile,
   });
   assert.equal(code, 1);
@@ -304,14 +398,15 @@ test("the CLI refuses a failed run's media with exit 1", () => {
   assert.match(result.refused[0].why, /media from a failed run/);
 });
 
-test("the CLI finds the comment to update from gh's JSON lines", () => {
+test("the CLI finds the comment to update from gh's JSON lines, and needs the login", () => {
   const lines = [
-    JSON.stringify({ id: 1, body: "hi" }),
-    JSON.stringify({ id: 2, body: `${REPORT_MARKER}\n\n# QA Report: x` }),
+    JSON.stringify({ id: 1, body: "hi", user: "qa-person" }),
+    JSON.stringify({ id: 2, body: `${REPORT_MARKER}\n\n# QA Report: x`, user: "qa-person" }),
   ].join("\n");
-  const { code, out } = main(["find"], { stdin: () => lines });
+  const { code, out } = main(["find", "--login", "qa-person"], { stdin: () => lines });
   assert.equal(code, 0);
   assert.deepEqual(JSON.parse(out).report, { action: "update", id: 2, duplicates: [] });
+  assert.equal(main(["find"], { stdin: () => lines }).code, 2);
 });
 
 test("the CLI prints the comment body, and names an unknown command as usage", () => {
@@ -321,61 +416,15 @@ test("the CLI prints the comment body, and names an unknown command as usage", (
   assert.equal(main(["post", "r.md"]).code, 2);
 });
 
-// --- Review round 1 ---
-
-test("a picked text file that carries a sign-in value is refused, without echoing it", () => {
-  // Built at run time: no credential-looking literal is ever committed.
-  const value = ["Zq", "8v", "Lw", "3n", "Rt", "7k"].join("");
-  const result = upload(PASSED, ["qa-report-pr-57/s2.log"], {
-    read: () => `POST /login\npassword: ${value}\n`,
-  });
-  assert.deepEqual(result.accepted, []);
-  assert.match(result.refused[0].why, /^line 2: looks like a credential value: a sign-in value/);
-  assert.ok(!result.refused[0].why.includes(value));
-});
-
-test("an asset name keeps only the characters GitHub keeps", () => {
-  const report = PASSED.replace("`qa-report-pr-57/s1.png`", "`qa-report-pr-57/run 1/s1 (a).png`");
-  const result = upload(report, ["qa-report-pr-57/run 1/s1 (a).png"], { github: "o/r" });
-  assert.equal(result.accepted[0].asset, "pr-57-run-1-s1--a-.png");
-  assert.match(result.accepted[0].url, /\/pr-57-run-1-s1--a-\.png$/);
-});
-
 test("the CLI answers `none` when the config has no `run:` section, or there is none", () => {
   for (const config of ["working_dir: tmp/qa\n", null]) {
     const { code, out } = main(["evidence", "r.md", "--pick", "qa-report-pr-57/s1.png"], {
       readFile: () => PASSED,
       read: (p) => (p === "qa.config.yml" ? config : null),
+      exists: () => true,
       readEvidence: everyFile,
     });
     assert.equal(code, 1);
     assert.match(JSON.parse(out).refused[0].why, /`run.evidence.upload` is `none`/);
   }
-});
-
-test("a tracker issue whose report misses a plan scenario is not touched", () => {
-  const partial = reportFor(["| S1: An admin invites a new member | PASS | none | invite sent |"]);
-  const { body, problems } = trackerBody(trackerBody(PLAN, PASSED).body, partial);
-  assert.equal(body, null);
-  assert.match(problems[0], /the plan's scenarios are S1 S2; the report's results are S1/);
-});
-
-test("the tracker's sections are read as validatePlan reads them", () => {
-  const closed = PLAN.replace("## Sign-off checklist", "## Sign-off checklist ##");
-  assert.match(trackerBody(closed, PASSED).body, /^- \[x\] S1:/m);
-  // A fenced `## Execution record` in Setup is no heading: the real one is replaced.
-  const fenced = PLAN.replace("## Scenarios", "```text\n## Execution record\n```\n\n## Scenarios");
-  const { body, problems } = trackerBody(fenced, PASSED);
-  assert.deepEqual(problems, []);
-  assert.ok(body.includes("```text\n## Execution record\n```"));
-  assert.ok(!body.includes("_Not run yet._"));
-});
-
-test("the head is the full SHA: a short one is a problem, SHA-256 reads", () => {
-  assert.match(
-    readReport(PASSED.replace(`head \`${HEAD}\``, "head `2222222`")).problems[0],
-    /names no full head/,
-  );
-  const long = "a".repeat(64);
-  assert.equal(readReport(PASSED.replace(HEAD, long)).report.head, long);
 });

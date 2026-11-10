@@ -125,7 +125,7 @@ test("every report.mjs command SKILL.md names is one report.mjs accepts", () => 
   const io = { readFile: () => null, stdin: () => "" };
   for (const command of new Set(commands))
     assert.notEqual(
-      report([command, "x", "--issue-body", "y"], io).code,
+      report([command, "x", "--issue-body", "y", "--login", "z"], io).code,
       2,
       `report.mjs has no \`${command}\``,
     );

@@ -10,8 +10,8 @@
 //      anchors and one result per scenario, and says whether the run failed
 //      (a FAIL, or a run stopped on a blocking outcome).
 //   2. `find`: from a pull request's comments, the one QA Report comment to
-//      update (its body's first line is exactly `<!-- qa-report -->`), so a
-//      re-run edits it and never posts a second; and the tracker issue the
+//      update (its body's first line is exactly `<!-- qa-report -->`, and the
+//      person posting wrote it), so a re-run edits it and never posts a second; and the tracker issue the
 //      plan's `<!-- qa-plan-link -->` comment names.
 //   3. `comment`: the PR comment body: the marker, then the report, with each
 //      uploaded evidence path linked.
@@ -21,8 +21,9 @@
 //   5. `evidence`: which picked files may go to the `gh-release:<tag>`
 //      prerelease, and under what asset names. Nothing goes with
 //      `evidence.upload: none`; a file the report does not list as evidence
-//      is refused; media from a failed run is refused; a public repository
-//      gets a warning.
+//      is refused, as is one neither media nor plain text (an archive, a
+//      PDF, a trace); media from a failed run is refused; a public
+//      repository gets a warning.
 //
 //   Every body it builds, and every picked text file (a log, a HAR), is
 //   checked for sign-in values with the plan's own credential scan, and
@@ -30,7 +31,7 @@
 //
 // CLI (run from the repository root; `--repo <dir>` points elsewhere)
 //   node report.mjs read <report>
-//   node report.mjs find < comments.jsonl
+//   node report.mjs find --login <login> < comments.jsonl
 //   node report.mjs comment <report> [--link <path>=<url>]…
 //   node report.mjs tracker <report> --issue-body <file> [--link <path>=<url>]…
 //   node report.mjs evidence <report> [--pick <path>]… [--visibility <v>]
@@ -39,7 +40,7 @@
 //   Exit 0: done, or nothing refused. Exit 1: a problem or a refusal, named
 //   in the output. Exit 2: usage.
 
-import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { readFileSync, realpathSync, statSync } from "node:fs";
 import { join, posix, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -55,10 +56,15 @@ export const BODY_LIMIT = 65536;
 /** Screenshots, recordings and audio: what a failed run never uploads. */
 export const MEDIA =
   /\.(?:png|jpe?g|gif|webp|bmp|tiff?|avif|heic|svg|mp4|m4v|mov|webm|mkv|avi|wmv|mp3|wav|ogg|m4a)$/i;
+/** Plain-text evidence: the only kind whose contents are scanned for sign-in values. */
+export const TEXT = /\.(?:log|txt|har|json|jsonl|ndjson|md|csv|tsv|xml|html?|ya?ml)$/i;
 
 const NO_UPLOAD_FROM_FAILED =
   "media from a failed run is never uploaded: its screen is the one most likely to show " +
   "what it must not; describe the failure in the report, and keep the file local";
+const NOT_CHECKABLE =
+  "only media and plain-text evidence is uploaded: an archive, a PDF or a trace can carry " +
+  "screenshots and sign-in values no check here can see; keep it local";
 const PUBLIC_WARNING =
   "this repository is public, so anyone can download a release asset: upload only files " +
   "that show QA Account data on a test system, and nothing of a real person or account";
@@ -227,21 +233,30 @@ const firstLine = (body) =>
 
 /**
  * The QA Report comment to update, and the tracker issue the plan's link
- * comment names. A re-run updates the oldest report comment; any others are
- * named as duplicates for a person to remove, never deleted here.
+ * comment names. Only a report comment `login` wrote counts: one anyone else
+ * wrote, marker or not, could be edited after the run to say something else,
+ * so it is named in `others` and never updated. A re-run updates the oldest of
+ * the person's own; any more are named as duplicates for a person to remove,
+ * never deleted here. The link comment is the developer's, so any author's
+ * counts: `trackerBody` checks the issue it names against the report.
  *
- * @param {{id: number | string, body: string}[]} comments oldest first, as GitHub lists them
+ * @param {{id: number | string, body: string, user?: string | {login?: string}}[]} comments
+ *   oldest first, as GitHub lists them
+ * @param {string} login who posts: `gh api user --jq .login`
  * @returns {{report: {action: "update", id: number | string, duplicates: (number | string)[]} |
- *   {action: "create"}, planIssue: number | null}}
+ *   {action: "create"}, others: (number | string)[], planIssue: number | null}}
  */
-export function findComments(comments) {
-  const reports = comments.filter((c) => firstLine(c.body) === REPORT_MARKER);
+export function findComments(comments, login) {
+  const author = (c) => (typeof c.user === "string" ? c.user : c.user?.login);
+  const marked = comments.filter((c) => firstLine(c.body) === REPORT_MARKER);
+  const own = marked.filter((c) => login && author(c) === login);
   const link = comments.find((c) => firstLine(c.body) === PLAN_LINK_MARKER);
   const planIssue = link ? Number(/QA Plan: #(\d+)/.exec(link.body)?.[1]) || null : null;
   return {
-    report: reports.length
-      ? { action: "update", id: reports[0].id, duplicates: reports.slice(1).map((c) => c.id) }
+    report: own.length
+      ? { action: "update", id: own[0].id, duplicates: own.slice(1).map((c) => c.id) }
       : { action: "create" },
+    others: marked.filter((c) => !own.includes(c)).map((c) => c.id),
     planIssue,
   };
 }
@@ -327,7 +342,8 @@ export function trackerBody(issueBody, reportText, { links = {} } = {}) {
   const results = new Map(report.results.map((row) => [row.id, row.result]));
   const checklist = found["Sign-off checklist"];
   for (let n = checklist.start + 1; n < checklist.end; n++) {
-    const box = /^(\s*[-*] )\[[ xX]\]( (S\d+)\b.*)$/.exec(lines[n]);
+    // The box shape `validatePlan` accepts, so no scenario's box is skipped.
+    const box = /^(\s*[-*]\s+)\[[ xX]\](\s+(S\d+)\b.*)$/.exec(lines[n]);
     if (box && results.has(box[3]))
       lines[n] = `${box[1]}[${results.get(box[3]) === "PASS" ? "x" : " "}]${box[2]}`;
   }
@@ -348,7 +364,8 @@ export function trackerBody(issueBody, reportText, { links = {} } = {}) {
  * @param {string} input.upload `run.evidence.upload`: `none` or `gh-release:<tag>`
  * @param {ReturnType<typeof readReport>["report"]} input.report
  * @param {string[]} input.picks evidence paths, as the report writes them
- * @param {(path: string) => string | null} input.read a file under `working_dir`, or null when there is none
+ * @param {(path: string) => boolean} input.exists whether a path under `working_dir` is a file
+ * @param {(path: string) => string} input.read a text file under `working_dir`; may throw
  * @param {string | null} [input.visibility] `gh repo view --json visibility`: PUBLIC, PRIVATE, INTERNAL
  * @param {"missing" | "prerelease" | "release" | null} [input.release] what `gh release view <tag>` found
  * @param {string | null} [input.github] `owner/name`, for the download URLs
@@ -360,6 +377,7 @@ export function evidenceUpload({
   upload,
   report,
   picks,
+  exists,
   read,
   visibility = null,
   release = null,
@@ -403,17 +421,30 @@ export function evidenceUpload({
   const listed = new Map(report.results.flatMap((row) => row.evidence.map((p) => [p, row])));
   const folder = report.pr ? `qa-report-pr-${report.pr}/` : null;
   const assets = new Set();
-  let text, leak;
+  // A text file is read only to scan it, and a read that fails (too large,
+  // not readable) refuses that pick instead of stopping the check.
+  const leakIn = (path) => {
+    try {
+      const leak = credentialProblems(lf(read(path)).split("\n"))[0];
+      return leak
+        ? `${leak.replace(/; a plan carries.*/, "")}: a sign-in value is never uploaded`
+        : null;
+    } catch (error) {
+      return `could not be read to check it (${error?.code ?? error}); keep it local`;
+    }
+  };
+  let leak;
   for (const file of picks) {
     const refuse = (why) => out.refused.push({ file, why });
     const normal = posix.normalize(file.replace(/\\/g, "/"));
+    const media = MEDIA.test(normal);
     if (!listed.has(file)) refuse("the report lists no such evidence: pick a path from its table");
     else if (!folder || !normal.startsWith(folder) || normal.includes(".."))
       refuse(`evidence is uploaded only from \`${folder}\` in \`working_dir\``);
-    else if (report.failed && MEDIA.test(normal)) refuse(NO_UPLOAD_FROM_FAILED);
-    else if ((text = read(normal)) === null) refuse("no such file in `working_dir`");
-    else if (!MEDIA.test(normal) && (leak = credentialProblems(lf(text).split("\n"))[0]))
-      refuse(`${leak.replace(/; a plan carries.*/, "")}: a sign-in value is never uploaded`);
+    else if (!media && !TEXT.test(normal)) refuse(NOT_CHECKABLE);
+    else if (report.failed && media) refuse(NO_UPLOAD_FROM_FAILED);
+    else if (!exists(normal)) refuse("no such file in `working_dir`");
+    else if (!media && (leak = leakIn(normal))) refuse(leak);
     else {
       // GitHub renames an asset with other characters, and the link would 404.
       const asset = `pr-${report.pr}-${normal.slice(folder.length)}`.replace(
@@ -456,7 +487,8 @@ function parseLinks(argv) {
 /**
  * @param {string[]} argv the arguments after the script
  * @param {{readFile?: (path: string) => string | null, stdin?: () => string,
- *   read?: (path: string) => string | null, readEvidence?: (path: string) => string | null}} [io]
+ *   read?: (path: string) => string | null, exists?: (path: string) => boolean,
+ *   readEvidence?: (path: string) => string}} [io]
  * @returns {{code: number, out: string}}
  */
 export function main(argv, io = {}) {
@@ -476,12 +508,17 @@ export function main(argv, io = {}) {
   const usage = {
     code: 2,
     out:
-      "usage: node report.mjs read <report> | find < comments | comment <report> [--link p=url]… | " +
+      "usage: node report.mjs read <report> | find --login <login> < comments | " +
+      "comment <report> [--link p=url]… | " +
       "tracker <report> --issue-body <file> [--link p=url]… | evidence <report> [--pick <path>]… " +
       "[--visibility <v>] [--release missing|prerelease|release] [--github <owner/name>]   [--repo <dir>]\n",
   };
 
-  if (command === "find") return { code: 0, out: json(findComments(parseComments(stdin()))) };
+  if (command === "find") {
+    const login = option(argv, "--login")[0];
+    if (login === undefined || login.startsWith("--")) return usage;
+    return { code: 0, out: json(findComments(parseComments(stdin()), login)) };
+  }
   if (!["read", "comment", "tracker", "evidence"].includes(command)) return usage;
   if (target === undefined || target.startsWith("--")) return usage;
   const text = readFile(target);
@@ -523,20 +560,24 @@ export function main(argv, io = {}) {
   if (loaded.runProblems.length)
     return { code: 1, out: json({ path: loaded.path, problems: loaded.runProblems }) };
   const { working_dir: workingDir, run } = effectiveConfig(loaded.config);
-  const readEvidence =
-    io.readEvidence ??
+  const exists =
+    io.exists ??
     ((path) => {
-      const absolute = join(repo, workingDir, path);
-      return existsSync(absolute) && statSync(absolute).isFile()
-        ? readFileSync(absolute, "utf8")
-        : null;
+      try {
+        return statSync(join(repo, workingDir, path)).isFile();
+      } catch {
+        return false;
+      }
     });
+  const readEvidence =
+    io.readEvidence ?? ((path) => readFileSync(join(repo, workingDir, path), "utf8"));
   const release = option(argv, "--release")[0] ?? null;
   if (release !== null && !["missing", "prerelease", "release"].includes(release)) return usage;
   const result = evidenceUpload({
     upload: run?.evidence?.upload ?? "none",
     report,
     picks: option(argv, "--pick"),
+    exists,
     read: readEvidence,
     visibility: option(argv, "--visibility")[0] ?? null,
     release: /** @type {any} */ (release),

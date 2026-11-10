@@ -136,10 +136,10 @@ node "<skill>/adapter.mjs" delivery --label <label> --label <label> …
 - **`tracker-issue`** or **`pr-comment`:** read the pull request's comments, and find the report comment and the plan's tracker issue:
 
   ```bash
-  gh api --paginate "repos/{owner}/{repo}/issues/<pr>/comments" --jq '.[] | {id, body}' | node "<skill>/report.mjs" find
+  gh api --paginate "repos/{owner}/{repo}/issues/<pr>/comments" --jq '.[] | {id, body, user: .user.login}' | node "<skill>/report.mjs" find --login "<login>"
   ```
 
-  `report` is `update` with the comment's `id`, or `create`. `planIssue` is the issue the `<!-- qa-plan-link -->` comment names, or `null`. For `tracker-issue` with no `planIssue`, the plan's issue cannot be found: offer the pull request comment instead.
+  `<login>` is who posts: `gh api user --jq .login`. `report` is `update` with the `id` of the person's own report comment, or `create`. A report comment someone else wrote is never edited, since they could change it after the run: `others` names each one, for the person to look at. `planIssue` is the issue the `<!-- qa-plan-link -->` comment names, or `null`. For `tracker-issue` with no `planIssue`, the plan's issue cannot be found: offer the pull request comment instead.
 
 **Done when:** the person has said no, or has said yes to a destination, which is known.
 
@@ -150,7 +150,7 @@ Read `run.evidence.upload` from step 2's effective config. With `none` (the defa
 With `gh-release:<tag>`:
 
 1. `gh repo view --json visibility,nameWithOwner`. Unless `visibility` is `PRIVATE`, say first: _anyone who can see this repository can download a release asset; upload only files that show QA Account data on a test system_.
-2. Ask about each evidence file in the report, one by one: upload it, or keep it local. Never offer to upload them all at once. When the run failed (a FAIL, or a run stopped on a blocking outcome), say that its screenshots and recordings stay local, and do not offer them.
+2. Ask about each evidence file in the report, one by one: upload it, or keep it local. Never offer to upload them all at once. When the run failed (a FAIL, or a run stopped on a blocking outcome), say that its screenshots and recordings stay local, and do not offer them. Offer only media and plain text: an archive, a PDF or a trace stays local, since no check can see inside it.
 3. Find the release: `gh release view <tag> --json isPrerelease --jq .isPrerelease` prints `true` (`prerelease`) or `false` (`release`), or fails (`missing`).
 4. Check the picks:
 
