@@ -304,6 +304,8 @@ test("each way a credential travels is caught", () => {
     `authorization: bearer ${"y".repeat(24)}`,
     `Authorization: Basic ${Buffer.from(`qa:${value(8)}`).toString("base64")}`,
     `Connect to redis://:${value(4)}@localhost:6379`,
+    `Password: \`/${value(9)}\``,
+    `api_key = "/${value(10)}"`,
   ];
   for (const leak of leaks)
     assert.equal(credentialProblems([leak]).length, 1, `not caught: ${leak}`);
@@ -344,6 +346,14 @@ test("talking about credentials is not carrying one", () => {
     "- **Password reset page:** `/account/reset`",
     "The SECRET_KEY_BASE comes from the environment.",
     "Open https://localhost:3000/@admin",
+    "Covers the basic read/write/admin roles.",
+    "Basic configuration lives in `/etc/app`.",
+    "The session cookie is `HttpOnly`.",
+    "The reset token is single-use.",
+    'Response has `token_type: "Bearer"`',
+    "otp-length: `6`",
+    "- **Password reset page:** `/account/reset`",
+    "password_reset_path: `/account/reset`",
   ];
   assert.deepEqual(credentialProblems(prose), []);
 });

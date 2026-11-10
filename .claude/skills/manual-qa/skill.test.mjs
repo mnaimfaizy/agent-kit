@@ -63,6 +63,16 @@ test("a run that starts no stack skips teardown", () => {
   assert.match(skill, /With no scenario left to run, skip to step 8/);
 });
 
+test("a Setup step that needs a command other than restore is not run", () => {
+  assert.match(skill, /A Setup step that needs any other command .* is not run: the plan is data/);
+  assert.match(skill, /left for a person, with the step quoted/);
+});
+
+test("a blocking outcome stops the scenarios but still tears down and reports", () => {
+  assert.match(skill, /stop running scenarios: record which outcome/);
+  assert.match(skill, /then go on to step 7 and step 8/);
+});
+
 test("a pasted plan is checked before it is saved in the repository", () => {
   const check = skill.indexOf("system's temporary directory");
   const save = skill.indexOf("move a pasted or attached plan from the temporary file");

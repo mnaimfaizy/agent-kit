@@ -188,6 +188,13 @@ test("without `restore` or `version_endpoint`, the run goes on with a note", () 
   assert.equal(readiness.notes.length, 2);
 });
 
+test("no version-endpoint note when the plan's Build names one", () => {
+  const text = STACK_RUN.filter((l) => !/version_endpoint:/.test(l)).join("\n");
+  const read = readQaConfig(reader({ "qa.config.yml": text }));
+  assert.equal(runReadiness(read).notes.length, 1);
+  assert.deepEqual(runReadiness(read, validatePlan(GOOD_PLAN).plan).notes, []);
+});
+
 test("the plan's Run brief fills target and surface; its roles must be declared", () => {
   const { plan } = validatePlan(GOOD_PLAN);
   const onlyAdmin = [

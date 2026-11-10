@@ -809,7 +809,7 @@ export function runReadiness({ path, config, runProblems: problems = [] }, plan 
     notes.push(
       "no `run.accounts.restore`: a scenario that needs a role's account restored is left for a person",
     );
-  if (!present(run.version_endpoint))
+  if (!present(run.version_endpoint) && !brief?.versionEndpoint)
     notes.push(
       "no `run.version_endpoint`: without `gh` access the build cannot be checked against the plan's head",
     );
@@ -1036,11 +1036,6 @@ const SECRET_SHAPES = [
   ["a JSON Web Token", /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/],
   ["a private key", /-----BEGIN [A-Z ]*PRIVATE KEY-----/],
   ["a bearer token", /\bBearer\s+[A-Za-z0-9._~+/-]{16,}=*/i],
-  // Base64 of `user:password`; prose ("Basic configuration") has no digit, `+` or `/`.
-  [
-    "a basic-auth value",
-    /\bBasic\s+(?=[A-Za-z0-9+/]*[0-9+/])[A-Za-z0-9+/]{12,}={0,2}(?![A-Za-z0-9+/])/i,
-  ],
   // `scheme://user:password@`, or `scheme://:password@` with no user.
   ["a password inside an address", /\b[a-z][a-z0-9+.-]*:\/\/[^\s/:@]*:[^\s/@]+@/i],
 ];
@@ -1055,9 +1050,11 @@ const LITERAL = "(?:`([^`]+)`|\"([^\"]+)\"|'([^']+)')";
 /**
  * A secret name, alone or inside a longer key: `DB_PASSWORD`,
  * `SECRET_KEY_BASE`, `admin.password`. camelCase (`adminPassword`) is split
- * to `admin_Password` before matching, so it reads the same.
+ * to `admin_Password` before matching, so it reads the same. A suffix is one
+ * that still names the secret itself (`_base`, `_hash`); `token_type` or
+ * `otp-length` name something about it, and are not read as one.
  */
-const KEYED_NAME = `(?<![A-Za-z0-9])(?:[A-Za-z0-9]+[_.-])*${SECRET_NAME}(?:[_.-][A-Za-z0-9]+)*(?![A-Za-z0-9])`;
+const KEYED_NAME = `(?<![A-Za-z0-9])(?:[A-Za-z0-9]+[_.-])*${SECRET_NAME}(?:[_.-](?:base|value|hash|plain|raw))*(?![A-Za-z0-9])`;
 const NAMED_VALUE = new RegExp(
   `${KEYED_NAME}[*_]*\\s*(?:[:=]|\\bis\\b)\\s*[*_]*\\s*(?:${LITERAL}|([^\\s,;)]+)\\s*(?=$|[,;)]))`,
   "gi",
@@ -1071,9 +1068,22 @@ const TABLE_SEPARATOR = /^\s*\|(?:\s*:?-+:?\s*\|)+\s*$/;
 const SECRET_HEADER = new RegExp(`^\\s*[*_\`]*${SECRET_NAME}[*_\`]*\\s*$`, "i");
 /** What stands in for a value without being one. */
 const PLACEHOLDER =
-  /^(?:<[^>]*>|\{[^}]*\}|\[[^\]]*\]|\*+|•+|\.{3}|…|x{3,}|redacted|none|n\/a|not shown|hidden|-+|accounts\.(?:print|restore)\b.*|\/\S*)$/i;
-/** A bare word after `password:` is a value only if it looks like one. */
-const looksSecret = (word) => word.length >= 6 && /[0-9!@#$%^&*+=_~-]/.test(word);
+  /^(?:<[^>]*>|\{[^}]*\}|\[[^\]]*\]|\*+|•+|\.{3}|…|x{3,}|redacted|none|n\/a|not shown|hidden|-+|accounts\.(?:print|restore)\b.*)$/i;
+/** A page's path (`/account/reset`): lower case, segments only, no symbols. */
+const PATH_VALUE = /^\/[a-z0-9_-]+(?:\/[a-z0-9_-]+)*\/?$/;
+/**
+ * A value after a secret name is one only if it looks like one: a digit or a
+ * symbol, which `HttpOnly`, `Bearer` and `single-use` lack. `-`, `_` and `.`
+ * do not count: prose and camelCase splitting supply them. A bare word must
+ * also be longer than a quoted one, since prose runs on after it.
+ */
+const looksSecret = (value, minimum) => value.length >= minimum && /[0-9!@#$%^&*+=~]/.test(value);
+const BASIC_AUTH = /\bBasic\s+([A-Za-z0-9+/]{8,}={0,2})(?![A-Za-z0-9+/=])/g;
+/** `Basic <base64>` whose value decodes to `user:password`, as HTTP writes it. */
+const hasBasicAuth = (line) =>
+  [...line.matchAll(BASIC_AUTH)].some(([, encoded]) =>
+    /^[^:\s]*:\S+$/.test(Buffer.from(encoded, "base64").toString("utf8")),
+  );
 
 /**
  * The lines of a plan that carry what a sign-in form would accept as a
@@ -1107,6 +1117,7 @@ export function credentialProblems(lines) {
 
     const shape = SECRET_SHAPES.find(([, pattern]) => pattern.test(line));
     if (shape) return flag(shape[0]);
+    if (hasBasicAuth(line)) return flag("a basic-auth value");
     // Every match on the line: a placeholder first (`Password: n/a; token: "…"`)
     // must not hide a value after it.
     const split = line.replace(/([a-z0-9])([A-Z])/g, "$1_$2");
@@ -1114,8 +1125,8 @@ export function credentialProblems(lines) {
       for (const match of split.matchAll(pattern)) {
         const [literal, bare] = [match[1] ?? match[2] ?? match[3], match[4]];
         const value = (literal ?? bare ?? "").trim();
-        if (value === "" || PLACEHOLDER.test(value)) continue;
-        if (literal === undefined && !looksSecret(value)) continue;
+        if (value === "" || PLACEHOLDER.test(value) || PATH_VALUE.test(value)) continue;
+        if (!looksSecret(value, literal === undefined ? 6 : 4)) continue;
         return flag("a credential value");
       }
   });
