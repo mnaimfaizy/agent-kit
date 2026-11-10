@@ -17,7 +17,7 @@ plan:
   tracker: github # github | none
 hazards:
   - { pack: docs/agents/qa-hazards/auth.md }
-run: # manual-qa's section; accepted here, not checked
+run: # manual-qa's section; never stops qa-plan
   target: stack
 ```
 
@@ -49,7 +49,7 @@ Tabs, anchors, aliases, multi-line scalars, flow collections that span lines, es
 | `plan.publish`  | working copy | Where a confirmed plan goes. See below.                                                                                                                               |
 | `plan.tracker`  | `none`       | `github`, or `none`. `none` keeps every plan in the working copy, whatever `publish` says. A `tracker-issue` or `pr-comment` rule with no `tracker` set is a problem. |
 | `hazards`       | none         | Hazard packs, as `{ pack: <path> }`. See below.                                                                                                                       |
-| `run`           | none         | `manual-qa`'s section. Accepted here as it is; `manual-qa`'s `ADAPTER.md` documents and checks it.                                                                    |
+| `run`           | none         | `manual-qa`'s section. `check --for plan` does not check it; `manual-qa`'s `ADAPTER.md` documents it, and `check --for run` checks it.                                |
 
 ### `plan.suites` entries
 

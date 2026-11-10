@@ -1,11 +1,16 @@
 // The QA config reader: one place that turns `qa.config.{yml,yaml,json}` into
-// an object, for `qa-plan` and `manual-qa` alike (ADAPTER.md).
+// an object, for `qa-plan` and `manual-qa` alike (ADAPTER.md). It also holds
+// the one reading of the plan format both skills share (ANATOMY.md):
+// `validatePlan` is how `manual-qa` accepts a plan and `qa-plan` checks a
+// draft, so the composer and the runner cannot read the format differently.
 //
 // ONE FILE, TWO SKILLS
 //   `qa-plan` owns this file and `manual-qa` carries a byte-identical copy,
 //   enforced by a contract test (DESIGN.md, "Two skills, one format"). Each
-//   skill reads its own section and ignores the other's: `plan:` is checked
-//   here in full, `run:` is accepted as it is and left to `manual-qa`.
+//   skill reads its own section and ignores the other's: `plan:` and
+//   `hazards` are checked by `configProblems`, which `check --for plan` uses;
+//   `run:` is checked by `runProblems`, which only `check --for run` uses, so
+//   a mistake in one skill's section never stops the other skill.
 //
 // WHY A PARSER, AND WHY THIS SMALL
 //   Both skills import only Node built-ins, and Node ships no YAML parser.
@@ -28,6 +33,10 @@
 //
 // CLI (run from the repository root; `--repo <dir>` points elsewhere)
 //   node adapter.mjs check --for plan      config, problems, effective values, readiness
+//   node adapter.mjs check --for run [--plan <file>]
+//                                          the same for `run:`, against a plan's Run brief
+//   node adapter.mjs plan [<file>]         a QA Plan (the file, or stdin) against ANATOMY.md
+//   node adapter.mjs host <url>            whether a run may sign in at this address
 //   node adapter.mjs hazards < files.txt   Hazard packs matching the changed paths
 //   node adapter.mjs delivery [--label L]… where the plan goes, by `plan.publish`
 //   node adapter.mjs render [--write] < answers.json
@@ -36,7 +45,7 @@
 //   and exits 1 on any problem, 2 on bad usage.
 
 import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /** Lookup order: the first file present is the config (ADAPTER.md). */
@@ -57,6 +66,20 @@ export const PUBLISH_TARGETS = /** @type {const} */ ([
   "pr-comment",
 ]);
 export const TRACKERS = /** @type {const} */ (["github", "none"]);
+export const RUN_KEYS = /** @type {const} */ ([
+  "target",
+  "surface",
+  "stack",
+  "accounts",
+  "version_endpoint",
+  "evidence",
+]);
+export const STACK_KEYS = /** @type {const} */ (["up", "migrate", "seed", "down"]);
+export const ACCOUNT_KEYS = /** @type {const} */ (["print", "restore", "roles"]);
+export const ROLE_KEYS = /** @type {const} */ (["id", "purpose"]);
+export const EVIDENCE_KEYS = /** @type {const} */ (["upload"]);
+export const TARGETS = /** @type {const} */ (["stack", "url"]);
+export const SURFACES = /** @type {const} */ (["web", "desktop", "mobile", "api"]);
 
 /** ADAPTER.md's defaults. `base_ref` and `suites` have none: the readiness check asks. */
 export const DEFAULTS = Object.freeze({
@@ -359,11 +382,7 @@ const isRepoPath = (v) =>
  */
 export function configProblems(config, lines) {
   const sink = problemSink(lines);
-  unknownKeys(sink, config, "", TOP_KEYS);
-
-  const workingDir = config.working_dir;
-  if (present(workingDir) && !isRepoPath(workingDir))
-    sink.add("working_dir", "expected a relative path inside the repository");
+  sharedProblems(sink, config);
 
   const plan = config.plan;
   if (present(plan) && !isMapping(plan)) sink.add("plan", "expected a mapping");
@@ -382,6 +401,14 @@ export function configProblems(config, lines) {
       });
   }
   return sink.problems;
+}
+
+/** The keys both skills read: the top level and `working_dir`. */
+function sharedProblems(sink, config) {
+  unknownKeys(sink, config, "", TOP_KEYS);
+  const workingDir = config.working_dir;
+  if (present(workingDir) && !isRepoPath(workingDir))
+    sink.add("working_dir", "expected a relative path inside the repository");
 }
 
 function planProblems(sink, plan) {
@@ -461,6 +488,104 @@ function planProblems(sink, plan) {
   }
 }
 
+const nonEmpty = (v) => typeof v === "string" && v.trim() !== "";
+/** A role id goes into a shell command (`restore`'s `{id}`), so it is a plain word. */
+const ROLE_ID = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
+const UPLOAD = /^(?:none|gh-release:[A-Za-z0-9][A-Za-z0-9._/-]*)$/;
+
+/**
+ * Every problem `manual-qa` stops on: the keys both skills read, and the
+ * `run:` section it owns. Kept apart from `configProblems`, so a mistake in
+ * `run:` never stops `qa-plan` and one in `plan:` never stops `manual-qa`.
+ *
+ * @param {Record<string, unknown>} config
+ * @param {Map<string, number>} [lines]
+ * @returns {string[]}
+ */
+export function runProblems(config, lines) {
+  const sink = problemSink(lines);
+  sharedProblems(sink, config);
+  const run = config.run;
+  if (!present(run)) return sink.problems;
+  if (!isMapping(run)) {
+    sink.add("run", "expected a mapping");
+    return sink.problems;
+  }
+  unknownKeys(sink, run, "run", RUN_KEYS);
+  if (present(run.target) && !TARGETS.includes(run.target))
+    sink.add("run.target", `expected one of: ${TARGETS.join(", ")}`);
+  if (present(run.surface) && !SURFACES.includes(run.surface))
+    sink.add("run.surface", `expected one of: ${SURFACES.join(", ")}`);
+
+  if (present(run.stack)) {
+    if (!isMapping(run.stack))
+      sink.add("run.stack", "expected a mapping of `up`, `migrate`, `seed`, `down`");
+    else {
+      unknownKeys(sink, run.stack, "run.stack", STACK_KEYS);
+      for (const key of STACK_KEYS)
+        if (present(run.stack[key]) && !nonEmpty(run.stack[key]))
+          sink.add(`run.stack.${key}`, "expected a command");
+    }
+  }
+
+  if (present(run.accounts)) {
+    const accounts = run.accounts;
+    if (!isMapping(accounts))
+      sink.add("run.accounts", "expected a mapping of `print`, `restore`, `roles`");
+    else {
+      unknownKeys(sink, accounts, "run.accounts", ACCOUNT_KEYS);
+      if (present(accounts.print) && !nonEmpty(accounts.print))
+        sink.add("run.accounts.print", "expected a command");
+      if (present(accounts.restore)) {
+        if (!nonEmpty(accounts.restore)) sink.add("run.accounts.restore", "expected a command");
+        else if (!accounts.restore.includes("{id}"))
+          sink.add("run.accounts.restore", "expected `{id}` where the role id goes");
+      }
+      if (present(accounts.roles)) {
+        if (!Array.isArray(accounts.roles))
+          sink.add(
+            "run.accounts.roles",
+            "expected a list of `{ id: <role>, purpose: <what it is for> }`",
+          );
+        else {
+          const ids = new Set();
+          accounts.roles.forEach((role, n) => {
+            const path = `run.accounts.roles[${n}]`;
+            if (!isMapping(role))
+              return sink.add(path, "expected a mapping with `id` and `purpose`");
+            unknownKeys(sink, role, path, ROLE_KEYS);
+            if (typeof role.id !== "string" || !ROLE_ID.test(role.id))
+              sink.add(`${path}.id`, "required: letters, digits, `_` and `-` only");
+            else if (ids.has(role.id)) sink.add(`${path}.id`, `duplicate role \`${role.id}\``);
+            else ids.add(role.id);
+            if (!nonEmpty(role.purpose)) sink.add(`${path}.purpose`, "required: expected a string");
+          });
+        }
+      }
+    }
+  }
+
+  if (
+    present(run.version_endpoint) &&
+    !(nonEmpty(run.version_endpoint) && /^\/\S*$/.test(run.version_endpoint))
+  )
+    sink.add("run.version_endpoint", "expected a path on the build's own host, such as `/version`");
+
+  if (present(run.evidence)) {
+    if (!isMapping(run.evidence))
+      sink.add("run.evidence", "expected a mapping, such as `{ upload: none }`");
+    else {
+      unknownKeys(sink, run.evidence, "run.evidence", EVIDENCE_KEYS);
+      if (
+        present(run.evidence.upload) &&
+        !(typeof run.evidence.upload === "string" && UPLOAD.test(run.evidence.upload))
+      )
+        sink.add("run.evidence.upload", "expected `none` or `gh-release:<tag>`");
+    }
+  }
+  return sink.problems;
+}
+
 // ── Reading ─────────────────────────────────────────────────────────────────
 
 /**
@@ -468,7 +593,10 @@ function planProblems(sink, plan) {
  *
  * @param {string} path
  * @param {string} text
- * @returns {{config: Record<string, unknown>, problems: string[]}}
+ * @returns {{config: Record<string, unknown>, problems: string[], runProblems: string[]}}
+ *   `problems` are what `qa-plan` stops on (`configProblems`), `runProblems`
+ *   what `manual-qa` stops on (`runProblems`). A YAML syntax problem, or a
+ *   file that does not parse, is in both.
  */
 export function parseConfig(path, text) {
   if (path.endsWith(".json")) {
@@ -476,16 +604,21 @@ export function parseConfig(path, text) {
     try {
       parsed = JSON.parse(text);
     } catch (error) {
-      return {
-        config: {},
-        problems: [`not valid JSON: ${error instanceof Error ? error.message : error}`],
-      };
+      const problem = `not valid JSON: ${error instanceof Error ? error.message : error}`;
+      return { config: {}, problems: [problem], runProblems: [problem] };
     }
-    if (!isMapping(parsed)) return { config: {}, problems: ["the config must be a JSON object"] };
-    return { config: parsed, problems: configProblems(parsed) };
+    if (!isMapping(parsed)) {
+      const problem = "the config must be a JSON object";
+      return { config: {}, problems: [problem], runProblems: [problem] };
+    }
+    return { config: parsed, problems: configProblems(parsed), runProblems: runProblems(parsed) };
   }
   const { value, problems, lines } = parseYamlSubset(text);
-  return { config: value, problems: [...problems, ...configProblems(value, lines)] };
+  return {
+    config: value,
+    problems: [...problems, ...configProblems(value, lines)],
+    runProblems: [...problems, ...runProblems(value, lines)],
+  };
 }
 
 /**
@@ -493,7 +626,7 @@ export function parseConfig(path, text) {
  *
  * @param {(path: string) => string | null | undefined} read a repository
  *   file's text, or null when it is not there
- * @returns {{path: string | null, config: Record<string, any>, problems: string[]}}
+ * @returns {{path: string | null, config: Record<string, any>, problems: string[], runProblems: string[]}}
  *   `path` is null when the repository has no config: not an error, the
  *   readiness check says what to ask for.
  */
@@ -503,7 +636,7 @@ export function readQaConfig(read) {
     if (text === null || text === undefined) continue;
     return { path, ...parseConfig(path, text) };
   }
-  return { path: null, config: {}, problems: [] };
+  return { path: null, config: {}, problems: [], runProblems: [] };
 }
 
 /**
@@ -595,6 +728,87 @@ export function pickDelivery(config, { labels = [] } = {}) {
   };
 }
 
+const STACK_NEEDS = {
+  up: "the command that starts the QA Stack",
+  migrate: "the command that brings its database schema up to date",
+  seed: "the command that creates the QA Accounts, idempotent and refusing any non-local database",
+  down: "the command that stops what `up` started, and nothing else",
+};
+
+/**
+ * What `manual-qa` still needs before it runs a plan, from the config and,
+ * when one is given, the plan's Run brief. `needs` are asked for; a `note` is
+ * said, and the run goes on.
+ *
+ * @param {{path: string | null, config: Record<string, any>, runProblems?: string[]}} read
+ * @param {{brief: {target: string | null, surface: string | null, roles: string[]}} | null} [plan]
+ *   a plan `validatePlan` read with no problems
+ * @returns {{ready: boolean, needs: string[], notes: string[], run: {target: string | null, surface: string | null, roles: string[]}}}
+ */
+export function runReadiness({ path, config, runProblems: problems = [] }, plan = null) {
+  const brief = plan?.brief ?? null;
+  const run = isMapping(config.run) ? config.run : {};
+  const declared = Array.isArray(run.accounts?.roles) ? run.accounts.roles.map((r) => r.id) : [];
+  const effective = {
+    target: run.target ?? brief?.target ?? null,
+    surface: run.surface ?? brief?.surface ?? null,
+    roles: declared,
+  };
+  if (problems.length)
+    return {
+      ready: false,
+      needs: ["a config with no problems in `run:`: fix each one listed"],
+      notes: [],
+      run: effective,
+    };
+  const needs = [];
+  const notes = [];
+  if (path === null) notes.push(`no ${CONFIG_FILES.join(" / ")} at the repository root`);
+
+  for (const [key, choices, what] of [
+    [
+      "target",
+      TARGETS,
+      "`stack` (a local QA Stack this run starts) or `url` (a hosted test environment)",
+    ],
+    ["surface", SURFACES, "what the scenarios drive: `web`, `desktop`, `mobile` or `api`"],
+  ]) {
+    if (!effective[key]) needs.push(`run.${key}: ${what}`);
+    else if (present(run[key]) && brief?.[key] && run[key] !== brief[key])
+      needs.push(
+        `run.${key}: the config says \`${run[key]}\` but the plan's Run brief says \`${brief[key]}\`; ` +
+          `say which this run uses (${choices.join(" or ")})`,
+      );
+  }
+
+  if (!declared.length)
+    needs.push("run.accounts.roles: each role a scenario signs in as, by `id` and `purpose`");
+  const missing = (brief?.roles ?? []).filter((id) => !declared.includes(id));
+  if (declared.length && missing.length)
+    needs.push(
+      `run.accounts.roles: the plan signs in as ${missing.map((id) => `\`${id}\``).join(", ")}, ` +
+        "which the config does not declare",
+    );
+
+  const target = needs.some((n) => n.startsWith("run.target:")) ? null : effective.target;
+  if (target === "stack") {
+    const stack = isMapping(run.stack) ? run.stack : {};
+    for (const key of STACK_KEYS)
+      if (!present(stack[key])) needs.push(`run.stack.${key}: ${STACK_NEEDS[key]}`);
+    if (!present(run.accounts?.print))
+      needs.push("run.accounts.print: the command that prints each role's sign-in values");
+  }
+  if (!present(run.accounts?.restore))
+    notes.push(
+      "no `run.accounts.restore`: a scenario that needs a role's account restored is left for a person",
+    );
+  if (!present(run.version_endpoint))
+    notes.push(
+      "no `run.version_endpoint`: without `gh` access the build cannot be checked against the plan's head",
+    );
+  return { ready: needs.length === 0, needs, notes, run: effective };
+}
+
 // ── Hazard packs ────────────────────────────────────────────────────────────
 
 /**
@@ -631,6 +845,35 @@ const SECTIONS = /** @type {const} */ ([
 ]);
 
 /**
+ * Which lines sit inside a fenced code block, fences included. A `#` line
+ * inside one (a shell comment, say) is not a heading.
+ *
+ * @param {string[]} lines
+ * @returns {boolean[]}
+ */
+function fencedLines(lines) {
+  const fenced = [];
+  let fence = null;
+  for (const line of lines) {
+    const marker = /^\s{0,3}(`{3,}|~{3,})/.exec(line)?.[1];
+    if (fence === null && marker) {
+      fence = marker;
+      fenced.push(true);
+    } else if (fence !== null) {
+      fenced.push(true);
+      if (
+        marker &&
+        marker[0] === fence[0] &&
+        marker.length >= fence.length &&
+        line.trim() === marker
+      )
+        fence = null;
+    } else fenced.push(false);
+  }
+  return fenced;
+}
+
+/**
  * A Hazard pack: `when:` globs in frontmatter, then a *Rule out first* and a
  * *Capture rules* section (ADAPTER.md, "Hazard packs").
  *
@@ -664,25 +907,7 @@ export function parseHazardPack(text) {
   problems.push(...sink.problems);
 
   const body = lines.slice(end + 1);
-  // A `#` line inside a fenced code block (a shell comment, say) is not a heading.
-  const fenced = [];
-  let fence = null;
-  for (const line of body) {
-    const marker = /^\s{0,3}(`{3,}|~{3,})/.exec(line)?.[1];
-    if (fence === null && marker) {
-      fence = marker;
-      fenced.push(true);
-    } else if (fence !== null) {
-      fenced.push(true);
-      if (
-        marker &&
-        marker[0] === fence[0] &&
-        marker.length >= fence.length &&
-        line.trim() === marker
-      )
-        fence = null;
-    } else fenced.push(false);
-  }
+  const fenced = fencedLines(body);
   const headingLevel = (n) =>
     fenced[n] ? 0 : (/^ {0,3}(#{1,6})\s/.exec(body[n])?.[1].length ?? 0);
   for (const [key, title] of SECTIONS) {
@@ -745,6 +970,403 @@ export function matchHazards(read, config, changed) {
       });
   }
   return { packs, problems };
+}
+
+// ── QA Plans ────────────────────────────────────────────────────────────────
+
+/** ANATOMY.md's nine sections, in the order a plan carries them. */
+export const PLAN_SECTIONS = /** @type {const} */ ([
+  "Anchors",
+  "What automation already proves",
+  "Expected red herrings",
+  "Run brief",
+  "Setup",
+  "Scenarios",
+  "Sign-off checklist",
+  "Stop and do not merge if",
+  "Execution record",
+]);
+export const ANCHOR_LABELS = /** @type {const} */ ([
+  "Subject issue",
+  "Pull request",
+  "Merge-base",
+  "Head",
+]);
+export const BRIEF_LABELS = /** @type {const} */ ([
+  "Target",
+  "Surface",
+  "Build",
+  "Roles",
+  "Credentials",
+  "Capture rules",
+]);
+/** Each scenario's fields, in order; the optional rule-out list comes last. */
+export const SCENARIO_LABELS = /** @type {const} */ ([
+  "Why only a human can prove it",
+  "Signs in as",
+  "Steps",
+  "Expected result",
+  "A failure means",
+]);
+const RULE_OUT = "If this fails, first rule out";
+export const NOT_RUN = "_Not run yet._";
+
+const MARKER = /^<!-- qa-plan format=(\d+) subject=#(\d+) pr=#(\d+) -->$/;
+const FULL_SHA = /\b[0-9a-f]{40}(?:[0-9a-f]{24})?\b/;
+const LABEL = /^\s*(?:[-*]\s+)?\*\*([^*]+?):\*\*\s*(.*)$/;
+const TAG = /\[(?:observed|reconstructed)\]/g;
+
+const NO_CREDENTIALS =
+  "a plan carries role ids, at most their emails, and where the values come from, never the values " +
+  '(ANATOMY.md, "No credentials travel with a plan")';
+
+/** Shapes a secret has wherever it appears. */
+const SECRET_SHAPES = [
+  ["a GitHub token", /\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})/],
+  ["an API key", /\bsk-[A-Za-z0-9_-]{20,}/],
+  ["a cloud access key", /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/],
+  ["a chat-service token", /\bxox[abprs]-[A-Za-z0-9-]{10,}/],
+  ["a JSON Web Token", /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/],
+  ["a private key", /-----BEGIN [A-Z ]*PRIVATE KEY-----/],
+  ["a bearer token", /\bBearer\s+[A-Za-z0-9._~+/-]{16,}=*/],
+  ["a password inside an address", /\b[a-z][a-z0-9+.-]*:\/\/[^\s/:@]+:[^\s/@]+@/i],
+];
+
+/** Names a sign-in form gives its secret fields. */
+const SECRET_NAME =
+  "(?:password|passphrase|passcode|passwd|pwd|secret|client[ _-]?secret|" +
+  "(?:(?:access|auth|api|bearer|refresh|session|personal access)[ _-]?)?token|" +
+  "(?:api|access|secret|private)[ _-]?key|session[ _-]?(?:id|cookie)|cookie|otp|" +
+  "one[ -]time (?:code|password)|(?:recovery|backup|2fa|mfa|verification) code|pin)";
+const LITERAL = "(?:`([^`]+)`|\"([^\"]+)\"|'([^']+)')";
+const NAMED_VALUE = new RegExp(
+  `\\b${SECRET_NAME}\\b[*_]*\\s*(?:[:=]|\\bis\\b)\\s*[*_]*\\s*(?:${LITERAL}|([^\\s,;)]+)\\s*(?:$|[,;)]))`,
+  "i",
+);
+const NAMED_LITERAL = new RegExp(`\\b${SECRET_NAME}\\b[*_]*\\s+${LITERAL}`, "i");
+const TYPED_INTO = new RegExp(
+  `\\b(?:type|enter|fill in|paste|input|use)\\s+${LITERAL}\\s+(?:in|into|as|for)\\s+(?:the\\s+)?[*_]*${SECRET_NAME}\\b`,
+  "i",
+);
+const TABLE_SEPARATOR = /^\s*\|(?:\s*:?-+:?\s*\|)+\s*$/;
+const SECRET_HEADER = new RegExp(`^\\s*[*_\`]*${SECRET_NAME}[*_\`]*\\s*$`, "i");
+/** What stands in for a value without being one. */
+const PLACEHOLDER =
+  /^(?:<[^>]*>|\{[^}]*\}|\[[^\]]*\]|\*+|•+|\.{3}|…|x{3,}|redacted|none|n\/a|not shown|hidden|-+|accounts\.(?:print|restore)\b.*)$/i;
+/** A bare word after `password:` is a value only if it looks like one. */
+const looksSecret = (word) => word.length >= 6 && /[0-9!@#$%^&*+=_~-]/.test(word);
+
+/**
+ * The lines of a plan that carry what a sign-in form would accept as a
+ * secret. A heuristic: it names the line and the kind, never the value.
+ *
+ * @param {string[]} lines
+ * @returns {string[]}
+ */
+export function credentialProblems(lines) {
+  const problems = [];
+  let secretColumns = null; // the columns of the current table named for a secret
+  lines.forEach((line, n) => {
+    const flag = (kind) => problems.push(`line ${n + 1}: looks like ${kind}; ${NO_CREDENTIALS}`);
+    if (!/^\s*\|.*\|\s*$/.test(line)) secretColumns = null;
+    else if (TABLE_SEPARATOR.test(line)) return;
+    else {
+      const cells = line.trim().slice(1, -1).split("|");
+      // A table's first row is its header, when a separator row follows it.
+      if (secretColumns === null)
+        secretColumns = TABLE_SEPARATOR.test(lines[n + 1] ?? "")
+          ? cells.flatMap((cell, i) => (SECRET_HEADER.test(cell) ? [i] : []))
+          : [];
+      else if (
+        secretColumns.some((i) => {
+          const value = (cells[i] ?? "").replace(/[`*_]/g, "").trim();
+          return value !== "" && !PLACEHOLDER.test(value);
+        })
+      )
+        return flag("a credential in a table column named for one");
+    }
+
+    const shape = SECRET_SHAPES.find(([, pattern]) => pattern.test(line));
+    if (shape) return flag(shape[0]);
+    for (const pattern of [NAMED_VALUE, NAMED_LITERAL, TYPED_INTO]) {
+      const match = pattern.exec(line);
+      if (!match) continue;
+      const [literal, bare] = [match[1] ?? match[2] ?? match[3], match[4]];
+      const value = (literal ?? bare ?? "").trim();
+      if (value === "" || PLACEHOLDER.test(value)) continue;
+      if (literal === undefined && !looksSecret(value)) continue;
+      return flag("a credential value");
+    }
+  });
+  return problems;
+}
+
+/**
+ * Read a QA Plan against ANATOMY.md: the marker, the nine sections in order,
+ * every label each section requires, the scenarios numbered from S1, and no
+ * credentials. `manual-qa` runs nothing from a plan with a problem.
+ *
+ * @param {string} text
+ * @returns {{plan: Record<string, any>, problems: string[]}}
+ */
+export function validatePlan(text) {
+  const problems = [];
+  const lines = String(text).replace(/^﻿/, "").split(/\r?\n/);
+  const at = (n, message) => problems.push(`line ${n + 1}: ${message}`);
+  const plan = {
+    format: null,
+    subject: null,
+    pr: null,
+    title: null,
+    anchors: { subjectIssue: null, pullRequest: null, mergeBase: null, head: null },
+    brief: { target: null, surface: null, versionEndpoint: null, roles: [] },
+    scenarios: [],
+    executed: false,
+  };
+
+  const marker = MARKER.exec((lines[0] ?? "").trim());
+  if (!marker) {
+    at(
+      0,
+      "expected the marker `<!-- qa-plan format=1 subject=#<n> pr=#<n> -->`: this is not a QA Plan",
+    );
+    problems.push(...credentialProblems(lines));
+    return { plan, problems };
+  }
+  [plan.format, plan.subject, plan.pr] = marker.slice(1).map(Number);
+  if (plan.format !== 1)
+    at(0, `format=${plan.format}: this copy of ANATOMY.md reads format=1 only`);
+
+  const titleAt = lines.findIndex((line, n) => n > 0 && line.trim() !== "");
+  const title = /^# QA Plan: (\S.*)$/.exec(lines[titleAt]?.trim() ?? "");
+  if (!title)
+    at(Math.max(titleAt, 1), "expected the title `# QA Plan: <the subject issue's title>`");
+  else plan.title = title[1].trim();
+
+  const fenced = fencedLines(lines);
+  const headings = [];
+  lines.forEach((line, n) => {
+    const match = !fenced[n] && /^## (.+?)\s*#*\s*$/.exec(line);
+    if (match) headings.push({ title: match[1].trim(), n });
+  });
+  const sections = {};
+  headings.forEach((heading, i) => {
+    if (!PLAN_SECTIONS.includes(heading.title))
+      return at(
+        heading.n,
+        `\`## ${heading.title}\` is not a QA Plan section (ANATOMY.md: ${PLAN_SECTIONS.join(" · ")})`,
+      );
+    if (sections[heading.title]) return at(heading.n, `a second \`## ${heading.title}\``);
+    sections[heading.title] = {
+      n: heading.n,
+      from: heading.n + 1,
+      to: headings[i + 1]?.n ?? lines.length,
+    };
+  });
+  for (const name of PLAN_SECTIONS) if (!sections[name]) problems.push(`no \`## ${name}\` section`);
+  const order = Object.keys(sections);
+  if (order.join("\n") !== PLAN_SECTIONS.filter((name) => sections[name]).join("\n"))
+    problems.push(`the sections are out of order: ANATOMY.md gives ${PLAN_SECTIONS.join(" · ")}`);
+
+  const bodyOf = (name) => lines.slice(sections[name].from, sections[name].to);
+  const textOf = (name) =>
+    bodyOf(name)
+      .filter((line) => line.trim() !== "")
+      .join("\n")
+      .trim();
+  for (const name of order)
+    if (textOf(name) === "")
+      at(sections[name].n, `\`## ${name}\` is empty: a section with nothing to say says \`None.\``);
+
+  /** The `**Label:**` lines in a range, each with its text up to the next label. */
+  const labelsIn = (from, to) => {
+    const found = [];
+    for (let n = from; n < to; n += 1) {
+      const match = !fenced[n] && LABEL.exec(lines[n]);
+      if (match) found.push({ label: match[1].trim(), n, inline: match[2].trim() });
+    }
+    found.forEach((entry, i) => {
+      entry.text = [entry.inline, ...lines.slice(entry.n + 1, found[i + 1]?.n ?? to)]
+        .join("\n")
+        .trim();
+    });
+    return found;
+  };
+  const plainWord = (value) =>
+    value
+      .replace(/[`*_]/g, "")
+      .trim()
+      .split(/[\s,;:()]+/)[0] ?? "";
+
+  if (sections.Anchors) {
+    const { n, from, to } = sections.Anchors;
+    const found = labelsIn(from, to);
+    const get = (label) => found.find((entry) => entry.label === label);
+    for (const label of ANCHOR_LABELS) if (!get(label)) at(n, `Anchors lacks **${label}:**`);
+    for (const [label, key, markerValue, name] of [
+      ["Subject issue", "subjectIssue", plan.subject, "subject"],
+      ["Pull request", "pullRequest", plan.pr, "pr"],
+    ]) {
+      const entry = get(label);
+      if (!entry) continue;
+      const number = /^`?#(\d+)/.exec(entry.inline);
+      if (!number) at(entry.n, `**${label}:** expected \`#<n>\``);
+      else {
+        plan.anchors[key] = Number(number[1]);
+        if (Number(number[1]) !== markerValue)
+          at(
+            entry.n,
+            `**${label}:** #${number[1]} differs from the marker's ${name}=#${markerValue}`,
+          );
+      }
+    }
+    for (const [label, key] of [
+      ["Merge-base", "mergeBase"],
+      ["Head", "head"],
+    ]) {
+      const entry = get(label);
+      if (!entry) continue;
+      const sha = FULL_SHA.exec(entry.inline);
+      if (!sha) at(entry.n, `**${label}:** expected the full commit SHA`);
+      else plan.anchors[key] = sha[0];
+    }
+  }
+
+  for (const name of ["What automation already proves", "Expected red herrings"]) {
+    if (!sections[name] || textOf(name) === "None.") continue;
+    const { n, from, to } = sections[name];
+    const bullets = [];
+    for (let i = from; i < to; i += 1) {
+      if (fenced[i]) continue;
+      if (/^[-*]\s/.test(lines[i])) bullets.push({ n: i, text: lines[i] });
+      else if (bullets.length && /^\s+\S/.test(lines[i])) bullets.at(-1).text += `\n${lines[i]}`;
+    }
+    if (!bullets.length && textOf(name) !== "")
+      at(n, `\`## ${name}\`: expected one bullet per entry, or \`None.\``);
+    for (const bullet of bullets)
+      if ((bullet.text.match(TAG) ?? []).length !== 1)
+        at(bullet.n, "expected exactly one tag, `[observed]` or `[reconstructed]`");
+  }
+
+  if (sections["Run brief"]) {
+    const { n, from, to } = sections["Run brief"];
+    const found = labelsIn(from, to);
+    const get = (label) => found.find((entry) => entry.label === label);
+    for (const label of BRIEF_LABELS)
+      if (!get(label)) at(n, `Run brief lacks **${label}:**`);
+      else if (get(label).text === "") at(get(label).n, `**${label}:** is empty`);
+    for (const [label, key, choices] of [
+      ["Target", "target", TARGETS],
+      ["Surface", "surface", SURFACES],
+    ]) {
+      const entry = get(label);
+      if (!entry || entry.text === "") continue;
+      const word = plainWord(entry.inline);
+      if (!choices.includes(word))
+        at(entry.n, `**${label}:** expected one of: ${choices.join(", ")}`);
+      else plan.brief[key] = word;
+    }
+    const build = get("Build");
+    if (build && plan.anchors.head && !build.text.includes(plan.anchors.head))
+      at(build.n, "**Build:** expected the head SHA from Anchors");
+    plan.brief.versionEndpoint = build ? (/`(\/[^`\s]*)`/.exec(build.text)?.[1] ?? null) : null;
+    const roles = get("Roles");
+    if (roles && roles.text !== "" && roles.text !== "None.") {
+      plan.brief.roles = [
+        ...new Set([...roles.text.matchAll(/`([A-Za-z0-9][A-Za-z0-9_-]*)`\s*:/g)].map((m) => m[1])),
+      ];
+      if (!plan.brief.roles.length) at(roles.n, "**Roles:** name each role as `id`: its purpose");
+    }
+  }
+
+  if (sections.Scenarios) {
+    const { n, from, to } = sections.Scenarios;
+    const heads = [];
+    for (let i = from; i < to; i += 1) {
+      const match = !fenced[i] && /^### (.*)$/.exec(lines[i]);
+      if (match) heads.push({ text: match[1].trim(), n: i });
+    }
+    if (!heads.length && textOf("Scenarios") !== "")
+      at(n, "no `### S1: …` scenario: a plan with no scenarios is not written (empty Residue)");
+    heads.forEach((head, i) => {
+      const match = /^S(\d+):\s*(\S.*)$/.exec(head.text);
+      if (!match) return at(head.n, "expected `### S<n>: <what is verified>`");
+      const id = `S${match[1]}`;
+      if (Number(match[1]) !== i + 1)
+        at(head.n, `expected S${i + 1} here: scenarios are numbered from S1 with no gaps`);
+      const found = labelsIn(head.n + 1, heads[i + 1]?.n ?? to);
+      const position = (label) => found.findIndex((entry) => entry.label === label);
+      const get = (label) => found[position(label)];
+      for (const label of SCENARIO_LABELS) {
+        if (position(label) === -1) at(head.n, `${id} lacks **${label}:**`);
+        else if (get(label).text === "") at(get(label).n, `${id}: **${label}:** is empty`);
+      }
+      const positions = [...SCENARIO_LABELS, RULE_OUT].map(position).filter((p) => p !== -1);
+      if (positions.some((p, k) => k > 0 && p < positions[k - 1]))
+        at(head.n, `${id}: its fields are out of order (ANATOMY.md, "Scenarios")`);
+      const steps = get("Steps");
+      if (steps && steps.text !== "" && !/^\s*\d+\.\s+\S/m.test(steps.text))
+        at(steps.n, `${id}: **Steps:** expected a numbered list`);
+      const signs = get("Signs in as");
+      const who = signs ? plainWord(signs.inline) : null;
+      if (signs && who && who !== "nobody" && !plan.brief.roles.includes(who))
+        at(signs.n, `${id} signs in as \`${who}\`, which the Run brief's **Roles:** does not name`);
+      plan.scenarios.push({ id, title: match[2].trim(), signsInAs: who || null });
+    });
+  }
+
+  if (sections["Sign-off checklist"]) {
+    const body = bodyOf("Sign-off checklist").join("\n");
+    for (const { id } of plan.scenarios)
+      if (!new RegExp(`^\\s*[-*]\\s+\\[[ xX]\\]\\s+${id}\\b`, "m").test(body))
+        at(sections["Sign-off checklist"].n, `no \`- [ ] ${id}: …\` box for ${id}`);
+  }
+
+  if (sections["Execution record"]) plan.executed = textOf("Execution record") !== NOT_RUN;
+  problems.push(...credentialProblems(lines));
+  return { plan, problems };
+}
+
+// ── Host rule ───────────────────────────────────────────────────────────────
+
+/**
+ * Whether a run may sign in at an address. A `stack` run signs in only to a
+ * local development host: `localhost`, `127.0.0.1`, `[::1]`, `*.localhost`
+ * or `*.test`. Anything else is a stop.
+ *
+ * @param {string} address a URL, or a host with an optional port
+ * @returns {{verdict: "local" | "stop", host: string | null, why: string}}
+ */
+export function hostVerdict(address) {
+  const text = String(address ?? "").trim();
+  let url;
+  try {
+    url = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(text) ? text : `http://${text}`);
+  } catch {
+    return { verdict: "stop", host: null, why: "not an address" };
+  }
+  const host = url.hostname.toLowerCase();
+  if (url.username || url.password)
+    return {
+      verdict: "stop",
+      host,
+      why: "the address carries sign-in values; they never go in an address",
+    };
+  if (!["http:", "https:"].includes(url.protocol))
+    return { verdict: "stop", host, why: `\`${url.protocol}\` is not a web address` };
+  const local =
+    host === "localhost" ||
+    host === "127.0.0.1" ||
+    host === "[::1]" ||
+    host.endsWith(".localhost") ||
+    host.endsWith(".test");
+  return local
+    ? { verdict: "local", host, why: "a local development host" }
+    : {
+        verdict: "stop",
+        host,
+        why: "not a local development host (`localhost`, `127.0.0.1`, `[::1]`, `*.localhost`, `*.test`)",
+      };
 }
 
 // ── Writing ─────────────────────────────────────────────────────────────────
@@ -849,6 +1471,10 @@ export function renderConfigUpdate(loaded, answers) {
     );
   if (!isMapping(answers)) throw new Error("the answers must be a JSON object");
   const merged = mergeAnswers(loaded.config, answers);
+  if (Object.hasOwn(answers, "run")) {
+    const problems = runProblems(merged);
+    if (problems.length) throw new Error(`the answers have problems:\n- ${problems.join("\n- ")}`);
+  }
   const path = loaded.path ?? CONFIG_FILES[0];
   if (path.endsWith(".json")) {
     const problems = configProblems(merged);
@@ -903,9 +1529,37 @@ export function main(argv, io = {}) {
   const usage = {
     code: 2,
     out:
-      "usage: node adapter.mjs check --for plan | hazards < changed-paths | " +
+      "usage: node adapter.mjs check --for plan | check --for run [--plan <file>] | " +
+      "plan [<file>] < plan.md | host <url> | hazards < changed-paths | " +
       "delivery [--label <name>]… | render [--write] < answers.json   [--repo <dir>]\n",
   };
+  // A plan is the person's file, wherever they keep it: read from the working
+  // directory, not from the repository root.
+  const readFile =
+    io.readFile ??
+    ((path) => {
+      try {
+        return readFileSync(resolve(path), "utf8");
+      } catch {
+        return null;
+      }
+    });
+  const readPlan = (path) => {
+    const text = path === undefined ? stdin() : readFile(path);
+    if (text === null) return { plan: null, problems: [`${path}: no such file`] };
+    return validatePlan(text);
+  };
+
+  if (command === "plan") {
+    const result = readPlan(argv[1] && !argv[1].startsWith("--") ? argv[1] : undefined);
+    return { code: result.problems.length ? 1 : 0, out: json(result) };
+  }
+  if (command === "host") {
+    const address = argv[1];
+    if (address === undefined || address.startsWith("--")) return usage;
+    const result = hostVerdict(address);
+    return { code: result.verdict === "stop" ? 1 : 0, out: json(result) };
+  }
 
   if (command === "render") {
     try {
@@ -919,6 +1573,27 @@ export function main(argv, io = {}) {
   }
   if (command === "check") {
     const section = option(argv, "--for")[0];
+    if (section === "run") {
+      const planPath = option(argv, "--plan")[0];
+      const planned = planPath === undefined ? null : readPlan(planPath);
+      const readiness = runReadiness(loaded, planned?.problems.length ? null : planned?.plan);
+      const failed = loaded.runProblems.length > 0 || (planned?.problems.length ?? 0) > 0;
+      return {
+        code: failed ? 1 : 0,
+        out: json({
+          path: loaded.path,
+          problems: loaded.runProblems,
+          ...(planned ? { planProblems: planned.problems } : {}),
+          effective: loaded.runProblems.length
+            ? null
+            : {
+                working_dir: effectiveConfig(loaded.config).working_dir,
+                run: effectiveConfig(loaded.config).run,
+              },
+          readiness,
+        }),
+      };
+    }
     if (section !== "plan") return usage;
     const readiness = planReadiness(loaded);
     return {

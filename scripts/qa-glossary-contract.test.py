@@ -1,8 +1,8 @@
-"""Contract test: the QA terms read the same in GLOSSARY.md and in the qa-plan skill.
+"""Contract test: the QA terms read the same in GLOSSARY.md and in both QA skills.
 
 A Portable skill must carry its own vocabulary (it links nothing outside its
-folder), so `.claude/skills/qa-plan/DESIGN.md` repeats the eight terms the
-root glossary defines under "Manual QA". Two copies drift unless something
+folder), so the `DESIGN.md` of `qa-plan` and of `manual-qa` each repeat the
+eight terms the root glossary defines under "Manual QA". Two copies drift unless something
 compares them, so this test does: same terms, same definitions, word for word.
 """
 
@@ -11,7 +11,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 GLOSSARY = ROOT / "GLOSSARY.md"
-DESIGN = ROOT / ".claude" / "skills" / "qa-plan" / "DESIGN.md"
+DESIGNS = [ROOT / ".claude" / "skills" / skill / "DESIGN.md" for skill in ("qa-plan", "manual-qa")]
 TERMS = [
     "QA Plan",
     "Residue",
@@ -29,8 +29,8 @@ def glossary_terms() -> dict[str, str]:
     return dict(re.findall(r"^\*\*(.+?)\*\*:\n(.+)$", section, re.MULTILINE))
 
 
-def design_terms() -> dict[str, str]:
-    section = DESIGN.read_text(encoding="utf-8").split("\n## Glossary\n", 1)[1].split("\n## ", 1)[0]
+def design_terms(design: Path) -> dict[str, str]:
+    section = design.read_text(encoding="utf-8").split("\n## Glossary\n", 1)[1].split("\n## ", 1)[0]
     return dict(re.findall(r"^\*\*(.+?)\*\*: (.+)$", section, re.MULTILINE))
 
 
@@ -38,11 +38,12 @@ def test_glossary_defines_the_eight_qa_terms() -> None:
     assert list(glossary_terms()) == TERMS
 
 
-def test_qa_plan_design_repeats_them_word_for_word() -> None:
-    assert design_terms() == glossary_terms()
+def test_each_qa_skill_design_repeats_them_word_for_word() -> None:
+    for design in DESIGNS:
+        assert design_terms(design) == glossary_terms(), design.parent.name
 
 
 if __name__ == "__main__":
     test_glossary_defines_the_eight_qa_terms()
-    test_qa_plan_design_repeats_them_word_for_word()
+    test_each_qa_skill_design_repeats_them_word_for_word()
     print("qa glossary contract: ok")
