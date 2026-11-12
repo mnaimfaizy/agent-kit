@@ -73,6 +73,29 @@ test("the Run brief names target, surface, build, roles, credentials and capture
   assert.match(brief, /accounts\.print/);
 });
 
+test("ANATOMY.md states how the checker reads Target, Surface and Signs in as", () => {
+  const shape = section("Shape");
+  assert.match(shape, /### First-word values/);
+  for (const label of ["Target:", "Surface:", "Signs in as:"])
+    assert.ok(shape.includes(`**${label}**`), `First-word values does not name **${label}**`);
+  assert.match(shape, /Backticks, `\*` and `_` are dropped/);
+  assert.match(shape, /space, comma, semicolon, colon or parenthesis/);
+  assert.match(shape, /Nothing else is stripped/);
+  assert.match(shape, /reads as `web\.` and fails/);
+  const brief = section("Run brief");
+  assert.match(
+    brief,
+    /\*\*Surface:\*\* exactly one of .*\[first-word value\]\(#first-word-values\)/,
+  );
+  const scenarios = section("Scenarios");
+  assert.match(
+    scenarios,
+    /\*\*Signs in as:\*\* a \[first-word value\]\(#first-word-values\): a role id the Run brief's \*\*Roles:\*\* names, or `nobody`/,
+  );
+  assert.match(scenarios, /first word `the`/);
+  assert.match(scenarios, /first word `manager\.`/);
+});
+
 test("no credentials travel with a plan", () => {
   const brief = section("Run brief");
   assert.match(brief, /### No credentials travel with a plan/);

@@ -28,6 +28,16 @@ No other `##` section. A section with nothing to say says so in one line (`None.
 
 The marker is how a revision finds the plan it replaces (on a tracker issue or a PR comment) and how `manual-qa` recognises a plan. `format` is this file's version; `subject` and `pr` are the anchors below.
 
+### First-word values
+
+Some labels take a word from a fixed set: **Target:**, **Surface:** and **Signs in as:**. For these, the value is the first word after the label, read like this:
+
+1. Backticks, `*` and `_` are dropped, so `` `web` `` and `web` are the same word.
+2. The word ends at the first space, comma, semicolon, colon or parenthesis. Anything after it is prose.
+3. Nothing else is stripped. A period or other mark stuck to the word stays part of it.
+
+So `` - **Surface:** `web` `` and `- **Surface:** web, in Chrome` read as `web`. ``- **Surface:** `web`.`` reads as `web.` and fails the check. Put the word first, with nothing stuck to it.
+
 ## Anchors
 
 The four facts that pin the plan to one build of one change. A bullet each, with these labels:
@@ -58,8 +68,8 @@ Failures the tester will see that are not caused by this change, so they are not
 
 Everything a run needs to start, from the plan alone. A bullet each, with these labels:
 
-- **Target:** `stack` (a local QA Stack the tester starts) or `url` (a hosted test environment someone else deployed). For `url`, also the expected test-environment label in its hostname (`staging`, `qa`, `preview`, …), never a full production-looking address.
-- **Surface:** `web`, `desktop`, `mobile` or `api`.
+- **Target:** `stack` (a local QA Stack the tester starts) or `url` (a hosted test environment someone else deployed). For `url`, also the expected test-environment label in its hostname (`staging`, `qa`, `preview`, …), never a full production-looking address. `stack` or `url` is a [first-word value](#first-word-values).
+- **Surface:** exactly one of `web`, `desktop`, `mobile` or `api`, as a [first-word value](#first-word-values).
 - **Build:** the head SHA, and the version endpoint (`/version`) when the app has one, so the tester can check they are testing the build this plan is about.
 - **Roles:** each role the scenarios sign in as, by id and purpose (`admin`: manages members). At most a role's email beside it; never a password or token.
 - **Credentials:** where the role values come from. With the repository: the config's `accounts.print` command. Without it: ask the developer, and paste them into chat, never into the plan.
@@ -78,7 +88,7 @@ What the tester does once before the first scenario, in order: data to put in pl
 The **Residue**: only what a passing CI run does not establish. One `###` heading per scenario, numbered from `S1` with no gaps: `### S1: <what is verified>`. Each carries these labels, in this order:
 
 - **Why only a human can prove it:** what no suite in _What automation already proves_ covers, and why automation cannot or does not.
-- **Signs in as:** a role id from the Run brief, or `nobody` (signed out).
+- **Signs in as:** a [first-word value](#first-word-values): a role id the Run brief's **Roles:** names, or `nobody` (signed out). Prose may follow the word. Write `` `admin`, after S1 creates the new user ``, not `the new user from S1, then admin` (first word `the`), and not `` `manager`. `` (first word `manager.`).
 - **Steps:** a numbered list. Each step quotes the real label, button text or copy from the source (`Click **Save changes**`), never an imagined one.
 - **Expected result:** what the tester sees when it works, in the product's own words.
 - **A failure means:** what is broken if the expected result does not appear, so a failure is reported as a finding and not a symptom.
