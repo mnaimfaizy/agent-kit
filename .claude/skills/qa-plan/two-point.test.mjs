@@ -709,12 +709,12 @@ test("value flags need a value", async () => {
 
 // The shell is the platform's default, the rule ADAPTER.md states (#148).
 test("a suite command runs in cmd.exe (%ComSpec%) on Windows and /bin/sh elsewhere", () => {
-  const comspec = "C:\Windows\System32\cmd.exe";
+  const comspec = String.raw`C:\Windows\System32\cmd.exe`;
   assert.equal(suiteShell("win32", { ComSpec: comspec }), comspec);
   assert.equal(suiteShell("win32", {}), "cmd.exe");
   // Never bash, even when Git for Windows or WSL puts one on PATH.
   assert.equal(
-    suiteShell("win32", { ComSpec: comspec, PATH: "C:\Program Files\Git\bin" }),
+    suiteShell("win32", { ComSpec: comspec, PATH: String.raw`C:\Program Files\Git\bin` }),
     comspec,
   );
   for (const platform of ["linux", "darwin", "freebsd"])
