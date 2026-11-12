@@ -672,6 +672,11 @@ test("a scenario with two Sessions reads, and lists both", () => {
     "  1. In session A, open **Members**.\n     1. Wait for the list.",
   ]);
   assert.deepEqual(problemsOf(nested), []);
+  // A sibling step shifted by up to 3 spaces is still top-level, so it must name a session.
+  const shifted = withSessions(undefined, ["  2. In B, click", "   2. Click"]);
+  assert.deepEqual(problemsOf(shifted), [
+    `line ${lineOf(shifted, "   2. Click")}: S1: step 2 names no session: in a multi-session scenario, each step starts \`In session <name>,\``,
+  ]);
 });
 
 test("both **Signs in as:** and **Sessions:**, or neither, is a problem", () => {

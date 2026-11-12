@@ -260,6 +260,51 @@ test("a multi-session scenario with a session whose account's creator did not pa
   );
 });
 
+test("a note naming any blocked session is the reason", () => {
+  // S1 creates `temp-user`, S2 creates `other-user`, and S3's sessions sign in as both.
+  const S3 = [
+    "### S3: Each new user sees the other's change",
+    "",
+    "- **Why only a human can prove it:** no suite holds two signed-in browsers at once.",
+    "- **Sessions:** A = `temp-user`, B = `other-user`",
+    "- **Steps:**",
+    "  1. In session A, open **Members**.",
+    "  2. In session B, open **Members**.",
+    "- **Expected result:** both sessions show **Members**.",
+    "- **A failure means:** a new user cannot open the members page.",
+    "",
+    "## Sign-off checklist",
+  ].join("\n");
+  const plan = ACCOUNT_PLAN.replace(
+    "- **Signs in as:** `temp-user` (created in S1)\n",
+    "- **Signs in as:** `temp-user` (created in S1)\n- **Creates:** `other-user`\n",
+  )
+    .replace("## Sign-off checklist", S3)
+    .replace(
+      "- [ ] S2: A signed-out visitor cannot open the members page",
+      "- [ ] S2: A signed-out visitor cannot open the members page\n- [ ] S3: Each new user sees the other's change",
+    );
+  assert.deepEqual(validatePlan(plan).problems, []);
+  const S3_ROW = (result, note) =>
+    `| S3: Each new user sees the other's change | ${result} | none | ${note} |`;
+  const rows = (note) => [
+    S1_ROW("FAIL", "no invite appeared"),
+    S2_ROW("left for a person", LEFT_NOTE),
+    S3_ROW("left for a person", note),
+  ];
+  // Either blocked session's reason is enough.
+  for (const note of [
+    "session A signs in as `temp-user`, which S1 creates, and S1 did not pass",
+    "session B signs in as `other-user`, which S2 creates, and S2 did not pass",
+  ])
+    assert.deepEqual(againstPlan(rows(note), plan), [], note);
+  // With neither, the first blocked session's reason is asked for.
+  const want = "session A signs in as `temp-user`, which S1 creates, and S1 did not pass";
+  assert.deepEqual(againstPlan(rows("could not sign in"), plan), [
+    `S3 ${want}: its result is _left for a person_, with the note _${want}_`,
+  ]);
+});
+
 test("a report checked against a plan it did not run is a problem", () => {
   assert.match(
     againstPlan([S1_ROW("PASS", "ok")])[0],

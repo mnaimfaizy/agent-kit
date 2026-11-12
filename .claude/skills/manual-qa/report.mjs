@@ -253,22 +253,27 @@ export function reportPlanProblems(report, planText) {
   );
   const results = new Map(report.results.map((row) => [row.id, row]));
   for (const { id, sessions } of plan.scenarios) {
-    // The first session whose Scenario account's creator did not pass.
-    const blocked = sessions.find((session) => {
+    // Every session whose Scenario account's creator did not pass: a note naming any one is the reason.
+    const blocked = sessions.filter((session) => {
       const creator = creatorOf.get(session.id);
       return creator !== undefined && results.get(creator).result !== "PASS";
     });
-    if (!blocked) continue;
-    const account = blocked.id;
-    const creator = creatorOf.get(account);
-    const who = blocked.name === null ? "" : `session ${blocked.name} `;
-    const reason = `${who}signs in as \`${account}\`, which ${creator} creates, and ${creator} did not pass`;
+    if (!blocked.length) continue;
     const row = results.get(id);
-    const said = new RegExp(`signs in as \`?${account}\`?, which ${creator} creates`, "i");
+    const said = blocked.some(({ id: account }) =>
+      new RegExp(`signs in as \`?${account}\`?, which ${creatorOf.get(account)} creates`, "i").test(
+        row.notes,
+      ),
+    );
+    // The reason asked for, when the note gives none: the first blocked session's.
+    const [{ name, id: account }] = blocked;
+    const creator = creatorOf.get(account);
+    const who = name === null ? "" : `session ${name} `;
+    const reason = `${who}signs in as \`${account}\`, which ${creator} creates, and ${creator} did not pass`;
     // A stop note counts only on a scenario after the stop, which the run never reached.
     const stop = /(?<![A-Za-z])the run stopped at S(\d+)/i.exec(row.notes);
     const stoppedBefore = stop !== null && Number(stop[1]) < Number(id.slice(1));
-    if (row.result !== "left for a person" || !(said.test(row.notes) || stoppedBefore))
+    if (row.result !== "left for a person" || !(said || stoppedBefore))
       problems.push(
         `${id} ${reason}: its result is _left for a person_, with the note _${reason}_`,
       );

@@ -1317,11 +1317,20 @@ export function validatePlan(text) {
     const numbered = [];
     for (let n = from; n < to; n += 1) {
       const step = !fenced[n] && /^(\s*)(\d+)\.\s+(.*)$/.exec(lines[n]);
-      if (step) numbered.push({ n, indent: step[1].length, number: step[2], text: step[3] });
+      if (step)
+        numbered.push({
+          n,
+          indent: step[1].length,
+          column: lines[n].length - step[3].length,
+          number: step[2],
+          text: step[3],
+        });
     }
-    const top = Math.min(...numbered.map((step) => step.indent));
+    // A step is top-level when it starts left of the first step's text; a list nested
+    // under a step starts at or past it (CommonMark lets siblings shift up to 3 spaces).
+    const column = numbered[0]?.column ?? 0;
     for (const step of numbered) {
-      if (step.indent !== top) continue;
+      if (step.indent >= column) continue;
       const session = /^In (?:session )?[`*_]*([A-Za-z])[`*_]*,/.exec(step.text)?.[1];
       if (session === undefined)
         at(
