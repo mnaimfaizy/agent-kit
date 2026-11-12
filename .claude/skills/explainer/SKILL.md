@@ -135,8 +135,11 @@ that is wrong for these pages (see the tooltip rule in `BUILD.md`) ships unnotic
 ### 7. Read the builder's report
 
 Check its **Gate**, **Verified how**, **Contradictions found**, and **Left for the caller**
-sections. Relay contradictions and anything left open to the user. A report claiming a visual
-review the builder could not perform is a defect in the report — say so.
+sections. Relay contradictions and anything left open to the user. A contradiction marked as a
+brief error means a fact in your brief is wrong and the page renders source instead. Either fix the
+brief and rebuild, or accept the source rendering. Either way, tell the user which fact was wrong,
+what source says, and which you chose. A report claiming a visual review the builder could not
+perform is a defect in the report — say so.
 
 ## The brief anatomy
 
