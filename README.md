@@ -37,18 +37,18 @@ Full walkthrough, including prerequisites: **[docs/getting-started.md](docs/gett
 **With the CLI** (Node.js 22 or later and `git`), from a clean checkout of your repository:
 
 ```bash
-npx @mnaimfaizy/agent-kit init --tag v1.0.0-beta.3
+npx @mnaimfaizy/agent-kit init --tag v1.0.0-beta.4
 ```
 
 It copies the Kit-owned paths, writes the Caller workflows and a Threat pack skeleton, and prints the secrets, labels and Kill switch steps as `gh` commands for you to run. It writes only local files and commits nothing. See [The CLI](#the-cli).
 
 **By hand**, the short version:
 
-1. **Pick a tag.** Use the latest from [Releases](https://github.com/mnaimfaizy/agent-kit/releases), e.g. `v1.0.0-beta.3`.
+1. **Pick a tag.** Use the latest from [Releases](https://github.com/mnaimfaizy/agent-kit/releases), e.g. `v1.0.0-beta.4`.
 2. **Copy the Kit-owned paths from that same tag** into your repository. The loop reads [`kit-owned-paths.txt`](kit-owned-paths.txt) from the tag, deletes each path, then copies it fresh, so files the kit removes don't linger after an upgrade. Your own skills in `.claude/skills/` are left alone.
 
    ```bash
-   TAG=v1.0.0-beta.3
+   TAG=v1.0.0-beta.4
    rm -rf /tmp/agent-kit
    git clone --depth 1 --branch "$TAG" https://github.com/mnaimfaizy/agent-kit.git /tmp/agent-kit &&
    grep -v -e '^#' -e '^$' /tmp/agent-kit/kit-owned-paths.txt | while read -r path; do
