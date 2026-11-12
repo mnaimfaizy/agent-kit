@@ -155,7 +155,11 @@ Check its **Gate**, **Verified how**, **Contradictions found**, and **Left for t
 sections. Relay contradictions and anything left open to the user. A contradiction marked as a
 brief error means a fact in your brief is wrong and the page renders source instead. Either fix the
 brief and rebuild, or accept the source rendering. Either way, tell the user which fact was wrong,
-what source says, and which you chose. A report claiming a visual review the builder could not
+what source says, and which you chose. A brief error against a platform rule (a browser, protocol
+or runtime rule, not a line of source) is handled the same way: fix the brief and rebuild, or accept
+the platform-correct rendering, and tell the user which fact was wrong, the rule it breaks with the
+builder's citation, and which you chose. A rule the builder marked **unverified** reaches the user
+as unverified, never as settled. A report claiming a visual review the builder could not
 perform is a defect in the report — say so.
 
 ## The brief anatomy

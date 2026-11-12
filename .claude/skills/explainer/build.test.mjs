@@ -1,7 +1,8 @@
 /**
- * Contract suite for BUILD.md and SKILL.md step 7: a brief that source
- * contradicts is a finding the builder reports, the briefer acts on it, and
- * the builder looks at screenshots when it can and says so when it cannot.
+ * Contract suite for BUILD.md and SKILL.md step 7: a brief that source or a
+ * platform rule contradicts is a finding the builder reports (an uncited rule
+ * marked unverified), the briefer acts on it, and the builder looks at
+ * screenshots when it can and says so when it cannot.
  */
 
 import assert from "node:assert/strict";
@@ -47,11 +48,40 @@ test("a brief that source contradicts is rendered as source and reported as a br
   assert.match(contradictions, /building the page yourself .* stop, fix the brief, and say so/);
 });
 
-test("the report's Contradictions found line shows both kinds", () => {
+test("a brief that a platform rule contradicts is rendered as the platform and reported as a brief error", () => {
+  const contradictions = section("Contradictions are findings");
+  assert.match(contradictions, /It comes in three kinds/);
+  assert.match(contradictions, /there the platform wins/);
+  const kind = contradictions.slice(contradictions.indexOf("**Brief versus platform rule.**"));
+  assert.match(kind, /^\*\*Brief versus platform rule\.\*\* /);
+  assert.match(kind, /a rule of the browser, protocol or runtime the page describes/);
+  assert.match(
+    kind,
+    /Render what the platform actually does, and report the brief's claim against the rule, marked as a brief error\./,
+  );
+  assert.match(kind, /Cite the rule \(a spec section or vendor documentation\)/);
+  assert.match(kind, /name it and mark it \*\*unverified\*\*/);
+  assert.match(kind, /Never present an uncited rule as verified\./);
+  assert.match(kind, /Do not edit the brief\./);
+  // The worked example: the HttpOnly refresh cookie a local logout cannot remove.
+  assert.match(kind, /HttpOnly refresh cookie/);
+  assert.match(kind, /the cookie staying in the browser and the server-side session ending/);
+  assert.match(contradictions, /All three go under _Contradictions found_/);
+  assert.match(
+    contradictions,
+    /building the page yourself .* either kind, against source or a platform rule, is yours to fix/,
+  );
+});
+
+test("the report's Contradictions found line shows every kind", () => {
   const report = section("Report format");
   const found = report.slice(report.indexOf("### Contradictions found"));
   assert.match(found, /<doc: source file:line vs doc file:line/);
-  assert.match(found, /<brief error: the brief's claim vs source file:line/);
+  assert.match(found, /<brief error: the brief's claim vs source file:line — what source does>/);
+  assert.match(
+    found,
+    /<brief error: the brief's claim vs platform rule \(citation \| unverified\) — what the platform does>/,
+  );
 });
 
 test("with a real-origin headless browser the builder screenshots and names what it looked at", () => {
@@ -88,6 +118,10 @@ test("the constraints keep the visual-review rule word for word and forbid editi
     constraints,
     /Do NOT edit the brief\. .* unless you are the briefer building the page yourself/,
   );
+  assert.match(
+    constraints,
+    /Do NOT present a platform rule you could not cite as verified; name it and mark it unverified\./,
+  );
 });
 
 test("step 7 says what the briefer does with a brief error", () => {
@@ -95,4 +129,17 @@ test("step 7 says what the briefer does with a brief error", () => {
   assert.match(step7, /marked as a brief error/);
   assert.match(step7, /Either fix the brief and rebuild, or accept the source rendering/);
   assert.match(step7, /tell the user which fact was wrong, what source says, and which you chose/);
+});
+
+test("step 7 handles a platform-rule brief error and relays an unverified rule as unverified", () => {
+  const step7 = skill.slice(skill.indexOf("### 7. Read the builder's report"));
+  assert.match(step7, /A brief error against a platform rule .* is handled the same way/);
+  assert.match(
+    step7,
+    /fix the brief and rebuild, or accept the platform-correct rendering, and tell the user which fact was wrong, the rule it breaks with the builder's citation, and which you chose/,
+  );
+  assert.match(
+    step7,
+    /A rule the builder marked \*\*unverified\*\* reaches the user as unverified, never as settled\./,
+  );
 });
