@@ -1440,7 +1440,10 @@ export function validatePlan(text) {
       const line = accountLines[i].signs;
       const creator = creatorOf.get(who);
       if (creator === undefined)
-        at(line, `${id} signs in as \`${who}\`, which the Run brief's **Roles:** does not name`);
+        at(
+          line,
+          `${id} signs in as \`${who}\`, which is neither a role the Run brief's **Roles:** names nor a Scenario account an earlier scenario creates`,
+        );
       else if (creator === i)
         at(
           line,

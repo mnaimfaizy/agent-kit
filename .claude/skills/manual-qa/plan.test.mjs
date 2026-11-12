@@ -264,7 +264,7 @@ test("steps are a numbered list", () => {
 test("a scenario signs in only as a role the Run brief names, or nobody", () => {
   assertProblem(
     broken("- **Signs in as:** `admin`", "- **Signs in as:** `owner`"),
-    /S1 signs in as `owner`, which the Run brief/,
+    /S1 signs in as `owner`, which is neither a role the Run brief's \*\*Roles:\*\* names nor a Scenario account/,
   );
 });
 
@@ -276,11 +276,11 @@ test("first-word values are read as ANATOMY.md states: marks dropped, nothing el
   );
   assertProblem(
     broken("- **Signs in as:** `admin`", "- **Signs in as:** the new user from S1, then `admin`."),
-    /S1 signs in as `the`, which the Run brief's \*\*Roles:\*\* does not name/,
+    /S1 signs in as `the`, which is neither a role the Run brief's \*\*Roles:\*\* names nor a Scenario account an earlier scenario creates/,
   );
   assertProblem(
     broken("- **Signs in as:** `admin`", "- **Signs in as:** `admin`."),
-    /S1 signs in as `admin\.`, which the Run brief's \*\*Roles:\*\* does not name/,
+    /S1 signs in as `admin\.`, which is neither a role the Run brief's \*\*Roles:\*\* names nor a Scenario account an earlier scenario creates/,
   );
   assertProblem(
     broken("- **Target:** `stack`", "- **Target:** `stack`."),
@@ -403,7 +403,7 @@ test("a sign-in as an account no scenario creates is a problem on its line", () 
     "- **Signs in as:** `ghost` (created in S1)",
   ]);
   assert.deepEqual(problemsOf(text), [
-    `line ${lineOf(text, "- **Signs in as:** `ghost`")}: S2 signs in as \`ghost\`, which the Run brief's **Roles:** does not name`,
+    `line ${lineOf(text, "- **Signs in as:** `ghost`")}: S2 signs in as \`ghost\`, which is neither a role the Run brief's **Roles:** names nor a Scenario account an earlier scenario creates`,
   ]);
 });
 
