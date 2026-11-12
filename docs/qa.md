@@ -160,7 +160,24 @@ A `url` run signs in to an environment this run did not seed. Its role values co
 1. **The environment's owner ran the same seeder inside it.** Its database is then local to the seeder, the contract holds there too, and the values are the fixtures `accounts.print` prints from the repository. The skill asks the QA person whether that is so, and runs `print` only on a yes.
 2. **Otherwise, the QA person types each role's test values into chat** for that environment. A QA team with no repository asks the developer: for each role id in the plan's Roles, the developer runs `print` (or reads the values the environment was seeded with) and sends them to the QA person directly, never in the plan, a tracker comment or a file.
 
-Values are never read from an env file, and never production credentials. An account is registered by hand only when registration is the scenario under test.
+Values are never read from an env file, and never production credentials. An account is registered by hand only when registration is the scenario under test, or when a scenario's **Creates:** says so.
+
+### Scenario accounts
+
+Some scenarios create an account that a later one acts as: an `admin` adds a user with a temporary password, and the new user changes it. That account is a **Scenario account**. The creating scenario names it with **Creates:**, and a later scenario names it as the first word of **Signs in as:**:
+
+```markdown
+### S1: An admin adds a user with a temporary password
+
+- **Signs in as:** `admin`
+- **Creates:** `temp-user` (its values chosen when S1 creates it)
+
+### S2: The new user must change the temporary password
+
+- **Signs in as:** `temp-user` (created in S1)
+```
+
+`adapter.mjs plan` refuses a sign-in as an account no earlier scenario creates, and a created id that is a role or `nobody`. When S1 does not pass, `manual-qa` leaves S2 for a person and says why. The values the tester chooses in S1 stay in the conversation, like a QA Account's: never in the plan, the report or the evidence. Nothing seeds, restores or deletes a Scenario account. The QA Report lists each one the run created, by id only, so the owner of a hosted environment can remove it; on a `stack` run, `down` takes it with the stack.
 
 ## Hazard packs
 

@@ -30,7 +30,7 @@ The marker is how a revision finds the plan it replaces (on a tracker issue or a
 
 ### First-word values
 
-Some labels take a word from a fixed set: **Target:**, **Surface:** and **Signs in as:**. For these, the value is the first word after the label, read like this:
+Some labels take a word from a fixed set: **Target:**, **Surface:** and **Signs in as:**. For **Signs in as:**, the set is the Run brief's roles, `nobody`, and each [Scenario account](#scenario-accounts) an earlier scenario creates. For these, the value is the first word after the label, read like this:
 
 1. Backticks are dropped.
 2. The word ends at the first space, comma, semicolon, colon or parenthesis. Anything after it is prose.
@@ -89,13 +89,40 @@ What the tester does once before the first scenario, in order: data to put in pl
 The **Residue**: only what a passing CI run does not establish. One `###` heading per scenario, numbered from `S1` with no gaps: `### S1: <what is verified>`. Each carries these labels, in this order:
 
 - **Why only a human can prove it:** what no suite in _What automation already proves_ covers, and why automation cannot or does not.
-- **Signs in as:** a [first-word value](#first-word-values): a role id the Run brief's **Roles:** names, or `nobody` (signed out). Prose may follow the word. Write `` `admin`, after S1 creates the new user ``, not `the new user from S1, then admin` (first word `the`), and not `` `manager`. `` (first word `manager.`).
+- **Signs in as:** a [first-word value](#first-word-values): a role id the Run brief's **Roles:** names, or `nobody` (signed out), or the id of a [Scenario account](#scenario-accounts) an earlier scenario creates. Prose may follow the word. Write `` `admin`, after S1 creates the new user ``, not `the new user from S1, then admin` (first word `the`), and not `` `manager`. `` (first word `manager.`).
+- **Creates:** only in a scenario that creates an account during the run, so a later scenario can sign in as it. The id of each [Scenario account](#scenario-accounts) it creates, then prose.
 - **Steps:** a numbered list. Each step quotes the real label, button text or copy from the source (`Click **Save changes**`), never an imagined one.
 - **Expected result:** what the tester sees when it works, in the product's own words.
 - **A failure means:** what is broken if the expected result does not appear, so a failure is reported as a finding and not a symptom.
 - **If this fails, first rule out:** only in a scenario a Hazard pack matches. The pack's _Rule out first_ list, copied in under the pack's path.
 
 A plan with no scenarios is not written: an empty Residue means merge without a plan.
+
+### Scenario accounts
+
+A **Scenario account** is an account a scenario creates during the run, such as a user an `admin` adds with a temporary password. Its values are chosen when it is created, so no seeder knows them, and a later scenario that signs in as it depends on the scenario that made it.
+
+- **Creates:** names each one by an id: letters, digits, `_` and `-`, as a role id is. The ids are [first-word values](#first-word-values) joined by commas; a comma, with any spaces around it, joins the next id. Any other space, a semicolon, a colon or a parenthesis ends the list, and the rest is prose. Put prose after a parenthesis or colon, not a comma: in `temp-user, chosen in S1`, `chosen` is read as a second id. A comma with no id after it (`temp-user,, other-user`) is refused.
+- Each id is created by one scenario only, and is neither a Run brief role nor `nobody`.
+- A later scenario names it as the first word of **Signs in as:**: `` `temp-user` (created in S1) ``. Only a scenario after its creator may; a scenario never signs in as an account it creates itself.
+- The plan carries the id and where the values come from (_chosen when S1 creates it_), never the values. [No credentials travel with a plan](#no-credentials-travel-with-a-plan) holds for them as for a role's.
+
+```markdown
+### S1: An admin adds a user with a temporary password
+
+- **Why only a human can prove it:** …
+- **Signs in as:** `admin`
+- **Creates:** `temp-user` (its values chosen when S1 creates it)
+- **Steps:** …
+
+### S2: The new user must change the temporary password
+
+- **Why only a human can prove it:** …
+- **Signs in as:** `temp-user` (created in S1)
+- **Steps:** …
+```
+
+`manual-qa` leaves S2 for a person when S1 does not pass. Only **Signs in as:** makes one scenario depend on another: an account named in Steps is prose.
 
 ## Sign-off checklist
 

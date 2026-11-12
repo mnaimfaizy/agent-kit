@@ -98,6 +98,27 @@ test("ANATOMY.md states how the checker reads Target, Surface and Signs in as", 
   assert.match(scenarios, /first word `manager\.`/);
 });
 
+test("a Scenario account is defined, with how a later scenario names it", () => {
+  const scenarios = section("Scenarios");
+  assert.match(scenarios, /### Scenario accounts/);
+  assert.match(
+    scenarios,
+    /or the id of a \[Scenario account\]\(#scenario-accounts\) an earlier scenario creates/,
+  );
+  assert.match(
+    scenarios,
+    /Each id is created by one scenario only, and is neither a Run brief role nor `nobody`/,
+  );
+  assert.match(scenarios, /`` `temp-user` \(created in S1\) ``/);
+  assert.match(scenarios, /Only a scenario after its creator may/);
+  assert.match(scenarios, /never the values/);
+  assert.match(scenarios, /`manual-qa` leaves S2 for a person when S1 does not pass/);
+  assert.match(
+    section("Shape"),
+    /each \[Scenario account\]\(#scenario-accounts\) an earlier scenario creates/,
+  );
+});
+
 test("no credentials travel with a plan", () => {
   const brief = section("Run brief");
   assert.match(brief, /### No credentials travel with a plan/);
@@ -111,6 +132,7 @@ test("each scenario carries its fields, in order, numbered from S1", () => {
   const labels = [
     "Why only a human can prove it:",
     "Signs in as:",
+    "Creates:",
     "Steps:",
     "Expected result:",
     "A failure means:",
