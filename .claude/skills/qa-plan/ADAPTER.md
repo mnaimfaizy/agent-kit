@@ -60,6 +60,17 @@ Tabs, anchors, aliases, multi-line scalars, flow collections that span lines, es
 | `junit`    | no       | The JUnit XML file the command writes, relative to the repository root; deleted before each run. Without it, what the suite proves is read from its exit code alone, and tagged `[reconstructed]`.                                                                                                                                                           |
 | `surfaces` | no       | Globs of the paths it covers, so a changed path can be matched to the suites that test it.                                                                                                                                                                                                                                                                   |
 
+#### Which shell runs `command`
+
+`two-point.mjs` runs `command` in the platform's default shell, the one Node's `spawn` with `shell: true` picks: **`cmd.exe`** (`%ComSpec%`) on Windows, and **`/bin/sh`** on Linux and macOS. It never looks for `bash`, even where Git for Windows or WSL puts one on `PATH`. The command runs from the repository root at the head, and from the worktree's root at the merge-base.
+
+One `qa.config.yml` serves a team on Windows and on Linux CI only when every `command` reads the same in both shells:
+
+- Keep `command` to a program and its arguments, chained with `&&`, with forward-slash paths: `npm ci && npm test`, `uv run pytest --junitxml=reports/backend.xml`.
+- Put anything more (a conditional, a file copy, an environment variable, a glob) in a script in the repository that `command` calls, in an interpreter every platform on the team has: `node scripts/test-backend.mjs`. `if not exist … copy …` is `cmd.exe` only; `[ -f … ] || cp …` and `VAR=value command` are `sh` only.
+- Leave machine-specific paths, such as a local virtual environment's absolute path, out of a tracked config.
+- A POSIX-looking command that passes on Windows is not portable when it passes only because a Unix tool (Git for Windows' `test.exe`, say) is on that machine's `PATH`.
+
 ### `plan.publish` rules
 
 A list; the **first rule that matches wins**. Each rule has exactly one matcher and a target:

@@ -40,6 +40,8 @@ The keys, in short:
 | `hazards` | a list of `{ pack: <path> }`                                                                                                                                         |
 | `run:`    | `target`; `surface`; `stack` (`up`, `migrate`, `seed`, `down`); `accounts` (`print`, `restore`, `roles` of `{ id, purpose }`); `version_endpoint`; `evidence.upload` |
 
+Suite commands run in the platform's default shell: `cmd.exe` on Windows, `/bin/sh` on Linux and macOS. For one config across both, keep each `command` to a program and its arguments chained with `&&`, and put anything more in a script in the repository ([which shell runs `command`](../.claude/skills/qa-plan/ADAPTER.md#which-shell-runs-command)).
+
 A few rules the reader enforces that are easy to miss: `plan.tracker` defaults to `none`, and a `tracker-issue` or `pr-comment` rule with no `tracker` set is a problem; a rule after a `default: true` rule is never reached, which is a problem; `label` is allowed on a `tracker-issue` rule only; `accounts.restore` must contain `{id}`; a role id is letters, digits, `_` and `-`; `version_endpoint` is a path on the build's own host (`/version`), not a URL; `evidence.upload` is `none` or `gh-release:<tag>`.
 
 ## Readiness check
