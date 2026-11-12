@@ -120,6 +120,10 @@ _Avoid_: manual tests, remaining tests
 A role's sign-in on a test system, with fixed public values derived from tracked source and a reserved-domain email (`*.test`), created by an idempotent seeder that refuses any non-local database. Never copied into a QA Plan.
 _Avoid_: test user, demo account
 
+**Scenario account**:
+An account a QA Plan's scenario creates during a run, with values the tester chooses then. Never seeded, and never copied into a QA Plan or QA Report.
+_Avoid_: created account, temp user, run account
+
 **QA Stack**:
 A local copy of the application a tester starts and stops with the repository's `up`, `migrate`, `seed` and `down` commands; teardown touches only what `up` started.
 _Avoid_: test environment, local env

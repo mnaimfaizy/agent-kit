@@ -2,7 +2,7 @@
 
 A Portable skill must carry its own vocabulary (it links nothing outside its
 folder), so the `DESIGN.md` of `qa-plan` and of `manual-qa` each repeat the
-eight terms the root glossary defines under "Manual QA". Two copies drift unless something
+nine terms the root glossary defines under "Manual QA". Two copies drift unless something
 compares them, so this test does: same terms, same definitions, word for word.
 """
 
@@ -16,6 +16,7 @@ TERMS = [
     "QA Plan",
     "Residue",
     "QA Account",
+    "Scenario account",
     "QA Stack",
     "Hazard pack",
     "Execution record",
@@ -34,7 +35,7 @@ def design_terms(design: Path) -> dict[str, str]:
     return dict(re.findall(r"^\*\*(.+?)\*\*: (.+)$", section, re.MULTILINE))
 
 
-def test_glossary_defines_the_eight_qa_terms() -> None:
+def test_glossary_defines_the_nine_qa_terms() -> None:
     assert list(glossary_terms()) == TERMS
 
 
@@ -44,6 +45,6 @@ def test_each_qa_skill_design_repeats_them_word_for_word() -> None:
 
 
 if __name__ == "__main__":
-    test_glossary_defines_the_eight_qa_terms()
+    test_glossary_defines_the_nine_qa_terms()
     test_each_qa_skill_design_repeats_them_word_for_word()
     print("qa glossary contract: ok")
