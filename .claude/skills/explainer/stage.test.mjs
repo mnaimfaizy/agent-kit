@@ -222,6 +222,29 @@ test("BUILD.md scopes Motion and Interactivity to static and points stage builds
   );
 });
 
+test("the notes rule is static-only in mechanics, and BUILD.md and STAGE.md agree on what replaces it", () => {
+  const conventions = section(buildRaw, "Conventions");
+  assert.match(
+    conventions,
+    /\*\*Notes live in the document, not in the shapes \(static shape\)\.\*\*/,
+  );
+  // The static rule itself is unchanged in substance.
+  assert.match(conventions, /static "Diagram notes" list with `id="note-<key>"`/);
+  assert.match(conventions, /Every `data-tip` has its note, and every note has its shape\./);
+  assert.match(
+    conventions,
+    /A system stage or scene stepper keeps the rule's aim, not its mechanics\. .* the inspector replaces the popover\. The static beat log and a static list of the state records stand in for the "Diagram notes" list, and `data-tip` is not used/,
+  );
+  const contract = section(stageRaw, "The stage contract");
+  assert.doesNotMatch(contract, /storage in `try`\/`catch`, notes in the document\./);
+  assert.match(contract, /_Notes live in the document_ applies in aim only/);
+  assert.match(contract, /the inspector replaces the `data-tip` popover/);
+  assert.match(
+    contract,
+    /Each state entry's and record's inspector content is in a static list too/,
+  );
+});
+
 test("BUILD.md lists the stage checks and the NOT POSSIBLE rule", () => {
   const checks = section(buildRaw, "Stage checks");
   for (const name of [

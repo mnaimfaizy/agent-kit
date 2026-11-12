@@ -67,13 +67,18 @@ with every shape showing the same generic sentence, and a user had to report it.
 for the name and `aria-describedby` → `<desc>` for the long description; neither renders a
 tooltip.
 
-**Notes live in the document, not in the shapes.** Per-element explanations go in a static
+**Notes live in the document, not in the shapes (static shape).** Per-element explanations go in a static
 "Diagram notes" list with `id="note-<key>"`. The shape carries `data-tip="<key>"` and
 `aria-describedby="note-<key>"`. One shared popover surface (`popover="manual"`), opened by hover,
 click, and `:focus-visible`, reads its text from that list and never holds a copy. The list is what
 a reader with no pointer, a screen-reader user, and a reader printing the page actually get. A shape
 with nothing specific to say carries no `data-tip`: a generic tooltip is the defect, not a smaller
 version of it. Every `data-tip` has its note, and every note has its shape.
+
+A system stage or scene stepper keeps the rule's aim, not its mechanics. Per-element detail lives in
+the static HTML, never only in a shape or in script, but the inspector replaces the popover. The
+static beat log and a static list of the state records stand in for the "Diagram notes" list, and
+`data-tip` is not used. See `STAGE.md`, _No-JS and print_.
 
 **Theme tokens in three states.** The viewer's setting has three states, so the palette does too:
 

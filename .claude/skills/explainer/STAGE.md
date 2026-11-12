@@ -112,7 +112,10 @@ The builder meets every point. The shape example meets them all; read it for how
 
 **Self-contained.** Vanilla JS and inline SVG. No runtime framework, no CDN, nothing fetched. The
 rules in `BUILD.md` _Conventions_ still apply: theme tokens in three states, storage in
-`try`/`catch`, notes in the document.
+`try`/`catch`, and accessible naming without the tooltip. _Notes live in the document_ applies in
+aim only. Per-element detail is in the static HTML, but the inspector replaces the `data-tip`
+popover. The static beat log and a static list of the state records replace the "Diagram notes"
+list.
 
 **One data block.** One `<script type="application/json">` block holds zones, edges, chapters,
 beats, checkpoints, halts, inspector content and the sandbox's actions. The stage, the beat log,
@@ -191,7 +194,9 @@ condensed animation, an event log, Reset, and the disclaimer on the page.
 instead of travelling. Play still steps on its own, and every beat stays reachable.
 
 **No-JS and print.** The beat log, with every chapter, beat and detail, is static HTML in the DOM,
-and the stage falls back to a static annotated diagram. No content is script-only. Print shows the
+and the stage falls back to a static annotated diagram. Each state entry's and record's inspector
+content is in a static list too, such as a "State records" list in the reference. No content is
+script-only. Print shows the
 log, the diagram and the reference expanded.
 
 **Reference below the stage.** The story carries the narrative. Reference panels are bullets and
