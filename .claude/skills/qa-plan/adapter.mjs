@@ -1251,19 +1251,21 @@ export function validatePlan(text) {
     ).replace(/^[*_]+|[*_]+$/g, "");
   /**
    * The ids a **Creates:** line names (ANATOMY.md, "Scenario accounts"): first-word values
-   * joined by commas. The list ends at the first space, semicolon, colon or parenthesis
-   * that does not follow a comma; the rest is prose.
+   * joined by commas, with any spaces around each comma. Any other space, a semicolon, a
+   * colon or a parenthesis ends the list; the rest is prose. An empty id after a comma is
+   * kept as `""`, so the checker names it on this line.
    */
   const idList = (value) => {
     const ids = [];
     let rest = value.replace(/`/g, "").trim();
-    for (;;) {
+    for (let first = true; ; first = false) {
       const word = /^[^\s,;:()]*/.exec(rest)[0];
       const id = word.replace(/^[*_]+|[*_]+$/g, "");
-      if (id !== "") ids.push(id);
+      if (first && id === "") return ids;
+      ids.push(id);
       rest = rest.slice(word.length);
       const comma = /^\s*,\s*/.exec(rest);
-      if (!comma || word === "") return ids;
+      if (!comma) return ids;
       rest = rest.slice(comma[0].length);
     }
   };
@@ -1402,7 +1404,7 @@ export function validatePlan(text) {
         id,
         title: match[2].trim(),
         signsInAs: who || null,
-        creates: [...new Set(made)],
+        creates: [...new Set(made.filter((made) => made !== ""))],
       });
       accountLines.push({ signs: signs?.n, creates: creates?.n, made });
     });
@@ -1416,7 +1418,9 @@ export function validatePlan(text) {
       const seen = new Set();
       for (const made of named) {
         const what = `${scenario.id}: **Creates:** \`${made}\``;
-        if (!ACCOUNT_ID.test(made))
+        if (made === "")
+          at(line, `${scenario.id}: **Creates:** has an empty id: a comma with no id after it`);
+        else if (!ACCOUNT_ID.test(made))
           at(line, `${what} is not an id: letters, digits, \`_\` and \`-\`, as a role id is`);
         else if (made === "nobody")
           at(line, `${what}: \`nobody\` means signed out, so a Scenario account needs another id`);

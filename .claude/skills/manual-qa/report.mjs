@@ -221,13 +221,13 @@ export function readReport(text) {
  * as a Scenario account is left for a person, saying why, when the scenario
  * that creates the account did not pass. A dependent left for a person did not
  * pass either, so the rule carries down a chain. A run stopped on a blocking
- * outcome may give a dependent its stop note instead.
+ * outcome before a dependent may give it its stop note instead.
  *
  * @param {ReturnType<typeof readReport>["report"]} report
  * @param {string} planText
  * @returns {string[]}
  */
-export function planProblems(report, planText) {
+export function reportPlanProblems(report, planText) {
   const planned = validatePlan(planText);
   if (planned.problems.length)
     return [
@@ -257,11 +257,11 @@ export function planProblems(report, planText) {
     if (creator === undefined || results.get(creator).result === "PASS") continue;
     const reason = `signs in as \`${account}\`, which ${creator} creates, and ${creator} did not pass`;
     const row = results.get(id);
-    const said = new RegExp(
-      `signs in as \`?${account}\`?, which ${creator} creates|(?<![A-Za-z])the run stopped at S\\d+`,
-      "i",
-    );
-    if (row.result !== "left for a person" || !said.test(row.notes))
+    const said = new RegExp(`signs in as \`?${account}\`?, which ${creator} creates`, "i");
+    // A stop note counts only on a scenario after the stop, which the run never reached.
+    const stop = /(?<![A-Za-z])the run stopped at S(\d+)/i.exec(row.notes);
+    const stoppedBefore = stop !== null && Number(stop[1]) < Number(id.slice(1));
+    if (row.result !== "left for a person" || !(said.test(row.notes) || stoppedBefore))
       problems.push(
         `${id} ${reason}: its result is _left for a person_, with the note _${reason}_`,
       );
@@ -584,12 +584,14 @@ export function main(argv, io = {}) {
   if (command === "read") {
     const result = readReport(text);
     const planPath = option(argv, "--plan")[0];
+    if (argv.includes("--plan") && (planPath === undefined || planPath.startsWith("--")))
+      return usage;
     if (planPath !== undefined && !result.problems.length) {
       const planText = readFile(planPath);
       result.problems.push(
         ...(planText === null
           ? [`${planPath}: no such file`]
-          : planProblems(result.report, planText)),
+          : reportPlanProblems(result.report, planText)),
       );
     }
     return { code: result.problems.length ? 1 : 0, out: json(result) };

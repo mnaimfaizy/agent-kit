@@ -17,7 +17,7 @@ import {
   findComments,
   main,
   parseComments,
-  planProblems,
+  reportPlanProblems,
   readReport,
   reportComment,
   trackerBody,
@@ -118,9 +118,7 @@ test("a result other than the three is a problem", () => {
   assert.match(problems[0], /S1's result is `passed-ish`/);
 });
 
-// --- The PR comment: one, updated, never duplicated ---
-
-// ── The report against its plan: Scenario accounts ──────────────────────────
+// --- The report against its plan: Scenario accounts ---
 
 /** good.md with S1 creating `temp-user` and S2 signing in as it. */
 const ACCOUNT_PLAN = PLAN.replace(
@@ -133,7 +131,7 @@ const S2_ROW = (result, note) =>
   `| S2: A signed-out visitor cannot open the members page | ${result} | none | ${note} |`;
 const LEFT_NOTE = "signs in as `temp-user`, which S1 creates, and S1 did not pass";
 const againstPlan = (rows, plan = ACCOUNT_PLAN) =>
-  planProblems(readReport(reportFor(rows)).report, plan);
+  reportPlanProblems(readReport(reportFor(rows)).report, plan);
 
 test("a scenario whose Scenario account's creator did not pass is left for a person, saying why", () => {
   assert.deepEqual(validatePlan(ACCOUNT_PLAN).problems, []);
@@ -171,6 +169,69 @@ test("a dependent run or failed after its creator did not pass is a problem", ()
   );
 });
 
+test("a stop note counts only on a dependent after the stop", () => {
+  const want = `S2 ${LEFT_NOTE}: its result is _left for a person_, with the note _${LEFT_NOTE}_`;
+  // The run stopped at S2 itself, or at a later S4: S2 was reached, so it owes the creator reason.
+  for (const stop of ["S2", "S4"])
+    assert.deepEqual(
+      againstPlan([
+        S1_ROW("FAIL", "no invite appeared"),
+        S2_ROW("left for a person", `_the run stopped at ${stop}: data loss_`),
+      ]),
+      [want],
+    );
+});
+
+test("the rule carries down a chain of Scenario accounts", () => {
+  const S3 = [
+    "### S3: The invitee signs in",
+    "",
+    "- **Why only a human can prove it:** the invite link is not driven by a suite.",
+    "- **Signs in as:** `invitee` (created in S2)",
+    "- **Steps:**",
+    "  1. Open **Members**.",
+    "- **Expected result:** the page shows **Welcome**.",
+    "- **A failure means:** the invite does not grant access.",
+    "",
+    "## Sign-off checklist",
+  ].join("\n");
+  const chain = ACCOUNT_PLAN.replace(
+    "- **Signs in as:** `temp-user` (created in S1)\n",
+    "- **Signs in as:** `temp-user` (created in S1)\n- **Creates:** `invitee`\n",
+  )
+    .replace("## Sign-off checklist", S3)
+    .replace(
+      "- [ ] S2: A signed-out visitor cannot open the members page",
+      "- [ ] S2: A signed-out visitor cannot open the members page\n- [ ] S3: The invitee signs in",
+    );
+  assert.deepEqual(validatePlan(chain).problems, []);
+  const S3_ROW = (result, note) => `| S3: The invitee signs in | ${result} | none | ${note} |`;
+  const S3_NOTE = "signs in as `invitee`, which S2 creates, and S2 did not pass";
+  // S1 failed, so S2 is left for a person, so S3 is left too.
+  assert.deepEqual(
+    againstPlan(
+      [
+        S1_ROW("FAIL", "no invite appeared"),
+        S2_ROW("left for a person", LEFT_NOTE),
+        S3_ROW("left for a person", S3_NOTE),
+      ],
+      chain,
+    ),
+    [],
+  );
+  assert.deepEqual(
+    againstPlan(
+      [
+        S1_ROW("FAIL", "no invite appeared"),
+        S2_ROW("left for a person", LEFT_NOTE),
+        S3_ROW("PASS", "signed in"),
+      ],
+      chain,
+    ),
+    [`S3 ${S3_NOTE}: its result is _left for a person_, with the note _${S3_NOTE}_`],
+  );
+});
+
 test("a report checked against a plan it did not run is a problem", () => {
   assert.match(
     againstPlan([S1_ROW("PASS", "ok")])[0],
@@ -197,6 +258,9 @@ test("`read --plan` checks the report against its plan, and exits 1 on a problem
   const bad = main(["read", "bad.md", "--plan", "plan.md"], io);
   assert.equal(bad.code, 1);
   assert.match(JSON.parse(bad.out).problems[0], /^S2 signs in as `temp-user`, which S1 creates/);
+  // `--plan` with no file is a usage error, never a skipped check.
+  assert.equal(main(["read", "bad.md", "--plan"], io).code, 2);
+  assert.equal(main(["read", "bad.md", "--plan", "--repo", "."], io).code, 2);
   // Without --plan, `read` checks the report's own shape only.
   assert.equal(main(["read", "bad.md"], io).code, 0);
   assert.match(
@@ -204,6 +268,8 @@ test("`read --plan` checks the report against its plan, and exits 1 on a problem
     /nowhere\.md: no such file/,
   );
 });
+
+// --- The PR comment: one, updated, never duplicated ---
 
 test("the comment starts with the marker and carries the report", () => {
   const { body, problems } = reportComment(PASSED);

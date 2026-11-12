@@ -460,6 +460,36 @@ test("a Scenario account id is well formed, has one creator, and is no role or `
   ]);
 });
 
+test("a comma with no id after it is refused on the **Creates:** line", () => {
+  for (const line of [
+    "- **Creates:** `temp-user`,, `other-user`",
+    "- **Creates:** `temp-user`, (chosen)",
+  ]) {
+    const text = withAccount([
+      "- **Creates:** `temp-user` (its values chosen when S1 creates it)",
+      line,
+    ]);
+    const { plan, problems } = validatePlan(text);
+    assert.deepEqual(
+      problems,
+      [
+        `line ${lineOf(text, "- **Creates:**")}: S1: **Creates:** has an empty id: a comma with no id after it`,
+      ],
+      line,
+    );
+    assert.ok(plan.scenarios[0].creates.includes("temp-user"));
+    assert.ok(!plan.scenarios[0].creates.includes(""));
+  }
+  // The ids after a double comma are still read.
+  const after = validatePlan(
+    withAccount([
+      "- **Creates:** `temp-user` (its values chosen when S1 creates it)",
+      "- **Creates:** `temp-user`,, `other-user`",
+    ]),
+  );
+  assert.deepEqual(after.plan.scenarios[0].creates, ["temp-user", "other-user"]);
+});
+
 test("**Creates:** comes right after **Signs in as:**", () => {
   const text = withAccount(
     ["- **Creates:** `temp-user` (its values chosen when S1 creates it)\n", ""],
