@@ -218,8 +218,8 @@ Both branches:
 Grounded, additionally:
 
 - [ ] Every number, identifier, and error code is traced to a `file:line`.
-- [ ] Every constant name was searched repo-wide, and each distinct value is reported with its
-      scope.
+- [ ] Every cited constant was searched repo-wide by exact name, sibling names, and the call sites
+      that set or override it, and each distinct value is reported with its scope.
 - [ ] Source was read directly; no claim rests only on documentation.
 - [ ] The drift-proofing requirement is included unless configured `off`, with scope-qualified key
       names.
