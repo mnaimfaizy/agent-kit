@@ -8,6 +8,8 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ### Fixed
 
+- `qa-plan` and `manual-qa` no longer drop the comments in a commented `qa.config.yml` without asking when they save your answers. `adapter.mjs render --write` now writes nothing over a YAML config that has comments and exits 3, naming the lines. The skill asks you, and writes with `--write --drop-comments` only if you agree. A preview without `--write`, a JSON config and a new file behave as before.
+
 - `doctor`'s `release-tag-push` check no longer warns on a workflow whose `actions/checkout` step sets `ssh-key:`, since checkout then makes `git push origin` use that deploy key. A commented-out or empty `ssh-key:` still warns. The [hardening guide](docs/repository-hardening.md#personal-account-repositories-pushing-release-tags) now shows the `ssh-key:` checkout route as an alternative to the manual `GIT_SSH_COMMAND` step.
 
 ## [1.0.0-beta.3] - 2026-11-11
