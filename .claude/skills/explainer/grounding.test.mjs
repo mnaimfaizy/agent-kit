@@ -26,10 +26,20 @@ test("the collision check step is found", () => {
 test("it searches by concept: exact name, sibling names with patterns, inline literals", () => {
   assert.match(flat, /by concept, not only by the exact name/);
   assert.match(flat, /\*\*The exact name\*\*/);
-  assert.match(flat, /\*\*Sibling names\*\* — the same stem with other units or suffixes/);
-  for (const pattern of ["*_EXPIRE_*", "*_TTL*", "*_TIMEOUT*", "*_LIMIT*", "*_MAX*", "*_SIZE*"])
-    assert.ok(step.includes(`\`${pattern}\``), `missing sibling pattern ${pattern}`);
+  assert.match(
+    flat,
+    /\*\*Sibling names\*\* — the cited constant's stem with other units or suffixes/,
+  );
+  for (const suffix of ["_EXPIRE_*", "_TTL*", "_TIMEOUT*", "_LIMIT*", "_MAX*", "_SIZE*"])
+    assert.ok(step.includes(`\`<STEM>${suffix}\``), `missing sibling pattern <STEM>${suffix}`);
+  assert.match(flat, /Keep the stem: a bare `\*_EXPIRE_\*` pulls in other quantities/);
   assert.match(flat, /A literal value used inline for the same quantity counts too/);
+});
+
+test("sibling search is case-insensitive, for other spellings of the same setting", () => {
+  assert.match(flat, /Search case-insensitively/);
+  assert.match(flat, /`settings\.refresh_token_expire_days`, `refreshTokenTtl`/);
+  assert.match(step, /rg -n -i "refresh_\?token_\?\(expire\|ttl\|timeout\|lifetime\)"/);
 });
 
 test("it traces every call site that sets or overrides the quantity, each value with its scope", () => {

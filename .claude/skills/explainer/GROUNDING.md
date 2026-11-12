@@ -46,15 +46,19 @@ concept, not only by the exact name.** One quantity is often set under several n
 three ways:
 
 1. **The exact name** — every definition of it.
-2. **Sibling names** — the same stem with other units or suffixes: `*_EXPIRE_*`, `*_TTL*`,
-   `*_TIMEOUT*`, `*_LIMIT*`, `*_MAX*`, `*_SIZE*`, and the like. A literal value used inline for the
+2. **Sibling names** — the cited constant's stem with other units or suffixes: `<STEM>_EXPIRE_*`,
+   `<STEM>_TTL*`, `<STEM>_TIMEOUT*`, `<STEM>_LIMIT*`, `<STEM>_MAX*`, `<STEM>_SIZE*`, and the like,
+   where `<STEM>` is the part that names the thing (`REFRESH_TOKEN` in
+   `REFRESH_TOKEN_EXPIRE_MINUTES`). Keep the stem: a bare `*_EXPIRE_*` pulls in other quantities.
+   Search case-insensitively, because code often reads the same setting under another spelling
+   (`settings.refresh_token_expire_days`, `refreshTokenTtl`). A literal value used inline for the
    same quantity counts too.
 3. **Every call site that sets or overrides the quantity** — where the token, cookie, session, or
    limit is actually issued or enforced, not only where the setting is defined.
 
 ```bash
 rg -n "CONSTANT_NAME" --glob '!node_modules'
-rg -n "REFRESH_TOKEN_(EXPIRE|TTL|TIMEOUT|LIFETIME)" --glob '!node_modules'
+rg -n -i "refresh_?token_?(expire|ttl|timeout|lifetime)" --glob '!node_modules'
 ```
 
 Together these give the **sibling set**: every name, literal, and call site that sets the quantity.
