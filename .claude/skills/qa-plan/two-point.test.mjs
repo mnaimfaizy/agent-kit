@@ -596,15 +596,8 @@ test("with no config file, the answers in working_dir name the suites and the ba
 
 test("a run from answers writes nothing outside working_dir", async () => {
   // No `junit`, so the suite itself writes nothing: anything new is the runner's.
-  const repo = makeRepo(
-    "answers-writes",
-    [],
-    { lint: { exit: 0 } },
-    { lint: { exit: 0 } },
-    {
-      config: false,
-    },
-  );
+  const results = { lint: { exit: 0 } };
+  const repo = makeRepo("answers-writes", [], results, results, { config: false });
   writeAnswers(repo, "tmp/chat/answers.json", {
     working_dir: "tmp/chat",
     plan: { suites: [LINT] },
@@ -667,6 +660,8 @@ test("bad answers exit 2 with one message and run no suite", async () => {
     ["tmp/qa/broken.json", "{ plan: ", /is not valid JSON/],
     ["tmp/qa/list.json", "[]", /must hold a JSON object/],
     ["tmp/qa/null.json", "null", /must hold a JSON object/],
+    // A folder is not an answers file (the cases above made `tmp/qa`).
+    ["tmp/qa", null, /^two-point: no answers file at `tmp\/qa`\n$/],
     ["answers.json", { plan: { suites: [LINT] } }, /must be inside `working_dir` \(`tmp\/qa`\)/],
     // An answer may move `working_dir`: the file must be inside the new one.
     [

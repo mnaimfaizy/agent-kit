@@ -43,7 +43,7 @@
 //   run was interrupted; nothing was compared.
 
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -610,7 +610,8 @@ function isInside(path, dir) {
  */
 function readAnswers(repo, file) {
   const path = resolve(repo, file);
-  if (!existsSync(path)) throw new TwoPointError(`no answers file at \`${file}\``);
+  if (!existsSync(path) || !statSync(path).isFile())
+    throw new TwoPointError(`no answers file at \`${file}\``);
   let answers;
   try {
     answers = JSON.parse(readFileSync(path, "utf8"));

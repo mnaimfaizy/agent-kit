@@ -46,7 +46,7 @@ node "<skill>/adapter.mjs" check --for plan
 ```
 
 - Exit 1: the config has **problems**. Show each one, with its line, and stop until the config is fixed. A misread config composes against the wrong base or the wrong suites.
-- `readiness.needs` not empty: list exactly what is missing, and ask for it in one message. Compose goes on with the answers given in chat. Then offer to save them in the config. Put the answers in a JSON file in `working_dir`, run `node "<skill>/adapter.mjs" render < <answers.json>`, and show the person the result: the config the lookup found (or a new `qa.config.yml`) with the answers merged in, every other key kept, and YAML comments dropped. Only on a yes, run it again with `--write` ([ADAPTER.md](ADAPTER.md#readiness-check)).
+- `readiness.needs` not empty: list exactly what is missing, and ask for it in one message. Compose goes on with the answers given in chat. Then offer to save them in the config. Put the answers in a JSON file in `working_dir`: the one the answers give, or the config's when they give none. Then run `node "<skill>/adapter.mjs" render < <answers.json>`, and show the person the result: the config the lookup found (or a new `qa.config.yml`) with the answers merged in, every other key kept, and YAML comments dropped. Only on a yes, run it again with `--write` ([ADAPTER.md](ADAPTER.md#readiness-check)).
 - `readiness.notes`: say each one, and go on.
 
 Check that `working_dir` is ignored: `git check-ignore -q <working_dir>/x`. If it is not, say so and ask before writing there: everything in it must stay out of commits.
@@ -72,7 +72,7 @@ Run the configured suites at both points:
 node "<skill>/two-point.mjs" --base <base_ref>
 ```
 
-When step 2 used answers given in chat and the person did not save them, pass the answers file step 2 wrote: add `--answers <working_dir>/<answers.json>`. The runner merges it over the config, or over none, as `render` does, and writes no config. Never write a config, even a temporary one, to run it ([ADAPTER.md](ADAPTER.md#readiness-check)).
+When step 2 used answers given in chat and the person did not save them, pass the answers file step 2 wrote: add `--answers <working_dir>/<answers.json>`. The runner merges it over the config, or over none, as `render` does, and writes no config. It takes the file only from inside the `working_dir` the merge gives, so an answer that sets `working_dir` moves where the file must be. Never write a config, even a temporary one, to run it ([ADAPTER.md](ADAPTER.md#readiness-check)).
 
 It runs each `plan.suites` command in the checkout, at the head, then in a detached worktree at the merge-base under `working_dir`, which it removes afterwards, whether the run succeeds or fails. It compares the two runs' JUnit XML test by test and prints a table. It takes as long as the suites, twice: say so before it starts. To run fewer, pass `--suite <name>` once for each suite whose `surfaces` cover the changed paths.
 
