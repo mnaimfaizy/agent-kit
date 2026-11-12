@@ -179,6 +179,27 @@ Some scenarios create an account that a later one acts as: an `admin` adds a use
 
 `adapter.mjs plan` refuses a sign-in as an account no earlier scenario creates, and a created id that is a role or `nobody`. When S1 does not pass, `manual-qa` leaves S2 for a person and says why. The values the tester chooses in S1 stay in the conversation, like a QA Account's: never in the plan, the report or the evidence. Nothing seeds, restores or deletes a Scenario account. The QA Report lists each one the run created, by id only, so the owner of a hosted environment can remove it; on a `stack` run, `down` takes it with the stack.
 
+### Multi-session scenarios
+
+Some scenarios need two people signed in at once: an `admin` sets a new password for a `user` who is signed in elsewhere, and the user's session must end. Each signed-in identity is a **Session**, with cookies and storage no other session shares. Such a scenario names its sessions with **Sessions:** in place of **Signs in as:**, and every step names the session it runs in:
+
+```markdown
+### S3: An admin's password reset ends the user's session
+
+- **Why only a human can prove it:** no suite holds two signed-in browsers at once.
+- **Sessions:** A = `user`, B = `admin` (each in its own browser)
+- **Steps:**
+  1. In session A, open **Profile**.
+  2. In session B, open **Users**, pick the user, and click **Set password**.
+  3. In session A, reload **Profile**.
+- **Expected result:** session A shows **Sign in to continue**; session B still shows **Users**.
+- **A failure means:** an admin's reset leaves the user's old session working.
+```
+
+Session names are single capital letters. Each id follows the **Signs in as:** rule: a Run brief role, `nobody`, or a Scenario account an earlier scenario creates. `adapter.mjs plan` refuses a scenario with both fields or neither, a lowercase or repeated session name, an id **Signs in as:** would refuse, and a step that names no session or an undeclared one, each with its line.
+
+`manual-qa` runs it only with a driver that keeps the sessions apart: an isolated browser context per session (such as separate Playwright contexts), or a different browser for each (such as the host's built-in browser and Claude in Chrome). Tabs in one browser profile share cookies, so the second sign-in overwrites the first, and the user's tab can refresh into the admin's session. A second frontend origin in front of the same API host shares the API's cookies too. Without such a driver, the scenario is left for a person and the rest of the run goes ahead. Every session signs in at the run's one checked address. The QA Report's **Run** names each session's driver, and the result's note says which session saw what, by letter and id.
+
 ## Hazard packs
 
 A **Hazard pack** is a Markdown file your repository owns, naming one area where QA is easily fooled: sign-in, payments, caching, time zones. List each one under `hazards` in `qa.config.yml`. Start from the sample, [`examples/qa-hazards/sign-in.md`](../examples/qa-hazards/sign-in.md):

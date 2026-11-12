@@ -217,9 +217,9 @@ export function readReport(text) {
 
 /**
  * What a QA Report owes the plan it ran (SKILL.md step 8): it is that plan's
- * report, with one row per scenario, in order; and each scenario that signs in
- * as a Scenario account is left for a person, saying why, when the scenario
- * that creates the account did not pass. A dependent left for a person did not
+ * report, with one row per scenario, in order; and each scenario with a session
+ * that signs in as a Scenario account is left for a person, saying why, when the
+ * scenario that creates the account did not pass. A dependent left for a person did not
  * pass either, so the rule carries down a chain. A run stopped on a blocking
  * outcome before a dependent may give it its stop note instead.
  *
@@ -252,16 +252,28 @@ export function reportPlanProblems(report, planText) {
     plan.scenarios.flatMap((scenario) => scenario.creates.map((id) => [id, scenario.id])),
   );
   const results = new Map(report.results.map((row) => [row.id, row]));
-  for (const { id, signsInAs: account } of plan.scenarios) {
-    const creator = creatorOf.get(account);
-    if (creator === undefined || results.get(creator).result === "PASS") continue;
-    const reason = `signs in as \`${account}\`, which ${creator} creates, and ${creator} did not pass`;
+  for (const { id, sessions } of plan.scenarios) {
+    // Every session whose Scenario account's creator did not pass: a note naming any one is the reason.
+    const blocked = sessions.filter((session) => {
+      const creator = creatorOf.get(session.id);
+      return creator !== undefined && results.get(creator).result !== "PASS";
+    });
+    if (!blocked.length) continue;
     const row = results.get(id);
-    const said = new RegExp(`signs in as \`?${account}\`?, which ${creator} creates`, "i");
+    const said = blocked.some(({ id: account }) =>
+      new RegExp(`signs in as \`?${account}\`?, which ${creatorOf.get(account)} creates`, "i").test(
+        row.notes,
+      ),
+    );
+    // The reason asked for, when the note gives none: the first blocked session's.
+    const [{ name, id: account }] = blocked;
+    const creator = creatorOf.get(account);
+    const who = name === null ? "" : `session ${name} `;
+    const reason = `${who}signs in as \`${account}\`, which ${creator} creates, and ${creator} did not pass`;
     // A stop note counts only on a scenario after the stop, which the run never reached.
     const stop = /(?<![A-Za-z])the run stopped at S(\d+)/i.exec(row.notes);
     const stoppedBefore = stop !== null && Number(stop[1]) < Number(id.slice(1));
-    if (row.result !== "left for a person" || !(said.test(row.notes) || stoppedBefore))
+    if (row.result !== "left for a person" || !(said || stoppedBefore))
       problems.push(
         `${id} ${reason}: its result is _left for a person_, with the note _${reason}_`,
       );

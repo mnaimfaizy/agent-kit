@@ -119,6 +119,24 @@ test("a Scenario account is defined, with how a later scenario names it", () => 
   );
 });
 
+test("Sessions are defined, with an example, as the alternative to Signs in as", () => {
+  const scenarios = section("Scenarios");
+  assert.match(scenarios, /### Sessions/);
+  assert.match(
+    scenarios,
+    /A \*\*Session\*\* is one signed-in identity, with cookies and storage no other session shares/,
+  );
+  assert.match(
+    scenarios,
+    /A scenario carries \*\*Signs in as:\*\* or \*\*Sessions:\*\*, never both and never neither/,
+  );
+  assert.match(scenarios, /The name is a single capital letter/);
+  assert.match(scenarios, /Every numbered step starts `In session <name>,` \(or `In <name>,`\)/);
+  assert.match(scenarios, /Tabs in one browser profile share cookies/);
+  assert.match(scenarios, /- \*\*Sessions:\*\* A = `user`, B = `admin`/);
+  assert.match(section("Shape"), /and each id in \*\*Sessions:\*\*/);
+});
+
 test("no credentials travel with a plan", () => {
   const brief = section("Run brief");
   assert.match(brief, /### No credentials travel with a plan/);
@@ -162,4 +180,13 @@ test("SKILL.md writes plans in this format and delivers by the same marker", () 
   assert.match(skill, /\[ANATOMY\.md\]\(ANATOMY\.md\)/);
   assert.match(skill, /`_Not run yet\._`/);
   assert.match(skill, /qa-plan format=1 subject=#<n>/);
+});
+
+test("SKILL.md composes a multi-session scenario when a promise needs two people at once", () => {
+  assert.match(
+    skill,
+    /When a promise needs two people signed in at once, compose a multi-session scenario/,
+  );
+  assert.match(skill, /\[ANATOMY\.md\]\(ANATOMY\.md#sessions\)/);
+  assert.match(skill, /Never fold the second person into a step's prose/);
 });
