@@ -313,7 +313,8 @@ export function workflowsPushingTagsWithToken(files) {
       const tagged = /\bgit\b[^\n]*\btag\b/.test(body) && /\bgit\b[^\n]*\bpush\b/.test(body);
       // actions/checkout's `ssh-key:` input sets origin to the SSH URL and
       // core.sshCommand to the key, so a later `git push origin` uses it.
-      const checkoutKey = /^[ \t]*(?:-[ \t]+)?ssh-key:[ \t]*(?!(?:''|"")[ \t]*$)\S/m.test(body);
+      const checkoutKey =
+        /^[ \t]*(?:-[ \t]+)?ssh-key:[ \t]*(?!(?:''|""|~|null|Null|NULL)[ \t]*$)\S/m.test(body);
       const ssh = checkoutKey || /GIT_SSH_COMMAND|git@github\.com:|ssh:\/\//.test(body);
       return (pushes || tagged) && !ssh;
     })

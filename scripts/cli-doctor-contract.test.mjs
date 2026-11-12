@@ -656,6 +656,8 @@ describe("ruleset and tag-push helpers", () => {
       { path: "checkout-ssh-empty.yml", text: checkoutWith("      ssh-key:") },
       { path: "checkout-ssh-empty-comment.yml", text: checkoutWith("      ssh-key: # later") },
       { path: "checkout-ssh-empty-quoted.yml", text: checkoutWith("      ssh-key: ''") },
+      { path: "checkout-ssh-tilde.yml", text: checkoutWith("      ssh-key: ~") },
+      { path: "checkout-ssh-null.yml", text: checkoutWith("      ssh-key: null") },
       {
         path: "checkout-ssh-substring.yml",
         text: checkoutWith("      my-ssh-key: ${{ secrets.X }}\n      ssh-key-path: k"),
@@ -669,6 +671,8 @@ describe("ruleset and tag-push helpers", () => {
       "checkout-ssh-empty.yml",
       "checkout-ssh-empty-comment.yml",
       "checkout-ssh-empty-quoted.yml",
+      "checkout-ssh-tilde.yml",
+      "checkout-ssh-null.yml",
       "checkout-ssh-substring.yml",
     ]);
   });
