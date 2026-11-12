@@ -166,9 +166,10 @@ edges, so its topology check is "not applicable", not "passed".
 
 ## Contradictions are findings
 
-While spot-checking you may read source that disagrees with what was written about it. Source wins,
-and the disagreement is a deliverable. A brief can also claim something the platform under the
-code does not allow; there the platform wins. It comes in three kinds:
+While spot-checking you may read source that disagrees with what was written about it, or find a
+brief claim that the platform under the code does not allow. Source wins over a doc or brief that
+disagrees with it, the platform wins over a brief claim that breaks one of its rules, and the
+disagreement is a deliverable. It comes in three kinds:
 
 - **Doc versus source.** The docs describing the code say one thing and source another. Render the
   source behaviour, and report both sides with their `file:line`. Do not fix the doc yourself —
@@ -181,13 +182,17 @@ code does not allow; there the platform wins. It comes in three kinds:
   runtime the page describes, such as HttpOnly cookies being unreadable and unremovable by page
   script, or the same-origin policy. Render what the platform actually does, and report the brief's
   claim against the rule, marked as a brief error. Cite the rule (a spec section or vendor
-  documentation) when you could read one; when you could not, name it and mark it **unverified**.
-  Never present an uncited rule as verified. Do not edit the brief. In one build the brief had a
-  local logout make an HttpOnly refresh cookie disappear; page script cannot remove it, so the page
-  showed the cookie staying in the browser and the server-side session ending.
+  documentation) when you could read one; when you could not, name it and mark it **unverified**,
+  in the report and on the page. That behaviour comes from what you know of the platform, not from
+  the brief or source, so wherever the page shows it, visible text beside it (not only a tooltip)
+  names the rule and says it is unverified. Never present an uncited rule as verified, in the
+  report or on the page. Do not edit the brief. In one build the brief had a local logout make an
+  HttpOnly refresh cookie disappear; page script cannot remove it, so the page showed the cookie
+  staying in the browser and the server-side session ending.
 
 All three go under _Contradictions found_. Silently copying the doc or the brief, or silently
-rendering the source or the platform's behaviour without saying the two disagree, is the failure.
+rendering the source or the platform's behaviour without reporting the claim it contradicts, is the
+failure.
 
 If you are the briefer building the page yourself (`SKILL.md` step 6, option 3), a brief error of
 either kind, against source or a platform rule, is yours to fix: stop, fix the brief, and say so.
@@ -245,7 +250,8 @@ COMPLETE | BLOCKED (<reason>)
   them before you report.
 - Do NOT edit the brief. Report a brief error under _Contradictions found_ instead, unless you are
   the briefer building the page yourself (see _Contradictions are findings_).
-- Do NOT present a platform rule you could not cite as verified; name it and mark it unverified.
+- Do NOT present a platform rule you could not cite as verified; name it and mark it unverified, on
+  the page as well as in the report.
 - Do NOT retype a configured font block; splice it.
 - Do NOT edit source files to make the page true. Report the contradiction instead.
 - Do NOT run a formatter over the page unless the consumer's configuration says to; hand-tuned

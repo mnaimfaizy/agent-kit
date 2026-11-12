@@ -51,7 +51,7 @@ test("a brief that source contradicts is rendered as source and reported as a br
 test("a brief that a platform rule contradicts is rendered as the platform and reported as a brief error", () => {
   const contradictions = section("Contradictions are findings");
   assert.match(contradictions, /It comes in three kinds/);
-  assert.match(contradictions, /there the platform wins/);
+  assert.match(contradictions, /the platform wins over a brief claim that breaks one of its rules/);
   const kind = contradictions.slice(contradictions.indexOf("**Brief versus platform rule.**"));
   assert.match(kind, /^\*\*Brief versus platform rule\.\*\* /);
   assert.match(kind, /a rule of the browser, protocol or runtime the page describes/);
@@ -60,8 +60,13 @@ test("a brief that a platform rule contradicts is rendered as the platform and r
     /Render what the platform actually does, and report the brief's claim against the rule, marked as a brief error\./,
   );
   assert.match(kind, /Cite the rule \(a spec section or vendor documentation\)/);
-  assert.match(kind, /name it and mark it \*\*unverified\*\*/);
-  assert.match(kind, /Never present an uncited rule as verified\./);
+  assert.match(kind, /name it and mark it \*\*unverified\*\*, in the report and on the page\./);
+  // The page itself carries the mark, so its reader never takes uncited behaviour as settled.
+  assert.match(
+    kind,
+    /wherever the page shows it, visible text beside it \(not only a tooltip\) names the rule and says it is unverified\./,
+  );
+  assert.match(kind, /Never present an uncited rule as verified, in the report or on the page\./);
   assert.match(kind, /Do not edit the brief\./);
   // The worked example: the HttpOnly refresh cookie a local logout cannot remove.
   assert.match(kind, /HttpOnly refresh cookie/);
@@ -120,7 +125,7 @@ test("the constraints keep the visual-review rule word for word and forbid editi
   );
   assert.match(
     constraints,
-    /Do NOT present a platform rule you could not cite as verified; name it and mark it unverified\./,
+    /Do NOT present a platform rule you could not cite as verified; name it and mark it unverified, on the page as well as in the report\./,
   );
 });
 
@@ -140,6 +145,6 @@ test("step 7 handles a platform-rule brief error and relays an unverified rule a
   );
   assert.match(
     step7,
-    /A rule the builder marked \*\*unverified\*\* reaches the user as unverified, never as settled\./,
+    /A rule the builder marked \*\*unverified\*\* reaches the user as unverified, never as settled, and the page marks it unverified too; if you accept the rendering, that mark stays\./,
   );
 });
