@@ -56,7 +56,7 @@ Each prints the config path, its `problems`, the effective values with defaults 
 - `--for plan` needs `plan.base_ref` and at least one suite. A suite with no `junit` is a note: its claims stay `[reconstructed]`.
 - `--for run` needs a target, a surface and the roles, with every role the plan signs in as declared. The plan's Run brief fills a target or surface the config leaves out; when the two disagree, the QA person is asked which this run uses. `target: stack` also needs the four stack commands and `accounts.print`. `target: url` needs neither, and notes that the address is asked in chat. A missing `accounts.restore` or `version_endpoint` is a note.
 
-A missing file is not an error: the skill lists exactly what it needs, asks in one message, and works on the answers given in chat. It writes them into the config only when you say yes: `adapter.mjs render < answers.json` prints the new body (the file the lookup found, in its own dialect, or a new `qa.config.yml`), with the answers merged in and every other key kept, and `render --write` writes it. YAML comments are not kept. Nothing is assumed.
+A missing file is not an error: the skill lists exactly what it needs, asks in one message, and works on the answers given in chat. It writes them into the config only when you say yes: `adapter.mjs render < answers.json` prints the new body (the file the lookup found, in its own dialect, or a new `qa.config.yml`), with the answers merged in and every other key kept, and `render --write` writes it. YAML comments are not kept, so when the file has any, `--write` stops first and the skill asks whether to drop them (`--write --drop-comments`). Nothing is assumed.
 
 ## Targets and the host rule
 
