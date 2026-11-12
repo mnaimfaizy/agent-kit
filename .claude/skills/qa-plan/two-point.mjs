@@ -3,7 +3,9 @@
 // step 4, DESIGN.md "Observed and reconstructed").
 //
 // WHAT IT DOES
-//   1. Runs each `plan.suites` command in the checkout, at the head.
+//   1. Runs each `plan.suites` command in the checkout, at the head, in the
+//      platform's default shell (`suiteShell`): cmd.exe on Windows, /bin/sh
+//      elsewhere.
 //   2. Creates a detached worktree at the merge-base under `working_dir`,
 //      runs each command again there, and removes the worktree, on success
 //      and on failure alike. The head runs come first so that no suite run in
@@ -306,7 +308,7 @@ export function compareSuite(suite, head, base) {
 // ── Running ─────────────────────────────────────────────────────────────────
 
 /**
- * Stops `child` and everything it started. `shell: true` puts a shell between
+ * Stops `child` and everything it started. `suiteShell()` puts a shell between
  * us and the suite, and a suite often starts more processes (`npm ci && npm
  * test`, test workers); killing the shell alone leaves them running, holding
  * the output pipes open and working in a worktree about to be removed.
@@ -324,7 +326,23 @@ function killTree(child) {
 }
 
 /**
- * Runs `command` through the shell in `cwd`. Resolves with its exit code; a
+ * The shell a suite's `command` runs in: the platform's default, as Node's
+ * `spawn(command, { shell: true })` picks it. `cmd.exe` (`%ComSpec%`) on
+ * Windows, `/bin/sh` elsewhere. Named here, not left to `shell: true`, so
+ * the rule `ADAPTER.md` states is pinned by a test. A fixed `bash` was
+ * declined (#148): commands that both shells read keep one config working.
+ *
+ * @param {string} [platform] `process.platform`
+ * @param {Record<string, string | undefined>} [env] `process.env`
+ */
+export function suiteShell(platform = process.platform, env = process.env) {
+  if (platform === "win32") return env.ComSpec || "cmd.exe";
+  if (platform === "android") return "/system/bin/sh";
+  return "/bin/sh";
+}
+
+/**
+ * Runs `command` through `suiteShell()` in `cwd`. Resolves with its exit code; a
  * run past `timeoutMs` is killed, with every process it started, and reported
  * as timed out. On `signal` the same happens, and the promise rejects.
  *
@@ -336,7 +354,7 @@ export function shellExec(command, cwd, { timeoutMs, signal } = {}) {
     // On POSIX, a process group of its own, so the whole tree can be killed.
     const child = spawn(command, {
       cwd,
-      shell: true,
+      shell: suiteShell(),
       stdio: ["ignore", "pipe", "pipe"],
       detached: process.platform !== "win32",
       windowsHide: true,
