@@ -124,6 +124,10 @@ _Avoid_: test user, demo account
 An account a QA Plan's scenario creates during a run, with values the tester chooses then. Never seeded, and never copied into a QA Plan or QA Report.
 _Avoid_: created account, temp user, run account
 
+**Session**:
+One signed-in identity in a QA Plan's scenario, with cookies and storage no other session shares; a scenario has one or more.
+_Avoid_: profile, tab, browser context
+
 **QA Stack**:
 A local copy of the application a tester starts and stops with the repository's `up`, `migrate`, `seed` and `down` commands; teardown touches only what `up` started.
 _Avoid_: test environment, local env
