@@ -17,6 +17,6 @@ This departs on purpose from the design it comes from. MyOrganiser's `qa-plan` s
 ## Consequences
 
 - **A change to the plan format or the config reader is made in `qa-plan` and copied into `manual-qa` in the same change.** CI fails until both copies match.
-- **The format is versioned in the plan itself** (`<!-- qa-plan format=1 … -->` on its first line). An incompatible change raises the number, and is a Major change to both skills.
+- **The format is versioned in the plan itself** (`<!-- qa-plan format=1 … -->` on its first line). An incompatible change raises the number, and is a Major change to both skills. A change is incompatible when a runner on either side would misread a plan. An additive field that an older runner refuses loudly, rather than misreads, keeps the number: the Scenario account fields (#147) are one.
 - **One config file, two sections.** `qa.config.{yml,yaml,json}` at the repository root carries `plan:` for `qa-plan` and `run:` for `manual-qa`. Each skill checks its own section and accepts the other's as it is.
 - **No credentials travel with a plan.** A plan is copied into trackers and other teams' tools, so it names roles and where their values come from, never the values.
