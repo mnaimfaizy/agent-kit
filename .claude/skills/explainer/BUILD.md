@@ -107,13 +107,34 @@ note and every note a shape, that no element references a remote URL, that the m
 Then name the checks you ran. A report that names its measurements is trustworthy; a report
 claiming a review that never happened is the failure this section exists to prevent.
 
+**Look when you can.** If you can drive a headless browser that renders the page as a real origin
+(served over `http://localhost`, say, not a static `file://` snapshot), screenshot the first screen
+and each state the brief names as important (a halt, a revealed answer, an open detail), at desktop
+and phone width, in light and dark. Look at every screenshot, fix what reads poorly, and screenshot
+again. Then name in _Verified how_ exactly which states, widths and themes you looked at. Screenshots
+catch what measurements pass: in one build they found layout problems every measurement had missed.
+Without such a browser, measuring is the whole check: say the visual review was not possible, and
+why.
+
 ## Contradictions are findings
 
-While spot-checking you may read source that disagrees with the docs describing it. Source wins,
-and the disagreement is a deliverable: render the behaviour, and report both sides with their
-`file:line` under _Contradictions found_. Silently copying the doc, or silently rendering the source
-without saying the two disagree, is the failure. Do not fix the doc yourself — that is a separate
-change.
+While spot-checking you may read source that disagrees with what was written about it. Source wins,
+and the disagreement is a deliverable. It comes in two kinds:
+
+- **Doc versus source.** The docs describing the code say one thing and source another. Render the
+  source behaviour, and report both sides with their `file:line`. Do not fix the doc yourself —
+  that is a separate change.
+- **Brief versus source.** A fact in the brief says one thing and source another. Render the source
+  behaviour, and report the brief's claim against the source `file:line`, marked as a brief error.
+  Do not edit the brief: the briefer reads your report and fixes it. In one build the brief called
+  a session revoked that source showed was expired, and expected a local logout to make an HttpOnly
+  refresh cookie disappear, which page script cannot do.
+
+Both go under _Contradictions found_. Silently copying the doc or the brief, or silently rendering
+the source without saying the two disagree, is the failure.
+
+If you are the briefer building the page yourself (`SKILL.md` step 6, option 3), a brief error is
+yours to fix: stop, fix the brief, and say so.
 
 ## Report format
 
@@ -138,11 +159,14 @@ COMPLETE | BLOCKED (<reason>)
 
 - <each measurement you ran, e.g. "computed --ink resolves under all three theme states;
   14 data-tip shapes each resolve a #note- entry and vice versa; no remote URL in any attribute">
-- Visual review: <NOT POSSIBLE (why) | done, how>
+- Visual review: <NOT POSSIBLE (why) | done: each state, width and theme you looked at, e.g.
+  "first screen, the halt, the revealed answer; at 1280 and 390 px; in light and dark">
 
 ### Contradictions found
 
-- <source file:line vs doc file:line — what each says — or "none">
+- <doc: source file:line vs doc file:line — what each says>
+- <brief error: the brief's claim vs source file:line — what source does>
+- <or "none">
 
 ### Left for the caller
 
@@ -154,6 +178,9 @@ COMPLETE | BLOCKED (<reason>)
 - Do NOT invent facts. If the brief is missing one, leave a visible gap and report it.
 - Do NOT decide the audience, the hero, or the anti-goals.
 - Do NOT claim a visual review you did not perform.
+- Do NOT skip the screenshots when a headless browser renders the page as a real origin; look at
+  them before you report.
+- Do NOT edit the brief. Report a brief error under _Contradictions found_ instead.
 - Do NOT retype a configured font block; splice it.
 - Do NOT edit source files to make the page true. Report the contradiction instead.
 - Do NOT run a formatter over the page unless the consumer's configuration says to; hand-tuned
