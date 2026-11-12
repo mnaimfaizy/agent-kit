@@ -291,7 +291,8 @@ export function checkTagRuleset(rulesets) {
 
 /**
  * Workflows that push tags with GITHUB_TOKEN: a `git push` of tags, with no
- * SSH deploy key in the same file.
+ * SSH deploy key in the same file (a GIT_SSH_COMMAND, an SSH remote, or an
+ * actions/checkout `ssh-key:` input with a value).
  */
 export function workflowsPushingTagsWithToken(files) {
   return files
@@ -310,7 +311,11 @@ export function workflowsPushingTagsWithToken(files) {
             /--tags|--follow-tags|refs\/tags\/|\bTAG\b|\btag\b/i.test(l),
         );
       const tagged = /\bgit\b[^\n]*\btag\b/.test(body) && /\bgit\b[^\n]*\bpush\b/.test(body);
-      const ssh = /GIT_SSH_COMMAND|git@github\.com:|ssh:\/\//.test(body);
+      // actions/checkout's `ssh-key:` input sets origin to the SSH URL and
+      // core.sshCommand to the key, so a later `git push origin` uses it.
+      const checkoutKey =
+        /^[ \t]*(?:-[ \t]+)?ssh-key:[ \t]*(?!(?:''|""|~|null|Null|NULL)[ \t]*$)\S/m.test(body);
+      const ssh = checkoutKey || /GIT_SSH_COMMAND|git@github\.com:|ssh:\/\//.test(body);
       return (pushes || tagged) && !ssh;
     })
     .map((f) => f.path);

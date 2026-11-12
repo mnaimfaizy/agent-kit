@@ -143,4 +143,18 @@ So once the tag ruleset is on, a release workflow that pushes tags with `GITHUB_
          git push "git@github.com:${GITHUB_REPOSITORY}.git" "refs/tags/$TAG"
    ```
 
+   Alternatively, hand the key to `actions/checkout` through its `ssh-key:` input. Checkout writes the key file, trusts GitHub's published host keys, and sets `origin` to the SSH URL, so a plain `git push origin` uses the deploy key. Leave `persist-credentials` at its default (`true`): with `false`, checkout drops the key after fetching and the push fails. Set `ssh-key:` on the checkout of the repository you push the tag from: a key on a checkout of another repository leaves your own remote on `GITHUB_TOKEN`.
+
+   ```yaml
+   - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+     with:
+       ssh-key: ${{ secrets.RELEASE_TAG_DEPLOY_KEY }}
+   - name: Push release tag
+     env:
+       TAG: ${{ steps.version.outputs.tag }}
+     run: |
+       git tag "$TAG"
+       git push origin "refs/tags/$TAG"
+   ```
+
 > **Warning: double builds.** A tag pushed with `GITHUB_TOKEN` does not start workflows, so release workflows often start their tag build explicitly (`gh workflow run`, or a `workflow_dispatch` call) after the push. A deploy-key push does start `on: push: tags` workflows. Remove the explicit `workflow_dispatch` chaining when you switch, or every release builds twice.
