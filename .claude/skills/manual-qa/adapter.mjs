@@ -1487,10 +1487,14 @@ export function validatePlan(text) {
         const listed = sessionList(named.inline);
         for (const { name, id: who } of listed) {
           const what = `${id}: **${SESSIONS}:**`;
-          if (who === null)
+          // An entry with no `=` is always the last one read: after a comma, or alone.
+          if (who === null && name === "" && listed.length > 1)
+            at(named.n, `${what} a comma with no session after it`);
+          else if (who === null)
             at(
               named.n,
-              `${what} expected \`<name> = <id>\` for each session, joined by commas, at \`${name}\``,
+              `${what} expected \`<name> = <id>\` for each session, joined by commas` +
+                (name === "" ? "" : `, at \`${name}\``),
             );
           else if (name === "")
             at(named.n, `${what} an entry has no name before \`=\`: a single capital letter`);

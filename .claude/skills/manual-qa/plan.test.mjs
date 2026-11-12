@@ -714,6 +714,15 @@ test("a malformed, lowercase, duplicate or lone session is a problem on its line
       "A = member, = admin",
       "S1: **Sessions:** an entry has no name before `=`: a single capital letter",
     ],
+    ["A = member, B = admin,", "S1: **Sessions:** a comma with no session after it"],
+    [
+      "(each in its own browser)",
+      "S1: **Sessions:** expected `<name> = <id>` for each session, joined by commas",
+    ],
+    [
+      "A = member, B = admin, (each in its own browser)",
+      "S1: **Sessions:** a comma with no session after it",
+    ],
     ["A = , B = admin", "S1: **Sessions:** session A has no id after `=`"],
     [
       "A member, B = admin",
