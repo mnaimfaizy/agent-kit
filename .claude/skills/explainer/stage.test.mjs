@@ -243,6 +243,10 @@ test("BUILD.md lists the stage checks and the NOT POSSIBLE rule", () => {
     /every beat has a route .* a caption of 15 words or fewer, and at least one ref/i,
   );
   assert.match(checks, /Every `from`\/`to` pair is an edge drawn on the stage/);
+  assert.match(
+    checks,
+    /beat log contains every chapter title, beat caption and beat detail, every state entry's and record's inspector content is somewhere in the static page/,
+  );
   assert.match(checks, /at many widths from 1440 to 375 \(not just three\)/);
   assert.match(
     checks,
@@ -352,6 +356,16 @@ test("the example prerenders the beat log, the static diagram and the sandbox di
       );
   }
   assert.match(page, /<figure class="stage-fallback">/);
+  // No content is script-only: every record's inspector content and every zone ref is in the static HTML too.
+  const staticHtml = page.replace(/<script[\s\S]*?<\/script>/g, "");
+  for (const rec of Object.values(data.inspect)) {
+    assert.ok(staticHtml.includes(rec.title), `record ${rec.title} is script-only`);
+    for (const line of rec.shape.split("\n"))
+      assert.ok(staticHtml.includes(line), `record shape "${line}" is script-only`);
+    for (const r of rec.refs) assert.ok(staticHtml.includes(r), `ref ${r} is script-only`);
+  }
+  for (const z of data.zones)
+    for (const r of z.refs) assert.ok(staticHtml.includes(r), `zone ref ${r} is script-only`);
   assert.ok(
     page.includes(`<p class="disclaimer" id="sb-disclaimer">${data.sandbox.disclaimer}</p>`),
   );

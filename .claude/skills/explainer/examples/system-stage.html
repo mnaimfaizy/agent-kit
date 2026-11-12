@@ -243,6 +243,10 @@
   .ref-toggle[aria-expanded='true']::before { content: '▾'; }
   html:not(.js) .ref-toggle::before { content: ''; }
   .ref-body ul { margin: 4px 0 8px; padding-left: 20px; }
+  .ref-body h4 { margin: 12px 0 4px; font-size: 15px; }
+  .records { margin: 0 0 8px; font-size: 14px; }
+  .records dt { font-weight: 600; margin-top: 8px; }
+  .records dd { margin: 2px 0 2px 16px; }
   .table-wrap { overflow-x: auto; }
   table { border-collapse: collapse; font-size: 14px; min-width: 100%; }
   th, td { text-align: left; padding: 6px 10px 6px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
@@ -517,6 +521,21 @@ WHERE card = 'C42' AND status = 'ready'</pre>
             <li>The ledger holds one record per hold: its id, book, card and status.</li>
             <li>Only the desk writes to the ledger.</li>
           </ul>
+          <!-- records:start -->
+          <h4>State records</h4>
+          <dl class="records">
+            <dt>Kiosk <span class="muted">(patron screen)</span></dt>
+            <dd>Refs: <code>fictional/kiosk.js:3</code></dd>
+            <dd><strong>Library card.</strong> <code class="shape">card id, scanned at the kiosk</code> Refs: <code>fictional/kiosk.js:12</code></dd>
+            <dd><strong>Kiosk screen.</strong> <code class="shape">the last line the desk sent back</code> Refs: <code>fictional/kiosk.js:30</code></dd>
+            <dt>Desk <span class="muted">(service)</span></dt>
+            <dd>Refs: <code>fictional/desk.py:3</code></dd>
+            <dd><strong>Hold-shelf slot.</strong> <code class="shape">one slot: a copy tagged with one hold id, or empty</code> Refs: <code>fictional/desk.py:31</code></dd>
+            <dt>Ledger <span class="muted">(hold records)</span></dt>
+            <dd>Refs: <code>fictional/ledger.sql:1</code></dd>
+            <dd><strong>Hold record.</strong> <code class="shape">holds(id, book, card, status)<br>status: waiting → ready → collected</code> Refs: <code>fictional/ledger.sql:3</code></dd>
+          </dl>
+          <!-- records:end -->
         </div>
       </section>
 
@@ -1224,7 +1243,13 @@ WHERE card = 'C42' AND status = 'ready'</pre>
       var row = node('div', 'row');
       var gate = node('button', 't primary', h.gate);
       gate.type = 'button';
-      gate.addEventListener('click', function () { gates[h.id] = true; promptKey = ''; stepForward(); });
+      gate.addEventListener('click', function () {
+        gates[h.id] = true;
+        promptKey = '';
+        // A checkpoint on the same beat is shown next, never skipped unseen.
+        if (pendingCp(cur)) { update(); var first = promptBox.querySelector('.choice'); if (first) first.focus(); }
+        else stepForward();
+      });
       row.appendChild(gate);
       row.appendChild(node('span', 'muted', 'Next stays off until the gate opens.'));
       promptBox.appendChild(row);

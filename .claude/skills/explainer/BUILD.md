@@ -145,8 +145,9 @@ how_. The kit ships no checker for them, and a consumer's gate stays the consume
 - **Sandbox.** A scripted run through each action ends in the expected state.
 - **Reduced motion**, by emulation: messages appear at their destination, and every beat is still
   reachable.
-- **No-JS.** With script off, the beat log contains every chapter title and beat caption, and the
-  static diagram shows.
+- **No-JS.** With script off, the beat log contains every chapter title, beat caption and beat
+  detail, every state entry's and record's inspector content is somewhere in the static page, and
+  the static diagram shows.
 - **Print.** The print view expands the reference and the beat log details.
 - **Width sweep**, at every beat, at many widths from 1440 to 375 (not just three). At each one:
   labels fit, no text overlaps, nothing is truncated, no caption sits over a zone, and the page
