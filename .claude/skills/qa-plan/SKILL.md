@@ -72,6 +72,8 @@ Run the configured suites at both points:
 node "<skill>/two-point.mjs" --base <base_ref>
 ```
 
+When step 2 used answers given in chat and the person did not save them, pass the answers file step 2 wrote: add `--answers <working_dir>/<answers.json>`. The runner merges it over the config, or over none, as `render` does, and writes no config. Never write a config, even a temporary one, to run it ([ADAPTER.md](ADAPTER.md#readiness-check)).
+
 It runs each `plan.suites` command in the checkout, at the head, then in a detached worktree at the merge-base under `working_dir`, which it removes afterwards, whether the run succeeds or fails. It compares the two runs' JUnit XML test by test and prints a table. It takes as long as the suites, twice: say so before it starts. To run fewer, pass `--suite <name>` once for each suite whose `surfaces` cover the changed paths.
 
 - **Exit 1: a regression.** A test that passes at the merge-base, or a new test, fails at the head. Stop: show the person those rows, and tell them to fix it before a plan is worth writing.

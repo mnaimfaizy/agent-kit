@@ -8,6 +8,8 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ### Fixed
 
+- `qa-plan`'s `two-point.mjs` takes `--answers <file>`, the answers given in chat as the JSON object `adapter.mjs render` reads, from inside `working_dir`. It merges them over the config the lookup finds, or over none, with `render`'s merge, so step 4 runs with no `qa.config.yml` and writes none, even when the person declined to save the answers ([#145](https://github.com/mnaimfaizy/agent-kit/issues/145)).
+
 - `doctor`'s `release-tag-push` check no longer warns on a workflow whose `actions/checkout` step sets `ssh-key:`, since checkout then makes `git push origin` use that deploy key. A commented-out or empty `ssh-key:` still warns. The [hardening guide](docs/repository-hardening.md#personal-account-repositories-pushing-release-tags) now shows the `ssh-key:` checkout route as an alternative to the manual `GIT_SSH_COMMAND` step.
 
 ## [1.0.0-beta.3] - 2026-11-11
