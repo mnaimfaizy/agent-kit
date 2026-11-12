@@ -6,6 +6,10 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
+### Added
+
+- `qa-plan`'s `two-point.mjs` takes `--answers <file>`, the answers given in chat as the JSON object `adapter.mjs render` reads, from inside `working_dir`. It merges them over the config the lookup finds, or over none, with `render`'s merge, so step 4 runs with no `qa.config.yml` and writes none, even when the person declined to save the answers ([#145](https://github.com/mnaimfaizy/agent-kit/issues/145)).
+
 ### Fixed
 
 - `qa-plan` and `manual-qa` no longer drop the comments in a commented `qa.config.yml` without asking when they save your answers. `adapter.mjs render --write` now writes nothing over a YAML config that has comments and exits 3, naming the lines. The skill asks you, and writes with `--write --drop-comments` only if you agree. A preview without `--write`, a JSON config and a new file behave as before.
