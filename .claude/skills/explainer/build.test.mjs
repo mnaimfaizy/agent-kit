@@ -84,7 +84,10 @@ test("the constraints keep the visual-review rule word for word and forbid editi
     constraints,
     /Do NOT skip the screenshots when a headless browser renders the page as a real origin/,
   );
-  assert.match(constraints, /Do NOT edit the brief\./);
+  assert.match(
+    constraints,
+    /Do NOT edit the brief\. .* unless you are the briefer building the page yourself/,
+  );
 });
 
 test("step 7 says what the briefer does with a brief error", () => {

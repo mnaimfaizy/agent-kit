@@ -127,8 +127,7 @@ and the disagreement is a deliverable. It comes in two kinds:
 - **Brief versus source.** A fact in the brief says one thing and source another. Render the source
   behaviour, and report the brief's claim against the source `file:line`, marked as a brief error.
   Do not edit the brief: the briefer reads your report and fixes it. In one build the brief called
-  a session revoked that source showed was expired, and expected a local logout to make an HttpOnly
-  refresh cookie disappear, which page script cannot do.
+  a session revoked that source showed was expired.
 
 Both go under _Contradictions found_. Silently copying the doc or the brief, or silently rendering
 the source without saying the two disagree, is the failure.
@@ -180,7 +179,8 @@ COMPLETE | BLOCKED (<reason>)
 - Do NOT claim a visual review you did not perform.
 - Do NOT skip the screenshots when a headless browser renders the page as a real origin; look at
   them before you report.
-- Do NOT edit the brief. Report a brief error under _Contradictions found_ instead.
+- Do NOT edit the brief. Report a brief error under _Contradictions found_ instead, unless you are
+  the briefer building the page yourself (see _Contradictions are findings_).
 - Do NOT retype a configured font block; splice it.
 - Do NOT edit source files to make the page true. Report the contradiction instead.
 - Do NOT run a formatter over the page unless the consumer's configuration says to; hand-tuned
