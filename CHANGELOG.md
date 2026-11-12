@@ -6,6 +6,10 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
+### Fixed
+
+- `doctor`'s `release-tag-push` check no longer warns on a workflow whose `actions/checkout` step sets `ssh-key:`, since checkout then makes `git push origin` use that deploy key. A commented-out or empty `ssh-key:` still warns. The [hardening guide](docs/repository-hardening.md#personal-account-repositories-pushing-release-tags) now shows the `ssh-key:` checkout route as an alternative to the manual `GIT_SSH_COMMAND` step.
+
 ## [1.0.0-beta.3] - 2026-11-11
 
 Third beta on the `1.0.0` line, classed **Minor** (per [docs/releases.md](docs/releases.md)): two new User-scope Portable skills, `qa-plan` and `manual-qa`, turn a pull request's manual verification into a plan someone else can run and a report of that run, with a [QA](docs/qa.md) guide and config templates. Everything below is additive. No workflow input, secret or permission changed, no existing skill changed, and no Consumer action is required beyond the usual upgrade of the `uses:` pins and Kit-owned paths together.

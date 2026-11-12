@@ -631,7 +631,46 @@ describe("ruleset and tag-push helpers", () => {
       },
       { path: "branch.yml", text: "steps:\n  - run: git push origin HEAD:main\n" },
     ];
-    assert.deepEqual(workflowsPushingTagsWithToken(files), ["token.yml", "tags.yml"]);
+    const checkoutWith = (sshLine) =>
+      "steps:\n" +
+      "  - uses: actions/checkout@v4\n" +
+      "    with:\n" +
+      "      fetch-depth: 0\n" +
+      `${sshLine}\n` +
+      "  - run: |\n" +
+      '      git tag -a "$V" -m "$V"\n' +
+      '      git push origin "refs/tags/$V"\n';
+    files.push(
+      {
+        path: "checkout-ssh.yml",
+        text: checkoutWith("      ssh-key: ${{ secrets.RELEASE_TAG_DEPLOY_KEY }}"),
+      },
+      {
+        path: "checkout-ssh-commented.yml",
+        text: checkoutWith("      # ssh-key: ${{ secrets.RELEASE_TAG_DEPLOY_KEY }}"),
+      },
+      {
+        path: "checkout-ssh-trailing.yml",
+        text: checkoutWith("      persist-credentials: true # ssh-key: ${{ secrets.X }}"),
+      },
+      { path: "checkout-ssh-empty.yml", text: checkoutWith("      ssh-key:") },
+      { path: "checkout-ssh-empty-comment.yml", text: checkoutWith("      ssh-key: # later") },
+      { path: "checkout-ssh-empty-quoted.yml", text: checkoutWith("      ssh-key: ''") },
+      {
+        path: "checkout-ssh-substring.yml",
+        text: checkoutWith("      my-ssh-key: ${{ secrets.X }}\n      ssh-key-path: k"),
+      },
+    );
+    assert.deepEqual(workflowsPushingTagsWithToken(files), [
+      "token.yml",
+      "tags.yml",
+      "checkout-ssh-commented.yml",
+      "checkout-ssh-trailing.yml",
+      "checkout-ssh-empty.yml",
+      "checkout-ssh-empty-comment.yml",
+      "checkout-ssh-empty-quoted.yml",
+      "checkout-ssh-substring.yml",
+    ]);
   });
 });
 
