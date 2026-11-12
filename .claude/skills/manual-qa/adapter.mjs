@@ -40,9 +40,10 @@
 //                                          whether a run may sign in at this address
 //   node adapter.mjs hazards < files.txt   Hazard packs matching the changed paths
 //   node adapter.mjs delivery [--label L]… where the plan goes, by `plan.publish`
-//   node adapter.mjs render [--write] < answers.json
+//   node adapter.mjs render [--write [--drop-comments]] < answers.json
 //                                          the config with the answers merged in
-//   Each prints JSON (render prints the new file body, or writes it with --write)
+//   Each prints JSON (render prints the new file body, or writes it with --write;
+//   --write over a commented YAML config exits 3 unless --drop-comments)
 //   and exits 1 on any problem, 2 on bad usage; `host` exits 0 when the run may
 //   sign in, 1 on a stop, 3 when the QA person must confirm the host in chat.
 
@@ -1235,11 +1236,14 @@ export function validatePlan(text) {
     });
     return found;
   };
+  /** A first-word value (ANATOMY.md, "First-word values"): `*` and `_` only around the word. */
   const plainWord = (value) =>
-    value
-      .replace(/[`*_]/g, "")
-      .trim()
-      .split(/[\s,;:()]+/)[0] ?? "";
+    (
+      value
+        .replace(/`/g, "")
+        .trim()
+        .split(/[\s,;:()]+/)[0] ?? ""
+    ).replace(/^[*_]+|[*_]+$/g, "");
 
   if (sections.Anchors) {
     const { n, from, to } = sections.Anchors;
@@ -1608,6 +1612,28 @@ export function renderConfigUpdate(loaded, answers) {
   return { path, body: renderConfigYaml(merged, check) };
 }
 
+/**
+ * The lines of a YAML config that hold a comment, which a rewrite drops: a
+ * full-line `#` comment, or a ` # comment` after a value. A quoted scalar is
+ * set aside first, so a `#` inside it is not one; as in `inlineValue`, a quote
+ * quotes only where a value opens (line start, after `- `, `: `, `[`, `{` or
+ * `,`), so an apostrophe in a plain value hides nothing. Erring towards a
+ * comment only costs a confirmation; erring away loses the person's notes.
+ *
+ * @param {string} text
+ * @returns {number[]} 1-based line numbers
+ */
+export function yamlCommentLines(text) {
+  const found = [];
+  String(text)
+    .split(/\r?\n/)
+    .forEach((raw, index) => {
+      const bare = raw.replace(/(^\s*(?:-\s+)?|:\s+|[[{,]\s*)(?:"[^"]*"|'[^']*')/g, '$1""');
+      if (/^\s*#/.test(bare) || /\s#/.test(bare)) found.push(index + 1);
+    });
+  return found;
+}
+
 // ── CLI ─────────────────────────────────────────────────────────────────────
 
 function repoReader(repo) {
@@ -1656,7 +1682,8 @@ export function main(argv, io = {}) {
       "usage: node adapter.mjs check --for plan | check --for run [--plan <file>] | " +
       "plan [<file>] < plan.md | host <url> [--target stack|url] [--confirmed <host>] | " +
       "hazards < changed-paths | " +
-      "delivery [--label <name>]… | render [--write] < answers.json   [--repo <dir>]\n",
+      "delivery [--label <name>]… | render [--write [--drop-comments]] < answers.json   " +
+      "[--repo <dir>]\n",
   };
   // A plan is the person's file, wherever they keep it: read from the working
   // directory, not from the repository root.
@@ -1697,6 +1724,19 @@ export function main(argv, io = {}) {
     try {
       const { path, body } = renderConfigUpdate(loaded, JSON.parse(stdin()));
       if (!argv.includes("--write")) return { code: 0, out: body };
+      // Rewriting a commented YAML config drops its comments. The person
+      // consented to the body, which has none, so `--write` refuses unless
+      // `--drop-comments` says they agreed to lose them too (ADAPTER.md).
+      const comments =
+        loaded.path !== null && !path.endsWith(".json") ? yamlCommentLines(read(path) ?? "") : [];
+      if (comments.length && !argv.includes("--drop-comments"))
+        return {
+          code: 3,
+          out:
+            `${path} has YAML comments (line ${comments.join(", ")}) that --write would drop; ` +
+            "nothing was written. Tell the person; only if they agree to lose them, " +
+            "run again with --write --drop-comments.\n",
+        };
       (io.write ?? ((p, text) => writeFileSync(join(repo, p), text)))(path, body);
       return { code: 0, out: `wrote ${path}\n` };
     } catch (error) {

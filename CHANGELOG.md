@@ -12,7 +12,11 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ### Fixed
 
+- `qa-plan` and `manual-qa` no longer drop the comments in a commented `qa.config.yml` without asking when they save your answers. `adapter.mjs render --write` now writes nothing over a YAML config that has comments and exits 3, naming the lines. The skill asks you, and writes with `--write --drop-comments` only if you agree. A preview without `--write`, a JSON config and a new file behave as before.
+
 - `doctor`'s `release-tag-push` check no longer warns on a workflow whose `actions/checkout` step sets `ssh-key:`, since checkout then makes `git push origin` use that deploy key. A commented-out or empty `ssh-key:` still warns. The [hardening guide](docs/repository-hardening.md#personal-account-repositories-pushing-release-tags) now shows the `ssh-key:` checkout route as an alternative to the manual `GIT_SSH_COMMAND` step.
+
+- The QA Plan format ([`ANATOMY.md`](.claude/skills/qa-plan/ANATOMY.md), copied in `qa-plan` and `manual-qa`) now states how the plan checker reads **Target:**, **Surface:** and **Signs in as:**. It drops backticks, reads up to the first space, comma, semicolon, colon or parenthesis, drops `*` and `_` at either end of that word, and strips nothing else. So `` `web`. `` fails, and **Signs in as:** must start with a declared role id or `nobody`. The checker no longer drops `_` inside the word, so a role id such as `team_admin` now matches its **Roles:** entry instead of being read as `teamadmin`.
 
 ## [1.0.0-beta.3] - 2026-11-11
 
