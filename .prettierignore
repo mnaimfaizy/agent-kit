@@ -2,3 +2,5 @@ uv.lock
 package-lock.json
 # Shipped release notes are immutable history.
 release-notes/
+# Hand-tuned Explainer Pages are not formatted (explainer BUILD.md, Constraints).
+.claude/skills/explainer/examples/
