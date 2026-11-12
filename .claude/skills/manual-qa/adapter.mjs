@@ -1611,9 +1611,11 @@ export function renderConfigUpdate(loaded, answers) {
 
 /**
  * The lines of a YAML config that hold a comment, which a rewrite drops: a
- * full-line `#` comment, or a ` # comment` after a value (quoted text is set
- * aside first, so a `#` inside quotes is not one). Erring towards a comment
- * only costs a confirmation; erring away loses the person's notes.
+ * full-line `#` comment, or a ` # comment` after a value. A quoted scalar is
+ * set aside first, so a `#` inside it is not one; as in `inlineValue`, a quote
+ * quotes only where a value opens (line start, after `- `, `: `, `[`, `{` or
+ * `,`), so an apostrophe in a plain value hides nothing. Erring towards a
+ * comment only costs a confirmation; erring away loses the person's notes.
  *
  * @param {string} text
  * @returns {number[]} 1-based line numbers
@@ -1623,7 +1625,7 @@ export function yamlCommentLines(text) {
   String(text)
     .split(/\r?\n/)
     .forEach((raw, index) => {
-      const bare = raw.replace(/"[^"]*"|'[^']*'/g, '""');
+      const bare = raw.replace(/(^\s*(?:-\s+)?|:\s+|[[{,]\s*)(?:"[^"]*"|'[^']*')/g, '$1""');
       if (/^\s*#/.test(bare) || /\s#/.test(bare)) found.push(index + 1);
     });
   return found;
@@ -1723,7 +1725,7 @@ export function main(argv, io = {}) {
       // consented to the body, which has none, so `--write` refuses unless
       // `--drop-comments` says they agreed to lose them too (ADAPTER.md).
       const comments =
-        loaded.path === path && !path.endsWith(".json") ? yamlCommentLines(read(path) ?? "") : [];
+        loaded.path !== null && !path.endsWith(".json") ? yamlCommentLines(read(path) ?? "") : [];
       if (comments.length && !argv.includes("--drop-comments"))
         return {
           code: 3,

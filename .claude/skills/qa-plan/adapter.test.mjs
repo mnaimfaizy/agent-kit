@@ -700,9 +700,14 @@ test("yamlCommentLines finds full-line and trailing comments, not `#` in a value
         "e: f#g",
         "  # indented",
         "h: [i, j] # flow",
+        "      purpose: the reviewer's account # don't reuse it",
+        "p: o'neil's # it's",
+        'size: 12" screen # the "big" one',
+        "- 'q #r'",
+        "k: ['s #t', \"u #v\"]",
       ].join("\n"),
     ),
-    [1, 2, 4, 6, 7],
+    [1, 2, 4, 6, 7, 8, 9, 10],
   );
 });
 
