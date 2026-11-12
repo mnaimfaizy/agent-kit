@@ -706,6 +706,14 @@ test("a malformed, lowercase, duplicate or lone session is a problem on its line
       "S1: **Sessions:** `AB` is not a session name: a single capital letter",
     ],
     ["A = member, A = admin", "S1: **Sessions:** session A is named twice"],
+    [
+      "= member, B = admin",
+      "S1: **Sessions:** an entry has no name before `=`: a single capital letter",
+    ],
+    [
+      "A = member, = admin",
+      "S1: **Sessions:** an entry has no name before `=`: a single capital letter",
+    ],
     ["A = , B = admin", "S1: **Sessions:** session A has no id after `=`"],
     [
       "A member, B = admin",

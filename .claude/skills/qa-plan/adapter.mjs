@@ -1492,6 +1492,8 @@ export function validatePlan(text) {
               named.n,
               `${what} expected \`<name> = <id>\` for each session, joined by commas, at \`${name}\``,
             );
+          else if (name === "")
+            at(named.n, `${what} an entry has no name before \`=\`: a single capital letter`);
           else if (!/^[A-Z]$/.test(name))
             at(named.n, `${what} \`${name}\` is not a session name: a single capital letter`);
           else if (sessions.some((session) => session.name === name))
