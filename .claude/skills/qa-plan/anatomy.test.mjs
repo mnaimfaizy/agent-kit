@@ -78,7 +78,9 @@ test("ANATOMY.md states how the checker reads Target, Surface and Signs in as", 
   assert.match(shape, /### First-word values/);
   for (const label of ["Target:", "Surface:", "Signs in as:"])
     assert.ok(shape.includes(`**${label}**`), `First-word values does not name **${label}**`);
-  assert.match(shape, /Backticks, `\*` and `_` are dropped/);
+  assert.match(shape, /Backticks are dropped/);
+  assert.match(shape, /`\*` and `_` at either end of the word are dropped/);
+  assert.match(shape, /`team_admin` is read as `team_admin`/);
   assert.match(shape, /space, comma, semicolon, colon or parenthesis/);
   assert.match(shape, /Nothing else is stripped/);
   assert.match(shape, /reads as `web\.` and fails/);

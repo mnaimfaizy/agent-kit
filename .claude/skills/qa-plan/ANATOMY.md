@@ -32,9 +32,10 @@ The marker is how a revision finds the plan it replaces (on a tracker issue or a
 
 Some labels take a word from a fixed set: **Target:**, **Surface:** and **Signs in as:**. For these, the value is the first word after the label, read like this:
 
-1. Backticks, `*` and `_` are dropped, so `` `web` `` and `web` are the same word.
+1. Backticks are dropped.
 2. The word ends at the first space, comma, semicolon, colon or parenthesis. Anything after it is prose.
-3. Nothing else is stripped. A period or other mark stuck to the word stays part of it.
+3. `*` and `_` at either end of the word are dropped, so `` `web` ``, `**web**` and `web` are the same word. Inside the word they stay: `team_admin` is read as `team_admin`.
+4. Nothing else is stripped. A period or other mark stuck to the word stays part of it.
 
 So `` - **Surface:** `web` `` and `- **Surface:** web, in Chrome` read as `web`. ``- **Surface:** `web`.`` reads as `web.` and fails the check. Put the word first, with nothing stuck to it.
 
