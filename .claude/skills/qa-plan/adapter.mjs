@@ -1235,11 +1235,14 @@ export function validatePlan(text) {
     });
     return found;
   };
+  /** A first-word value (ANATOMY.md, "First-word values"): `*` and `_` only around the word. */
   const plainWord = (value) =>
-    value
-      .replace(/[`*_]/g, "")
-      .trim()
-      .split(/[\s,;:()]+/)[0] ?? "";
+    (
+      value
+        .replace(/`/g, "")
+        .trim()
+        .split(/[\s,;:()]+/)[0] ?? ""
+    ).replace(/^[*_]+|[*_]+$/g, "");
 
   if (sections.Anchors) {
     const { n, from, to } = sections.Anchors;

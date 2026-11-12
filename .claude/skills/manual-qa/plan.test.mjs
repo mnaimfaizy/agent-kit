@@ -263,6 +263,56 @@ test("a scenario signs in only as a role the Run brief names, or nobody", () => 
   );
 });
 
+test("first-word values are read as ANATOMY.md states: marks dropped, nothing else stripped", () => {
+  // The three draft lines the #124 pilot wrote, which ANATOMY.md now rules out.
+  assertProblem(
+    broken("- **Surface:** `web`", "- **Surface:** `web`."),
+    /\*\*Surface:\*\* expected one of: web, desktop, mobile, api/,
+  );
+  assertProblem(
+    broken("- **Signs in as:** `admin`", "- **Signs in as:** the new user from S1, then `admin`."),
+    /S1 signs in as `the`, which the Run brief's \*\*Roles:\*\* does not name/,
+  );
+  assertProblem(
+    broken("- **Signs in as:** `admin`", "- **Signs in as:** `admin`."),
+    /S1 signs in as `admin\.`, which the Run brief's \*\*Roles:\*\* does not name/,
+  );
+  assertProblem(
+    broken("- **Target:** `stack`", "- **Target:** `stack`."),
+    /\*\*Target:\*\* expected one of: stack, url/,
+  );
+  // The forms ANATOMY.md allows: bare, in backticks or emphasis, prose after a space or comma.
+  for (const [from, to] of [
+    ["- **Target:** `stack`", "- **Target:** stack, on a laptop"],
+    ["- **Surface:** `web`", "- **Surface:** **web**"],
+    ["- **Surface:** `web`", "- **Surface:** web"],
+    ["- **Surface:** `web`", "- **Surface:** web, in Chrome"],
+    ["- **Signs in as:** `admin`", "- **Signs in as:** admin"],
+    ["- **Signs in as:** `admin`", "- **Signs in as:** `admin`, after S1 creates the new user"],
+    ["- **Signs in as:** nobody", "- **Signs in as:** `nobody` (signed out)"],
+  ]) {
+    const { plan, problems } = validatePlan(broken(from, to));
+    assert.deepEqual(problems, [], `${to} should read cleanly`);
+    assert.equal(plan.brief.surface, "web");
+    assert.deepEqual(
+      plan.scenarios.map((s) => s.signsInAs),
+      ["admin", "nobody"],
+    );
+    assert.equal(plan.brief.target, "stack");
+  }
+  // `_` inside a role id is part of it; only `*` and `_` around the word are dropped.
+  const underscored = broken(
+    "  - `admin`: manages members",
+    "  - `team_admin`: manages members",
+  ).replace("- **Signs in as:** `admin`", "- **Signs in as:** _`team_admin`_, after setup");
+  const { plan, problems } = validatePlan(underscored);
+  assert.deepEqual(problems, []);
+  assert.deepEqual(
+    plan.scenarios.map((s) => s.signsInAs),
+    ["team_admin", "nobody"],
+  );
+});
+
 test("each scenario has a box on the sign-off checklist", () => {
   assertProblem(
     broken("- [ ] S2: A signed-out visitor cannot open the members page\n", ""),
