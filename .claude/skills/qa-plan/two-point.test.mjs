@@ -34,6 +34,7 @@ import {
   parseJUnit,
   renderReport,
   shellExec,
+  suiteShell,
 } from "./two-point.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -704,6 +705,33 @@ test("value flags need a value", async () => {
     assert.match(result.out, /^usage:/, argv.join(" "));
   }
   assertNoWorktreeLeft(repo);
+});
+
+// The shell is the platform's default, the rule ADAPTER.md states (#148).
+test("a suite command runs in cmd.exe (%ComSpec%) on Windows and /bin/sh elsewhere", () => {
+  const comspec = String.raw`C:\Windows\System32\cmd.exe`;
+  assert.equal(suiteShell("win32", { ComSpec: comspec }), comspec);
+  assert.equal(suiteShell("win32", {}), "cmd.exe");
+  // Never bash, even when Git for Windows or WSL puts one on PATH.
+  assert.equal(
+    suiteShell("win32", { ComSpec: comspec, PATH: String.raw`C:\Program Files\Git\bin` }),
+    comspec,
+  );
+  for (const platform of ["linux", "darwin", "freebsd"])
+    assert.equal(
+      suiteShell(platform, { ComSpec: comspec, SHELL: "/bin/zsh" }),
+      "/bin/sh",
+      platform,
+    );
+});
+
+test("a suite command really runs in that shell on this platform", async () => {
+  // `%OS%` expands only in cmd.exe, and `$((…))` only in sh.
+  const windows = process.platform === "win32";
+  const command = windows ? "echo shell=%OS%" : 'echo "shell=$((40 + 2))"';
+  const result = await shellExec(command, scratch, { timeoutMs: 20000 });
+  assert.equal(result.code, 0, result.output);
+  assert.match(result.output, windows ? /shell=Windows_NT/ : /shell=42/);
 });
 
 // A shell that starts a grandchild which outlives it and holds the output

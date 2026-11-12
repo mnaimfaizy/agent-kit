@@ -19,6 +19,9 @@ working_dir: tmp/qa # gitignored; plans, reports and evidence are written here
 plan:
   base_ref: origin/main # the ref pull requests merge into
   suites: # each suite CI runs; two-point.mjs runs it at the head and the merge-base
+    # A command runs in cmd.exe on Windows and /bin/sh elsewhere. These two read
+    # the same in both: a program and its arguments, chained with &&, with
+    # forward-slash paths. Put anything more in a script the command calls.
     - name: backend
       command: "uv run pytest --junitxml=reports/backend.xml"
       junit: reports/backend.xml # optional; without it, claims are [reconstructed]
