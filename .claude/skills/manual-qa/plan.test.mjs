@@ -79,11 +79,18 @@ test("the good plan reads with no problems, and its parts are read out", () => {
     roles: ["admin", "member"],
   });
   assert.deepEqual(plan.scenarios, [
-    { id: "S1", title: "An admin invites a new member", signsInAs: "admin", creates: [] },
+    {
+      id: "S1",
+      title: "An admin invites a new member",
+      signsInAs: "admin",
+      sessions: [{ name: null, id: "admin" }],
+      creates: [],
+    },
     {
       id: "S2",
       title: "A signed-out visitor cannot open the members page",
       signsInAs: "nobody",
+      sessions: [{ name: null, id: "nobody" }],
       creates: [],
     },
   ]);
@@ -605,6 +612,186 @@ test("talking about credentials is not carrying one", () => {
 
 test("ANATOMY.md itself carries no credential", () => {
   assert.deepEqual(credentialProblems(anatomy.split(/\r?\n/)), []);
+});
+
+// ── Sessions ────────────────────────────────────────────────────────────────
+
+const S1_SINGLE =
+  "- **Signs in as:** `admin`\n- **Steps:**\n  1. Open **Members**.\n  2. Click **Invite member**";
+/** The good plan with S1 using two Sessions, its steps naming them, then any edits. */
+function withSessions(sessions = "A = member, B = `admin` (each in its own browser)", ...edits) {
+  let text = broken(
+    S1_SINGLE,
+    `- **Sessions:** ${sessions}\n- **Steps:**\n  1. In session A, open **Members**.\n  2. In B, click **Invite member**`,
+  );
+  for (const [from, to] of edits) {
+    assert.ok(text.includes(from), `the plan has no ${JSON.stringify(from)}`);
+    text = text.replace(from, to);
+  }
+  return text;
+}
+const sessionsLine = (text) => lineOf(text, "- **Sessions:**");
+
+test("a scenario with two Sessions reads, and lists both", () => {
+  const { plan, problems } = validatePlan(withSessions());
+  assert.deepEqual(problems, []);
+  assert.deepEqual(plan.scenarios[0].sessions, [
+    { name: "A", id: "member" },
+    { name: "B", id: "admin" },
+  ]);
+  assert.equal(plan.scenarios[0].signsInAs, null);
+  // The single-session scenario is unchanged.
+  assert.equal(plan.scenarios[1].signsInAs, "nobody");
+  // The forms ANATOMY.md allows: ids as first-word values, spaces around `=` and commas, prose after.
+  for (const sessions of [
+    "A=member,B=admin",
+    "**A** = **member** , B = _admin_: each in its own browser",
+    "A = member, B = admin; C = nobody is prose after the semicolon",
+  ]) {
+    const read = validatePlan(withSessions(sessions));
+    assert.deepEqual(read.problems, [], sessions);
+    assert.deepEqual(
+      read.plan.scenarios[0].sessions.map((s) => `${s.name}=${s.id}`),
+      ["A=member", "B=admin"],
+      sessions,
+    );
+  }
+  // Three sessions, one signed out; `In session C,` names the third.
+  const three = withSessions("A = member, B = admin, C = nobody", [
+    "  2. In B, click",
+    "  2. In session C, open `/members`.\n  3. In B, click",
+  ]);
+  assert.deepEqual(problemsOf(three), []);
+  assert.deepEqual(
+    validatePlan(three).plan.scenarios[0].sessions.map((s) => s.id),
+    ["member", "admin", "nobody"],
+  );
+  // Only top-level steps name a session; a nested list under a step is prose.
+  const nested = withSessions(undefined, [
+    "  1. In session A, open **Members**.",
+    "  1. In session A, open **Members**.\n     1. Wait for the list.",
+  ]);
+  assert.deepEqual(problemsOf(nested), []);
+});
+
+test("both **Signs in as:** and **Sessions:**, or neither, is a problem", () => {
+  const both = withSessions(undefined, [
+    "- **Sessions:**",
+    "- **Signs in as:** `admin`\n- **Sessions:**",
+  ]);
+  assert.deepEqual(problemsOf(both), [
+    `line ${sessionsLine(both)}: S1 has both **Signs in as:** and **Sessions:**: a scenario has one or the other`,
+  ]);
+  const neither = broken("- **Signs in as:** `admin`\n", "");
+  assert.deepEqual(problemsOf(neither), [
+    `line ${lineOf(neither, "### S1:")}: S1 lacks **Signs in as:**`,
+  ]);
+  const empty = withSessions("");
+  assert.ok(problemsOf(empty).includes(`line ${sessionsLine(empty)}: S1: **Sessions:** is empty`));
+});
+
+test("a malformed, lowercase, duplicate or lone session is a problem on its line", () => {
+  const cases = [
+    [
+      "a = member, B = admin",
+      "S1: **Sessions:** `a` is not a session name: a single capital letter",
+    ],
+    [
+      "AB = member, B = admin",
+      "S1: **Sessions:** `AB` is not a session name: a single capital letter",
+    ],
+    ["A = member, A = admin", "S1: **Sessions:** session A is named twice"],
+    ["A = , B = admin", "S1: **Sessions:** session A has no id after `=`"],
+    [
+      "A member, B = admin",
+      "S1: **Sessions:** expected `<name> = <id>` for each session, joined by commas, at `A`",
+    ],
+    [
+      "A = member, admin",
+      "S1: **Sessions:** expected `<name> = <id>` for each session, joined by commas, at `admin`",
+    ],
+    [
+      "A = admin",
+      "S1: **Sessions:** names one session: a scenario with one session uses **Signs in as:**",
+    ],
+  ];
+  for (const [sessions, message] of cases) {
+    const text = withSessions(sessions);
+    const problems = problemsOf(text);
+    assert.ok(
+      problems.includes(`line ${sessionsLine(text)}: ${message}`),
+      `${sessions}: expected ${message}, got:\n${problems.join("\n")}`,
+    );
+  }
+});
+
+test("a session id follows the **Signs in as:** rule, on the Sessions line", () => {
+  const ghost = withSessions("A = member, B = ghost");
+  assert.deepEqual(problemsOf(ghost), [
+    `line ${sessionsLine(ghost)}: S1's session B signs in as \`ghost\`, which is neither a role the Run brief's **Roles:** names nor a Scenario account an earlier scenario creates`,
+  ]);
+  // A Scenario account created later, or by the scenario itself.
+  const later = withSessions("A = member, B = temp-user", [
+    "- **Signs in as:** nobody\n",
+    "- **Signs in as:** nobody\n- **Creates:** `temp-user`\n",
+  ]);
+  assert.deepEqual(problemsOf(later), [
+    `line ${sessionsLine(later)}: S1's session B signs in as \`temp-user\`, which S2 creates later: only a scenario after its creator may sign in as it`,
+  ]);
+  const itself = withSessions("A = member, B = temp-user", [
+    "- **Steps:**\n  1. In session A",
+    "- **Creates:** `temp-user`\n- **Steps:**\n  1. In session A",
+  ]);
+  assert.deepEqual(problemsOf(itself), [
+    `line ${sessionsLine(itself)}: S1's session B signs in as \`temp-user\`, which S1 creates itself: only a later scenario may sign in as it`,
+  ]);
+});
+
+test("a session signs in as a Scenario account an earlier scenario creates", () => {
+  const text = withAccount([
+    "- **Signs in as:** `temp-user` (created in S1)\n- **Steps:**\n  1. Open `/members` while signed out.",
+    "- **Sessions:** A = `temp-user`, B = admin (`temp-user` created in S1)\n- **Steps:**\n  1. In session A, open `/members`.\n  2. In session B, reset the password of `temp-user`.",
+  ]);
+  const { plan, problems } = validatePlan(text);
+  assert.deepEqual(problems, []);
+  assert.deepEqual(plan.scenarios[1].sessions, [
+    { name: "A", id: "temp-user" },
+    { name: "B", id: "admin" },
+  ]);
+});
+
+test("in a multi-session scenario, a step that names no session, or an undeclared one, is a problem", () => {
+  const none = withSessions(undefined, ["  2. In B, click", "  2. Click"]);
+  assert.deepEqual(problemsOf(none), [
+    `line ${lineOf(none, "  2. Click")}: S1: step 2 names no session: in a multi-session scenario, each step starts \`In session <name>,\``,
+  ]);
+  const undeclared = withSessions(undefined, ["  2. In B, click", "  2. In session C, click"]);
+  assert.deepEqual(problemsOf(undeclared), [
+    `line ${lineOf(undeclared, "  2. In session C")}: S1: step 2 is in session C, which **Sessions:** does not declare`,
+  ]);
+  // A single-session scenario's steps need no session.
+  assert.deepEqual(problemsOf(GOOD), []);
+});
+
+test("**Sessions:** sits where **Signs in as:** does", () => {
+  const text = withSessions(undefined, [
+    "- **Sessions:** A = member, B = `admin` (each in its own browser)\n- **Steps:**",
+    "- **Steps:**",
+  ]).replace(
+    "- **Expected result:** the list shows",
+    "- **Sessions:** A = member, B = admin\n- **Expected result:** the list shows",
+  );
+  assertProblem(text, /S1: its fields are out of order/);
+});
+
+test("`plan` prints each scenario's sessions", () => {
+  const io = { read: () => null, stdin: () => withSessions() };
+  const result = main(["plan"], io);
+  assert.equal(result.code, 0);
+  assert.deepEqual(JSON.parse(result.out).plan.scenarios[0].sessions, [
+    { name: "A", id: "member" },
+    { name: "B", id: "admin" },
+  ]);
 });
 
 // ── CLI ─────────────────────────────────────────────────────────────────────

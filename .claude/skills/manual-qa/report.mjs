@@ -217,9 +217,9 @@ export function readReport(text) {
 
 /**
  * What a QA Report owes the plan it ran (SKILL.md step 8): it is that plan's
- * report, with one row per scenario, in order; and each scenario that signs in
- * as a Scenario account is left for a person, saying why, when the scenario
- * that creates the account did not pass. A dependent left for a person did not
+ * report, with one row per scenario, in order; and each scenario with a session
+ * that signs in as a Scenario account is left for a person, saying why, when the
+ * scenario that creates the account did not pass. A dependent left for a person did not
  * pass either, so the rule carries down a chain. A run stopped on a blocking
  * outcome before a dependent may give it its stop note instead.
  *
@@ -252,10 +252,17 @@ export function reportPlanProblems(report, planText) {
     plan.scenarios.flatMap((scenario) => scenario.creates.map((id) => [id, scenario.id])),
   );
   const results = new Map(report.results.map((row) => [row.id, row]));
-  for (const { id, signsInAs: account } of plan.scenarios) {
+  for (const { id, sessions } of plan.scenarios) {
+    // The first session whose Scenario account's creator did not pass.
+    const blocked = sessions.find((session) => {
+      const creator = creatorOf.get(session.id);
+      return creator !== undefined && results.get(creator).result !== "PASS";
+    });
+    if (!blocked) continue;
+    const account = blocked.id;
     const creator = creatorOf.get(account);
-    if (creator === undefined || results.get(creator).result === "PASS") continue;
-    const reason = `signs in as \`${account}\`, which ${creator} creates, and ${creator} did not pass`;
+    const who = blocked.name === null ? "" : `session ${blocked.name} `;
+    const reason = `${who}signs in as \`${account}\`, which ${creator} creates, and ${creator} did not pass`;
     const row = results.get(id);
     const said = new RegExp(`signs in as \`?${account}\`?, which ${creator} creates`, "i");
     // A stop note counts only on a scenario after the stop, which the run never reached.

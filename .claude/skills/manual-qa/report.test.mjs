@@ -232,6 +232,34 @@ test("the rule carries down a chain of Scenario accounts", () => {
   );
 });
 
+test("a multi-session scenario with a session whose account's creator did not pass is left for a person", () => {
+  // S2's session A signs in as `temp-user`, which S1 creates; session B is `admin`.
+  const sessions = ACCOUNT_PLAN.replace(
+    "- **Signs in as:** `temp-user` (created in S1)\n- **Steps:**\n  1. Open `/members` while signed out.",
+    "- **Sessions:** A = `temp-user`, B = admin (`temp-user` created in S1)\n- **Steps:**\n  1. In session A, open `/members`.\n  2. In session B, reset the password of `temp-user`.",
+  );
+  assert.deepEqual(validatePlan(sessions).problems, []);
+  const note = "session A signs in as `temp-user`, which S1 creates, and S1 did not pass";
+  assert.deepEqual(
+    againstPlan(
+      [S1_ROW("FAIL", "no invite appeared"), S2_ROW("left for a person", note)],
+      sessions,
+    ),
+    [],
+  );
+  assert.deepEqual(
+    againstPlan(
+      [S1_ROW("FAIL", "no invite appeared"), S2_ROW("PASS", "A was signed out")],
+      sessions,
+    ),
+    [`S2 ${note}: its result is _left for a person_, with the note _${note}_`],
+  );
+  assert.deepEqual(
+    againstPlan([S1_ROW("PASS", "invite sent"), S2_ROW("PASS", "A was signed out")], sessions),
+    [],
+  );
+});
+
 test("a report checked against a plan it did not run is a problem", () => {
   assert.match(
     againstPlan([S1_ROW("PASS", "ok")])[0],
