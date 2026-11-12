@@ -79,8 +79,13 @@ test("the good plan reads with no problems, and its parts are read out", () => {
     roles: ["admin", "member"],
   });
   assert.deepEqual(plan.scenarios, [
-    { id: "S1", title: "An admin invites a new member", signsInAs: "admin" },
-    { id: "S2", title: "A signed-out visitor cannot open the members page", signsInAs: "nobody" },
+    { id: "S1", title: "An admin invites a new member", signsInAs: "admin", creates: [] },
+    {
+      id: "S2",
+      title: "A signed-out visitor cannot open the members page",
+      signsInAs: "nobody",
+      creates: [],
+    },
   ]);
   assert.equal(plan.executed, false);
 });
@@ -310,6 +315,166 @@ test("first-word values are read as ANATOMY.md states: marks dropped, nothing el
   assert.deepEqual(
     plan.scenarios.map((s) => s.signsInAs),
     ["team_admin", "nobody"],
+  );
+});
+
+// ── Scenario accounts ───────────────────────────────────────────────────────
+
+const S1_SIGNS = "- **Signs in as:** `admin`\n";
+const S2_SIGNS = "- **Signs in as:** nobody\n";
+/** The good plan with S1 creating `temp-user` and S2 signing in as it, then any edits. */
+function withAccount(...edits) {
+  let text = broken(
+    S1_SIGNS,
+    `${S1_SIGNS}- **Creates:** \`temp-user\` (its values chosen when S1 creates it)\n`,
+  ).replace(S2_SIGNS, "- **Signs in as:** `temp-user` (created in S1)\n");
+  for (const [from, to] of edits) {
+    assert.ok(text.includes(from), `the plan has no ${JSON.stringify(from)}`);
+    text = text.replace(from, to);
+  }
+  return text;
+}
+/** The 1-based line of the first line of `text` that starts with `start`. */
+const lineOf = (text, start) => text.split("\n").findIndex((l) => l.startsWith(start)) + 1;
+
+test("a later scenario signs in as the Scenario account an earlier one creates", () => {
+  const { plan, problems } = validatePlan(withAccount());
+  assert.deepEqual(problems, []);
+  assert.deepEqual(plan.scenarios[0].creates, ["temp-user"]);
+  assert.equal(plan.scenarios[1].signsInAs, "temp-user");
+  assert.deepEqual(plan.scenarios[1].creates, []);
+  // Not a Run brief role: run readiness asks only for those.
+  assert.deepEqual(plan.brief.roles, ["admin", "member"]);
+  // A list, read as first-word values; prose follows a space, colon, semicolon or parenthesis.
+  for (const line of [
+    "- **Creates:** temp-user, **other-user**: both chosen in the dialog",
+    "- **Creates:** `temp-user`,`other-user`; chosen in the dialog",
+    "- **Creates:** _temp-user_ , other-user (chosen in the dialog)",
+  ]) {
+    const read = validatePlan(
+      withAccount(["- **Creates:** `temp-user` (its values chosen when S1 creates it)", line]),
+    );
+    assert.deepEqual(read.problems, [], line);
+    assert.deepEqual(read.plan.scenarios[0].creates, ["temp-user", "other-user"], line);
+  }
+});
+
+test("a chain: a scenario signs in as one Scenario account and creates the next", () => {
+  const text = withAccount(
+    [
+      "- **Signs in as:** `temp-user` (created in S1)\n",
+      "- **Signs in as:** `temp-user` (created in S1)\n- **Creates:** `invitee`\n",
+    ],
+    [
+      "## Sign-off checklist",
+      [
+        "### S3: The invitee signs in",
+        "",
+        "- **Why only a human can prove it:** the invite email link is not driven by a suite.",
+        "- **Signs in as:** `invitee`, created in S2",
+        "- **Steps:**",
+        "  1. Open **Members**.",
+        "- **Expected result:** the page shows **Welcome**.",
+        "- **A failure means:** the invite does not grant access.",
+        "",
+        "## Sign-off checklist",
+      ].join("\n"),
+    ],
+    [
+      "- [ ] S2: A signed-out visitor cannot open the members page",
+      "- [ ] S2: A signed-out visitor cannot open the members page\n- [ ] S3: The invitee signs in",
+    ],
+  );
+  const { plan, problems } = validatePlan(text);
+  assert.deepEqual(problems, []);
+  assert.deepEqual(
+    plan.scenarios.map((s) => [s.signsInAs, s.creates]),
+    [
+      ["admin", ["temp-user"]],
+      ["temp-user", ["invitee"]],
+      ["invitee", []],
+    ],
+  );
+});
+
+test("a sign-in as an account no scenario creates is a problem on its line", () => {
+  const text = withAccount([
+    "- **Signs in as:** `temp-user` (created in S1)",
+    "- **Signs in as:** `ghost` (created in S1)",
+  ]);
+  assert.deepEqual(problemsOf(text), [
+    `line ${lineOf(text, "- **Signs in as:** `ghost`")}: S2 signs in as \`ghost\`, which the Run brief's **Roles:** does not name`,
+  ]);
+});
+
+test("only a scenario after its creator may sign in as a Scenario account", () => {
+  // S1 signs in as what S2 creates.
+  const forward = broken(S1_SIGNS, "- **Signs in as:** `temp-user`\n").replace(
+    S2_SIGNS,
+    `${S2_SIGNS}- **Creates:** \`temp-user\`\n`,
+  );
+  assert.deepEqual(problemsOf(forward), [
+    `line ${lineOf(forward, "- **Signs in as:** `temp-user`")}: S1 signs in as \`temp-user\`, which S2 creates later: only a scenario after its creator may sign in as it`,
+  ]);
+  // A scenario signs in as what it creates itself.
+  const itself = broken(S2_SIGNS, "- **Signs in as:** `temp-user`\n- **Creates:** `temp-user`\n");
+  assert.deepEqual(problemsOf(itself), [
+    `line ${lineOf(itself, "- **Signs in as:** `temp-user`")}: S2 signs in as \`temp-user\`, which it creates itself: only a later scenario may sign in as it`,
+  ]);
+});
+
+test("a Scenario account id is well formed, has one creator, and is no role or `nobody`", () => {
+  const S1_CREATES = "- **Creates:** `temp-user` (its values chosen when S1 creates it)";
+  const cases = [
+    [
+      "- **Creates:** `admin`",
+      /S1: \*\*Creates:\*\* `admin` is a role the Run brief's \*\*Roles:\*\* names/,
+    ],
+    ["- **Creates:** `member`, `temp-user`", /S1: \*\*Creates:\*\* `member` is a role/],
+    [
+      "- **Creates:** nobody, `temp-user`",
+      /S1: \*\*Creates:\*\* `nobody`: `nobody` means signed out/,
+    ],
+    ["- **Creates:** `temp.user`, `temp-user`", /S1: \*\*Creates:\*\* `temp\.user` is not an id/],
+    ["- **Creates:** `temp-user`, temp-user", /S1: \*\*Creates:\*\* `temp-user` is named twice/],
+    ["- **Creates:** (chosen when S1 creates it)", /S1: \*\*Creates:\*\* expected the id of each/],
+  ];
+  for (const [line, pattern] of cases) {
+    const text = withAccount([S1_CREATES, line]);
+    const problems = problemsOf(text);
+    assert.ok(
+      problems.some(
+        (p) => p.startsWith(`line ${lineOf(text, "- **Creates:**")}: `) && pattern.test(p),
+      ),
+      `${line}: expected ${pattern}, got:\n${problems.join("\n")}`,
+    );
+  }
+  // Two scenarios create the same id: the second is named.
+  const twice = withAccount([
+    "- **Signs in as:** `temp-user` (created in S1)\n",
+    "- **Signs in as:** `temp-user` (created in S1)\n- **Creates:** `temp-user`\n",
+  ]);
+  const second = twice.split("\n").findLastIndex((l) => l.startsWith("- **Creates:**")) + 1;
+  assert.deepEqual(problemsOf(twice), [
+    `line ${second}: S2: **Creates:** \`temp-user\` is already created by S1: each Scenario account has one creator`,
+  ]);
+});
+
+test("**Creates:** comes right after **Signs in as:**", () => {
+  const text = withAccount(
+    ["- **Creates:** `temp-user` (its values chosen when S1 creates it)\n", ""],
+    [
+      "- **Why only a human can prove it:** no suite drives",
+      "- **Creates:** `temp-user`\n- **Why only a human can prove it:** no suite drives",
+    ],
+  );
+  assertProblem(text, /S1: its fields are out of order/);
+});
+
+test("a credential on a **Creates:** line is refused like any other", () => {
+  assertProblem(
+    withAccount(["(its values chosen when S1 creates it)", `(password: ${value(16)})`]),
+    /looks like a credential/,
   );
 });
 

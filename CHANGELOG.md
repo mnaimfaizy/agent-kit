@@ -8,6 +8,8 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ### Added
 
+- A QA Plan scenario can name a **Scenario account**, an account it creates during the run, so a later scenario can sign in as it ([#147](https://github.com/mnaimfaizy/agent-kit/issues/147)). The creating scenario carries `` **Creates:** `temp-user` `` right after **Signs in as:**, and a later one signs in with ``**Signs in as:** `temp-user` (created in S1)``, under the same first-word rule as a role. `adapter.mjs plan` refuses, with the line, a sign-in as an account no earlier scenario creates (including one created later, or by the same scenario), and a created id that is malformed, created twice, a Run brief role or `nobody`. Each parsed scenario now lists the ids it `creates`. `manual-qa` leaves a scenario for a person when the scenario creating its account did not pass, saying why, down a chain; `report.mjs read --plan <plan>` checks the report does. A Scenario account's values stay in the conversation, and the QA Report lists its id only. Run readiness never asks for one in `run.accounts.roles`. The plan format stays `format=1`.
+
 - `qa-plan`'s `two-point.mjs` takes `--answers <file>`, the answers given in chat as the JSON object `adapter.mjs render` reads, from inside `working_dir`. It merges them over the config the lookup finds, or over none, with `render`'s merge, so step 4 runs with no `qa.config.yml` and writes none, even when the person declined to save the answers ([#145](https://github.com/mnaimfaizy/agent-kit/issues/145)).
 
 ### Fixed

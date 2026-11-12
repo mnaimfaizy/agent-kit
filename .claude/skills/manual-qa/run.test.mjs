@@ -234,6 +234,33 @@ test("the plan's Run brief fills target and surface; its roles must be declared"
   ]);
 });
 
+test("readiness never asks for a Scenario account, only for Run brief roles", () => {
+  const withAccount = GOOD_PLAN.replace(
+    "- **Signs in as:** `admin`\n",
+    "- **Signs in as:** `admin`\n- **Creates:** `temp-user`\n",
+  ).replace("- **Signs in as:** nobody\n", "- **Signs in as:** `temp-user` (created in S1)\n");
+  const { plan, problems } = validatePlan(withAccount);
+  assert.deepEqual(problems, []);
+  const config = (roles) =>
+    readQaConfig(
+      reader({
+        "qa.config.yml": [
+          "run:",
+          "  stack: { up: a, migrate: b, seed: c, down: d }",
+          "  accounts:",
+          "    print: p",
+          `    roles: [${roles}]`,
+        ].join("\n"),
+      }),
+    );
+  const both = runReadiness(config("{ id: admin, purpose: x }, { id: member, purpose: y }"), plan);
+  assert.deepEqual(both.needs, []);
+  const onlyAdmin = runReadiness(config("{ id: admin, purpose: x }"), plan);
+  assert.deepEqual(onlyAdmin.needs, [
+    "run.accounts.roles: the plan signs in as `member`, which the config does not declare",
+  ]);
+});
+
 test("a config that disagrees with the plan's Run brief is asked about", () => {
   const { plan } = validatePlan(GOOD_PLAN);
   const text = STACK_RUN.join("\n").replace("surface: web", "surface: api");

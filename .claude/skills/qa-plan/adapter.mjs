@@ -1027,7 +1027,11 @@ export const SCENARIO_LABELS = /** @type {const} */ ([
   "Expected result",
   "A failure means",
 ]);
+/** The optional field naming each Scenario account a scenario creates; it follows **Signs in as:**. */
+export const CREATES = "Creates";
 const RULE_OUT = "If this fails, first rule out";
+/** A role id, and a Scenario account id: letters, digits, `_` and `-`. */
+const ACCOUNT_ID = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
 export const NOT_RUN = "_Not run yet._";
 
 const MARKER = /^<!-- qa-plan format=(\d+) subject=#(\d+) pr=#(\d+) -->$/;
@@ -1147,7 +1151,8 @@ export function credentialProblems(lines) {
 
 /**
  * Read a QA Plan against ANATOMY.md: the marker, the nine sections in order,
- * every label each section requires, the scenarios numbered from S1, and no
+ * every label each section requires, the scenarios numbered from S1, each
+ * Scenario account created once and signed in as only after it, and no
  * credentials. `manual-qa` runs nothing from a plan with a problem.
  *
  * @param {string} text
@@ -1244,6 +1249,24 @@ export function validatePlan(text) {
         .trim()
         .split(/[\s,;:()]+/)[0] ?? ""
     ).replace(/^[*_]+|[*_]+$/g, "");
+  /**
+   * The ids a **Creates:** line names (ANATOMY.md, "Scenario accounts"): first-word values
+   * joined by commas. The list ends at the first space, semicolon, colon or parenthesis
+   * that does not follow a comma; the rest is prose.
+   */
+  const idList = (value) => {
+    const ids = [];
+    let rest = value.replace(/`/g, "").trim();
+    for (;;) {
+      const word = /^[^\s,;:()]*/.exec(rest)[0];
+      const id = word.replace(/^[*_]+|[*_]+$/g, "");
+      if (id !== "") ids.push(id);
+      rest = rest.slice(word.length);
+      const comma = /^\s*,\s*/.exec(rest);
+      if (!comma || word === "") return ids;
+      rest = rest.slice(comma[0].length);
+    }
+  };
 
   if (sections.Anchors) {
     const { n, from, to } = sections.Anchors;
@@ -1336,6 +1359,8 @@ export function validatePlan(text) {
   if (sections.Scenarios) {
     const { n, from, to } = sections.Scenarios;
     const heads = [];
+    /** Per scenario, beside `plan.scenarios`: the lines of its account fields, and the ids it names. */
+    const accountLines = [];
     for (let i = from; i < to; i += 1) {
       const match = !fenced[i] && /^### (.*)$/.exec(lines[i]);
       if (match) heads.push({ text: match[1].trim(), n: i });
@@ -1355,7 +1380,13 @@ export function validatePlan(text) {
         if (position(label) === -1) at(head.n, `${id} lacks **${label}:**`);
         else if (get(label).text === "") at(get(label).n, `${id}: **${label}:** is empty`);
       }
-      const positions = [...SCENARIO_LABELS, RULE_OUT].map(position).filter((p) => p !== -1);
+      const order = [
+        ...SCENARIO_LABELS.slice(0, 2),
+        CREATES,
+        ...SCENARIO_LABELS.slice(2),
+        RULE_OUT,
+      ];
+      const positions = order.map(position).filter((p) => p !== -1);
       if (positions.some((p, k) => k > 0 && p < positions[k - 1]))
         at(head.n, `${id}: its fields are out of order (ANATOMY.md, "Scenarios")`);
       const steps = get("Steps");
@@ -1363,9 +1394,63 @@ export function validatePlan(text) {
         at(steps.n, `${id}: **Steps:** expected a numbered list`);
       const signs = get("Signs in as");
       const who = signs ? plainWord(signs.inline) : null;
-      if (signs && who && who !== "nobody" && !plan.brief.roles.includes(who))
-        at(signs.n, `${id} signs in as \`${who}\`, which the Run brief's **Roles:** does not name`);
-      plan.scenarios.push({ id, title: match[2].trim(), signsInAs: who || null });
+      const creates = position(CREATES) === -1 ? null : get(CREATES);
+      const made = creates ? idList(creates.inline) : [];
+      if (creates && !made.length)
+        at(creates.n, `${id}: **Creates:** expected the id of each Scenario account it creates`);
+      plan.scenarios.push({
+        id,
+        title: match[2].trim(),
+        signsInAs: who || null,
+        creates: [...new Set(made)],
+      });
+      accountLines.push({ signs: signs?.n, creates: creates?.n, made });
+    });
+
+    // Scenario accounts (ANATOMY.md): each id has one creator, and only a later scenario
+    // signs in as it. Read after every scenario, so a reference forward can name its creator.
+    /** @type {Map<string, number>} each Scenario account id, by the index of its creator */
+    const creatorOf = new Map();
+    plan.scenarios.forEach((scenario, i) => {
+      const { creates: line, made: named } = accountLines[i];
+      const seen = new Set();
+      for (const made of named) {
+        const what = `${scenario.id}: **Creates:** \`${made}\``;
+        if (!ACCOUNT_ID.test(made))
+          at(line, `${what} is not an id: letters, digits, \`_\` and \`-\`, as a role id is`);
+        else if (made === "nobody")
+          at(line, `${what}: \`nobody\` means signed out, so a Scenario account needs another id`);
+        else if (plan.brief.roles.includes(made))
+          at(
+            line,
+            `${what} is a role the Run brief's **Roles:** names: a Scenario account needs its own id`,
+          );
+        else if (seen.has(made)) at(line, `${what} is named twice`);
+        else if (creatorOf.has(made))
+          at(
+            line,
+            `${what} is already created by ${plan.scenarios[creatorOf.get(made)].id}: each Scenario account has one creator`,
+          );
+        else creatorOf.set(made, i);
+        seen.add(made);
+      }
+    });
+    plan.scenarios.forEach(({ id, signsInAs: who }, i) => {
+      if (!who || who === "nobody" || plan.brief.roles.includes(who)) return;
+      const line = accountLines[i].signs;
+      const creator = creatorOf.get(who);
+      if (creator === undefined)
+        at(line, `${id} signs in as \`${who}\`, which the Run brief's **Roles:** does not name`);
+      else if (creator === i)
+        at(
+          line,
+          `${id} signs in as \`${who}\`, which it creates itself: only a later scenario may sign in as it`,
+        );
+      else if (creator > i)
+        at(
+          line,
+          `${id} signs in as \`${who}\`, which ${plan.scenarios[creator].id} creates later: only a scenario after its creator may sign in as it`,
+        );
     });
   }
 

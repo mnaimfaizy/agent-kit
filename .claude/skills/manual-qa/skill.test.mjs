@@ -36,6 +36,31 @@ test("each scenario is PASS, FAIL or left for a person, and only a person passes
   assert.match(skill, /follow-up note/);
 });
 
+test("a Scenario account's dependents are left for a person when its creator did not pass", () => {
+  assert.match(
+    skill,
+    /When the creator's result is anything but PASS, leave the scenario for a person, with the note _signs in as `<id>`, which S<n> creates, and S<n> did not pass_/,
+  );
+  assert.match(skill, /the rule carries down a chain/);
+  assert.match(skill, /Only \*\*Signs in as:\*\* makes a scenario depend on another/);
+  assert.match(skill, /report\.mjs" read "<report file>" --plan "<plan file>"/);
+});
+
+test("a Scenario account's values stay in the conversation, and the report lists its id only", () => {
+  assert.match(skill, /\*\*A Scenario account's values stay in this conversation\.\*\*/);
+  assert.match(
+    skill,
+    /never go into the plan, the report, the evidence or any file this skill writes/,
+  );
+  assert.match(skill, /or a Scenario account its creating scenario made in this run/);
+  assert.match(skill, /or when the scenario's \*\*Creates:\*\* says so/);
+  assert.match(skill, /`accounts\.print` and `accounts\.restore` do not apply to it/);
+  assert.match(
+    skill,
+    /- \*\*Scenario accounts:\*\* each one this run created, by id .* Ids only, never values/,
+  );
+});
+
 test("the build check runs gh, then the version endpoint, then marks the report", () => {
   const gh = skill.indexOf("**With `gh` access:**");
   const endpoint = skill.indexOf("**Otherwise, with a version endpoint**");
