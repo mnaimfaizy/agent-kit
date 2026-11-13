@@ -8,6 +8,9 @@ __pycache__/
 # Node
 node_modules/
 
+# orchestrate's run folders (its default run_dir)
+tmp/orchestrate/
+
 # Agent-kit pipeline scratch files (written to the workspace root in CI)
 .tmp/
 agent-plan.md

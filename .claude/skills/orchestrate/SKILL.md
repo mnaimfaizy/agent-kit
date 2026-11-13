@@ -49,11 +49,11 @@ node "<skill>/config.mjs" check
 - `readiness.needs` not empty: ask for everything it lists in one message. Check that `run_dir` is ignored (below), make the run folder ([RUN.md](RUN.md#layout)), and write the answers there as `answers.json`, the JSON object [CONFIG.md](CONFIG.md#answers-given-in-chat) describes. Run `check` again with `--answers <run_dir>/<run>/answers.json` until it exits 0 with no needs. Offer to write them into a config file; write one only on a yes.
 - `readiness.notes`: say each one, and go on.
 
-Before anything is written to `run_dir`, check that it is ignored: `git check-ignore -q <run_dir>/x`. If it is not, say so and ask before writing there: nothing in a run folder is committed.
+Before anything is written to `run_dir`, check that it is ignored: `git check-ignore -q <run_dir>/x`. Nothing in a run folder is committed. If it is not ignored, say so, and offer to add `<run_dir>/` as a line of its own to the `.gitignore` at the repository root. On a yes, add it and leave the change uncommitted for the human to commit with their next change; then check again. Without a yes, write nothing to `run_dir` and stop.
 
 When `triage_labels.from` is `document`, read that document now: it maps each triage role to the repository's label.
 
-**Done when:** `check` exits 0 with `readiness.ready` true, and each triage role's label is known.
+**Done when:** `check` exits 0 with `readiness.ready` true, `run_dir` is ignored, and each triage role's label is known.
 
 ### 2. Open the run
 

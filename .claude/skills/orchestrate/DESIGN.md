@@ -78,7 +78,7 @@ The closing list means something only if every item on it can be merged now: gre
 
 ## The run folder
 
-A run outlives a session: usage limits end it, laptops close, and a run with blockers pauses for merges. So everything the run knows is in files in a gitignored folder: the board, both kinds of Activity Log, each brief and each report. `--resume` rebuilds the run from them, and checks every Delegation against the source first, because a board written before an interruption may be out of date. The board is rewritten whole and renamed into place, so an interruption mid-write leaves the last whole board. The folder is gitignored because briefs and logs quote issue text and command output the human has not chosen to publish.
+A run outlives a session: usage limits end it, laptops close, and a run with blockers pauses for merges. So everything the run knows is in files in a gitignored folder: the board, both kinds of Activity Log, each brief and each report. `--resume` rebuilds the run from them, and checks every Delegation against the source first, because a board written before an interruption may be out of date. The board is rewritten whole and renamed into place, so an interruption mid-write leaves the last whole board. The folder is gitignored because briefs and logs quote issue text and command output the human has not chosen to publish. When it is not ignored yet, the skill offers to add it to `.gitignore` rather than write there first: adding the line is a change to the repository, so it waits for the human's yes, and the human commits it.
 
 ## Four verbs, three tiers
 

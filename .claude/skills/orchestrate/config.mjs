@@ -173,6 +173,12 @@ function parseFlow(text, i, problem, stops = ",]}") {
     problem(
       "a `#` comment inside a flow collection is outside the YAML subset CONFIG.md documents",
     );
+  // A key stops at `:` already. In a value, real YAML refuses `{ a: b: c }`
+  // and reads `[a: b]` as a mapping, so other tools would read it otherwise.
+  if (!stops.includes(":") && /:(?:\s|$)/.test(value))
+    problem(
+      "a `: ` inside an unquoted value is outside the YAML subset CONFIG.md documents — quote the value",
+    );
   if (value === "") problem("an empty value inside a flow collection");
   return [value, j];
 }

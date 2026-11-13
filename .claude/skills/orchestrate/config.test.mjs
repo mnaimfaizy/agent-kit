@@ -403,6 +403,16 @@ const YAML_PROBLEMS = [
     /^line 2: a `: ` inside an unquoted value is outside the YAML subset/,
   ],
   [
+    "a `: ` inside an unquoted value in a flow mapping",
+    ["skills: { implement: tdd: x }"],
+    /^line 1: a `: ` inside an unquoted value is outside the YAML subset/,
+  ],
+  [
+    "a `: ` inside an unquoted item in a flow list",
+    ["regate: [npm run lint: fix]"],
+    /^line 1: a `: ` inside an unquoted value is outside the YAML subset/,
+  ],
+  [
     "a list item that is only a comment",
     ["regate:", "  - # npm test (disabled)"],
     /^line 2: `regate\[0\]`: expected a command/,

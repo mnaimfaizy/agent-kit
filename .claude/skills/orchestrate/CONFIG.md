@@ -48,18 +48,18 @@ Tabs, anchors, aliases, multi-line scalars, flow collections that span lines, a 
 
 ## Keys
 
-| Key              | Default             | Meaning                                                                                                                                                |
-| ---------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `run_dir`        | `tmp/orchestrate`   | Where run folders are kept, relative to the repository root. Keep it gitignored: nothing in it is committed.                                           |
-| `read_first`     | none: asked         | The documents every Delegation reads before it plans: agent instructions, contributing guide, glossary. Each must be in the repository. `[]` for none. |
-| `routes`         | see below           | How a Delegation commits and opens its pull request, and how the human merges.                                                                         |
-| `regate`         | none: asked         | The commands that re-check a finished branch, run from the repository root of a worktree at the branch's head. `[]` leaves it to CI.                   |
-| `skills`         | none                | Companion skills a brief names. See below.                                                                                                             |
-| `triage_labels`  | each role's name    | The repository's own mapping of the five triage roles to its labels. See below.                                                                        |
-| `models`         | the harness default | The model for each kind of work. See below.                                                                                                            |
-| `limits`         | see below           | How many building Delegations run at once, and the shared resources that have one holder at a time.                                                    |
-| `decisions`      | see below           | Where a human decision is recorded, so a reviewer of the pull request can see it.                                                                      |
-| `ready_to_merge` | see below           | What Ready to Merge requires beyond green CI and a clean merge.                                                                                        |
+| Key              | Default             | Meaning                                                                                                                                                                                                                   |
+| ---------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `run_dir`        | `tmp/orchestrate`   | Where run folders are kept, relative to the repository root. Keep it gitignored: nothing in it is committed. When it is not, the skill offers to add it to the root `.gitignore`, and writes nothing there without a yes. |
+| `read_first`     | none: asked         | The documents every Delegation reads before it plans: agent instructions, contributing guide, glossary. Each must be in the repository. `[]` for none.                                                                    |
+| `routes`         | see below           | How a Delegation commits and opens its pull request, and how the human merges.                                                                                                                                            |
+| `regate`         | none: asked         | The commands that re-check a finished branch, run from the repository root of a worktree at the branch's head. `[]` leaves it to CI.                                                                                      |
+| `skills`         | none                | Companion skills a brief names. See below.                                                                                                                                                                                |
+| `triage_labels`  | each role's name    | The repository's own mapping of the five triage roles to its labels. See below.                                                                                                                                           |
+| `models`         | the harness default | The model for each kind of work. See below.                                                                                                                                                                               |
+| `limits`         | see below           | How many building Delegations run at once, and the shared resources that have one holder at a time.                                                                                                                       |
+| `decisions`      | see below           | Where a human decision is recorded, so a reviewer of the pull request can see it.                                                                                                                                         |
+| `ready_to_merge` | see below           | What Ready to Merge requires beyond green CI and a clean merge.                                                                                                                                                           |
 
 A value in any route, command or skill name is free text: the brief carries it as written, so a route can be a command, a skill to use, or a sentence of convention.
 
