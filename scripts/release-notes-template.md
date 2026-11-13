@@ -2,7 +2,7 @@
 The release notes template. `scripts/prepare-release.sh` copies everything
 below the template-end line to `release-notes/<tag>.md` and fills in the tag.
 Replace every TODO(release-notes) line; neither the prepare commit nor the cut
-accepts notes that still have one. Model: release-notes/v1.0.0-beta.5.md.
+accepts notes that still have one. Model: the newest beta's notes in release-notes/.
 -->
 <!-- template-end -->
 

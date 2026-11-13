@@ -56,10 +56,14 @@ jobs:
             echo "::error::$TAG is not a Release-line tag (vX.Y.Z or vX.Y.Z-<alpha|beta|rc>.N)."
             exit 1
           fi
-          # A re-run, or a Release made by hand, is left as it is.
-          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "The GitHub Release $TAG exists already; nothing to do."
+          # A re-run, or a Release made by hand, is left as it is. Only "not found" means
+          # there is none: any other error (rate limit, outage) stops here.
+          if view="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json url --jq .url 2>&1)"; then
+            echo "The GitHub Release $TAG exists already ($view); nothing to do."
             exit 0
+          elif [[ "$view" != *"release not found"* ]]; then
+            echo "::error::Could not check for the Release $TAG: $view"
+            exit 1
           fi
           # --verify-tag: never create a tag, only a Release on the pushed one.
           args=(--repo "$GITHUB_REPOSITORY" --verify-tag --title "$TAG")

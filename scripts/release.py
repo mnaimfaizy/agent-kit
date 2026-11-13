@@ -49,8 +49,10 @@ NOTES_TEMPLATE = SCRIPTS / "release-notes-template.md"
 # commit from `prepare` nor a cut ships notes that still carry one.
 NOTES_MARKER = "TODO(release-notes)"
 MANIFEST = "scripts/release-snapshot-manifest.txt"
-# Paths whose mentions of an older tag are history, not pins: never bumped.
-HISTORY_PATHS = ("CHANGELOG.md", "release-notes/", "docs/adr/")
+# Paths whose mentions of an older tag are history or fixtures, not pins: never bumped.
+# scripts/ holds this tooling and the contract tests, whose example tags must not move.
+HISTORY_PATHS = ("CHANGELOG.md", "release-notes/", "docs/adr/", "scripts/")
+TEST_FILE = re.compile(r"\.test\.(?:py|mjs)$")
 BROKEN_SECTION = "## Broken releases"
 STATUS_LINE = re.compile(r"(\*\*Status:\*\* pre-release \(`)([^`]+)(`\))")
 STAGE_RANK = {"alpha": 0, "beta": 1, "rc": 2, "": 3}
@@ -235,12 +237,21 @@ def email_fix() -> str:
 
 
 def bump_pattern(old_tag: str) -> re.Pattern[str]:
-    """`v1.0.0-beta.5` or `1.0.0-beta.5`, but not `11.0.0-beta.5` or `1.0.0-beta.50`."""
-    return re.compile(r"(?<![\w.])(v?)" + re.escape(old_tag[1:]) + r"(?![0-9A-Za-z])")
+    """A pin of `old_tag`: `v0.9.0-beta.2` or `0.9.0-beta.2`, but not `10.9.0-beta.2`, `0.9.0-beta.20`,
+    or (for a stable `v0.9.0`) the pre-release `v0.9.0-rc.1`.
+
+    A bare stable `X.Y.Z` is too common in prose ("the 1.0.0 line") to be a pin, so for a stable
+    old tag only `vX.Y.Z` and an `X.Y.Z` right after `@`, `"` or a backtick move.
+    """
+    version = re.escape(old_tag[1:])
+    end = r"(?![0-9A-Za-z]|-[0-9A-Za-z])"
+    if parse_tag(old_tag) and parse_tag(old_tag)["stage"]:
+        return re.compile(r"(?<![\w.])(v?)" + version + end)
+    return re.compile(r"(?<![\w.])(v|(?<=[@\"`]))" + version + end)
 
 
 def is_history(path: str) -> bool:
-    return any(path == prefix or path.startswith(prefix) for prefix in HISTORY_PATHS if prefix)
+    return bool(TEST_FILE.search(path)) or any(path == p or path.startswith(p) for p in HISTORY_PATHS)
 
 
 def bump_text(text: str, old_tag: str, new_tag: str) -> tuple[str, int]:
@@ -263,7 +274,8 @@ def bump_text(text: str, old_tag: str, new_tag: str) -> tuple[str, int]:
 
 def bump_pins(old_tag: str, new_tag: str) -> list[str]:
     changed = []
-    for path in git("grep", "-l", "-I", "-F", old_tag[1:], check=False).splitlines():
+    found = git("-c", "core.quotePath=false", "grep", "-z", "-l", "-I", "-F", old_tag[1:], check=False)
+    for path in filter(None, found.split("\x00")):
         if is_history(path):
             continue
         file = Path(path)
@@ -375,6 +387,11 @@ def prepare(args: argparse.Namespace) -> int:
                 f"Branch {branch} exists. Switch to it to re-run there (git switch {branch}),"
                 f" or delete it (git branch -D {branch})."
             )
+        if git("ls-remote", "--heads", REMOTE, f"refs/heads/{branch}"):
+            raise ReleaseError(
+                f"{branch} exists on {REMOTE} already (pushed from another clone?). Continue it there:"
+                f" git switch --track {REMOTE}/{branch} (after git fetch {REMOTE}), then re-run."
+            )
         # Refuse an empty [Unreleased] before writing anything, the branch included.
         move_unreleased(git("show", f"{base_sha}:CHANGELOG.md"), tag[1:], "check")
         git("switch", "--quiet", "--no-track", "-c", branch, base_sha)
@@ -432,7 +449,15 @@ def prepare(args: argparse.Namespace) -> int:
             )
             if problem:
                 raise ReleaseError(problem)
-        git("add", "--all")
+        # Tracked changes (the bumps, README, CHANGELOG) and the notes, never a stray untracked file.
+        git("add", "--update")
+        if notes.is_file():
+            git("add", "--", notes.as_posix())
+        stray = git("ls-files", "--others", "--exclude-standard")
+        if stray:
+            print(
+                "Not committed (untracked, not written by prepare):\n" + "\n".join(f"  {p}" for p in stray.split("\n"))
+            )
         if git("diff", "--cached", "--name-only"):
             git("commit", "--quiet", "-m", title)
             print(f"Committed: {title}")
@@ -440,6 +465,23 @@ def prepare(args: argparse.Namespace) -> int:
         git("push", "--quiet", "--set-upstream", REMOTE, f"refs/heads/{branch}")
         print(f"Pushed {branch}.")
     if args.open_pr:
+        existing = gh(
+            [
+                "pr",
+                "view",
+                branch,
+                "--repo",
+                repo_slug(),
+                "--json",
+                "url,state",
+                "--jq",
+                'select(.state == "OPEN") | .url',
+            ],
+            "check for an open pull request",
+        )
+        if existing.returncode == 0 and existing.stdout.strip():
+            print(f"A pull request is open already: {existing.stdout.strip()}")
+            return 0
         body = (
             f"Release prep for `{tag}`, written by `scripts/prepare-release.sh`.\n\n"
             f"- Pins move from `{old}` to `{tag}`.\n"
@@ -479,7 +521,7 @@ def prepare(args: argparse.Namespace) -> int:
     if not (args.push or args.open_pr):
         print("\nNext, once you have reviewed `git diff`:")
         if not args.commit:
-            print(f'  git add --all && git commit -m "{title}"')
+            print(f'  git add --update && git add {notes.as_posix()} && git commit -m "{title}"')
         print(f"  git push --set-upstream {REMOTE} {branch}")
         print(f'  gh pr create --base {base} --title "{title}" --fill')
         print("  (or re-run with --open-pr to commit, push and open it in one go)")
@@ -495,18 +537,24 @@ def ci_problem(sha: str) -> str | None:
         [
             "api",
             f"repos/{repo_slug()}/commits/{sha}/check-runs?per_page=100",
+            "--paginate",
             "--jq",
             # Only GitHub Actions' checks count, as in the ruleset: another app could report the same name.
-            '.check_runs[] | select(.app.slug == "github-actions") | [.name, .status, (.conclusion // "")] | @tsv',
+            '.check_runs[] | select(.app.slug == "github-actions")'
+            ' | [.name, .status, (.conclusion // ""), (.started_at // "")] | @tsv',
         ],
         "check CI on the commit",
     )
     if done.returncode != 0:
         return f"Could not read CI checks for {sha[:12]}: {done.stderr.strip()}"
-    runs: dict[str, tuple[str, str]] = {}
+    # A commit can carry several runs of one check (a pull_request run and a push run on the same
+    # SHA, or a re-run). The newest one is CI's current answer.
+    newest: dict[str, tuple[str, str, str]] = {}
     for line in done.stdout.splitlines():
-        name, status, conclusion = (line.split("\t") + ["", ""])[:3]
-        runs[name] = (status, conclusion)
+        name, status, conclusion, started = (line.split("\t") + ["", "", ""])[:4]
+        if name not in newest or started >= newest[name][0]:
+            newest[name] = (started, status, conclusion)
+    runs = {name: (status, conclusion) for name, (_, status, conclusion) in newest.items()}
     problems = []
     for name in REQUIRED_CHECKS:
         status, conclusion = runs.get(name, ("", ""))

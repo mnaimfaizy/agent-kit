@@ -92,6 +92,9 @@ class FakeGh:
         self.checks = {name: ("completed", "success") for name in release.REQUIRED_CHECKS}
         self.release_url: str | None = None
         self.runs: list[dict] = []
+        # Extra check runs as (name, status, conclusion, started_at), beside the green ones above.
+        self.extra_checks: list[tuple[str, str, str, str]] = []
+        self.open_pr: str | None = None
         self.calls: list[list[str]] = []
 
     def __call__(self, args: list[str], stdin: str | None = None) -> subprocess.CompletedProcess:
@@ -105,11 +108,14 @@ class FakeGh:
         if args[:2] == ["api", "user"]:
             return done(0, "maintainer") if self.signed_in else done(1, err="not logged in")
         if args[0] == "api" and "check-runs" in args[1]:
-            return done(0, "".join(f"{n}\t{s}\t{c}\n" for n, (s, c) in self.checks.items()))
+            rows = [(n, s, c, "2026-11-14T10:00:00Z") for n, (s, c) in self.checks.items()] + self.extra_checks
+            return done(0, "".join("\t".join(row) + "\n" for row in rows))
         if args[:2] == ["release", "view"]:
             return done(0, self.release_url) if self.release_url else done(1, err="release not found")
         if args[:2] == ["run", "list"]:
             return done(0, json.dumps(self.runs))
+        if args[:2] == ["pr", "view"]:
+            return done(0, self.open_pr) if self.open_pr else done(1, err="no pull requests found")
         if args[:2] == ["pr", "create"]:
             return done(0, "https://github.com/o/r/pull/1")
         raise AssertionError(f"unexpected gh call: {args}")
@@ -239,12 +245,44 @@ def test_prepare_commits_only_finished_notes_and_can_open_the_pr() -> None:
         code, out = run("prepare", "--tag", "v1.0.0-beta.2", "--commit")
         assert code == 1 and "The commit author uses an address at example.com" in out and PRIVATE not in out
         g("config", "--unset", "user.email")
+        write("scratch-secret.txt", "not for the PR\n")
         code, out = run("prepare", "--tag", "v1.0.0-beta.2", "--open-pr")
         assert code == 0, out
+        assert "scratch-secret.txt" not in g("show", "--name-only", "--format=", "HEAD")
+        assert "Not committed (untracked, not written by prepare)" in out
+        assert "release-notes/v1.0.0-beta.2.md" in g("show", "--name-only", "--format=", "HEAD")
         assert g("log", "-1", "--format=%s") == "chore: prepare changelog and release notes for v1.0.0-beta.2"
         assert g("ls-remote", "--heads", "origin", "chore/release-v1.0.0-beta.2") != ""
         (create,) = [call for call in fake.calls if call[:2] == ["pr", "create"]]
         assert create[create.index("--base") + 1] == "main"
+        fake.open_pr = "https://github.com/o/r/pull/1"
+        code, out = run("prepare", "--tag", "v1.0.0-beta.2", "--open-pr")
+        assert code == 0 and "open already" in out
+        assert len([call for call in fake.calls if call[:2] == ["pr", "create"]]) == 1
+
+
+def test_prepare_refuses_a_branch_that_exists_only_on_origin() -> None:
+    with sandbox():
+        g("push", "-q", "origin", "main:refs/heads/chore/release-v1.0.0-beta.2")
+        code, out = run("prepare", "--tag", "v1.0.0-beta.2")
+        assert code == 1 and "exists on origin already" in out
+        assert "git switch --track origin/chore/release-v1.0.0-beta.2" in out
+        assert g("branch", "--show-current") == "main"
+
+
+def test_bump_leaves_pre_releases_prose_and_tooling_of_a_stable_tag_alone() -> None:
+    text = 'v1.0.0-beta.1 and v1.0.0-rc.1; the 1.0.0 line; @1.0.0 "1.0.0" `v1.0.0` v1.0.0.md\n'
+    bumped, count = release.bump_text(text, "v1.0.0", "v1.0.1")
+    assert bumped == 'v1.0.0-beta.1 and v1.0.0-rc.1; the 1.0.0 line; @1.0.1 "1.0.1" `v1.0.1` v1.0.1.md\n'
+    assert count == 4
+    bumped, _ = release.bump_text(
+        "v1.0.0-beta.5 @1.0.0-beta.5 v1.0.0-beta.50 v1.0.0-beta.5-x\n", "v1.0.0-beta.5", "v1.0.0-beta.6"
+    )
+    assert bumped == "v1.0.0-beta.6 @1.0.0-beta.6 v1.0.0-beta.50 v1.0.0-beta.5-x\n"
+    # Tooling and contract tests carry example tags, not pins.
+    for path in ("scripts/release.py", "scripts/release-notes-template.md", ".claude/skills/qa-plan/x.test.mjs"):
+        assert release.is_history(path), path
+    assert not release.is_history("docs/getting-started.md")
 
 
 def test_prepare_refuses_backward_existing_and_invalid_tags() -> None:
@@ -327,6 +365,13 @@ def test_cut_requires_green_ci_and_a_working_gh() -> None:
         assert code == 1
         for phrase in ("'Tests' is in_progress", "'Lint and format' concluded failure", "'Internal links' has not"):
             assert phrase in out, out
+        fake.checks = {name: ("completed", "success") for name in release.REQUIRED_CHECKS}
+        fake.extra_checks = [("Tests", "completed", "failure", "2026-11-14T09:00:00Z")]
+        assert run("cut", "--tag", "v1.0.0-beta.2")[0] == 0, "an older failed run does not count"
+        fake.extra_checks = [("Tests", "completed", "failure", "2026-11-14T11:00:00Z")]
+        code, out = run("cut", "--tag", "v1.0.0-beta.2")
+        assert code == 1 and "'Tests' concluded failure" in out, "a newer failed run does"
+        fake.extra_checks = []
         fake.installed = False
         code, out = run("cut", "--tag", "v1.0.0-beta.2")
         assert code == 1 and "gh CLI is required to check CI" in out and "cli.github.com" in out
@@ -501,6 +546,7 @@ def test_the_tag_push_creates_the_release_before_npm_publishes() -> None:
     # Idempotent: an existing Release is left alone, and no tag is ever created.
     assert script.index('gh release view "$TAG"') < script.index('gh release create "$TAG"')
     assert "--verify-tag" in script
+    assert '*"release not found"*' in script, "any other gh release view error stops the job"
     assert 'notes="release-notes/$TAG.md"' in script and '--notes-file "$notes"' in script
     assert "*-alpha.* | *-beta.* | *-rc.*) args+=(--prerelease)" in script
     # Notes are optional for alpha only.
@@ -538,6 +584,8 @@ if __name__ == "__main__":
     test_prepare_writes_the_release_prep_branch_and_pushes_nothing()
     test_prepare_is_safe_to_re_run_and_never_overwrites_notes()
     test_prepare_commits_only_finished_notes_and_can_open_the_pr()
+    test_prepare_refuses_a_branch_that_exists_only_on_origin()
+    test_bump_leaves_pre_releases_prose_and_tooling_of_a_stable_tag_alone()
     test_prepare_refuses_backward_existing_and_invalid_tags()
     test_prepare_refuses_an_empty_unreleased_section_before_writing()
     test_prepare_moves_the_status_line_on_a_stage_change()
