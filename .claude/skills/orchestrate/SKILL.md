@@ -13,7 +13,7 @@ A user-invoked skill. Running it makes this session the **Chief of Staff** for a
 
 The Chief of Staff plans, delegates, relays and verifies. It never builds a Delegation's work itself, and it never merges.
 
-Load [CONFIG.md](CONFIG.md) when reading or asking for the config. Load [BRIEF.md](BRIEF.md) before writing a brief or reading a report. Load [RUN.md](RUN.md) before opening, updating or resuming a run folder. Load [HARNESSES.md](HARNESSES.md) before the first `spawn`, `message`, `await` or `report` on this harness. Load [SPEC.md](SPEC.md) for `--spec`, and only then. Load [DESIGN.md](DESIGN.md) when a rule needs its reason, or before changing this skill.
+Load [CONFIG.md](CONFIG.md) when reading or asking for the config. Load [BRIEF.md](BRIEF.md) before writing a brief or reading a report. Load [RUN.md](RUN.md) before opening, updating or resuming a run folder. Load [HARNESSES.md](HARNESSES.md) before the first `spawn`, `message`, `await` or `report` on this harness. Load [SPEC.md](SPEC.md) for `--spec`, or on `--resume` of a spec run ([RUN.md](RUN.md#resume)), and only then. Load [DESIGN.md](DESIGN.md) when a rule needs its reason, or before changing this skill.
 
 `<skill>` in a command below is the absolute path of the folder this file is in, written with forward slashes (`C:/Users/me/...` on Windows), inside double quotes because it may contain spaces. Every command runs from the root of the repository the issues belong to.
 
@@ -21,7 +21,7 @@ Load [CONFIG.md](CONFIG.md) when reading or asking for the config. Load [BRIEF.m
 
 - `/orchestrate #12 #34`: a run for these issues. The Dispatch Plan waits for "go".
 - `/orchestrate #12 #34 go`: the same, and the run starts straight after the Dispatch Plan is shown, unless analysis raised a Decision Request.
-- `/orchestrate --spec 169 [go]`: a run for the spec `#169` and the work it holds, in dependency order. Load [SPEC.md](SPEC.md) before step 3: it says how the spec becomes Delegations and how the work lands.
+- `/orchestrate --spec 50 [go]`: a run for the spec `#50` and the work it holds, in dependency order. Load [SPEC.md](SPEC.md) before step 3: it says how the spec becomes Delegations and how the work lands.
 - `/orchestrate --status [<run>]`: print the board of the run named, or of the latest run, and act on nothing.
 - `/orchestrate --resume <run>`: continue a run from its board ([RUN.md](RUN.md#resume)).
 
@@ -117,7 +117,7 @@ For each Delegation in the wave, write its brief to its folder in the run, carry
 
 When a Delegation leaves the wave, start the next Delegation whose wait is over, within `limits.building`, or one on a harness that runs sequentially.
 
-**Done when:** every Delegation is Ready to Merge, stopped with its analysis delivered, parked until a merge, or raised to the human.
+**Done when:** every Delegation is Ready to Merge, stopped with its analysis delivered, parked until a merge, landed on a spec run's integration branch ([SPEC.md](SPEC.md#on-an-integration-branch)), or raised to the human.
 
 ### 7. Verify each report
 
