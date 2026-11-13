@@ -43,6 +43,7 @@ docs/assets/logo.svg
 .claude/skills/qa-plan/
 .claude/skills/manual-qa/
 .claude/skills/plain-prose/
+.claude/skills/orchestrate/
 
 examples/security-audit-caller.yml
 examples/plan-implement-review-caller.yml
