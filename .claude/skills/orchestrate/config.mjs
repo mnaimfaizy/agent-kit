@@ -64,6 +64,8 @@ export const DECISION_TARGETS = /** @type {const} */ (["pull-request", "issue-co
 export const READY_KEYS = /** @type {const} */ (["review", "qa", "qa_labels"]);
 export const REVIEW_RULES = /** @type {const} */ (["settled", "approved"]);
 export const QA_RULES = /** @type {const} */ (["none", "report"]);
+export const SPEC_KEYS = /** @type {const} */ (["landing", "integration_branch"]);
+export const LANDINGS = /** @type {const} */ (["ask", "integration-branch", "per-ticket"]);
 
 /** CONFIG.md's defaults. A key with no default here is asked for, or left to the harness. */
 export const DEFAULTS = Object.freeze({
@@ -72,6 +74,8 @@ export const DEFAULTS = Object.freeze({
   decisions: "pull-request",
   review: "settled",
   qa: "none",
+  landing: "ask",
+  integration_branch: "orchestrate/spec-<n>",
 });
 
 /**
@@ -491,6 +495,28 @@ function distinctList(sink, value, path, ok, one, many) {
   });
 }
 
+/**
+ * A branch name pattern: `<n>` (the spec's number) at least once, no other
+ * `<` or `>`, and, with `<n>` filled in, a name `git check-ref-format --branch`
+ * accepts. Two specs never share an integration branch, and a typo such as
+ * `<spec>` is never left in a branch name.
+ */
+function branchPatternProblem(v) {
+  if (!nonEmpty(v)) return "expected a branch name pattern";
+  if (!v.includes("<n>")) return "expected `<n>` in it, for the spec's number";
+  const name = v.replaceAll("<n>", "1");
+  if (/[<>]/.test(name)) return "`<n>` is the only placeholder";
+  const bad =
+    /[\x00-\x20\x7f~^:?*[\\]/.test(name) ||
+    name.startsWith("-") ||
+    name.includes("..") ||
+    name.includes("@{") ||
+    name === "@" ||
+    name.endsWith(".") ||
+    name.split("/").some((part) => part === "" || part.startsWith(".") || part.endsWith(".lock"));
+  return bad ? "expected a valid git branch name once `<n>` is filled in" : null;
+}
+
 const isCount = (v) =>
   (typeof v === "number" && Number.isSafeInteger(v) && v >= 1) ||
   (typeof v === "string" && /^[1-9]\d{0,8}$/.test(v));
@@ -598,6 +624,16 @@ export const SECTIONS = {
           path("qa_labels"),
           "only `qa: report` is limited to labels; set it, or delete this key",
         );
+    }
+  },
+  spec(sink, value) {
+    if (!isMapping(value)) return sink.add("spec", "expected a mapping");
+    unknownKeys(sink, value, "spec", SPEC_KEYS);
+    if (given(sink, value, "landing", "spec.landing") && !LANDINGS.includes(value.landing))
+      sink.add("spec.landing", `expected one of: ${LANDINGS.join(", ")}`);
+    if (given(sink, value, "integration_branch", "spec.integration_branch")) {
+      const problem = branchPatternProblem(value.integration_branch);
+      if (problem) sink.add("spec.integration_branch", problem);
     }
   },
 };
@@ -773,6 +809,7 @@ export function effectiveConfig(config) {
   const limits = section("limits");
   const decisions = section("decisions");
   const ready = section("ready_to_merge");
+  const spec = section("spec");
   return {
     run_dir: config.run_dir ?? DEFAULTS.run_dir,
     read_first: Array.isArray(config.read_first) ? config.read_first : null,
@@ -790,6 +827,10 @@ export function effectiveConfig(config) {
       review: ready.review ?? DEFAULTS.review,
       qa: ready.qa ?? DEFAULTS.qa,
       qa_labels: ready.qa_labels ?? [],
+    },
+    spec: {
+      landing: spec.landing ?? DEFAULTS.landing,
+      integration_branch: spec.integration_branch ?? DEFAULTS.integration_branch,
     },
   };
 }

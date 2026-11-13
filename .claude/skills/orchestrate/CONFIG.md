@@ -26,6 +26,9 @@ ready_to_merge:
   review: settled # settled | approved
   qa: report # none | report
   qa_labels: [ui]
+spec:
+  landing: integration-branch # ask | integration-branch | per-ticket
+  integration_branch: orchestrate/spec-<n>
 ```
 
 ## Lookup order and dialects
@@ -60,6 +63,7 @@ Tabs, anchors, aliases, multi-line scalars, flow collections that span lines, a 
 | `limits`         | see below           | How many building Delegations run at once, and the shared resources that have one holder at a time.                                                                                                                       |
 | `decisions`      | see below           | Where a human decision is recorded, so a reviewer of the pull request can see it.                                                                                                                                         |
 | `ready_to_merge` | see below           | What Ready to Merge requires beyond green CI and a clean merge.                                                                                                                                                           |
+| `spec`           | see below           | How a spec run (`--spec <n>`) lands its work. A run on a set of issues reads none of it.                                                                                                                                  |
 
 A value in any route, command or skill name is free text: the brief carries it as written, so a route can be a command, a skill to use, or a sentence of convention.
 
@@ -126,6 +130,15 @@ A Delegation is Ready to Merge only when every check on its head has passed and 
 | `review`    | `settled` | `settled`: every review comment is fixed or answered. `approved`: that, and an approving review.                       |
 | `qa`        | `none`    | `report`: a QA Report exists for the pull request's head.                                                              |
 | `qa_labels` | `[]`      | With `qa: report`, the report is required only for an issue carrying one of these labels. Any other `qa` is a problem. |
+
+### `spec`
+
+Read only by a spec run ([SPEC.md](SPEC.md#the-landing)).
+
+| Key                  | Default                | Meaning                                                                                                                                                                                                                                                                                              |
+| -------------------- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `landing`            | `ask`                  | `integration-branch`: each ticket lands on one local branch, which ends in one pull request. `per-ticket`: each ticket opens its own pull request, and a later wave waits for its blockers to be merged. `ask`: the Dispatch Plan asks, with what each costs. Either way, the plan says which it is. |
+| `integration_branch` | `orchestrate/spec-<n>` | The integration branch's name, with `<n>` replaced by the spec's number. `<n>` must be in it, and is its only placeholder; with it filled in, the name must be a valid git branch name. The branch is local: it is pushed only on a yes.                                                             |
 
 ## Readiness check
 
