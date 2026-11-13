@@ -80,17 +80,17 @@ Run each with `npx @mnaimfaizy/agent-kit <command>`. `init` and `upgrade` ask be
 
 ## What ships
 
-| Path                                 | Purpose                                                                                                                                                                                    |
-| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `.github/workflows/*-reusable.yml`   | Reusable job bodies. Consumers reference these with `uses:`; never copy them.                                                                                                              |
-| `.github/agent-runtime/`             | PreToolUse hooks confining reads to the workspace and the implementer's writes and pushes, plus a git-config check. Copy.                                                                  |
-| `.github/agent-pipeline/`            | Planner prompt, implementer instructions, draft-PR fallback script. Copy.                                                                                                                  |
-| `.github/security-audit/`            | Audit prompt, advisory publisher, PR counts comment, optional email notifier. Copy.                                                                                                        |
-| `.claude/skills/`                    | **Portable skills**: `code-review`, `security-audit`, `security-finding-triage`, `security-response`, `explainer`, `instruction-drift-audit`, `qa-plan`, `manual-qa`, `plain-prose`. Copy. |
-| `kit-owned-paths.txt`                | The list of paths above that you copy from a tag and replace whole on upgrade.                                                                                                             |
-| `examples/`                          | Caller templates, setup presets, Threat pack skeletons, QA config and Hazard pack templates to copy and edit.                                                                              |
-| `cli/`                               | Source of the `@mnaimfaizy/agent-kit` npm CLI. Run with `npx`; never copy.                                                                                                                 |
-| `.github/workflows-archive/copilot/` | Inert **Copilot archive** — an alternative runner, never live alongside Claude.                                                                                                            |
+| Path                                 | Purpose                                                                                                                                                                                                   |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `.github/workflows/*-reusable.yml`   | Reusable job bodies. Consumers reference these with `uses:`; never copy them.                                                                                                                             |
+| `.github/agent-runtime/`             | PreToolUse hooks confining reads to the workspace and the implementer's writes and pushes, plus a git-config check. Copy.                                                                                 |
+| `.github/agent-pipeline/`            | Planner prompt, implementer instructions, draft-PR fallback script. Copy.                                                                                                                                 |
+| `.github/security-audit/`            | Audit prompt, advisory publisher, PR counts comment, optional email notifier. Copy.                                                                                                                       |
+| `.claude/skills/`                    | **Portable skills**: `code-review`, `security-audit`, `security-finding-triage`, `security-response`, `explainer`, `instruction-drift-audit`, `qa-plan`, `manual-qa`, `plain-prose`, `orchestrate`. Copy. |
+| `kit-owned-paths.txt`                | The list of paths above that you copy from a tag and replace whole on upgrade.                                                                                                                            |
+| `examples/`                          | Caller templates, setup presets, Threat pack skeletons, QA config and Hazard pack templates to copy and edit.                                                                                             |
+| `cli/`                               | Source of the `@mnaimfaizy/agent-kit` npm CLI. Run with `npx`; never copy.                                                                                                                                |
+| `.github/workflows-archive/copilot/` | Inert **Copilot archive** — an alternative runner, never live alongside Claude.                                                                                                                           |
 
 Not vendored: Consumer Threat pack (threat model + findings ledger), product playbooks, Companion skills (`implement`, `tdd`, `wayfinder`, …), subagent definitions.
 

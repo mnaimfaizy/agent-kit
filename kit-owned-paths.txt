@@ -18,6 +18,7 @@
 .claude/skills/qa-plan/
 .claude/skills/manual-qa/
 .claude/skills/plain-prose/
+.claude/skills/orchestrate/
 .github/agent-runtime/
 .github/agent-pipeline/
 .github/security-audit/

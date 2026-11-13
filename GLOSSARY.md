@@ -147,3 +147,47 @@ _Avoid_: evidence upload, attachment
 **QA Report**:
 The self-contained Markdown file `manual-qa` writes for one run of one QA Plan: the build it checked, one row per scenario (PASS, FAIL, or left for a person), and the evidence.
 _Avoid_: test report, QA results
+
+### Orchestration
+
+The `orchestrate` Portable skill; why it is a core plus a per-repository config: [ADR 0004](docs/adr/0004-orchestrate-is-a-core-plus-a-config.md). The skill's [`DESIGN.md`](.claude/skills/orchestrate/DESIGN.md#glossary) carries the same definitions, word for word, so the skill keeps them when it is installed alone; `scripts/orchestrate-glossary-contract.test.py` keeps the two the same. "Live Session" is always written in full: a **Session** alone is a QA term.
+
+**Chief of Staff**:
+The session that runs `orchestrate`: it analyses the work, proposes the Dispatch Plan, hands out each Delegation, relays every Decision Request and verifies every report, and never builds a Delegation's work or merges.
+_Avoid_: orchestrator, coordinator, lead agent
+
+**Delegation**:
+One piece of a run, an issue to build or an issue to analyse, handed to one Executor with one brief.
+_Avoid_: task, job, ticket (for the piece handed out)
+
+**Executor**:
+What carries out a Delegation: a Live Session, a headless run, or a sub-agent in the Chief of Staff's own session.
+_Avoid_: worker, runner
+
+**Live Session**:
+A separate agent session the human can open, read and talk to while it works; always written in full, because a Session is a signed-in identity in a QA scenario.
+_Avoid_: session (alone), live agent
+
+**Brief Contract**:
+The eight items every Delegation's brief carries: what to read first, the goal and what done means, phases with explicit stop points, scope fences, the repository's command routes, the rules for writes, the Decision Request form, and the Delegation's report and log files.
+_Avoid_: brief template, prompt template
+
+**Decision Request**:
+A question a Delegation cannot settle from its brief, raised to the human through the Chief of Staff, self-contained, with options, evidence and a recommendation.
+_Avoid_: question, escalation, blocker
+
+**Dispatch Plan**:
+The one table the Chief of Staff shows before any Delegation starts, giving each one's scope, Executor, model and wave, with the kinds of routine write the human may approve; one "go" approves it whole.
+_Avoid_: run plan, schedule
+
+**Activity Log**:
+An append-only record of what was done in a run and why, kept by the Chief of Staff and by each Delegation in the run folder.
+_Avoid_: transcript, journal
+
+**Run Summary**:
+The account of a finished run, offered after the human merges, for the issue that groups the run's work.
+_Avoid_: wrap-up, final report
+
+**Ready to Merge**:
+A Delegation whose CI is green, whose review is settled, whose QA requirement is met and whose branch merges cleanly; the only Delegations the closing list names.
+_Avoid_: done, mergeable, green
