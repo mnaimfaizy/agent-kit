@@ -80,7 +80,7 @@ An issue that is closed, or that an open pull request already closes, is a Decis
 
 For each building Delegation, write down the paths it is likely to touch and the shared resources (named in `limits.shared`) it will hold, read from the issue and the code it names. These are its scope fence, and they decide its wave.
 
-Then decide which building Delegations need QA: all of them with `ready_to_merge.qa: report` and no `qa_labels`, or those whose issue carries one of the `qa_labels`; none with `qa: none`. Each one that does gets a **QA Delegation** of its own, `d<issue>-qa`, run after it (step 9). When `check` named a `qa_config`, read its `run.target` there: a QA Delegation for a `stack` target holds the **QA Stack**; one for a `url` target holds nothing. A target the file does not give counts as `stack`.
+Then decide which building Delegations need QA: all of them with `ready_to_merge.qa: report` and no `qa_labels`, or those whose issue carries one of the `qa_labels`; none with `qa: none`. Each one that does gets a **QA Delegation** of its own, `d<issue>-qa`, run after it (step 9). A spec run decides its QA rows with its landing ([SPEC.md](SPEC.md#qa-in-the-dispatch-plan)). When `check` named a `qa_config`, read its `run.target` there: a QA Delegation for a `stack` target holds the **QA Stack**; one for a `url` target holds nothing. A target the file does not give counts as `stack`.
 
 **Done when:** every issue has a row in the readiness table, every building Delegation has a scope fence, and each one that needs QA has its QA Delegation.
 
@@ -90,7 +90,7 @@ One table, one row per Delegation: its issue, its kind (building, analysis or QA
 
 When the run has a QA Delegation, the plan also says:
 
-- **How each QA skill starts.** `qa-plan` and `manual-qa` are invoked only by a person, so the plan says, from [HARNESSES.md](HARNESSES.md#choosing-an-executor), whether the QA Delegation's session is started with `/qa-plan <n>` as its first message and later sent `/manual-qa <plan file>` as a message, or the human types each there.
+- **How each QA skill starts.** `qa-plan` and `manual-qa` are invoked only by a person. The QA Delegation's session always starts on its brief, and its first phase pins the head. Then, after that phase stops, `/qa-plan <n>` is sent to it as a message, and `/manual-qa <plan file>` later, where [HARNESSES.md](HARNESSES.md#choosing-an-executor) says this harness may run a message as the user's invocation. If the session does not run it (it says it cannot invoke the skill, or asks for it), the human types each command there. The plan says this up front, so the human knows they may be asked.
 - **The QA writes.** Delivering each QA Plan is always a Decision Request carrying the draft, so the human sees what will be tested before it is run. Posting the QA Report where the plan was delivered is a routine kind the human may approve for the run. Uploading a QA Artifact is never routine: each file is a Decision Request.
 - **That "go" covers re-QA.** When a head moves and is QA'd again, the new QA Delegation (`d<issue>-qa2`, then `-qa3`) runs on the same Executor and model without a new plan. A different Executor, or QA for an issue the plan gave none, is a new plan.
 
@@ -121,7 +121,7 @@ For each Delegation in the wave, write its brief to its folder in the run, carry
 - **A Decision Request:** relay it to the human, whole. When the human answers, `message` the answer to the Delegation, and log it. Then record it where `decisions.to` says ([CONFIG.md](CONFIG.md#decisions)), starting with `decisions.marker` when one is set: for `pull-request`, the message tells the Delegation to add it to its own pull request's body; for `issue-comment`, the Chief of Staff drafts the comment, and posts it as a write as the human.
 - **A drafted write as the human:** an approved routine kind goes ahead and is logged; any other kind is relayed as a Decision Request, and made only on a yes.
 - **A report:** verify it (step 7), or for a QA Delegation, step 9.
-- **A push to a branch that has passed step 7:** its head moved. Its verification and any QA for the old head no longer hold: mark a running or finished QA Delegation for it `void`, and verify the new head from step 7.
+- **A push to a branch that has passed step 7:** its head moved. Its verification and any QA for the old head no longer hold: mark a running or `passed` QA Delegation for it `void` (a `failed` one stays `failed`, as the record of that run), and verify the new head from step 7.
 - **No sign of progress** for longer than the work explains: read the Delegation's Activity Log and its branch. If it is stuck, `message` it once with what you see. If it is still stuck at the next check, raise it to the human as a Decision Request.
 - **A crash:** keep its branch and worktree as they are: they are its handoff. Record what was done and what is left on the board, and raise it to the human with a recommendation (start a new Delegation from the branch, or stop).
 
@@ -142,7 +142,7 @@ Check each claim the report makes ([BRIEF.md](BRIEF.md#report)) against the sour
 
 QA is not checked here: it runs on the head this step verified (step 9).
 
-A claim that does not hold goes back to the Delegation with what was found. Tell the human only what held. A building Delegation whose report holds is `verified` when it needs QA, and goes on to step 8 either way.
+A claim that does not hold goes back to the Delegation with what was found. Tell the human only what held. A building Delegation whose report holds goes on to step 8.
 
 An analysis Delegation's report is checked the same way: every piece of evidence it cites must be where it says. Then relay its options as a Decision Request.
 
@@ -152,7 +152,7 @@ An analysis Delegation's report is checked the same way: every piece of evidence
 
 For each pair of verified branches, and for each against the default branch, check whether they merge cleanly in the order proposed, without touching any checkout (`git merge-tree --write-tree`). A pair that conflicts goes back into the plan: propose an order that merges one first and has the other's Delegation merge the default branch into its own branch afterwards, resolving the conflict in a new commit, as a Decision Request. A rebase would need a force-push. That new commit is a new head: the branch goes back to step 7, and any QA for its old head is `void`.
 
-This runs before QA so that the head QA tests is the head that merges. A verified branch that merges cleanly and needs no QA is Ready to Merge; one that needs QA goes to step 9.
+This runs before QA so that the head QA tests is the head that merges. A branch whose report held and that merges cleanly is Ready to Merge when it needs no QA. One that needs QA is `verified`, and goes to step 9.
 
 **Done when:** an order exists in which every verified branch merges cleanly.
 
@@ -160,7 +160,7 @@ This runs before QA so that the head QA tests is the head that merges. A verifie
 
 For each building Delegation that is `verified` and merges cleanly in the order from step 8, with `<head>` the commit step 7 verified:
 
-1. **Dispatch its QA Delegation.** Write the QA brief ([BRIEF.md](BRIEF.md#the-qa-brief)), pinned to `<head>`, and `spawn` it on the plan's Executor with `models.qa`, once no other holder of the QA Stack is running, when it holds the QA Stack. Record it on the board as `running`, with `<head>` in its Branch cell. Where the plan says the human types the QA skill, tell them which session to type it in, and what.
+1. **Dispatch its QA Delegation.** Write the QA brief ([BRIEF.md](BRIEF.md#the-qa-brief)), pinned to `<head>`, and `spawn` it on the plan's Executor with `models.qa`, once no other holder of the QA Stack is running, when it holds the QA Stack. Record it on the board as `running`, with `<head>` in its Branch cell. When it reports that the head is pinned (its phase 1), send `/qa-plan <n>` to it as the plan says, and log whether the session ran it as an invocation; if it did not, tell the human which session to type it in, and what. The first run that relies on a message for this records the result in its Activity Log, for [HARNESSES.md](HARNESSES.md) to be corrected.
 2. **Relay the QA Plan.** The QA Delegation raises its draft QA Plan as a Decision Request: relay it whole. The human's answer is `qa-plan`'s yes, or the correction it asks for. When the human is in the QA session and answered `qa-plan` there, its Activity Log says so, and there is nothing to relay. Once the plan is delivered, start `manual-qa` in that session the way the plan says: `message` it `/manual-qa <plan file>`, or tell the human to type it there.
 3. **Verify its report** against the source: the QA Plan and QA Report it copied into its Delegation folder, the plan's **Head** is `<head>`, the report has one row per scenario in the plan, the pull request's head is still `<head>`, and wherever the report says the plan was delivered or the report posted, it is there. A claim that does not hold goes back to the QA Delegation.
 4. **Act on the result:**

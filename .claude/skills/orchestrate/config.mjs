@@ -721,7 +721,7 @@ export function parseConfig(path, text) {
  * @param {{answers?: {path: string, text: string} | null, exists?: (path: string) => boolean}} [options]
  *   `answers`: the answers given in chat, as a JSON object, laid over the
  *   config; `exists`: whether a repository path (file or folder) is there.
- * @returns {{path: string | null, config: Record<string, any>, problems: string[], answers: string | null}}
+ * @returns {{path: string | null, config: Record<string, any>, problems: string[], answers: string | null, qaConfig: string | null}}
  *   `path` is null when the repository has no config: not an error, the
  *   readiness check says what to ask for.
  */
@@ -885,7 +885,7 @@ function triageLabels(value) {
  * What the run still needs before analysis. `needs` are asked for, in one
  * message; a `note` is said, and the run goes on.
  *
- * @param {{path: string | null, config: Record<string, any>, problems: string[]}} read
+ * @param {{path: string | null, config: Record<string, any>, problems: string[], qaConfig?: string | null}} read
  * @returns {{ready: boolean, needs: string[], notes: string[]}}
  */
 export function readiness({ path, config, problems, qaConfig = null }) {
