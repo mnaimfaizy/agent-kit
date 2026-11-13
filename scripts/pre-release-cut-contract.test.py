@@ -12,6 +12,8 @@ from verify_release_snapshot import (  # noqa: E402 - needs the sys.path entry a
 
 MANIFEST = ROOT / "scripts" / "release-snapshot-manifest.txt"
 CUT_SCRIPT = ROOT / "scripts" / "cut-release.sh"
+RELEASE_TOOL = ROOT / "scripts" / "release.py"
+PUBLISH = ROOT / ".github" / "workflows" / "publish-cli.yml"
 CUTTING_DOC = ROOT / "docs" / "cutting-releases.md"
 RELEASES = ROOT / "docs" / "releases.md"
 CHANGELOG = ROOT / "CHANGELOG.md"
@@ -62,8 +64,11 @@ def test_cut_script_exists_and_is_dry_run_by_default() -> None:
     data = read(CUT_SCRIPT)
     assert "--apply" in data
     assert "--publish" in data
-    assert "verify_release_snapshot.py" in data
-    assert "gh release create" in data
+    assert "Default is a dry run" in data
+    tool = read(RELEASE_TOOL)
+    assert "verify_tree(" in tool and "if not args.apply:" in tool
+    # The tag push creates the Release in CI; the cut only tags and pushes.
+    assert "gh release create" in read(PUBLISH)
 
 
 def test_changelog_has_unreleased_and_prerelease_shape() -> None:

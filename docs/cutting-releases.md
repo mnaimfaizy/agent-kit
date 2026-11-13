@@ -6,49 +6,76 @@ Each tag is a **whole-kit snapshot**: reusable workflows, shipped skills, docs, 
 
 ## Before you cut
 
-- CI is green on `main` (tests, lint, actionlint, links).
-- The examples pin the tag you are about to cut (`uses: …@<tag>`). The contract tests require a SemVer tag there, so bump them in the release-prep PR.
-- `cli/package.json`'s `version` is the tag without its `v` (see [Publishing the CLI to npm](#publishing-the-cli-to-npm)).
-- The root `README.md` follows that version: the Quickstart tags name the new tag, and on a stage change the **Status** line names the new stage (for a stable release, drop the pre-release status and keep the broken-tags warning as its own sentence). `scripts/readme-freshness-contract.test.py` fails until it does, so do this in the release-prep PR.
-- `CHANGELOG.md` has a section for the tag, and `release-notes/<tag>.md` exists when you want a Release body (required for beta, rc, stable).
-- The release-prep PR is merged to `main` with the Admin bypass: the `main branch` ruleset lets only the Admin role update `main`. Wait for green CI on the PR first, because the bypass skips the required checks too. See [Branch protection](../CONTRIBUTING.md#branch-protection).
+- Your git identity uses your GitHub noreply address (`<id>+<login>@users.noreply.github.com`). With email privacy on, GitHub refuses to push a tag or commit that carries a private address (GH007), and a tag's tagger address is whatever `git var GIT_COMMITTER_IDENT` prints. Set it once per clone:
+
+  ```bash
+  git config user.email "$(gh api user --jq '"\(.id)+\(.login)@users.noreply.github.com"')"
+  ```
+
+  Environment variables beat git config: if `GIT_COMMITTER_EMAIL` (or `EMAIL`) is set in your shell, unset it. Both scripts check the address before they commit or tag. They print the domain of a wrong address, never the address itself.
+
+- `gh` is installed and signed in (`gh auth login`). The cut reads CI's result on the commit through it.
+- You hold the Admin role. The `release tags` ruleset lets only the Admin role create, update or delete `refs/tags/v*`, and the `main branch` ruleset lets only the Admin bypass merge to `main`. See [Branch protection](../CONTRIBUTING.md#branch-protection).
 
 ## Cut a release
 
-The steps below use `<tag>`, e.g. `v1.0.0-beta.5`. The first cut on this line was `v1.0.0-alpha.1`.
+A cut is two steps: **prepare** writes the release-prep pull request on a branch, and **cut** tags `main` once that pull request is merged. The steps below use `<tag>`, e.g. `v1.0.0-beta.5`. The first cut on this line was `v1.0.0-alpha.1`.
 
-1. Ensure `main` (or your default branch) is clean, up to date (`git pull`), and includes every path in `scripts/release-snapshot-manifest.txt`.
-2. Verify the snapshot:
+### 1. Prepare: the release-prep pull request
 
-   ```bash
-   uv run python scripts/verify_release_snapshot.py
-   ```
+Fill in `CHANGELOG.md`'s `[Unreleased]` section first. Then, with a clean working tree on any branch:
 
-3. Move `[Unreleased]` items in `CHANGELOG.md` into a new section if you want alpha notes (optional for alpha).
-4. Dry-run the cut:
+```bash
+bash scripts/prepare-release.sh --tag <tag>
+```
 
-   ```bash
-   bash scripts/cut-release.sh --tag <tag>
-   ```
+It refuses a tag that already exists, locally or on `origin`, and a tag that does not come after the latest tag on `origin` (see [Stage order](#stage-order)). Otherwise it:
 
-5. Either create and push the tag yourself (then create the Release in the GitHub UI):
+1. creates `chore/release-<tag>` from an up-to-date `origin/main`;
+2. bumps every pin of the previous tag to `<tag>`. The previous tag is `cli/package.json`'s version, or the latest tag on `origin` if the package already names `<tag>`; `--from <tag>` overrides it. It finds the pins by searching the tracked files, so `cli/package.json`, `cli/README.md`, the example Callers, the README Quickstart and the docs all move. It leaves history alone: `CHANGELOG.md`, `release-notes/`, `docs/adr/`, the [Broken releases](releases.md#broken-releases) table, and any line that calls a tag broken. On a stage change it moves the README **Status** line to the new stage; for a stable release it tells you to edit that line by hand;
+3. moves `[Unreleased]` into `## [X.Y.Z-stage.N] - YYYY-MM-DD` and leaves `[Unreleased]` empty. It refuses an empty `[Unreleased]` before it writes anything;
+4. writes `release-notes/<tag>.md` from [`scripts/release-notes-template.md`](../scripts/release-notes-template.md) for beta, rc and stable, unless the file exists. It never overwrites notes;
+5. runs the snapshot check (`scripts/release-snapshot-manifest.txt`).
 
-   ```bash
-   bash scripts/cut-release.sh --tag <tag> --apply
-   git push origin <tag>
-   ```
+It pushes nothing, and prints the commit, push and `gh pr create` commands instead. Replace every `TODO(release-notes)` line in the notes, add the bump class to the CHANGELOG section if you want one, and review `git diff`. Then commit and open the pull request yourself, or re-run with a flag: `--commit`, `--push` (commit and push) or `--open-pr` (commit, push and open the pull request). None of them commits notes that still have a `TODO(release-notes)` line. Re-running on `chore/release-<tag>` is safe: steps already done are left as they are.
 
-6. Or do it in one step — `--publish` pushes the tag, then creates the GitHub Release on it (still no assets):
+Merge the pull request with the Admin bypass once its CI is green: the bypass skips the required checks too.
 
-   ```bash
-   bash scripts/cut-release.sh --tag <tag> --apply --publish --notes-file release-notes/<tag>.md
-   ```
+### 2. Cut: tag `main` and push the tag
 
-   `--notes-file` is optional for alpha and required for beta, rc, and stable.
+```bash
+git switch main && git pull --ff-only
+bash scripts/cut-release.sh --tag <tag>                      # dry run: every check, writes nothing
+bash scripts/cut-release.sh --tag <tag> --apply --publish    # create the tag and push it
+```
+
+Before it tags, the cut checks that:
+
+- you are on `main`, the working tree is clean, and `HEAD` equals `origin/main` after a fetch;
+- CI on that commit is green: the `Tests`, `Lint and format` and `Internal links` checks, read with `gh`;
+- the tag is not on `origin`, and it comes after the latest tag there;
+- `cli/package.json`'s version at `HEAD` is the tag without its `v`;
+- for beta, rc and stable, `CHANGELOG.md` has the tag's section, and `release-notes/<tag>.md` is committed with no `TODO(release-notes)` line left;
+- the address git will tag with is a `@users.noreply.github.com` address. Pass `--allow-private-email` only if your account allows pushes with another.
+
+`--apply` creates the annotated tag locally; `--publish` (with `--apply`) pushes it. The push starts [publish-cli.yml](../.github/workflows/publish-cli.yml). Its **Create the GitHub Release** job creates the Release from `release-notes/<tag>.md` on the tag, as a pre-release for alpha, beta and rc. Then its **Publish to npm** job waits for your approval (see below). The cut no longer creates the Release itself. `--notes-file` is still accepted, but it must name `release-notes/<tag>.md`, since that is the file the workflow reads.
+
+### When a cut fails part-way
+
+Re-run the same command. Each run finishes what is left, or says exactly what is left:
+
+| State                                                      | What the re-run does                                                                                                                                                                   |
+| ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Local tag from an earlier `--apply`, never pushed          | Reuses it if it is annotated, points at `HEAD` and has a noreply tagger, then pushes it.                                                                                               |
+| Local tag on another commit, lightweight, or a wrong email | Stops and prints the fix: `git tag -d <tag>` and re-run, or re-run with `--replace-local-tag`. It deletes an unpushed local tag only with that flag.                                   |
+| Push refused                                               | The tag stays local, so the re-run is safe. A GH007 refusal prints the email fix; a ruleset refusal means the push needs the Admin role.                                               |
+| Tag on `origin`                                            | Final: it never moves, deletes or re-pushes it. It reports the GitHub Release and the `Publish CLI` run: waiting for approval, still running, or failed with a `gh run rerun` command. |
+
+If the Release job fails (missing notes, say), the npm publish does not run either. Fix the cause and re-run the failed jobs. The job does nothing when the Release already exists, so a Release you created by hand is kept.
 
 ## Publishing the CLI to npm
 
-Each pushed `v*` tag also publishes `cli/` as `@mnaimfaizy/agent-kit` through [publish-cli.yml](../.github/workflows/publish-cli.yml), with npm trusted publishing: the job's OIDC token is exchanged for a short-lived publish credential, and `npm publish --provenance --access public` links the package to the run. The repository stores no npm token. It publishes only a tag whose commit is on `main`. The package version must equal the tag without its `v`: `cut-release.sh` refuses to tag otherwise, and the workflow checks again before it publishes. So in the release-prep PR, set `cli/package.json`'s `version` to the tag you are about to cut, for example `1.0.0-beta.5` for `v1.0.0-beta.5`. Every Release-line tag is published as `latest`, because the line only moves forward.
+Each pushed `v*` tag also publishes `cli/` as `@mnaimfaizy/agent-kit` through [publish-cli.yml](../.github/workflows/publish-cli.yml), with npm trusted publishing: the job's OIDC token is exchanged for a short-lived publish credential, and `npm publish --provenance --access public` links the package to the run. The repository stores no npm token. It publishes only a tag whose commit is on `main`. The package version must equal the tag without its `v`: `cut-release.sh` refuses to tag otherwise, and the workflow checks again before it publishes. `prepare-release.sh` sets `cli/package.json`'s `version` to the tag you are about to cut, for example `1.0.0-beta.5` for `v1.0.0-beta.5`. Every Release-line tag is published as `latest`, because the line only moves forward.
 
 ### One-time setup
 
@@ -167,11 +194,7 @@ User-facing notes summarize contract-impacting changes — not a raw commit dump
 - …
 ```
 
-Pass a notes file when cutting beta, rc, or stable tags:
-
-```bash
-bash scripts/cut-release.sh --tag v1.0.0-beta.5 --apply --publish --notes-file release-notes/v1.0.0-beta.5.md
-```
+The GitHub Release body is `release-notes/<tag>.md` on the tag. `prepare-release.sh` writes it from the template for beta, rc and stable. An alpha without a notes file gets the body `Pre-release <tag>`.
 
 ## A tag turned out broken
 
