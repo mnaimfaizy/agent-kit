@@ -4,6 +4,8 @@
 # See docs/cutting-releases.md.
 set -euo pipefail
 
+# Relative paths in the arguments (--notes-file) are relative to where you ran this.
+export AGENT_KIT_RELEASE_CWD="$PWD"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 

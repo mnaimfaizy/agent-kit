@@ -307,16 +307,20 @@ def test_bump_leaves_pre_releases_prose_and_tooling_of_a_stable_tag_alone() -> N
 def test_prepare_lists_the_stable_mentions_it_left() -> None:
     with sandbox():
         write("cli/package.json", '{\n  "name": "x",\n  "version": "1.0.0"\n}\n')
-        write("docs/notes.md", "The `1.0.0` line starts at `v1.0.0`. Install: --tag v1.0.0\n")
+        write("docs/notes.md", "The `1.0.0` line starts at `v1.0.0`. Install: --tag v1.0.0\nOnly v1.0.0-rc.1 here.\n")
         g("add", "-A")
         g("commit", "-qm", "stable")
         g("tag", "-a", "v1.0.0", "-m", "Release v1.0.0")
         g("push", "-q", "origin", "main", "v1.0.0")
         code, out = run("prepare", "--tag", "v1.0.1")
         assert code == 0, out
-        assert read("docs/notes.md") == "The `1.0.0` line starts at `v1.0.0`. Install: --tag v1.0.1\n"
+        assert (
+            read("docs/notes.md")
+            == "The `1.0.0` line starts at `v1.0.0`. Install: --tag v1.0.1\nOnly v1.0.0-rc.1 here.\n"
+        )
         assert json.loads(read("cli/package.json"))["version"] == "1.0.1"
         assert "only pin-shaped mentions moved" in out and "docs/notes.md:1:" in out
+        assert "docs/notes.md:2:" not in out, "a pre-release of the old tag is not a leftover"
 
 
 def test_prepare_does_not_commit_unrelated_tracked_edits_on_a_re_run() -> None:
@@ -328,6 +332,20 @@ def test_prepare_does_not_commit_unrelated_tracked_edits_on_a_re_run() -> None:
         assert code == 1 and "do not look like release prep" in out and "docs/adr/0001-x.md" in out
         assert g("log", "-1", "--format=%s") == "seed", "nothing committed"
         assert g("diff", "--cached", "--name-only") == "", "and nothing left staged"
+        # README is checked like any other file, on its changed lines only: the hunk header of an
+        # edit right below the Quickstart echoes a line that names the new tag.
+        g("checkout", "--", "docs/adr/0001-x.md")
+        g("add", "-A")
+        g("commit", "-qm", "prep so far")
+        write("README.md", read("README.md") + "Unrelated README edit.\n")
+        code, out = run("prepare", "--tag", "v1.0.0-beta.2", "--commit")
+        assert code == 1 and "do not look like release prep" in out and "  README.md" in out
+        assert g("log", "-1", "--format=%s") == "prep so far"
+        # A release-prep commit lists what goes in.
+        g("checkout", "--", "README.md")
+        write("CHANGELOG.md", read("CHANGELOG.md").replace("### Added", "Intro.\n\n### Added", 1))
+        code, out = run("prepare", "--tag", "v1.0.0-beta.2", "--commit")
+        assert code == 0 and "Committing:\n  CHANGELOG.md" in out, out
 
 
 def test_release_tool_stops_on_python_before_3_10() -> None:
@@ -445,6 +463,13 @@ def test_cut_requires_the_version_changelog_and_finished_notes() -> None:
         g("push", "-q", "origin", "main")
         code, out = run("cut", "--tag", "v1.0.0-beta.2")
         assert code == 1 and "still has TODO(release-notes) lines" in out
+        # A relative --notes-file is relative to where the command ran (the wrapper passes that on).
+        os.environ["AGENT_KIT_RELEASE_CWD"] = str(Path.cwd() / "docs")
+        code, out = run("cut", "--tag", "v1.0.0-beta.2", "--notes-file", "release-notes/v1.0.0-beta.2.md")
+        assert code == 1 and "--notes-file must be" in out, "docs/release-notes/... is not the notes file"
+        code, out = run("cut", "--tag", "v1.0.0-beta.2", "--notes-file", "../release-notes/v1.0.0-beta.2.md")
+        assert "--notes-file must be" not in out, out
+        del os.environ["AGENT_KIT_RELEASE_CWD"]
         code, out = run("cut", "--tag", "v1.0.0-beta.2", "--notes-file", "elsewhere.md")
         assert code == 1 and "--notes-file must be release-notes/v1.0.0-beta.2.md" in out
 
@@ -549,6 +574,7 @@ def test_cut_and_prepare_wrappers_find_a_working_python() -> None:
         assert "for candidate in python3 python; do" in text
         assert """if "$candidate" -c 'import sys'""" in text
         assert f'exec "$PYTHON" scripts/release.py {command} "$@"' in text
+        assert text.index('export AGENT_KIT_RELEASE_CWD="$PWD"') < text.index('cd "$ROOT"')
     if shutil.which("bash"):
         done = subprocess.run(
             ["bash", "scripts/cut-release.sh", "--help"], cwd=ROOT, capture_output=True, text=True, check=False

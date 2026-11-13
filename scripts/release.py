@@ -378,6 +378,14 @@ def previous_tag(new_tag: str, released: dict[str, str], override: str | None) -
     return latest
 
 
+def names_tag(path: str, tag: str) -> bool:
+    """Whether a staged change to `path` adds a line naming `tag`. Only the changed lines count:
+    a hunk header echoes nearby context, which can name the tag when the change does not."""
+    diff = git("diff", "--cached", "-U0", "--", path)
+    added = [line for line in diff.splitlines() if line.startswith("+") and not line.startswith("+++")]
+    return any(tag[1:] in line for line in added)
+
+
 def prepare(args: argparse.Namespace) -> int:
     tag = args.tag
     tag_key(tag)
@@ -425,8 +433,13 @@ def prepare(args: argparse.Namespace) -> int:
     changed = bump_pins(old, tag) if old != tag else []
     print(f"Pins: {old} -> {tag}: " + (", ".join(changed) if changed else "nothing left to bump."))
     if old != tag and not parse_tag(old)["stage"]:
-        left = git("-c", "core.quotePath=false", "grep", "-n", "-I", "-w", "-F", old, check=False)
-        left_lines = [line for line in left.splitlines() if not is_history(line.split(":", 1)[0])]
+        mention = re.compile(r"(?<![\w.])v?" + re.escape(old[1:]) + r"(?![0-9A-Za-z]|-[0-9A-Za-z])")
+        left = git("-c", "core.quotePath=false", "grep", "-n", "-I", "-F", old[1:], check=False)
+        left_lines = [
+            line
+            for line in left.splitlines()
+            if not is_history(line.split(":", 1)[0]) and mention.search(line.split(":", 2)[-1])
+        ]
         if left_lines:
             # A list to read, not a blocker: most of these are prose and fixtures.
             print(f"{old} is stable, so only pin-shaped mentions moved. Check these, and bump any that are pins:")
@@ -489,12 +502,10 @@ def prepare(args: argparse.Namespace) -> int:
                 "Not committed (untracked, not written by prepare):\n" + "\n".join(f"  {p}" for p in stray.split("\n"))
             )
         staged = git("diff", "--cached", "--name-only").splitlines()
-        expected = {"CHANGELOG.md", "README.md", notes.as_posix()}
-        unrelated = [
-            path
-            for path in staged
-            if path not in expected and tag[1:] not in git("diff", "--cached", "-U0", "--", path)
-        ]
+        # The CHANGELOG section and the notes are hand-edited release prep (an intro paragraph, the
+        # Release body), so their diffs need not name the tag. Everything else, README included, must.
+        expected = {"CHANGELOG.md", notes.as_posix()}
+        unrelated = [path for path in staged if path not in expected and not names_tag(path, tag)]
         if unrelated:
             git("reset", "--quiet")
             raise ReleaseError(
@@ -503,6 +514,7 @@ def prepare(args: argparse.Namespace) -> int:
                 + "\nCommit them separately, or move them off this branch, then re-run."
             )
         if staged:
+            print("Committing:\n" + "\n".join(f"  {path}" for path in staged))
             git("commit", "--quiet", "-m", title)
             print(f"Committed: {title}")
     if args.push or args.open_pr:
@@ -716,9 +728,11 @@ def report_published(tag: str, commit: str) -> int:
 def cut(args: argparse.Namespace) -> int:
     tag = args.tag
     tag_key(tag)
+    # The wrappers cd to the repository root first and pass the caller's directory on.
+    caller = Path(os.environ.get("AGENT_KIT_RELEASE_CWD") or os.getcwd())
     os.chdir(repo_root())
     notes_path = Path(f"release-notes/{tag}.md")
-    if args.notes_file and Path(args.notes_file).resolve() != notes_path.resolve():
+    if args.notes_file and (caller / args.notes_file).resolve() != notes_path.resolve():
         raise ReleaseError(
             f"--notes-file must be {notes_path.as_posix()}: the Publish CLI workflow creates the Release from that"
             " file on the tag. Move your notes there in the release-prep PR."
