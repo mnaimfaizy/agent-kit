@@ -28,7 +28,7 @@ Any other argument this version does not know (`--spec` among them) stops the ru
 
 ## Rules
 
-- **Authority.** The Chief of Staff never merges, force-pushes, changes repository settings, or destroys a branch, worktree or checkpoint without the human's yes. A yes covers the one action it was given for.
+- **Authority.** The Chief of Staff never merges, force-pushes, changes repository settings, or destroys a branch, worktree or checkpoint without the human's yes. A yes covers the one action it was given for. The detached worktrees the Chief of Staff makes for its own checks are its own scratch space: it removes each one when that check ends, and never one a Delegation works in.
 - **Writes as the human.** A Delegation may push its own branch, open its own pull request and reply on its own review. Every other write made in the human's name (an issue comment, a new issue, a label, closing an issue) goes through the Chief of Staff: it drafts the write and raises it as a Decision Request, unless the human approved that kind of routine write in the Dispatch Plan.
 - **Nothing is reported that was not checked.** A Delegation's report is a claim. The Chief of Staff tells the human only what it has checked against the branch, the pull request and CI, and says which parts it could not check.
 - **Every question goes to the human whole.** A Decision Request is self-contained: the human can answer it without opening the Delegation, from the question, the options, the evidence and the recommendation alone ([BRIEF.md](BRIEF.md#decision-request)).
@@ -45,10 +45,11 @@ node "<skill>/config.mjs" check
 ```
 
 - Exit 1: the config has **problems**. Show each one with its line, and stop until it is fixed. A misread config would send every Delegation down the wrong route.
-- `readiness.needs` not empty: ask for everything it lists in one message. Write the answers, as the JSON object [CONFIG.md](CONFIG.md#answers-given-in-chat) describes, to `answers.json` in the run folder (step 2 makes it), and run `check` again with `--answers <run_dir>/<run>/answers.json` until it exits 0 with no needs. Offer to write them into a config file; write one only on a yes.
+- Exit 2: the command or the answers file is wrong; its message says how. Fix that and run it again.
+- `readiness.needs` not empty: ask for everything it lists in one message. Check that `run_dir` is ignored (below), make the run folder ([RUN.md](RUN.md#layout)), and write the answers there as `answers.json`, the JSON object [CONFIG.md](CONFIG.md#answers-given-in-chat) describes. Run `check` again with `--answers <run_dir>/<run>/answers.json` until it exits 0 with no needs. Offer to write them into a config file; write one only on a yes.
 - `readiness.notes`: say each one, and go on.
 
-Check that `run_dir` is ignored: `git check-ignore -q <run_dir>/x`. If it is not, say so and ask before writing there: nothing in a run folder is committed.
+Before anything is written to `run_dir`, check that it is ignored: `git check-ignore -q <run_dir>/x`. If it is not, say so and ask before writing there: nothing in a run folder is committed.
 
 When `triage_labels.from` is `document`, read that document now: it maps each triage role to the repository's label.
 
@@ -56,7 +57,7 @@ When `triage_labels.from` is `document`, read that document now: it maps each tr
 
 ### 2. Open the run
 
-Make the run folder, the board and the Chief of Staff's Activity Log as [RUN.md](RUN.md) lays them out. Every later step updates the board as its state changes, and appends what it did and why to the Activity Log.
+Make the run folder, unless step 1 made it for the answers, then the board and the Chief of Staff's Activity Log, as [RUN.md](RUN.md) lays them out. Every later step updates the board as its state changes, and appends what it did and why to the Activity Log.
 
 **Done when:** the run folder exists inside `run_dir`, with a board listing each issue named.
 
@@ -91,7 +92,7 @@ Choose waves so that:
 
 A Delegation in a later wave because of an overlap or a blocker starts only once the Delegation it waits for is merged, so it is built on the merged work, not beside it. Until then it is parked ([RUN.md](RUN.md#states)).
 
-Choose each Executor from what this harness offers ([HARNESSES.md](HARNESSES.md)): a Live Session for a building Delegation where the harness has one, so the human can open it; a headless run or a Sub-agent for an analysis Delegation, or where the harness has no Live Sessions.
+Choose each Executor from what this harness offers ([HARNESSES.md](HARNESSES.md)): a Live Session for a building Delegation where the harness has one, so the human can open it; a headless run or a Sub-agent for an analysis Delegation, or where the harness has no Live Sessions; a session the human starts where the harness can start neither.
 
 The human's "go" approves the whole plan: every row, and the routine writes they tick. A change to any row is a new plan, shown again. With `go` in the invocation, start as soon as the plan is shown, unless step 3 raised a Decision Request: then wait for its answer and the human's "go".
 
@@ -107,7 +108,7 @@ For each Delegation in the wave, write its brief to its folder in the run, carry
 
 `await` the running Delegations. For each event:
 
-- **A Decision Request:** relay it to the human, whole. When the human answers, `message` the answer to the Delegation, record it where `decisions.to` says ([CONFIG.md](CONFIG.md#decisions)), and log it.
+- **A Decision Request:** relay it to the human, whole. When the human answers, `message` the answer to the Delegation, and log it. Then record it where `decisions.to` says ([CONFIG.md](CONFIG.md#decisions)), starting with `decisions.marker` when one is set: for `pull-request`, the message tells the Delegation to add it to its own pull request's body; for `issue-comment`, the Chief of Staff drafts the comment, and posts it as a write as the human.
 - **A drafted write as the human:** an approved routine kind goes ahead and is logged; any other kind is relayed as a Decision Request, and made only on a yes.
 - **A report:** verify it (step 7).
 - **No sign of progress** for longer than the work explains: read the Delegation's Activity Log and its branch. If it is stuck, `message` it once with what you see. If it is still stuck at the next check, raise it to the human as a Decision Request.
@@ -136,7 +137,7 @@ An analysis Delegation's report is checked the same way: every piece of evidence
 
 ### 8. Find conflicts between finished branches
 
-For each pair of verified branches, and for each against the default branch, check whether they merge cleanly in the order proposed, without touching any checkout (`git merge-tree --write-tree`). A pair that conflicts goes back into the plan: propose an order that merges one first and has the other's Delegation update its branch afterwards, as a Decision Request.
+For each pair of verified branches, and for each against the default branch, check whether they merge cleanly in the order proposed, without touching any checkout (`git merge-tree --write-tree`). A pair that conflicts goes back into the plan: propose an order that merges one first and has the other's Delegation merge the default branch into its own branch afterwards, resolving the conflict in a new commit, as a Decision Request. A rebase would need a force-push.
 
 **Done when:** an order exists in which every Ready to Merge branch merges cleanly.
 

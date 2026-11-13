@@ -74,6 +74,14 @@ export const DEFAULTS = Object.freeze({
   qa: "none",
 });
 
+/**
+ * Set `key` as an own property, even `__proto__`, which plain assignment
+ * would turn into the object's prototype: hidden from every key check, and
+ * its values read through the prototype unchecked.
+ */
+const setOwn = (map, key, value) =>
+  Object.defineProperty(map, key, { value, enumerable: true, writable: true, configurable: true });
+
 // ── YAML subset ─────────────────────────────────────────────────────────────
 
 const KEY_LINE = /^([A-Za-z_][\w-]*):(?:[ \t]+(.*?)|[ \t]*)$/;
@@ -124,7 +132,7 @@ function parseFlow(text, i, problem, stops = ",]}") {
         }
         const [value, next] = parseFlow(text, i + 1, problem);
         if (Object.hasOwn(out, String(key))) problem(`duplicate key \`${key}\``);
-        out[String(key)] = value;
+        setOwn(out, String(key), value);
         i = skip(next);
       }
       if (text[i] === ",") {
@@ -251,7 +259,7 @@ export function parseYamlSubset(text) {
       const keyPath = path ? `${path}.${key}` : key;
       if (Object.hasOwn(map, key)) at(line, `duplicate key \`${key}\``);
       where.set(keyPath, line.no);
-      map[key] = valueFor(line, rest, indent, keyPath);
+      setOwn(map, key, valueFor(line, rest, indent, keyPath));
     }
     return map;
   }
@@ -284,7 +292,7 @@ export function parseYamlSubset(text) {
         const keyIndent = lineIndent + (body.length - content.length);
         const map = {};
         where.set(`${itemPath}.${match[1]}`, line.no);
-        map[match[1]] = valueFor(line, match[2], keyIndent, `${itemPath}.${match[1]}`);
+        setOwn(map, match[1], valueFor(line, match[2], keyIndent, `${itemPath}.${match[1]}`));
         items.push(parseMapping(keyIndent, map, itemPath));
         continue;
       }
@@ -387,9 +395,12 @@ export function jsonLines(text) {
 const isMapping = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 const nonEmpty = (v) => typeof v === "string" && v.trim() !== "";
 
-/** Repository-relative, never absolute, never leaving the repository. */
+/** Repository-relative: never absolute or drive-relative, never leaving the repository, never its root. */
 const isRepoPath = (v) =>
-  nonEmpty(v) && !/^(?:[A-Za-z]:)?[\\/]/.test(v) && !v.split(/[\\/]/).includes("..");
+  nonEmpty(v) &&
+  !/^(?:[A-Za-z]:|[\\/])/.test(v) &&
+  !v.split(/[\\/]/).includes("..") &&
+  v.split(/[\\/]/).some((part) => part !== "" && part !== ".");
 
 /**
  * A checker that names each problem with its key path, and where it is. A
@@ -463,8 +474,8 @@ function distinctList(sink, value, path, ok, one, many) {
 }
 
 const isCount = (v) =>
-  (typeof v === "number" && Number.isInteger(v) && v >= 1) ||
-  (typeof v === "string" && /^[1-9]\d*$/.test(v));
+  (typeof v === "number" && Number.isSafeInteger(v) && v >= 1) ||
+  (typeof v === "string" && /^[1-9]\d{0,8}$/.test(v));
 
 /**
  * The checker for each top-level key, in CONFIG.md's order. A mode that needs
@@ -604,7 +615,7 @@ const located = (lines, file = "") =>
  * @returns {{value: Record<string, unknown>, problems: string[], lines: Map<string, number>}}
  *   `problems` are syntax problems only.
  */
-export function parseText(path, text) {
+export function parseText(path, text, what = "the config") {
   const body = String(text).replace(/^﻿/, "");
   if (!path.endsWith(".json")) return parseYamlSubset(body);
   let value;
@@ -618,7 +629,7 @@ export function parseText(path, text) {
     };
   }
   if (!isMapping(value))
-    return { value: {}, problems: ["the config must be a JSON object"], lines: new Map() };
+    return { value: {}, problems: [`${what} must be a JSON object`], lines: new Map() };
   return { value, ...jsonLines(body) };
 }
 
@@ -665,7 +676,7 @@ export function readConfig(read, { answers = null, exists } = {}) {
   let config = parsed.value;
 
   if (answers) {
-    const answered = parseText(".json", answers.text);
+    const answered = parseText(".json", answers.text, "the answers");
     problems.push(...answered.problems.map((problem) => `${answers.path}: ${problem}`));
     // An answered key's location is in the answers file, never the config's.
     for (const key of Object.keys(answered.value)) {
@@ -679,7 +690,11 @@ export function readConfig(read, { answers = null, exists } = {}) {
         )
           where.delete(path);
     }
-    for (const [key, at] of located(answered.lines, answers.path)) where.set(key, at);
+    // A mapping merged key by key keeps the config's location for itself, so
+    // a config value with no line of its own is not placed in the answers file.
+    const merged = (key) => isMapping(config[key]) && isMapping(answered.value[key]);
+    for (const [key, at] of located(answered.lines, answers.path))
+      if (!(merged(key) && where.has(key))) where.set(key, at);
     config = mergeAnswers(config, answered.value);
   }
 
@@ -699,7 +714,11 @@ export function readConfig(read, { answers = null, exists } = {}) {
 export function mergeAnswers(config, answers) {
   const merged = { ...config };
   for (const [key, value] of Object.entries(answers))
-    merged[key] = isMapping(config[key]) && isMapping(value) ? { ...config[key], ...value } : value;
+    setOwn(
+      merged,
+      key,
+      isMapping(config[key]) && isMapping(value) ? { ...config[key], ...value } : value,
+    );
   return merged;
 }
 
@@ -857,7 +876,8 @@ export function main(argv, io = {}) {
 
   let answers = null;
   if (options["--answers"] !== undefined) {
-    const file = options["--answers"];
+    // Read and contained against the same path: relative to the repository.
+    const file = relative(repo, resolve(repo, options["--answers"])).split("\\").join("/");
     const text = read(file);
     if (text === null || text === undefined)
       return { code: 2, out: `no answers file at \`${file}\`\n` };

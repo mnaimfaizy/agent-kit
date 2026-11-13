@@ -9,7 +9,7 @@ The skill body speaks of four verbs only. This file says how each one works on t
 | `await`   | Wait for the next event from any running Executor: a report, a Decision Request, an end, or no sign of life.          |
 | `report`  | How a Delegation's report reaches the Chief of Staff.                                                                 |
 
-**`report` is a file on every harness.** A Delegation writes its report to `delegations/<id>/report.md` in the run folder ([RUN.md](RUN.md)), and its Decision Requests to the same file, then stops. The verbs only carry the signal that something was written. An Executor that cannot reach the run folder (one working from a clone somewhere else) ends its turn with the report as its last message instead, and the Chief of Staff writes that into `report.md` before checking it.
+**`report` is a file on every harness.** A Delegation writes its report to `delegations/<id>/report.md` in the run folder ([RUN.md](RUN.md)), and appends each Decision Request to `delegations/<id>/decisions.md`, then stops. The verbs only carry the signal that something was written. An Executor that cannot reach the run folder (one working from a clone somewhere else) ends its turn with the report or the Decision Request as its last message instead, and the Chief of Staff writes that into `report.md` or `decisions.md` before reading it.
 
 **Every Executor works in its own branch and working copy**, never in the Chief of Staff's checkout: a separate worktree on the same machine, or a clone. Two Executors in one working copy overwrite each other.
 

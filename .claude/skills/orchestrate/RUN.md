@@ -15,6 +15,7 @@ A run lives in its own folder inside the config's `run_dir`, which is gitignored
     brief.md                the brief, as spawned
     activity.md             the Delegation's Activity Log
     report.md               its latest report
+    decisions.md            its Decision Requests, appended, each marked answered when it is
 ```
 
 `<run>` is the date and the issue numbers, `2026-11-13-12-34`, with `-2`, `-3` added when that folder is already there. A Delegation's `<id>` is `d<issue>`, `d12`; a second Delegation for the same issue adds `-2`.

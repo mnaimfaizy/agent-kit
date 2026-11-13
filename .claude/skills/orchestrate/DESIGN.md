@@ -70,7 +70,7 @@ A Delegation that has stopped making progress looks the same as one doing slow w
 
 ## Conflicts before the merge order
 
-Two branches can each merge cleanly into the default branch and still conflict with each other. A merge order found only by merging would leave the human mid-sequence with a conflict to resolve. So the Chief of Staff test-merges the finished branches in the proposed order, without touching any checkout, and changes the order or asks for a rebase before it hands the order over.
+Two branches can each merge cleanly into the default branch and still conflict with each other. A merge order found only by merging would leave the human mid-sequence with a conflict to resolve. So the Chief of Staff test-merges the finished branches in the proposed order, without touching any checkout, and changes the order, or has one branch merge the default branch after the other lands, before it hands the order over. A merge, not a rebase: rebasing a pushed branch needs a force-push.
 
 ## Ready to Merge, and no further
 

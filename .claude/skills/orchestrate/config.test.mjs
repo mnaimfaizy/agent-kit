@@ -397,6 +397,54 @@ const YAML_PROBLEMS = [
     /^line 1: a flow list must close on the same line/,
   ],
   ["a list at the top", ["- run_dir: tmp/o"], /^line 1: the config must be a mapping, not a list/],
+  ["an alias", ["run_dir: *dir"], /^line 1: `\*` \(anchor or alias\) is outside the YAML subset/],
+  ["an unterminated quote", ["run_dir: 'tmp/o"], /^line 1: unterminated ' quote/],
+  [
+    "text after a quoted value",
+    ['run_dir: "tmp/o" extra'],
+    /^line 1: unexpected text after the value: extra/,
+  ],
+  [
+    "an empty item in a flow list",
+    ["regate: [npm test, , x]"],
+    /^line 1: an empty value inside a flow collection/,
+  ],
+  [
+    "a first key not at column 1",
+    ["  run_dir: tmp/o"],
+    /^line 1: the first key must start at column 1/,
+  ],
+  [
+    "a flow mapping that spans lines",
+    ["routes: { commit: x,", "  merge: y }"],
+    /^line 1: a flow mapping must close on the same line/,
+  ],
+  [
+    "run_dir as the repository root",
+    ["run_dir: ."],
+    /^line 1: `run_dir`: expected a relative path/,
+  ],
+  ["a drive-relative run_dir", ["run_dir: C:runs"], /^line 1: `run_dir`: expected a relative path/],
+  [
+    "a building limit too large to be a count",
+    ["limits:", "  building: 99999999999999999999999"],
+    /^line 2: `limits\.building`: expected a whole number/,
+  ],
+  [
+    "a `__proto__` key at the top",
+    ["__proto__:", "  run_dir: /etc"],
+    /^line 1: `__proto__`: unknown key/,
+  ],
+  [
+    "a `__proto__` key in a block mapping",
+    ["routes:", "  __proto__: x"],
+    /^line 2: `routes\.__proto__`: unknown key/,
+  ],
+  [
+    "a `__proto__` key in a flow mapping",
+    ["routes: { __proto__: x, commit: y }"],
+    /^line 1: `routes\.__proto__`: unknown key/,
+  ],
 ];
 
 for (const [name, lines, expected] of YAML_PROBLEMS)
@@ -441,6 +489,181 @@ test("JSON: each problem is named with its line, like YAML's", () => {
     "line 15: `ready_to_merge.qa_labels`: only `qa: report` is limited to labels; set it, or delete this key",
   ]);
 });
+
+/**
+ * Each shape problem, in JSON: the config object, the key path, and the
+ * problem it must raise at the line that key path starts on.
+ */
+const JSON_PROBLEMS = [
+  ["an unknown top-level key", { routs: {} }, "routs", /unknown key/],
+  ["an unknown nested key", { routes: { push: "y" } }, "routes.push", /unknown key/],
+  ["a key with no value", { regate: null }, "regate", /no value/],
+  ["a nested key with no value", { routes: { commit: null } }, "routes.commit", /no value/],
+  ["an absolute run_dir", { run_dir: "/tmp/o" }, "run_dir", /expected a relative path/],
+  ["run_dir as the repository root", { run_dir: "./" }, "run_dir", /expected a relative path/],
+  ["read_first not a list", { read_first: "AGENTS.md" }, "read_first", /expected a list/],
+  [
+    "a read_first path leaving the repository",
+    { read_first: ["a.md", "../b.md"] },
+    "read_first[1]",
+    /expected a relative path/,
+  ],
+  [
+    "a read_first path listed twice",
+    { read_first: ["a.md", "a.md"] },
+    "read_first[1]",
+    /listed twice/,
+  ],
+  ["routes not a mapping", { routes: "git commit" }, "routes", /expected a mapping/],
+  [
+    "a route that is a number",
+    { routes: { commit: 3 } },
+    "routes.commit",
+    /expected a non-empty string/,
+  ],
+  ["regate not a list", { regate: "npm test" }, "regate", /expected a list of commands/],
+  [
+    "a regate entry that is not a command",
+    { regate: [{ run: "x" }] },
+    "regate[0]",
+    /expected a command/,
+  ],
+  ["a regate command listed twice", { regate: ["x", "x"] }, "regate[1]", /listed twice/],
+  ["an unknown skill kind", { skills: { plan: "x" } }, "skills.plan", /unknown key/],
+  [
+    "a skill that is not a string",
+    { skills: { review: true } },
+    "skills.review",
+    /expected a non-empty string/,
+  ],
+  [
+    "triage_labels neither a path nor a mapping",
+    { triage_labels: ["a"] },
+    "triage_labels",
+    /expected the path/,
+  ],
+  [
+    "a triage role that is not one of the five",
+    { triage_labels: { blocked: "x" } },
+    "triage_labels.blocked",
+    /unknown key/,
+  ],
+  [
+    "two triage roles sharing a label",
+    { triage_labels: { "needs-triage": "t", "needs-info": "t" } },
+    "triage_labels.needs-info",
+    /also the label for `needs-triage`/,
+  ],
+  [
+    "a triage role with an empty label",
+    { triage_labels: { wontfix: "" } },
+    "triage_labels.wontfix",
+    /expected a label name/,
+  ],
+  ["an unknown model kind", { models: { qa: "x" } }, "models.qa", /unknown key/],
+  ["models not a mapping", { models: "opus" }, "models", /expected a mapping/],
+  ["limits not a mapping", { limits: 3 }, "limits", /expected a mapping/],
+  [
+    "a zero building limit",
+    { limits: { building: 0 } },
+    "limits.building",
+    /expected a whole number/,
+  ],
+  [
+    "a fractional building limit",
+    { limits: { building: 1.5 } },
+    "limits.building",
+    /expected a whole number/,
+  ],
+  [
+    "a building limit as a word",
+    { limits: { building: "three" } },
+    "limits.building",
+    /expected a whole number/,
+  ],
+  [
+    "a building limit too large to be a count",
+    { limits: { building: 1e23 } },
+    "limits.building",
+    /expected a whole number/,
+  ],
+  ["an unknown limit", { limits: { reviewing: 2 } }, "limits.reviewing", /unknown key/],
+  [
+    "shared not a list",
+    { limits: { shared: "db" } },
+    "limits.shared",
+    /expected a list of resource names/,
+  ],
+  [
+    "a shared resource listed twice",
+    { limits: { shared: ["db", "db"] } },
+    "limits.shared[1]",
+    /listed twice/,
+  ],
+  ["decisions not a mapping", { decisions: "pull-request" }, "decisions", /expected a mapping/],
+  [
+    "an unknown decision target",
+    { decisions: { to: "wiki" } },
+    "decisions.to",
+    /expected one of: pull-request, issue-comment/,
+  ],
+  [
+    "an empty decision marker",
+    { decisions: { marker: "" } },
+    "decisions.marker",
+    /expected a non-empty string/,
+  ],
+  [
+    "an unknown review rule",
+    { ready_to_merge: { review: "lgtm" } },
+    "ready_to_merge.review",
+    /expected one of: settled, approved/,
+  ],
+  [
+    "an unknown QA rule",
+    { ready_to_merge: { qa: "always" } },
+    "ready_to_merge.qa",
+    /expected one of: none, report/,
+  ],
+  [
+    "qa_labels without qa: report",
+    { ready_to_merge: { qa_labels: ["ui"] } },
+    "ready_to_merge.qa_labels",
+    /only `qa: report`/,
+  ],
+  [
+    "qa_labels not a list",
+    { ready_to_merge: { qa: "report", qa_labels: "ui" } },
+    "ready_to_merge.qa_labels",
+    /expected a list of label names/,
+  ],
+  [
+    "an unknown Ready to Merge key",
+    { ready_to_merge: { ci: "green" } },
+    "ready_to_merge.ci",
+    /unknown key/,
+  ],
+  [
+    "a `__proto__` key",
+    JSON.parse('{"__proto__": {"run_dir": "/etc"}}'),
+    "__proto__",
+    /unknown key/,
+  ],
+];
+
+for (const [name, config, path, expected] of JSON_PROBLEMS)
+  test(`JSON: ${name} is a problem, with its line`, () => {
+    // Pretty-printed, so each key path starts on a line of its own.
+    const text = JSON.stringify({ run_dir: "tmp/o", ...config }, null, 2);
+    const line = jsonLines(text).lines.get(path);
+    assert.ok(line > 1, `${path} has a line of its own`);
+    const { problems } = json(text);
+    const found = problems.find((problem) => problem.startsWith(`line ${line}: \`${path}\`: `));
+    assert.ok(
+      found && expected.test(found),
+      `expected line ${line} \`${path}\` ${expected} in:\n${problems.join("\n")}`,
+    );
+  });
 
 test("JSON: a duplicate key is a problem, not the last value silently kept", () => {
   assert.deepEqual(json('{\n  "run_dir": "a",\n  "run_dir": "b"\n}').problems, [
@@ -518,6 +741,30 @@ test("CONFIG.md's triage mapping and answers examples read with no problems", ()
   const read = readConfig(reader({}), { answers });
   assert.deepEqual(read.problems, []);
   assert.equal(readiness(read).ready, true);
+});
+
+test("a problem in a config value no answer touched keeps the config's line", () => {
+  const files = {
+    "orchestrate.config.yml":
+      "read_first: []\nregate: []\nroutes: { commit: x, pull_request: '' }\n",
+  };
+  const answers = {
+    path: "tmp/orchestrate/answers.json",
+    text: '{\n  "routes": {\n    "commit": "y"\n  }\n}',
+  };
+  assert.deepEqual(readConfig(reader(files), { answers }).problems, [
+    "line 3: `routes.pull_request`: expected a non-empty string",
+  ]);
+});
+
+test("an answers file that is not an object says so, and a `__proto__` answer is a problem", () => {
+  const notObject = readConfig(reader({}), { answers: { path: "a.json", text: "[]" } });
+  assert.deepEqual(notObject.problems, ["a.json: the answers must be a JSON object"]);
+  const proto = readConfig(reader({}), {
+    answers: { path: "a.json", text: '{\n  "__proto__": { "run_dir": "/abs" }\n}' },
+  });
+  assert.equal(proto.problems.length, 1);
+  assert.match(proto.problems[0], /^a\.json line 2: `__proto__`: unknown key/);
 });
 
 // ── CLI ─────────────────────────────────────────────────────────────────────
