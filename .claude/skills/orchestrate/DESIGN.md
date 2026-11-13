@@ -10,7 +10,7 @@ These are word for word the definitions in Agent-kit's root glossary, where a co
 
 **Delegation**: One piece of a run, an issue to build or an issue to analyse, handed to one Executor with one brief.
 
-**Executor**: What carries out a Delegation: a Live Session, a headless run, or a Sub-agent in the Chief of Staff's own session.
+**Executor**: What carries out a Delegation: a Live Session, a headless run, or a sub-agent in the Chief of Staff's own session.
 
 **Live Session**: A separate agent session the human can open, read and talk to while it works; always written in full, because a Session is a signed-in identity in a QA scenario.
 

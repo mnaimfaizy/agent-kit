@@ -18,7 +18,7 @@ A run lives in its own folder inside the config's `run_dir`, which is gitignored
     decisions.md            its Decision Requests, appended, each marked answered when it is
 ```
 
-`<run>` is the date and the issue numbers, `2026-11-13-12-34`, with `-2`, `-3` added when that folder is already there. A Delegation's `<id>` is `d<issue>`, `d12`; a second Delegation for the same issue adds `-2`.
+`<run>` is the date and the issue numbers, `2026-11-13-12-34`, with `.2`, `.3` added when that folder is already there (a dot, so a second run for #12 is never read as a run for #12 and #2). A Delegation's `<id>` is `d<issue>`, `d12`; a second Delegation for the same issue adds `-2`.
 
 Nothing in a run folder is committed. A brief or a log can quote issue text and command output the human has not chosen to publish.
 
@@ -38,7 +38,7 @@ Started <date>. Plan approved <date>. Approved routine writes: <list, or none>.
 - #34: `ready-for-human`, listed for the human.
 ```
 
-The **Handle** is what `message` and `await` need to reach the Executor again: a session id, a process id with its output file, or a Sub-agent's name ([HARNESSES.md](HARNESSES.md)). The board is rewritten whole on each change, never edited in part, so an interrupted write leaves the last whole board in place: write the new board beside the old one, then rename it over the old one.
+The **Handle** is what `message` and `await` need to reach the Executor again: a session id, a process id with its output file, or a sub-agent's name ([HARNESSES.md](HARNESSES.md)). The board is rewritten whole on each change, never edited in part, so an interrupted write leaves the last whole board in place: write the new board beside the old one, then rename it over the old one.
 
 ## States
 
@@ -65,7 +65,7 @@ Each Activity Log is append-only Markdown, one entry per thing done, newest last
 
 `--resume <run>` continues a run from its folder, after a usage limit, a closed laptop or a pause for merges.
 
-1. Read the config again (`check`, with the run's `answers.json` when there is one). A config that changed since the run started is said, and its new values apply from here.
+1. Read the config again (`check`, with the run's `answers.json` when there is one). A config that changed since the run started is said, and its new values apply from here. A changed `run_dir` does not move a run: when the run's folder is no longer inside it, `check --answers` refuses the run's answers. Stop, say so, and ask the human to move the run folder into the new `run_dir` or to put the old value back, then resume.
 2. Read the board and both kinds of Activity Log.
 3. Check each Delegation not `merged` or `dropped` against the source, not the board: its branch and head, its pull request and whether it is merged, CI on its head, and whether its Executor still answers its handle. A board written before an interruption can be out of date.
 4. Update the board to what was found, and log each change.
@@ -75,7 +75,7 @@ A Delegation whose Executor no longer answers, and whose work did not finish, is
 
 ## Status
 
-`--status [<run>]` prints the board of the run named, or of the newest run folder in `run_dir`, with each open Decision Request in full. It reads nothing else and changes nothing.
+`--status [<run>]` prints the board of the run named, or of the run in `run_dir` whose board was written last, with each open Decision Request in full. It reads nothing else and changes nothing.
 
 ## Run Summary
 

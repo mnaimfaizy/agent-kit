@@ -167,6 +167,12 @@ function parseFlow(text, i, problem, stops = ",]}") {
   while (j < text.length && !stops.includes(text[j])) j += 1;
   const value = text.slice(i, j).trim();
   plainProblems(value, problem);
+  // Real YAML ends the line at ` #`, leaving the collection unclosed; this
+  // subset would otherwise keep the comment as part of the value.
+  if (/(?:^|\s)#/.test(value))
+    problem(
+      "a `#` comment inside a flow collection is outside the YAML subset CONFIG.md documents",
+    );
   if (value === "") problem("an empty value inside a flow collection");
   return [value, j];
 }
@@ -280,7 +286,8 @@ export function parseYamlSubset(text) {
       pos += 1;
       const itemPath = `${path}[${items.length}]`;
       where.set(itemPath, line.no);
-      const content = body.replace(/^-[ \t]*/, "");
+      // `- # note` is an item with no value, as in real YAML, never the text `# note`.
+      const content = body.replace(/^-[ \t]*/, "").replace(/^#.*$/, "");
       if (content === "") {
         const next = lines[pos];
         items.push(next && indentOf(next) > indent ? parseBlock(indentOf(next), itemPath) : null);
@@ -665,7 +672,15 @@ export function readConfig(read, { answers = null, exists } = {}) {
   let path = null;
   let parsed = { value: {}, problems: [], lines: new Map() };
   for (const candidate of CONFIG_FILES) {
-    const text = read(candidate);
+    let text;
+    try {
+      text = read(candidate);
+    } catch (error) {
+      // There but unreadable (a folder, no permission): never skipped as if absent.
+      path = candidate;
+      parsed.problems = [`${candidate} cannot be read (${error?.code ?? error})`];
+      break;
+    }
     if (text === null || text === undefined) continue;
     path = candidate;
     parsed = parseText(candidate, text);
@@ -836,19 +851,21 @@ const SKILL_NOTES = {
 
 // ── CLI ─────────────────────────────────────────────────────────────────────
 
+/** A repository file's text, or null when it is not there; any other failure throws. */
 function repoReader(repo) {
   return (path) => {
     try {
       return readFileSync(join(repo, path), "utf8");
-    } catch {
-      return null;
+    } catch (error) {
+      if (error?.code === "ENOENT" || error?.code === "ENOTDIR") return null;
+      throw error;
     }
   };
 }
 
 const inside = (dir, path) => {
   const rel = relative(dir, path);
-  return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
+  return rel !== "" && !/^\.\.(?:[\\/]|$)/.test(rel) && !isAbsolute(rel);
 };
 
 const USAGE = "usage: node config.mjs check [--answers <file.json>] [--repo <dir>]\n";
@@ -878,7 +895,15 @@ export function main(argv, io = {}) {
   if (options["--answers"] !== undefined) {
     // Read and contained against the same path: relative to the repository.
     const file = relative(repo, resolve(repo, options["--answers"])).split("\\").join("/");
-    const text = read(file);
+    let text;
+    try {
+      text = read(file);
+    } catch (error) {
+      return {
+        code: 2,
+        out: `the answers file \`${file}\` cannot be read (${error?.code ?? error})\n`,
+      };
+    }
     if (text === null || text === undefined)
       return { code: 2, out: `no answers file at \`${file}\`\n` };
     answers = { path: file, text };

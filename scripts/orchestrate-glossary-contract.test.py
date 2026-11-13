@@ -57,7 +57,8 @@ def test_live_session_is_always_written_in_full() -> None:
         for line in text.splitlines():
             if re.search(r"(?<!Live )\bSession\b", line):
                 assert "QA" in line, f"{name}: 'Session' without 'Live' outside a QA note: {line.strip()}"
-            assert not re.search(r"\blive session\b", line), f"{name}: write 'Live Session': {line.strip()}"
+            for spelling in re.findall(r"\blive session\b", line, re.IGNORECASE):
+                assert spelling == "Live Session", f"{name}: write 'Live Session', not {spelling!r}: {line.strip()}"
 
 
 if __name__ == "__main__":

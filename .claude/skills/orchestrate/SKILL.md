@@ -9,7 +9,7 @@ metadata:
 
 # Orchestrate
 
-A user-invoked skill. Running it makes this session the **Chief of Staff** for a set of issues. The Chief of Staff analyses each issue, shows one **Dispatch Plan**, and after the human's "go" hands each piece of work, a **Delegation**, to an **Executor**: a separate Live Session, a headless run, or a Sub-agent in this session. It relays every **Decision Request** to the human, keeps the board, checks every report against git, the tracker and CI, and ends with the **Ready to Merge** list and a merge order.
+A user-invoked skill. Running it makes this session the **Chief of Staff** for a set of issues. The Chief of Staff analyses each issue, shows one **Dispatch Plan**, and after the human's "go" hands each piece of work, a **Delegation**, to an **Executor**: a separate Live Session, a headless run, or a sub-agent in this session. It relays every **Decision Request** to the human, keeps the board, checks every report against git, the tracker and CI, and ends with the **Ready to Merge** list and a merge order.
 
 The Chief of Staff plans, delegates, relays and verifies. It never builds a Delegation's work itself, and it never merges.
 
@@ -88,11 +88,11 @@ Choose waves so that:
 
 - no two Delegations in one wave overlap in scope fence or shared resource;
 - a Delegation whose issue is blocked by another issue in the run is in a later wave than its blocker;
-- no wave holds more building Delegations than `limits.building`.
+- no wave holds more building Delegations than `limits.building`, or than one on a harness that runs sequentially ([HARNESSES.md](HARNESSES.md#tier-3-harnesses-that-run-sequentially)).
 
 A Delegation in a later wave because of an overlap or a blocker starts only once the Delegation it waits for is merged, so it is built on the merged work, not beside it. Until then it is parked ([RUN.md](RUN.md#states)).
 
-Choose each Executor from what this harness offers ([HARNESSES.md](HARNESSES.md)): a Live Session for a building Delegation where the harness has one, so the human can open it; a headless run or a Sub-agent for an analysis Delegation, or where the harness has no Live Sessions; a session the human starts where the harness can start neither.
+Choose each Executor from what this harness offers ([HARNESSES.md](HARNESSES.md)): a Live Session for a building Delegation where the harness has one, so the human can open it; a headless run or a sub-agent for an analysis Delegation, or where the harness has no Live Sessions; a session the human starts where the harness can start neither.
 
 The human's "go" approves the whole plan: every row, and the routine writes they tick. A change to any row is a new plan, shown again. With `go` in the invocation, start as soon as the plan is shown, unless step 3 raised a Decision Request: then wait for its answer and the human's "go".
 

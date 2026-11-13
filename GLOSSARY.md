@@ -161,7 +161,7 @@ One piece of a run, an issue to build or an issue to analyse, handed to one Exec
 _Avoid_: task, job, ticket (for the piece handed out)
 
 **Executor**:
-What carries out a Delegation: a Live Session, a headless run, or a Sub-agent in the Chief of Staff's own session.
+What carries out a Delegation: a Live Session, a headless run, or a sub-agent in the Chief of Staff's own session.
 _Avoid_: worker, runner
 
 **Live Session**:

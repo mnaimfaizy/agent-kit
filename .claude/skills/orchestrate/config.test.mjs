@@ -397,6 +397,16 @@ const YAML_PROBLEMS = [
     /^line 1: a flow list must close on the same line/,
   ],
   ["a list at the top", ["- run_dir: tmp/o"], /^line 1: the config must be a mapping, not a list/],
+  [
+    "a list item that is only a comment",
+    ["regate:", "  - # npm test (disabled)"],
+    /^line 2: `regate\[0\]`: expected a command/,
+  ],
+  [
+    "a comment inside a flow mapping",
+    ["skills: { implement: tdd # note }"],
+    /^line 1: a `#` comment inside a flow collection is outside the YAML subset/,
+  ],
   ["an alias", ["run_dir: *dir"], /^line 1: `\*` \(anchor or alias\) is outside the YAML subset/],
   ["an unterminated quote", ["run_dir: 'tmp/o"], /^line 1: unterminated ' quote/],
   [
@@ -832,6 +842,23 @@ test("check --answers refuses a file outside the run folder, or no file", () => 
 test("an answer that moves the run folder moves where the answers file must be", () => {
   const files = { "runs/answers.json": '{"run_dir": "runs"}' };
   assert.equal(run(["check", "--answers", "runs/answers.json"], files).code, 0);
+});
+
+test("a config file that is there but cannot be read is a problem, not a missing file", () => {
+  const read = (path) => {
+    if (path === "orchestrate.config.yml")
+      throw Object.assign(new Error("is a directory"), { code: "EISDIR" });
+    return path === "orchestrate.config.json" ? '{"run_dir": "elsewhere"}' : null;
+  };
+  const loaded = readConfig(read);
+  assert.equal(loaded.path, "orchestrate.config.yml");
+  assert.deepEqual(loaded.problems, ["orchestrate.config.yml cannot be read (EISDIR)"]);
+  assert.equal(main(["check"], { read, exists: () => true, cwd: "/repo" }).code, 1);
+});
+
+test("an answers file whose name starts with `..` is inside the run folder", () => {
+  const files = { "tmp/orchestrate/..answers.json": "{}" };
+  assert.equal(run(["check", "--answers", "tmp/orchestrate/..answers.json"], files).code, 0);
 });
 
 test("bad usage exits 2", () => {
