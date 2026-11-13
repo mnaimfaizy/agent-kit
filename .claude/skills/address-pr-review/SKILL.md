@@ -44,6 +44,7 @@ gh pr view <n> --json number,url,state,isCrossRepository,headRefName,headRefOid,
 
 - **Refuse** a pull request that is not open, or whose `isCrossRepository` is true (a fork): say why, and go to the next one.
 - Record `headRefOid` as the **start head**. Every later step compares against it.
+- **Refuse** a `headRefName` with any character outside `A-Z`, `a-z`, `0-9`, `.`, `_`, `/` and `-`: it goes into shell commands below (and into `push_command`'s `{branch}`), and git allows `;`, `&` and `$` in a branch name. Say why, and go to the next one.
 
 Read the review threads, every page of them:
 
