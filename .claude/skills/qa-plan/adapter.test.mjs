@@ -780,6 +780,8 @@ test("a list item that is only a comment has no value, never the comment's text"
 test("a ` #` inside a one-line flow collection is a problem; inside quotes it is not", () => {
   assert.deepEqual(parseYamlSubset("a: { name: api # note }\n").problems, [FLOW_COMMENT]);
   assert.deepEqual(parseYamlSubset("a: [x # note]\n").problems, [FLOW_COMMENT]);
+  assert.deepEqual(parseYamlSubset('a: { name: "api # note" }\n').problems, []);
+  assert.deepEqual(parseYamlSubset("a: ['x # note']\n").problems, []);
 });
 
 test("a `: ` inside an unquoted value is a problem that says to quote it", () => {
