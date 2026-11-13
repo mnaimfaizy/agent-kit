@@ -15,7 +15,8 @@
 # unknown key, a key with no value and a value of the wrong shape are problems,
 # named with their line. Every scalar is a string: `building: 3` and
 # `building: "3"` read the same. A route, command or skill name is free text:
-# each brief carries it as written.
+# each brief carries it as written. Quote any value that holds ` #` or `: `:
+# unquoted, ` #` starts a comment and the rest of the line is dropped.
 
 run_dir: tmp/orchestrate # where run folders (board, Activity Logs, briefs) live; keep it gitignored
 

@@ -3,7 +3,8 @@
  * copies to start using `orchestrate`, passes the skill's own check
  * (`config.mjs check`) with nothing left to ask, shows every key the reader
  * accepts, and carries a comment on every key. A key added to `config.mjs`
- * fails here until the example (and docs/orchestrate.md) show it.
+ * fails here until the example shows it. What docs/orchestrate.md's config
+ * table says is prose, and is not checked here.
  */
 
 import assert from "node:assert/strict";
@@ -58,7 +59,9 @@ describe("examples/orchestrate.config.yml", () => {
       exists: () => false,
     });
     assert.equal(code, 1);
-    assert.match(JSON.parse(out).problems.join("\n"), /read_first\[0\]/);
+    const problems = JSON.parse(out).problems.join("\n");
+    assert.match(problems, /read_first\[0\]/);
+    assert.match(problems, /triage_labels/);
   });
 
   it("shows every key config.mjs accepts", () => {
@@ -75,6 +78,17 @@ describe("examples/orchestrate.config.yml", () => {
       ...sub("ready_to_merge", config.READY_KEYS),
       ...sub("spec", config.SPEC_KEYS),
     ];
+    // Each section the reader resolves to a mapping of values (all but
+    // `triage_labels`, whose effective form is derived) needs its keys shown
+    // too, so a new section with keys of its own fails here.
+    for (const [section, value] of Object.entries(config.effectiveConfig(parsed)))
+      if (
+        section !== "triage_labels" &&
+        value &&
+        typeof value === "object" &&
+        !Array.isArray(value)
+      )
+        accepted.push(...sub(section, Object.keys(value)));
     assert.deepEqual(
       accepted.filter((key) => !shown.has(key)),
       [],
@@ -85,7 +99,11 @@ describe("examples/orchestrate.config.yml", () => {
   it("has a comment on every key", () => {
     const bare = EXAMPLE.split("\n")
       .map((line, n) => ({ line, n: n + 1 }))
-      .filter(({ line }) => /^\s*[a-z_]+:/.test(line) && !/ # /.test(line));
+      // Quoted text is blanked first, so a ` # ` inside a value is not a comment.
+      .filter(({ line }) => {
+        const bare = line.replace(/"[^"]*"|'[^']*'/g, '""');
+        return /^\s*(?:- )?[\w-]+:/.test(bare) && !/ # /.test(bare);
+      });
     assert.deepEqual(
       bare.map(({ n, line }) => `${n}: ${line}`),
       [],
