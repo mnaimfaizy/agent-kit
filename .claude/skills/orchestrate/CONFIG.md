@@ -44,7 +44,7 @@ The first file present is the config: `orchestrate.config.yml`, then `orchestrat
 
 A formatter such as Prettier wraps a long flow mapping across lines, which takes it outside the subset: write long entries in block style, as `routes` is written above.
 
-Tabs, anchors, aliases, multi-line scalars, flow collections that span lines, escapes inside quotes, duplicate keys, unknown keys at any level, keys with no value, and values of the wrong shape are **problems**. A problem is never a silent default: `config.mjs` names each one with its line, in both dialects, and exits 1, and the run stops until it is fixed.
+Tabs, anchors, aliases, multi-line scalars, flow collections that span lines, a ` #` comment inside a flow collection, a `: ` inside an unquoted value, escapes inside quotes, duplicate keys, unknown keys at any level, keys with no value, and values of the wrong shape are **problems**. A problem is never a silent default: `config.mjs` names each one with its line, in both dialects, and exits 1, and the run stops until it is fixed.
 
 ## Keys
 

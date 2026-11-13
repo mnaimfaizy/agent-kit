@@ -55,10 +55,12 @@ def test_live_session_is_always_written_in_full() -> None:
     texts["GLOSSARY.md#orchestration"] = glossary_section()
     for name, text in texts.items():
         for line in text.splitlines():
-            if re.search(r"(?<!Live )\bSession\b", line):
+            if re.search(r"(?<!Live )\bSessions?\b", line):
                 assert "QA" in line, f"{name}: 'Session' without 'Live' outside a QA note: {line.strip()}"
-            for spelling in re.findall(r"\blive session\b", line, re.IGNORECASE):
-                assert spelling == "Live Session", f"{name}: write 'Live Session', not {spelling!r}: {line.strip()}"
+            for spelling in re.findall(r"\blive sessions?\b", line, re.IGNORECASE):
+                assert spelling in ("Live Session", "Live Sessions"), (
+                    f"{name}: write 'Live Session', not {spelling!r}: {line.strip()}"
+                )
 
 
 if __name__ == "__main__":

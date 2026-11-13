@@ -65,7 +65,7 @@ Each Activity Log is append-only Markdown, one entry per thing done, newest last
 
 `--resume <run>` continues a run from its folder, after a usage limit, a closed laptop or a pause for merges.
 
-1. Read the config again (`check`, with the run's `answers.json` when there is one). A config that changed since the run started is said, and its new values apply from here. A changed `run_dir` does not move a run: when the run's folder is no longer inside it, `check --answers` refuses the run's answers. Stop, say so, and ask the human to move the run folder into the new `run_dir` or to put the old value back, then resume.
+1. Read the config again (`check`, with the run's `answers.json` when there is one). A config that changed since the run started is said, and its new values apply from here. A changed `run_dir` does not move a run: check that the folder the run is in is still inside the effective `run_dir`, and still ignored (`git check-ignore -q <that folder>/board.md`), whether or not the run has an `answers.json`. If it is not, stop, say so, and ask the human to move the run folder into the new `run_dir` or to put the old value back, then resume.
 2. Read the board and both kinds of Activity Log.
 3. Check each Delegation not `merged` or `dropped` against the source, not the board: its branch and head, its pull request and whether it is merged, CI on its head, and whether its Executor still answers its handle. A board written before an interruption can be out of date.
 4. Update the board to what was found, and log each change.

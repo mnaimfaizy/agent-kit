@@ -398,6 +398,11 @@ const YAML_PROBLEMS = [
   ],
   ["a list at the top", ["- run_dir: tmp/o"], /^line 1: the config must be a mapping, not a list/],
   [
+    "a `: ` inside an unquoted value",
+    ["routes:", "  commit: Conventional Commits: git commit"],
+    /^line 2: a `: ` inside an unquoted value is outside the YAML subset/,
+  ],
+  [
     "a list item that is only a comment",
     ["regate:", "  - # npm test (disabled)"],
     /^line 2: `regate\[0\]`: expected a command/,

@@ -114,7 +114,7 @@ For each Delegation in the wave, write its brief to its folder in the run, carry
 - **No sign of progress** for longer than the work explains: read the Delegation's Activity Log and its branch. If it is stuck, `message` it once with what you see. If it is still stuck at the next check, raise it to the human as a Decision Request.
 - **A crash:** keep its branch and worktree as they are: they are its handoff. Record what was done and what is left on the board, and raise it to the human with a recommendation (start a new Delegation from the branch, or stop).
 
-When a Delegation leaves the wave, start the next Delegation whose wait is over, within `limits.building`.
+When a Delegation leaves the wave, start the next Delegation whose wait is over, within `limits.building`, or one on a harness that runs sequentially.
 
 **Done when:** every Delegation is Ready to Merge, stopped with its analysis delivered, parked until a merge, or raised to the human.
 

@@ -194,6 +194,11 @@ function inlineValue(raw, problem) {
   }
   const value = text.replace(/\s+#.*$/, "").trim();
   plainProblems(value, problem);
+  // Real YAML refuses `key: a: b` ("mapping values are not allowed here").
+  if (/:(?:\s|$)/.test(value))
+    problem(
+      "a `: ` inside an unquoted value is outside the YAML subset CONFIG.md documents — quote the value",
+    );
   return value;
 }
 
