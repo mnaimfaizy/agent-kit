@@ -6,10 +6,11 @@
 
 After SKILL.md steps 1 and 2 (the run folder is named for the spec, [RUN.md](RUN.md#layout)), read the spec issue: its body, its comments, its labels, its sub-issues, and each sub-issue's own blocking edges. On GitHub, as read from GitHub's REST API on 2026-11-13. **Check before use:** the first run that relies on an endpoint records in its Activity Log what it returned, as [HARNESSES.md](HARNESSES.md#where-each-fact-comes-from) does for harness facts.
 
-- sub-issues: `gh api --paginate repos/<owner>/<repo>/issues/<n>/sub_issues`;
-- an issue's native blockers: `gh api --paginate repos/<owner>/<repo>/issues/<n>/dependencies/blocked_by`;
-- both are lists served a page at a time: without `--paginate`, a spec with more sub-issues than one page holds loses the rest silently.
+- sub-issues: `gh api --paginate --slurp repos/<owner>/<repo>/issues/<n>/sub_issues`;
+- an issue's native blockers: `gh api --paginate --slurp repos/<owner>/<repo>/issues/<n>/dependencies/blocked_by`;
 - a "Blocked by" section in an issue's body, listing issues by number, is a blocking edge too, read the same as a native one.
+
+Both endpoints serve a list a page at a time. Without `--paginate`, a spec with more sub-issues than one page holds loses the rest silently; without `--slurp`, each page prints as an array of its own, one after another, which is not one JSON document. With both, the output is one array of pages: read every page.
 
 A spec that is closed is a Decision Request before anything else: say what is there, and recommend stopping or going on.
 
@@ -27,12 +28,14 @@ Record the shape on the board.
 
 Each sub-issue is a ticket. Analyse each open ticket as SKILL.md step 3 analyses an issue: by its triage role, with its own scope fence. A closed ticket is done work: it is listed as done, not delegated, and a ticket it blocks is not held for it. A ticket that an open pull request already closes is a Decision Request, as in step 3. A ticket with sub-issues of its own is still one Delegation; say so in the plan, so the human can run it as a spec of its own instead.
 
-Waves follow the blocking edges between tickets: a ticket is in a later wave than every open ticket that blocks it, and the overlap and limit rules of step 4 still hold. Three edges are Decision Requests, raised in the plan, and the tickets they touch are not planned until each is answered:
+Waves follow the blocking edges between tickets: a ticket is in a later wave than every open ticket that blocks it, and the overlap and limit rules of step 4 still hold. Four cases are Decision Requests, raised in the plan, and the tickets they touch are not planned until each is answered:
 
 - a cycle (two tickets that block each other, directly or through others): name the tickets in it, and recommend which edge to drop;
 - an open blocker outside the spec: name it, and recommend parking the ticket until it is closed, or taking it out of the run;
 - an edge to an issue that cannot be read: name it;
 - a blocker that gets no building Delegation (it is analysed, `ready-for-human` or `wontfix`): it will never land or merge in this run, so name it, and recommend dropping the edge, settling the blocker first, or taking the blocked ticket out of the run.
+
+The same holds during the run: a Delegation dropped on the human's yes never lands or merges either. The Decision Request that proposes dropping it names each open Delegation it blocks, and asks for each whether to drop the edge or take it out of the run too, so none is left parked for good.
 
 ## Phases
 
@@ -73,8 +76,9 @@ The integration branch is named by `spec.integration_branch`, with `<n>` replace
 5. **Fast-forward it back, in plan order.** Take verified tickets one at a time in the plan's order (wave, then row), not in the order they finish. A `dropped` Delegation and an analysis Delegation have nothing to land, and are skipped in that order. One that is `waiting`, `stalled` or `crashed` holds up every ticket after it, so raise that as a Decision Request (wait for it, or land the tickets after it that do not need it, and plan it again later), never a silent wait. For each:
    - If its head does not descend from the integration branch's head (an earlier ticket landed after it was cut), `message` the Delegation to merge the integration branch into its own branch, resolving any conflict in a new commit, then report again; verify again. A rebase would rewrite commits the board has recorded.
    - Check that no worktree has the integration branch checked out (`git worktree list --porcelain` names no `branch refs/heads/<integration>`). If one does, it is a Decision Request: moving the branch under it would leave that working copy showing the landed ticket as changes undone.
-   - **Re-gate the integration branch** at the head it is about to have. A fast-forward makes the ticket's head the branch's new head, so run each `regate` command on the ticket's head, in a detached worktree the Chief of Staff removes afterwards. If one fails, the branch does not move: stop the landing and raise it as a Decision Request, with what failed and on which commit, recommending the ticket's Delegation fix it on its own branch, or a fix Delegation. A ticket that failed never enters the integration branch, so the branch is never moved back.
-   - Then move the integration branch to the ticket's head, only if it is still where it was read: `git update-ref refs/heads/<integration> <ticket head> <integration head>`. That refuses anything but the expected old value, and the descent check above makes it a fast-forward. The branch's new head is the commit just re-gated.
+   - **Pin the ticket's head.** Read it once (`git rev-parse <ticket branch>`), and use that commit, not the branch name, for the re-gate and the move below. Its Executor may still commit while the re-gate runs; a commit that arrives later lands in a later pass.
+   - **Re-gate the integration branch** at the head it is about to have. A fast-forward makes the ticket's head the branch's new head, so run each `regate` command on the pinned commit, in a detached worktree the Chief of Staff removes afterwards. If one fails, the branch does not move: stop the landing and raise it as a Decision Request, with what failed and on which commit, recommending the ticket's Delegation fix it on its own branch, or a fix Delegation. A ticket that failed never enters the integration branch, so the branch is never moved back.
+   - Then move the integration branch to the pinned commit, only if it is still where it was read: `git update-ref refs/heads/<integration> <pinned commit> <integration head>`. That refuses anything but the expected old value, and the descent check above makes it a fast-forward. The branch's new head is the commit just re-gated.
    - Mark the Delegation `landed` on the board, with the integration branch's new head, and log it.
 6. **Start the next wave from it.** A Delegation parked behind a blocker or an overlap starts once what it waits for has landed on the integration branch, cut from the head after it. No merge to the default branch is needed between waves.
 7. **One pull request at the end.** When every ticket has landed and the last re-gate passed, draft the pull request from the integration branch to the default branch, by `routes.pull_request`: its title, and a body that names each ticket or phase, closes each ticket, and lists each decision recorded in the run. Opening it pushes the branch, so it is a write as the human: raise the draft as a Decision Request, saying the branch becomes public, and push and open it only on a yes. That yes also covers pushing later fixes to that branch for that pull request.
