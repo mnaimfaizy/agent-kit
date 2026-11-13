@@ -147,15 +147,15 @@ EOF
 See [docs/cutting-releases.md](docs/cutting-releases.md). In short, two steps. First the release-prep pull request, from a clean working tree:
 
 ```bash
-bash scripts/prepare-release.sh --tag v1.0.0-beta.5   # branch, pins, CHANGELOG, notes template
+bash scripts/prepare-release.sh --tag v1.0.0-beta.6   # branch, pins, CHANGELOG, notes template
 ```
 
 Fill in `release-notes/<tag>.md`, commit, and open the pull request (or re-run with `--open-pr`). Once it is merged:
 
 ```bash
 git switch main && git pull --ff-only
-bash scripts/cut-release.sh --tag v1.0.0-beta.5                     # dry run
-bash scripts/cut-release.sh --tag v1.0.0-beta.5 --apply --publish   # tag and push
+bash scripts/cut-release.sh --tag v1.0.0-beta.6                     # dry run
+bash scripts/cut-release.sh --tag v1.0.0-beta.6 --apply --publish   # tag and push
 ```
 
 The tag push runs [publish-cli.yml](.github/workflows/publish-cli.yml), which creates the GitHub Release from `release-notes/<tag>.md` and then publishes the npm CLI after you approve the `npm` deployment. If a cut fails part-way, re-run the same command: it finishes the steps left or says what is left.
