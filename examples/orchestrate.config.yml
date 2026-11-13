@@ -1,0 +1,62 @@
+# orchestrate.config.yml: the repository's facts for the orchestrate skill.
+#
+# Template from Agent-kit's examples/. Copy it to your repository root as
+# orchestrate.config.yml and edit every value: the commands, paths, skills and
+# models below are placeholders for a repository with a Python backend and a
+# Node.js frontend. This file is yours (not Kit-owned) and survives upgrades.
+# Guide: docs/orchestrate.md. Every key and its default: the skill's CONFIG.md.
+#
+# Check it from the repository root before a run (the skill runs the same check
+# at the start of every run, and stops on any problem):
+#   node "<skill>/config.mjs" check
+#
+# The skill reads a YAML subset (CONFIG.md): no tabs, anchors or multi-line
+# values, and a flow list or mapping must open and close on one line. An
+# unknown key, a key with no value and a value of the wrong shape are problems,
+# named with their line. Every scalar is a string: `building: 3` and
+# `building: "3"` read the same. A route, command or skill name is free text:
+# each brief carries it as written.
+
+run_dir: tmp/orchestrate # where run folders (board, Activity Logs, briefs) live; keep it gitignored
+
+read_first: # documents every Delegation reads before it plans; each must exist; [] for none
+  - AGENTS.md
+  - CONTRIBUTING.md
+
+routes: # how a Delegation commits and opens its pull request, and how you merge
+  commit: "Conventional Commits, one logical change per commit: git commit" # convention, then command or skill
+  pull_request: "gh pr create --draft --fill; the body ends with Closes #<n>" # command or skill, and what the body carries
+  merge: "gh pr merge <n> --merge" # printed in the close-out, once per pull request, in order; never run
+
+regate: # commands that re-check a finished branch from a worktree at its head; [] leaves it to CI
+  - uv run pytest
+  - npm test
+
+skills: # Companion skills a brief names; each must be installed on the Executor's harness
+  implement: tdd # what a building Delegation implements with
+  triage: triage # what an analysis Delegation uses on an issue not ready for an agent
+  review: code-review # what a building Delegation reviews its own diff with before its final commit
+
+triage_labels: docs/agents/triage-labels.md # a document mapping the five triage roles to your labels, or a mapping (CONFIG.md)
+
+models: # model names the Executor's harness accepts, passed as written; leave one out for the harness default
+  analysis: claude-sonnet-5-5 # analysis Delegations, and the Chief of Staff's own analysis
+  build: claude-opus-5-5 # building Delegations
+  review: claude-opus-5-5 # a building brief's code-review phase, where the harness allows a model per phase
+
+limits: # how many building Delegations run at once, and what only one may hold
+  building: 2 # most building Delegations running at once; a whole number, 1 or more
+  shared: ["database migrations"] # resources one Delegation holds at a time; their holders never share a wave
+
+decisions: # where a human decision is recorded, so a reviewer of the pull request sees it
+  to: pull-request # pull-request (the Delegation's own PR body) | issue-comment (a write as you, approved first)
+  marker: "<!-- orchestrate-decision -->" # a line each record starts with, so a person or a tool can find it
+
+ready_to_merge: # what Ready to Merge needs beyond green CI and a clean merge
+  review: settled # settled (every comment fixed or answered) | approved (that, and an approving review)
+  qa: report # none | report (a QA Report from qa-plan and manual-qa exists for the head); the skill never schedules QA
+  qa_labels: [ui] # with qa: report, only issues with one of these labels need one; [] for every issue
+
+spec: # read only by `/orchestrate --spec <n>`
+  landing: ask # ask (the Dispatch Plan asks) | integration-branch | per-ticket
+  integration_branch: orchestrate/spec-<n> # integration branch name; <n> is the spec's number; kept local unless you say yes
