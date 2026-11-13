@@ -24,6 +24,7 @@ CLI = ROOT / "cli"
 PACKAGE = CLI / "package.json"
 PUBLISH = ROOT / ".github" / "workflows" / "publish-cli.yml"
 CUT = ROOT / "scripts" / "cut-release.sh"
+RELEASE_TOOL = ROOT / "scripts" / "release.py"
 SNAPSHOT = ROOT / "scripts" / "release-snapshot-manifest.txt"
 CHANGELOG = ROOT / "CHANGELOG.md"
 VERSION = re.compile(r"^\d+\.\d+\.\d+(?:-(?:alpha|beta|rc)\.\d+)?$")
@@ -122,18 +123,18 @@ def test_cut_release_refuses_a_tag_the_package_version_does_not_match() -> None:
         package.write_text('{"version": "1.0.0-alpha.13"}', encoding="utf-8")
         assert "does not match" in cli_version_mismatch("v1.0.0-alpha.13", repo)
         assert "uncommitted" in cli_version_mismatch("v1.0.0-alpha.12", repo)
-    text = CUT.read_text(encoding="utf-8")
-    assert "cli_version_mismatch(tag)" in text, "cut-release.sh must check the CLI version before tagging"
-    assert text.index("cli_version_mismatch(tag)") < text.index('git tag -a "$TAG"')
-    # Arguments reach the embedded Python through the environment only.
-    assert "<<'PY'" in text and 'tag = "$TAG"' not in text
+    # cut-release.sh runs `release.py cut`, which checks the CLI version before it tags.
+    assert 'scripts/release.py cut "$@"' in CUT.read_text(encoding="utf-8")
+    text = RELEASE_TOOL.read_text(encoding="utf-8")
+    assert "cli_version_mismatch(tag, Path.cwd())" in text, "the cut must check the CLI version before tagging"
+    assert text.index("cli_version_mismatch(tag, Path.cwd())") < text.index('git("tag", "-a", tag')
 
 
 def test_publish_workflow_uses_trusted_publishing() -> None:
     wf = publish_workflow()
     assert wf["on"] == {"push": {"tags": ["v*"]}}, "publish only on Release tags"
     assert wf["permissions"] == {}, "no default permissions"
-    (job,) = wf["jobs"].values()
+    job = wf["jobs"]["publish"]
     assert job["environment"] == "npm", "publish behind the protected npm environment"
     assert job["permissions"] == {"contents": "read", "id-token": "write"}
     runs = "\n".join(step.get("run", "") for step in job["steps"])

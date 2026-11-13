@@ -39,7 +39,7 @@ CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs three jobs on eve
 | `.github/workflows/*-reusable.yml`           | The product: reusable job bodies Consumers reference.                                                                     |
 | `.github/workflows/dogfood-*.yml`            | This repository as its own Caller (off by default).                                                                       |
 | `.github/workflows/ci.yml`, `links.yml`      | This repository's CI.                                                                                                     |
-| `.github/workflows/publish-cli.yml`          | Publishes `cli/` to npm on each Release tag.                                                                              |
+| `.github/workflows/publish-cli.yml`          | Creates the GitHub Release and publishes `cli/` to npm on each Release tag.                                               |
 | `.github/agent-*`, `.github/security-audit/` | Runtime files Consumers copy.                                                                                             |
 | `.github/CODEOWNERS`                         | Review owners for kit-critical paths.                                                                                     |
 | `.claude/skills/`                            | Portable skills Consumers copy; a skill may carry its own `*.test.mjs` suites, which CI runs.                             |
@@ -144,12 +144,18 @@ EOF
 
 ## Releasing
 
-See [docs/cutting-releases.md](docs/cutting-releases.md). In short, after the release-prep PR merges:
+See [docs/cutting-releases.md](docs/cutting-releases.md). In short, two steps. First the release-prep pull request, from a clean working tree:
 
 ```bash
-git switch main && git pull
-bash scripts/cut-release.sh --tag v1.0.0-beta.5                 # dry run
-bash scripts/cut-release.sh --tag v1.0.0-beta.5 --apply --publish --notes-file release-notes/v1.0.0-beta.5.md
+bash scripts/prepare-release.sh --tag v1.0.0-beta.5   # branch, pins, CHANGELOG, notes template
 ```
 
-`--publish` pushes the tag and creates the GitHub Release on it.
+Fill in `release-notes/<tag>.md`, commit, and open the pull request (or re-run with `--open-pr`). Once it is merged:
+
+```bash
+git switch main && git pull --ff-only
+bash scripts/cut-release.sh --tag v1.0.0-beta.5                     # dry run
+bash scripts/cut-release.sh --tag v1.0.0-beta.5 --apply --publish   # tag and push
+```
+
+The tag push runs [publish-cli.yml](.github/workflows/publish-cli.yml), which creates the GitHub Release from `release-notes/<tag>.md` and then publishes the npm CLI after you approve the `npm` deployment. If a cut fails part-way, re-run the same command: it finishes the steps left or says what is left.

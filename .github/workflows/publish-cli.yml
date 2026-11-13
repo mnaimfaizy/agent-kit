@@ -1,6 +1,15 @@
 name: Publish CLI
 
-# Publishes cli/ to npm as @mnaimfaizy/agent-kit when a Release tag is pushed.
+# On each pushed Release tag: creates the GitHub Release (job `release`), then
+# publishes cli/ to npm as @mnaimfaizy/agent-kit (job `publish`).
+#
+# The npm trusted publisher is bound to this file's name and the `npm`
+# environment, so both jobs live here: a separate workflow could not make the
+# publish wait for the Release. Each job holds only its own permissions:
+# `release` writes contents (to create the Release) and has no OIDC token;
+# `publish` reads contents and mints the OIDC token, behind the `npm`
+# environment.
+#
 # npm trusted publishing: the job's OIDC token is exchanged for a short-lived
 # publish credential, and --provenance links the package to this run. No npm
 # token is stored in the repository. The `npm` environment has a required
@@ -18,8 +27,68 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  release:
+    name: Create the GitHub Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # Full history, so the next step can see whether the tag is on main.
+          fetch-depth: 0
+      - name: Check the tagged commit is on main
+        run: |
+          # Releases are cut from main only (docs/cutting-releases.md).
+          git fetch --no-tags --quiet origin +refs/heads/main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main; then
+            echo "::error::The tagged commit is not on main; refusing to create a Release."
+            exit 1
+          fi
+      - name: Create the Release from release-notes/<tag>.md
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)\.[0-9]+)?$ ]]; then
+            echo "::error::$TAG is not a Release-line tag (vX.Y.Z or vX.Y.Z-<alpha|beta|rc>.N)."
+            exit 1
+          fi
+          # A re-run, or a Release made by hand, is left as it is. Only "not found" means
+          # there is none: any other error (rate limit, outage) stops here.
+          if view="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json url --jq .url 2>&1)"; then
+            echo "The GitHub Release $TAG exists already ($view); nothing to do."
+            exit 0
+          elif [[ "$view" != *"release not found"* ]]; then
+            echo "::error::Could not check for the Release $TAG: $view"
+            exit 1
+          fi
+          # --verify-tag: never create a tag, only a Release on the pushed one.
+          args=(--repo "$GITHUB_REPOSITORY" --verify-tag --title "$TAG")
+          case "$TAG" in
+            *-alpha.* | *-beta.* | *-rc.*) args+=(--prerelease) ;;
+          esac
+          notes="release-notes/$TAG.md"
+          if [ -f "$notes" ]; then
+            # The template's placeholder lines; cut-release.sh refuses them too.
+            if grep -q 'TODO(release-notes)' "$notes"; then
+              echo "::error::$notes still has TODO(release-notes) lines; fix the notes on main and cut the next tag."
+              exit 1
+            fi
+            args+=(--notes-file "$notes")
+          elif [[ "$TAG" == *-alpha.* ]]; then
+            args+=(--notes "Pre-release $TAG")
+          else
+            echo "::error::$notes is missing; beta, rc and stable Releases require notes."
+            exit 1
+          fi
+          gh release create "$TAG" "${args[@]}"
+
   publish:
     name: Publish to npm
+    needs: release
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: npm

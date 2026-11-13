@@ -70,4 +70,4 @@ Tags are never moved or deleted, even when broken. A fix ships as the next tag, 
 
 ## Cutting a release
 
-Maintainers cut tags from the default branch using `docs/cutting-releases.md` and `scripts/cut-release.sh`. The first public Pre-release on the `1.0.0` line was `v1.0.0-alpha.1`.
+Maintainers prepare a release on a branch with `scripts/prepare-release.sh` and cut the tag from the default branch with `scripts/cut-release.sh`, following `docs/cutting-releases.md`. The tag push creates the GitHub Release. The first public Pre-release on the `1.0.0` line was `v1.0.0-alpha.1`.

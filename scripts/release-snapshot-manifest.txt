@@ -59,7 +59,10 @@ examples/qa.config.yml
 examples/qa-hazards/sign-in.md
 examples/orchestrate.config.yml
 
+scripts/prepare-release.sh
 scripts/cut-release.sh
+scripts/release.py
+scripts/release-notes-template.md
 scripts/verify_release_snapshot.py
 scripts/release-snapshot-manifest.txt
 

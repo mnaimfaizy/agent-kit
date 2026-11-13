@@ -6,6 +6,10 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
+### Changed
+
+- Maintainer tooling: cutting a release is now two re-runnable steps. `scripts/prepare-release.sh --tag <tag>` writes the release-prep branch: it bumps every pin of the previous tag, moves `[Unreleased]` into a dated section, and writes `release-notes/<tag>.md` from a template, pushing nothing unless asked. `scripts/cut-release.sh` keeps its flags. Before it tags, it checks that `HEAD` is an up-to-date `main` with green CI and that git will tag with a `@users.noreply.github.com` address (GitHub refused the beta.5 tag push for a private tagger email, GH007). It reuses a valid unpushed tag from an earlier `--apply` instead of stopping, and never moves, deletes or re-pushes a tag on `origin`. The GitHub Release is now created by a new job in `publish-cli.yml` from `release-notes/<tag>.md` on the tag push, before the npm publish. No Consumer action: this changes only how the kit is released. See [docs/cutting-releases.md](docs/cutting-releases.md).
+
 ## [1.0.0-beta.5] - 2026-11-13
 
 Fifth beta on the `1.0.0` line, classed **Minor** (per [docs/releases.md](docs/releases.md)): two new Portable skills, `plain-prose` and `orchestrate`, with a guide and an example config for `orchestrate`. Everything below is additive: both skills are User-scope and user-invoked, add new Kit-owned paths, and change no existing skill, workflow input, secret or permission. No Consumer action is required beyond the usual upgrade of the `uses:` pins and Kit-owned paths together. **Not verified:** no live `/orchestrate` run on real issues was done for this release. The config reader's suite and the contract tests cover `orchestrate`; spec #169 itself was built by hand-run sessions, not by the skill.
