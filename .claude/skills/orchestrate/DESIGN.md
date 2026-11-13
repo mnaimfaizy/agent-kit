@@ -1,6 +1,6 @@
 # Orchestrate design
 
-Why the skill is shaped the way it is. The skill carries this file so its rules keep their reasons in any repository it is copied into. Load it when changing the skill, or when a rule in [SKILL.md](SKILL.md), [BRIEF.md](BRIEF.md), [RUN.md](RUN.md), [HARNESSES.md](HARNESSES.md) or [CONFIG.md](CONFIG.md) needs its reason.
+Why the skill is shaped the way it is. The skill carries this file so its rules keep their reasons in any repository it is copied into. Load it when changing the skill, or when a rule in [SKILL.md](SKILL.md), [SPEC.md](SPEC.md), [BRIEF.md](BRIEF.md), [RUN.md](RUN.md), [HARNESSES.md](HARNESSES.md) or [CONFIG.md](CONFIG.md) needs its reason.
 
 ## Glossary
 
@@ -88,6 +88,24 @@ Harnesses differ in how one agent starts another: some start sessions the human 
 
 The skill imports only Node built-ins, and Node ships no YAML parser, so `config.mjs` reads JSON whole and YAML in a small documented subset. Anything outside the subset, any unknown key, any key written with no value, and any wrong shape is a **problem**, named with its line in either dialect, never a silent default: a typo in a route would otherwise send every Delegation down the default one, and nothing would say so. A document the brief sends every Delegation to must be there, for the same reason. Missing values are asked for, not assumed, and the answers are kept in the run folder so a resumed run reads the same ones.
 
+## Spec mode is a file of its own
+
+Most runs are a set of issues, and an agent reads every line it loads. So spec mode lives in SPEC.md, loaded only for `--spec`, and a run on issues carries none of it.
+
+A spec arrives in one of three shapes, and each is planned from what is already written. Tickets under a spec, with their blocking edges, are a breakdown the human has published and reviewed, so the waves follow the edges and nothing is re-planned. Phases in a spec's body are a breakdown too, but only in prose: they run in the order written, because that order is the only dependency the author stated, and a phase's own text is its spec, because rewriting it into a brief would be a second spec to drift from the first. Publishing the phases as tickets makes the tracker show the breakdown the run uses, but it is a set of new issues in the human's name, so it is drafted and asked for. A spec with neither has no breakdown at all, and inventing one would be building on an unsettled design: so it gets a Decision Request and no Delegations.
+
+## Two landings
+
+A spec's tickets can land two ways, and neither is right for every repository, so the plan asks, or the config says which.
+
+**An integration branch** suits a spec whose parts only make sense together, or a repository that reviews a feature whole. Every ticket is built on the tickets before it without waiting for the human to merge, and the human reviews one pull request. Each ticket branch is cut from the integration branch so it is built on the work it lands into, and fast-forwarded back in plan order so the branch's history is the plan, and so a ticket that finished early never lands before the one it builds on. A fast-forward that is not one would mean rewriting a branch, so a ticket that no longer descends merges the integration branch first. The branch is re-gated at each fast-forward because two tickets that each pass can fail together, and finding that at the ticket that caused it is cheaper than finding it in the final pull request. The re-gate runs on the ticket's head before the branch moves: a fast-forward makes that commit the new head, so it is the same check, and a ticket that fails never enters the branch, so nothing has to be moved back, a resumed run can trust that every ticket in the branch passed, and a pushed branch never needs a force-push. The cost is that CI sees nothing until that pull request, so the re-gate commands are the only check on each ticket, and the review at the end is large.
+
+**One pull request per ticket** suits a repository that reviews in small pieces, or a spec whose tickets stand alone. Each ticket is reviewed and merged on its own, with CI on each. A later wave waits until its blockers are merged, for the same reason a blocked issue does: it is built on the code it will merge into. The cost is the human's time between waves, which is why the run parks and continues with `--resume` instead of keeping the Chief of Staff's session open.
+
+## The integration branch stays local
+
+An integration branch holds unreviewed work from several Delegations. Pushed, it is public to everyone who can read the repository until someone deletes it, and a deleted branch can still have been fetched. Executors in worktrees of the same repository share its branches without a push, so most runs never need one. An Executor that works from a clone does, and that is the human's choice to make, knowing what becomes public, not the Chief of Staff's: so it is a Decision Request that says so, and the yes covers that branch only. Opening the final pull request pushes the branch too, so it is asked for in the same way.
+
 ## Seams
 
-The config reader checks each top-level key with its own function in one table, `SECTIONS`. A mode that needs keys of its own adds its section there, and its own reference file beside SKILL.md, loaded only when that mode is invoked. An argument this version does not know stops the run before anything is read, so a newer invocation never runs on an older skill as if it were a set of issues.
+The config reader checks each top-level key with its own function in one table, `SECTIONS`. A mode that needs keys of its own adds its section there, and its own reference file beside SKILL.md, loaded only when that mode is invoked, as spec mode adds `spec` and SPEC.md. An argument this version does not know stops the run before anything is read, so a newer invocation never runs on an older skill as if it were a set of issues.

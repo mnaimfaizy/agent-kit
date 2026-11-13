@@ -55,6 +55,7 @@ const EXAMPLE = {
   limits: { building: "3", shared: ["database migrations", "port 5432"] },
   decisions: { to: "pull-request" },
   ready_to_merge: { review: "settled", qa: "report", qa_labels: ["ui"] },
+  spec: { landing: "integration-branch", integration_branch: "orchestrate/spec-<n>" },
 };
 
 // ── Lookup order ────────────────────────────────────────────────────────────
@@ -138,6 +139,7 @@ test("each key's default, with an empty config", () => {
     limits: { building: 3, shared: [] },
     decisions: { to: "pull-request", marker: null },
     ready_to_merge: { review: "settled", qa: "none", qa_labels: [] },
+    spec: { landing: "ask", integration_branch: "orchestrate/spec-<n>" },
   });
   assert.equal(DEFAULTS.run_dir, "tmp/orchestrate");
 });
@@ -225,6 +227,47 @@ test("a config with problems is never ready", () => {
     needs: ["a config with no problems: fix each one listed"],
     notes: [],
   });
+});
+
+test("the spec keys read the same in YAML and JSON, and either landing is a value", () => {
+  for (const landing of ["ask", "integration-branch", "per-ticket"]) {
+    const fromYaml = yaml("spec:", `  landing: ${landing}`, "  integration_branch: run/spec-<n>");
+    const fromJson = json(
+      JSON.stringify({ spec: { landing, integration_branch: "run/spec-<n>" } }, null, 2),
+    );
+    assert.deepEqual([fromYaml.problems, fromJson.problems], [[], []]);
+    assert.deepEqual(effectiveConfig(fromYaml.config).spec, {
+      landing,
+      integration_branch: "run/spec-<n>",
+    });
+    assert.deepEqual(effectiveConfig(fromJson.config).spec, effectiveConfig(fromYaml.config).spec);
+  }
+});
+
+test("an empty spec mapping takes each spec default, and a pattern may repeat `<n>`", () => {
+  assert.deepEqual(effectiveConfig(yaml("spec: {}").config).spec, {
+    landing: "ask",
+    integration_branch: "orchestrate/spec-<n>",
+  });
+  assert.deepEqual(
+    [DEFAULTS.landing, DEFAULTS.integration_branch],
+    ["ask", "orchestrate/spec-<n>"],
+  );
+  assert.deepEqual(yaml("spec: { integration_branch: spec-<n>/integration-<n> }").problems, []);
+});
+
+test("the spec keys add nothing the readiness check asks for", () => {
+  const read = readConfig(
+    reader({
+      "orchestrate.config.yml": [
+        "read_first: []",
+        "routes: { commit: git commit, pull_request: gh pr create }",
+        "regate: []",
+      ].join("\n"),
+    }),
+  );
+  assert.equal(readiness(read).ready, true);
+  assert.ok(!readiness(read).notes.some((note) => note.includes("spec")));
 });
 
 // ── Problems, YAML ──────────────────────────────────────────────────────────
@@ -470,6 +513,46 @@ const YAML_PROBLEMS = [
     ["routes: { __proto__: x, commit: y }"],
     /^line 1: `routes\.__proto__`: unknown key/,
   ],
+  ["spec not a mapping", ["spec: per-ticket"], /^line 1: `spec`: expected a mapping/],
+  [
+    "an unknown landing",
+    ["spec:", "  landing: squash"],
+    /^line 2: `spec\.landing`: expected one of: ask, integration-branch, per-ticket/,
+  ],
+  ["a landing with no value", ["spec:", "  landing:"], /^line 2: `spec\.landing`: no value/],
+  [
+    "an unknown spec key",
+    ["spec:", "  base: main"],
+    /^line 2: `spec\.base`: unknown key \(CONFIG\.md documents: landing, integration_branch\)/,
+  ],
+  [
+    "an integration branch with no `<n>`",
+    ["spec:", "  integration_branch: orchestrate/spec"],
+    /^line 2: `spec\.integration_branch`: expected `<n>` in it/,
+  ],
+  [
+    "an integration branch with another placeholder",
+    ["spec: { integration_branch: spec/<spec>-<n> }"],
+    /^line 1: `spec\.integration_branch`: `<n>` is the only placeholder/,
+  ],
+  ...[
+    "spec <n>",
+    "-spec-<n>",
+    "spec/<n>.lock",
+    "spec//<n>",
+    "spec/.<n>",
+    "spec..<n>",
+    "spec/<n>/",
+    "spec/<n>.",
+    "spec@{<n>",
+    "spec~<n>",
+    "spec:<n>",
+    "'spec\\<n>'",
+  ].map((branch) => [
+    `the integration branch ${branch}`,
+    ["spec:", `  integration_branch: ${branch}`],
+    /^line 2: `spec\.integration_branch`: expected a valid git branch name/,
+  ]),
 ];
 
 for (const [name, lines, expected] of YAML_PROBLEMS)
@@ -503,7 +586,7 @@ test("JSON: each problem is named with its line, like YAML's", () => {
     "}",
   ].join("\n");
   assert.deepEqual(json(text).problems, [
-    "line 3: `routs`: unknown key (CONFIG.md documents: run_dir, read_first, routes, regate, skills, triage_labels, models, limits, decisions, ready_to_merge)",
+    "line 3: `routs`: unknown key (CONFIG.md documents: run_dir, read_first, routes, regate, skills, triage_labels, models, limits, decisions, ready_to_merge, spec)",
     "line 10: `read_first[1]`: expected a relative path inside the repository",
     "line 6: `routes.push`: unknown key (CONFIG.md documents: commit, pull_request, merge)",
     "line 5: `routes.commit`: expected a non-empty string",
@@ -520,6 +603,32 @@ test("JSON: each problem is named with its line, like YAML's", () => {
  * problem it must raise at the line that key path starts on.
  */
 const JSON_PROBLEMS = [
+  ["spec not a mapping", { spec: "per-ticket" }, "spec", /expected a mapping/],
+  [
+    "an unknown landing",
+    { spec: { landing: "squash" } },
+    "spec.landing",
+    /expected one of: ask, integration-branch, per-ticket/,
+  ],
+  [
+    "an integration branch with no `<n>`",
+    { spec: { integration_branch: "orchestrate/spec" } },
+    "spec.integration_branch",
+    /expected `<n>` in it/,
+  ],
+  [
+    "an integration branch that is not a valid branch name",
+    { spec: { integration_branch: "spec <n>" } },
+    "spec.integration_branch",
+    /expected a valid git branch name/,
+  ],
+  [
+    "an integration branch that is not a string",
+    { spec: { integration_branch: 3 } },
+    "spec.integration_branch",
+    /expected a branch name pattern/,
+  ],
+  ["an unknown spec key", { spec: { base: "main" } }, "spec.base", /unknown key/],
   ["an unknown top-level key", { routs: {} }, "routs", /unknown key/],
   ["an unknown nested key", { routes: { push: "y" } }, "routes.push", /unknown key/],
   ["a key with no value", { regate: null }, "regate", /no value/],

@@ -1,19 +1,19 @@
 ---
 name: orchestrate
-description: Run a set of issues through other sessions as their Chief of Staff — analyse them, propose one Dispatch Plan, hand each Delegation to an Executor, relay every Decision Request, verify each report, and close out with the Ready to Merge list and a merge order. Invoked by the user.
+description: Run a set of issues, or a whole spec, through other sessions as their Chief of Staff — analyse them, propose one Dispatch Plan, hand each Delegation to an Executor, relay every Decision Request, verify each report, and close out with the Ready to Merge list and a merge order. Invoked by the user.
 disable-model-invocation: true
-argument-hint: "#<n> [#<n>…] [go] | --status [<run>] | --resume <run>"
+argument-hint: "#<n> [#<n>…] [go] | --spec <n> [go] | --status [<run>] | --resume <run>"
 metadata:
   agent-kit-scope: user
 ---
 
 # Orchestrate
 
-A user-invoked skill. Running it makes this session the **Chief of Staff** for a set of issues. The Chief of Staff analyses each issue, shows one **Dispatch Plan**, and after the human's "go" hands each piece of work, a **Delegation**, to an **Executor**: a separate Live Session, a headless run, or a sub-agent in this session. It relays every **Decision Request** to the human, keeps the board, checks every report against git, the tracker and CI, and ends with the **Ready to Merge** list and a merge order.
+A user-invoked skill. Running it makes this session the **Chief of Staff** for a set of issues, or for a spec and the work under it. The Chief of Staff analyses each issue, shows one **Dispatch Plan**, and after the human's "go" hands each piece of work, a **Delegation**, to an **Executor**: a separate Live Session, a headless run, or a sub-agent in this session. It relays every **Decision Request** to the human, keeps the board, checks every report against git, the tracker and CI, and ends with the **Ready to Merge** list and a merge order.
 
 The Chief of Staff plans, delegates, relays and verifies. It never builds a Delegation's work itself, and it never merges.
 
-Load [CONFIG.md](CONFIG.md) when reading or asking for the config. Load [BRIEF.md](BRIEF.md) before writing a brief or reading a report. Load [RUN.md](RUN.md) before opening, updating or resuming a run folder. Load [HARNESSES.md](HARNESSES.md) before the first `spawn`, `message`, `await` or `report` on this harness. Load [DESIGN.md](DESIGN.md) when a rule needs its reason, or before changing this skill.
+Load [CONFIG.md](CONFIG.md) when reading or asking for the config. Load [BRIEF.md](BRIEF.md) before writing a brief or reading a report. Load [RUN.md](RUN.md) before opening, updating or resuming a run folder. Load [HARNESSES.md](HARNESSES.md) before the first `spawn`, `message`, `await` or `report` on this harness. Load [SPEC.md](SPEC.md) for `--spec`, or on `--resume` of a spec run ([RUN.md](RUN.md#resume)), and only then. Load [DESIGN.md](DESIGN.md) when a rule needs its reason, or before changing this skill.
 
 `<skill>` in a command below is the absolute path of the folder this file is in, written with forward slashes (`C:/Users/me/...` on Windows), inside double quotes because it may contain spaces. Every command runs from the root of the repository the issues belong to.
 
@@ -21,10 +21,11 @@ Load [CONFIG.md](CONFIG.md) when reading or asking for the config. Load [BRIEF.m
 
 - `/orchestrate #12 #34`: a run for these issues. The Dispatch Plan waits for "go".
 - `/orchestrate #12 #34 go`: the same, and the run starts straight after the Dispatch Plan is shown, unless analysis raised a Decision Request.
+- `/orchestrate --spec 50 [go]`: a run for the spec `#50` and the work it holds, in dependency order. Load [SPEC.md](SPEC.md) before step 3: it says how the spec becomes Delegations and how the work lands.
 - `/orchestrate --status [<run>]`: print the board of the run named, or of the latest run, and act on nothing.
 - `/orchestrate --resume <run>`: continue a run from its board ([RUN.md](RUN.md#resume)).
 
-Any other argument this version does not know (`--spec` among them) stops the run before anything is read: say that this version runs a set of issues only.
+`--spec` takes exactly one issue number and nothing else but `go`. Any other argument this version does not know, or a mix of the forms above, stops the run before anything is read: say which invocations this version knows.
 
 ## Rules
 
@@ -116,7 +117,7 @@ For each Delegation in the wave, write its brief to its folder in the run, carry
 
 When a Delegation leaves the wave, start the next Delegation whose wait is over, within `limits.building`, or one on a harness that runs sequentially.
 
-**Done when:** every Delegation is Ready to Merge, stopped with its analysis delivered, parked until a merge, or raised to the human.
+**Done when:** every Delegation is Ready to Merge, stopped with its analysis delivered, parked until a merge, landed on a spec run's integration branch ([SPEC.md](SPEC.md#on-an-integration-branch)), or raised to the human.
 
 ### 7. Verify each report
 
