@@ -157,7 +157,7 @@ The session that runs `orchestrate`: it analyses the work, proposes the Dispatch
 _Avoid_: orchestrator, coordinator, lead agent
 
 **Delegation**:
-One piece of a run, an issue to build or an issue to analyse, handed to one Executor with one brief.
+One piece of a run, an issue to build, an issue to analyse, or a pull request head to QA, handed to one Executor with one brief.
 _Avoid_: task, job, ticket (for the piece handed out)
 
 **Executor**:
@@ -189,5 +189,5 @@ The account of a finished run, offered after the human merges, for the issue tha
 _Avoid_: wrap-up, final report
 
 **Ready to Merge**:
-A Delegation whose CI is green, whose review is settled, whose QA requirement is met and whose branch merges cleanly; the only Delegations the closing list names.
+A Delegation whose CI is green, whose review is settled, whose QA requirement is met on its current head and whose branch merges cleanly; the only Delegations the closing list names.
 _Avoid_: done, mergeable, green
