@@ -44,9 +44,10 @@ models: # model names the Executor's harness accepts, passed as written; leave o
   analysis: claude-sonnet-5-5 # analysis Delegations, and the Chief of Staff's own analysis
   build: claude-opus-5-5 # building Delegations
   review: claude-opus-5-5 # a building brief's code-review phase, where the harness allows a model per phase
+  qa: claude-sonnet-5-5 # QA Delegations: composing and running a QA Plan on a finished head
 
 limits: # how many building Delegations run at once, and what only one may hold
-  building: 2 # most building Delegations running at once; a whole number, 1 or more
+  building: 2 # most building Delegations running at once; a whole number, 1 or more; QA does not count
   shared: ["database migrations"] # resources one Delegation holds at a time; their holders never share a wave
 
 decisions: # where a human decision is recorded, so a reviewer of the pull request sees it
@@ -55,7 +56,7 @@ decisions: # where a human decision is recorded, so a reviewer of the pull reque
 
 ready_to_merge: # what Ready to Merge needs beyond green CI and a clean merge
   review: settled # settled (every comment fixed or answered) | approved (that, and an approving review)
-  qa: report # none | report (a QA Report from qa-plan and manual-qa exists for the head); the skill never schedules QA
+  qa: report # none | report (a QA Delegation runs qa-plan and manual-qa on each finished head; Ready to Merge needs its result)
   qa_labels: [ui] # with qa: report, only issues with one of these labels need one; [] for every issue
 
 spec: # read only by `/orchestrate --spec <n>`

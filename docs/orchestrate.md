@@ -4,7 +4,7 @@ This guide covers `orchestrate`, a Portable skill that runs a set of issues, or 
 
 The skill's own files are the reference; this page is the walkthrough:
 
-- [`SKILL.md`](../.claude/skills/orchestrate/SKILL.md): the invocations, the rules and the nine workflow steps.
+- [`SKILL.md`](../.claude/skills/orchestrate/SKILL.md): the invocations, the rules and the ten workflow steps.
 - [`SPEC.md`](../.claude/skills/orchestrate/SPEC.md): spec mode and the two landings.
 - [`BRIEF.md`](../.claude/skills/orchestrate/BRIEF.md): the Brief Contract, the Decision Request form and the report form.
 - [`RUN.md`](../.claude/skills/orchestrate/RUN.md): the run folder, the board, the states, `--resume` and `--status`.
@@ -23,12 +23,14 @@ It does:
 - relay every question to you whole. A Delegation may push its own branch, open its own pull request and reply on its own review; every other write in your name (an issue comment, a new issue, a label, closing an issue) comes to you as a draft for your yes, unless you approved that kind of routine write in the Dispatch Plan;
 - tell you only what it has checked: a report is a claim, and each line is checked against the branch, the pull request, CI and the config's re-gate commands;
 - nudge a stalled Delegation once, then raise it to you; keep a crashed Delegation's branch and worktree as its handoff;
-- find conflicts between finished branches with `git merge-tree` before it gives you a merge order.
+- find conflicts between finished branches with `git merge-tree` before it gives you a merge order;
+- where the config requires QA, hand each finished head to a **QA Delegation** of its own, which runs the [`qa-plan` and `manual-qa`](qa.md) skills on that head, and treat the result as part of Ready to Merge. A push after QA, a review fix included, voids the result, and the new head is QA'd again;
+- hold every change on a branch to its scope fence, fixes a reviewer, CI or an automated fixer prompts included: a change outside it is a Decision Request first, and step 7 checks the diff against the fence.
 
 It does not:
 
 - **merge.** The close-out prints the merge order, and the merge command for each pull request when the config names one. It never runs it. You merge.
-- **schedule QA.** Where the config requires a QA Report, the skill checks that one exists for the pull request's head. Writing it is the work of the [`qa-plan` and `manual-qa`](qa.md) skills, run by a person; the skill never starts or schedules them.
+- **invoke the QA skills itself.** `qa-plan` and `manual-qa` are invoked only by a person. A QA Delegation's session is sent each one as a message where the harness runs that as your invocation, and otherwise you type it there; the Dispatch Plan says which up front. Delivering a QA Plan is always a question for you, with the draft; posting the QA Report is a routine write you may approve for the run.
 - **use the kit's pipeline as an Executor.** The label-driven [plan, implement and review](plan-implement-review.md) flow runs in CI, where the Chief of Staff cannot message it or read its log while it works. The Executors are a Live Session, a headless run and a sub-agent.
 - **build.** The Chief of Staff plans, delegates, relays and verifies. It never builds a Delegation's work itself, not even on a harness that cannot start another agent.
 - force-push, change repository settings, or destroy a branch, worktree or checkpoint without your yes, one action at a time. The only exception is the detached worktrees it makes for its own checks, which it removes when each check ends.
@@ -74,11 +76,25 @@ Any other argument, or a mix of these forms, stops the run before anything is re
 4. **Show the Dispatch Plan** and wait for your "go" ([below](#the-dispatch-plan)).
 5. **Dispatch a wave.** It writes each Delegation's brief to the run folder and starts its Executor.
 6. **Run the loop.** It waits for events: it relays Decision Requests and drafted writes, verifies reports, nudges a stalled Delegation once, and starts the next Delegation when a place in the wave frees up.
-7. **Verify each report** against git (branch, head, pushed), the tracker (the pull request targets the default branch and closes the issue), CI (every check on that head passed), the re-gate commands (run in a detached worktree of the branch, never the Delegation's own), review (every comment fixed or answered) and QA (a QA Report exists, where the config requires one). A claim that does not hold goes back to the Delegation.
-8. **Find conflicts** between finished branches, and between each and the default branch. A pair that conflicts gets a proposed order as a Decision Request: one merges first, and the other's Delegation merges the default branch into its branch afterwards. Never a rebase, which would need a force-push.
-9. **Close out.** It prints the Ready to Merge list, the merge order, the merge commands when the config names one, and what is not on the list and why. After you say you have merged, it offers a **Run Summary** on the umbrella issue the run's issues share, if they share one, posted only on your yes, and offers to resume the run if Delegations are parked behind the merges.
+7. **Verify each report** against git (branch, head, pushed), the tracker (the pull request targets the default branch and closes the issue), CI (every check on that head passed), the re-gate commands (run in a detached worktree of the branch, never the Delegation's own), review (every comment fixed or answered) and the scope fence (every path the branch changes is inside it, or was asked about). A claim that does not hold goes back to the Delegation.
+8. **Find conflicts** between finished branches, and between each and the default branch. A pair that conflicts gets a proposed order as a Decision Request: one merges first, and the other's Delegation merges the default branch into its branch afterwards. Never a rebase, which would need a force-push. The merge commit is a new head, so that branch is verified again.
+9. **QA each finished head**, where the config requires it ([below](#qa)).
+10. **Close out.** It prints the Ready to Merge list, the merge order, the merge commands when the config names one, and what is not on the list and why. After you say you have merged, it offers a **Run Summary** on the umbrella issue the run's issues share, if they share one, posted only on your yes, and offers to resume the run if Delegations are parked behind the merges.
 
-A Delegation is Ready to Merge only when every check on its head has passed, its review is settled, its QA requirement is met and its branch merges cleanly.
+A Delegation is Ready to Merge only when every check on its head has passed, its review is settled, its QA requirement is met on its current head and its branch merges cleanly.
+
+## QA
+
+With `ready_to_merge.qa: report` (for every issue, or only those carrying one of `qa_labels`), each building Delegation gets a QA Delegation, `d<issue>-qa`, listed in the Dispatch Plan with its Executor and model (`models.qa`). It starts only when its building Delegation is verified: CI green, review settled, and a clean merge in the proposed order. It tests that one head:
+
+1. It detaches its own working copy at that head, and stops if the pull request's head is anything else.
+2. It composes a QA Plan with `qa-plan`, which is sent to its session as a message once the head is pinned, or typed there by you if the session cannot run it. The draft comes to you as a Decision Request, with its scenarios and where it would be delivered, and is delivered only on your yes. If you are in the QA session and answer `qa-plan` there, that is your answer.
+3. It runs the plan with `manual-qa`. A QA Delegation against a local QA Stack holds it, so two never run at once, whatever `limits.shared` says. A building Delegation whose tests use the same ports needs those ports named in `limits.shared`.
+4. It copies the QA Plan and QA Report into the run folder, and posts the report only if you approved that kind of write in the plan.
+
+The Chief of Staff checks the plan's Head and the report's rows against the pull request. If every scenario passed, the building Delegation is Ready to Merge. Scenarios _left for a person_ come to you in one Decision Request, to run or waive. A FAIL comes to you with its evidence and three options: send it back (recommended), run QA again, or accept it. A push to the branch at any point voids the QA (`void` on the board), and the new head gets a new QA Delegation, `d<issue>-qa2`, under the same "go".
+
+When a `qa.config.yml` (or `.yaml`, `.json`) is at the repository root and the config never sets `ready_to_merge.qa`, `config.mjs check` asks for it. With `qa: none` set, it only notes that the run plans no QA.
 
 ## The Dispatch Plan
 
@@ -87,7 +103,7 @@ Before any Delegation starts, the skill shows one table, one row per Delegation:
 | Column           | What it says                                                                                                                                                                                                                         |
 | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Issue            | The issue, or for a spec written as phases, the phase.                                                                                                                                                                               |
-| Kind             | Building or analysis.                                                                                                                                                                                                                |
+| Kind             | Building, analysis or QA.                                                                                                                                                                                                            |
 | Executor         | A Live Session, a headless run, a sub-agent, or a session you start by hand, chosen from what the harness offers.                                                                                                                    |
 | Model            | From the config's `models`, or the harness's default.                                                                                                                                                                                |
 | Wave             | When it starts. No two Delegations in a wave overlap, a blocked issue is in a later wave than its blocker, and no wave holds more building Delegations than `limits.building`, or more than one on a harness that runs sequentially. |
@@ -142,8 +158,8 @@ A run keeps its state in a folder of its own inside the config's `run_dir` (defa
 ```
 
 - **`<run>`** is the date and the issue numbers, `2026-11-13-12-34`, or the date and the spec, `2026-11-13-spec-50`, with `.2`, `.3` added for a second run with the same name.
-- **A Delegation's `<id>`** is `d<issue>`, such as `d12`. A phase of a spec with no tickets is `d<spec>-p<k>`, and a fix on an integration branch is `d<spec>-fix<k>`.
-- **The board** has one row per Delegation: its issue, kind, Executor, the handle that reaches it, model, wave, branch, pull request, state and open Decision Requests. Its states run from `planned` through `running`, `waiting`, `reported` and `ready to merge` to `merged`, with `parked`, `sent back`, `stalled`, `crashed`, `analysed`, `landed` and `dropped` for the other ends ([RUN.md](../.claude/skills/orchestrate/RUN.md#states)).
+- **A Delegation's `<id>`** is `d<issue>`, such as `d12`. A phase of a spec with no tickets is `d<spec>-p<k>`, a fix on an integration branch is `d<spec>-fix<k>`, and a QA Delegation is `d<issue>-qa`, then `-qa2`, `-qa3`.
+- **The board** has one row per Delegation: its issue, kind, Executor, the handle that reaches it, model, wave, branch, pull request, state and open Decision Requests. Its states run from `planned` through `running`, `waiting`, `reported`, `verified` and `ready to merge` to `merged`, with `parked`, `sent back`, `stalled`, `crashed`, `analysed`, `landed` and `dropped` for the other ends, and `passed`, `failed` and `void` for a QA Delegation ([RUN.md](../.claude/skills/orchestrate/RUN.md#states)).
 - **Each Activity Log** is append-only: the time, what was done, and why. It is never rewritten.
 - **A Delegation works in its own worktree or clone**, and writes its report and Decision Requests by absolute path into the Chief of Staff's run folder. An Executor in a clone that cannot reach the run folder ends its turn with its report or Decision Request as its last message, and the Chief of Staff writes it into the folder.
 
@@ -174,19 +190,19 @@ On an integration branch, the Chief of Staff cuts the branch from the default br
 
 The repository's facts live in one file at its root: `orchestrate.config.yml`, `orchestrate.config.yaml` or `orchestrate.config.json`, the first one present. The skill names no repository command, skill, label or path; each comes from here. Start from [`examples/orchestrate.config.yml`](../examples/orchestrate.config.yml), which shows every key with a comment; every default and meaning is in [`CONFIG.md`](../.claude/skills/orchestrate/CONFIG.md).
 
-| Key              | What it names                                                                                                                              |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `run_dir`        | Where run folders live (default `tmp/orchestrate`). Keep it gitignored.                                                                    |
-| `read_first`     | The documents every Delegation reads before it plans. Each must be in the repository; `[]` for none. Asked for when unset.                 |
-| `routes`         | `commit` and `pull_request`: how a Delegation commits and opens its pull request, both asked for when unset. `merge`: printed, never run.  |
-| `regate`         | The commands that re-check a finished branch. Asked for when unset; `[]` leaves it to CI.                                                  |
-| `skills`         | The Companion skills a brief names: `implement`, `triage`, `review`.                                                                       |
-| `triage_labels`  | Your labels for the five triage roles: the path of a document that maps them, or a mapping. Unset, each label is the role's name.          |
-| `models`         | The model for `analysis`, `build` and `review` work. Unset, the harness's default.                                                         |
-| `limits`         | `building`: the most building Delegations at once (default 3). `shared`: resources one Delegation holds at a time.                         |
-| `decisions`      | `to`: `pull-request` (default) or `issue-comment`. `marker`: a line each record starts with.                                               |
-| `ready_to_merge` | `review`: `settled` (default) or `approved`. `qa`: `none` (default) or `report`. `qa_labels`: with `qa: report`, the labels that need one. |
-| `spec`           | `landing`: `ask` (default), `integration-branch` or `per-ticket`. `integration_branch`: the branch name, default `orchestrate/spec-<n>`.   |
+| Key              | What it names                                                                                                                                                         |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `run_dir`        | Where run folders live (default `tmp/orchestrate`). Keep it gitignored.                                                                                               |
+| `read_first`     | The documents every Delegation reads before it plans. Each must be in the repository; `[]` for none. Asked for when unset.                                            |
+| `routes`         | `commit` and `pull_request`: how a Delegation commits and opens its pull request, both asked for when unset. `merge`: printed, never run.                             |
+| `regate`         | The commands that re-check a finished branch. Asked for when unset; `[]` leaves it to CI.                                                                             |
+| `skills`         | The Companion skills a brief names: `implement`, `triage`, `review`.                                                                                                  |
+| `triage_labels`  | Your labels for the five triage roles: the path of a document that maps them, or a mapping. Unset, each label is the role's name.                                     |
+| `models`         | The model for `analysis`, `build`, `review` and `qa` work. Unset, the harness's default.                                                                              |
+| `limits`         | `building`: the most building Delegations at once (default 3; QA does not count). `shared`: resources one Delegation holds at a time.                                 |
+| `decisions`      | `to`: `pull-request` (default) or `issue-comment`. `marker`: a line each record starts with.                                                                          |
+| `ready_to_merge` | `review`: `settled` (default) or `approved`. `qa`: `none` (default) or `report` (a QA Delegation per head). `qa_labels`: with `qa: report`, the labels that need one. |
+| `spec`           | `landing`: `ask` (default), `integration-branch` or `per-ticket`. `integration_branch`: the branch name, default `orchestrate/spec-<n>`.                              |
 
 A route, command or skill name is free text: the brief carries it as written, so a route can be a command, a skill to use, or a sentence of convention.
 
@@ -200,4 +216,4 @@ node "<skill>/config.mjs" check
 
 It prints JSON: the config's path, its problems, the effective values with every default applied, and its readiness: what the run still **needs** and **notes** it will say. It exits 0 when the config has no problems, 1 when it has any, and 2 when the command or the answers file is wrong (bad usage, or an answers file that is missing, unreadable or outside `run_dir`). `--repo <dir>` checks another repository.
 
-**With no config**, the skill asks in one message for what a run needs (`read_first`, `routes.commit`, `routes.pull_request` and `regate`), writes your answers to `answers.json` in the run folder, and checks them with `check --answers <path>`. It offers to write them into a config file, and writes one only on your yes.
+**With no config**, the skill asks in one message for what a run needs (`read_first`, `routes.commit`, `routes.pull_request` and `regate`), plus `ready_to_merge.qa` when a QA config is present and nothing sets it, writes your answers to `answers.json` in the run folder, and checks them with `check --answers <path>`. It offers to write them into a config file, and writes one only on your yes.
