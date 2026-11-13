@@ -6,6 +6,10 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
+## [1.0.0-beta.5] - 2026-11-13
+
+Fifth beta on the `1.0.0` line, classed **Minor** (per [docs/releases.md](docs/releases.md)): two new Portable skills, `plain-prose` and `orchestrate`, with a guide and an example config for `orchestrate`. Everything below is additive: both skills are User-scope and user-invoked, add new Kit-owned paths, and change no existing skill, workflow input, secret or permission. No Consumer action is required beyond the usual upgrade of the `uses:` pins and Kit-owned paths together. **Not verified:** no live `/orchestrate` run on real issues was done for this release. The config reader's suite and the contract tests cover `orchestrate`; spec #169 itself was built by hand-run sessions, not by the skill.
+
 ### Added
 
 - A new Portable skill, `plain-prose`, edits text a person will read (a pull request body, a README, an ADR, release notes) into plain, specific sentences. It is User-scope and user-invoked: run `/plain-prose` on a file or pasted text. It rewords and deletes, and adds no fact: where a sentence needs a figure, a source or a definition the text lacks, it flags the sentence for the author. It leaves code, quotes, glossary terms, template headings and agent-read files (`AGENTS.md`, `CLAUDE.md`, skill files) untouched. `.claude/skills/plain-prose/` is a new Kit-owned path, so a Consumer gets it on the next `agent-kit upgrade`.
