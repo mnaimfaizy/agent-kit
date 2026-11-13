@@ -6,6 +6,10 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
+### Added
+
+- A new Portable skill, `plain-prose`, edits text a person will read (a pull request body, a README, an ADR, release notes) into plain, specific sentences. It is User-scope and user-invoked: run `/plain-prose` on a file or pasted text. It rewords and deletes, and adds no fact: where a sentence needs a figure, a source or a definition the text lacks, it flags the sentence for the author. It leaves code, quotes, glossary terms, template headings and agent-read files (`AGENTS.md`, `CLAUDE.md`, skill files) untouched. `.claude/skills/plain-prose/` is a new Kit-owned path, so a Consumer gets it on the next `agent-kit upgrade`.
+
 ## [1.0.0-beta.4] - 2026-11-12
 
 Fourth beta on the `1.0.0` line, classed **Minor** (per [docs/releases.md](docs/releases.md)): QA Plans gain Scenario accounts and multi-person Sessions, and `explainer` gains a system stage and scene stepper page shape and reports brief claims that source or a platform rule contradicts. Everything below is additive. `explainer`'s new `STAGE.md` is read only for the new stage and stepper shapes, so static pages and existing installs keep working. `adapter.mjs render --write` now exits 3 over a commented YAML config instead of dropping its comments, a skill-internal script change that the skills handle by asking first. The plan format stays `format=1`. No workflow input, secret or permission changed, and no Consumer action is required beyond the usual upgrade of the `uses:` pins and Kit-owned paths together.

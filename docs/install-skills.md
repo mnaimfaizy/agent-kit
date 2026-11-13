@@ -17,6 +17,7 @@ Each skill declares where it works, in its `SKILL.md` frontmatter (`metadata.age
 | [`explainer`](../.claude/skills/explainer/SKILL.md)                             | `user`            | Nothing; per-repository settings are optional.                                                                                   |
 | [`instruction-drift-audit`](../.claude/skills/instruction-drift-audit/SKILL.md) | `user`            | Node 22 or later. Its optional CI gate and hook need it installed in the repository too.                                         |
 | [`manual-qa`](../.claude/skills/manual-qa/SKILL.md)                             | `user`            | Node 22 or later, a QA Plan, and the repository's QA Stack commands or a hosted test URL; a tool that drives the plan's surface. |
+| [`plain-prose`](../.claude/skills/plain-prose/SKILL.md)                         | `user`            | Nothing; it reads the repository's glossary when one exists.                                                                     |
 | [`qa-plan`](../.claude/skills/qa-plan/SKILL.md)                                 | `user`            | Node 22 or later, `git`, and an open pull request; `gh` to read it and to deliver beyond the working copy.                       |
 | [`security-audit`](../.claude/skills/security-audit/SKILL.md)                   | `repo`            | A Threat pack (threat model and findings ledger) in the repository. Without one it stops before any work.                        |
 | [`security-finding-triage`](../.claude/skills/security-finding-triage/SKILL.md) | `user`            | Nothing.                                                                                                                         |
@@ -62,6 +63,12 @@ npx skills add mnaimfaizy/agent-kit#<tag> --skill qa-plan -g
 
 ```bash
 npx skills add mnaimfaizy/agent-kit#<tag> --skill manual-qa -g
+```
+
+`plain-prose`:
+
+```bash
+npx skills add mnaimfaizy/agent-kit#<tag> --skill plain-prose -g
 ```
 
 `security-audit`, from the root of the repository it audits, with no `-g`:

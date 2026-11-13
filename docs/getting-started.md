@@ -86,12 +86,12 @@ rm -rf /tmp/agent-kit
 
 Tags up to `v1.0.0-alpha.10` have no `kit-owned-paths.txt`; for those, copy the paths [Adopt](adopt.md#copy-kit-owned-paths-from-the-same-tag) lists.
 
-| Copied path               | Needed by                                                                                                                                  |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `.claude/skills/*/`       | review (`code-review`), audit (`security-audit`); triage, response, `explainer`, `instruction-drift-audit`, `qa-plan`, `manual-qa` by hand |
-| `.github/agent-runtime/`  | plan, implement, review, audit (hook that confines file reads to the workspace)                                                            |
-| `.github/agent-pipeline/` | plan, implement (prompts, draft-PR fallback)                                                                                               |
-| `.github/security-audit/` | audit (prompt, advisory publisher, email notifier)                                                                                         |
+| Copied path               | Needed by                                                                                                                                                 |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `.claude/skills/*/`       | review (`code-review`), audit (`security-audit`); triage, response, `explainer`, `instruction-drift-audit`, `qa-plan`, `manual-qa`, `plain-prose` by hand |
+| `.github/agent-runtime/`  | plan, implement, review, audit (hook that confines file reads to the workspace)                                                                           |
+| `.github/agent-pipeline/` | plan, implement (prompts, draft-PR fallback)                                                                                                              |
+| `.github/security-audit/` | audit (prompt, advisory publisher, email notifier)                                                                                                        |
 
 Commit these files. Do **not** copy `.github/workflows/*-reusable.yml`; you reference those remotely.
 
