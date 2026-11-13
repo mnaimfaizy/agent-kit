@@ -88,7 +88,7 @@ Run each with `npx @mnaimfaizy/agent-kit <command>`. `init` and `upgrade` ask be
 | `.github/security-audit/`            | Audit prompt, advisory publisher, PR counts comment, optional email notifier. Copy.                                                                                                                       |
 | `.claude/skills/`                    | **Portable skills**: `code-review`, `security-audit`, `security-finding-triage`, `security-response`, `explainer`, `instruction-drift-audit`, `qa-plan`, `manual-qa`, `plain-prose`, `orchestrate`. Copy. |
 | `kit-owned-paths.txt`                | The list of paths above that you copy from a tag and replace whole on upgrade.                                                                                                                            |
-| `examples/`                          | Caller templates, setup presets, Threat pack skeletons, QA config and Hazard pack templates to copy and edit.                                                                                             |
+| `examples/`                          | Caller templates, setup presets, Threat pack skeletons, QA config and Hazard pack templates, and an `orchestrate` config to copy and edit.                                                                |
 | `cli/`                               | Source of the `@mnaimfaizy/agent-kit` npm CLI. Run with `npx`; never copy.                                                                                                                                |
 | `.github/workflows-archive/copilot/` | Inert **Copilot archive** — an alternative runner, never live alongside Claude.                                                                                                                           |
 
@@ -112,6 +112,7 @@ For procedure skills such as `implement`, `tdd`, and `wayfinder`, adopt **[Matt 
 | [Security audit](docs/security-audit.md)                   | `full` / `pr` modes, private delivery, Threat pack                                     |
 | [Plan → implement → review](docs/plan-implement-review.md) | Labels, Verified plan, implementer and reviewer contracts                              |
 | [QA](docs/qa.md)                                           | `qa-plan` → `manual-qa` handoff, `qa.config.yml`, host rule, QA Accounts, Hazard packs |
+| [Orchestrate](docs/orchestrate.md)                         | Run a set of issues or a spec through other sessions; Dispatch Plan, run state, config |
 | [Workflow reference](docs/reference.md)                    | Every input, secret, and required permission (generated)                               |
 | [Security model](docs/security-model.md)                   | Public-log rule, trust boundaries, runner controls                                     |
 | [Repository hardening](docs/repository-hardening.md)       | Rulesets for the default branch, release branches and release tags                     |

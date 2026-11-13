@@ -20,6 +20,7 @@ docs/repository-hardening.md
 docs/security-audit.md
 docs/plan-implement-review.md
 docs/qa.md
+docs/orchestrate.md
 docs/copilot-restore.md
 docs/issuebridge.md
 docs/adr/
@@ -56,6 +57,7 @@ examples/threat-pack/threat-model.md
 examples/threat-pack/findings-ledger.md
 examples/qa.config.yml
 examples/qa-hazards/sign-in.md
+examples/orchestrate.config.yml
 
 scripts/cut-release.sh
 scripts/verify_release_snapshot.py
