@@ -192,9 +192,12 @@ export function readReport(text) {
         problems.push(
           `line ${n + 1}: ${id}'s result is \`${result}\`; expected PASS, FAIL or left for a person`,
         );
-      const paths = [...evidence.matchAll(/`([^`]+)`/g)].map((m) => m[1]);
+      // `none: <reason>`, bare or wrapped whole in backticks, links no file, even
+      // when its reason quotes an endpoint or a role in backticks.
+      const reason = NO_EVIDENCE.test(evidence.replace(/^`([^`]*)`$/, "$1"));
+      const paths = reason ? [] : [...evidence.matchAll(/`([^`]+)`/g)].map((m) => m[1]);
       // A scenario that ran is captured by default: no path needs a stated reason.
-      if ((result === "PASS" || result === "FAIL") && !paths.length && !NO_EVIDENCE.test(evidence))
+      if ((result === "PASS" || result === "FAIL") && !paths.length && !reason)
         problems.push(
           `line ${n + 1}: ${id} is a ${result} with no evidence path: link its QA Artifact ` +
             "in backticks, or write `none: <reason>`",

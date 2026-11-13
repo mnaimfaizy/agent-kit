@@ -162,6 +162,21 @@ test("`read` exits 0 for `none: <reason>`, a backticked path, and a bare `none` 
     reason.report.results.map((row) => row.evidence),
     [[], []],
   );
+  // A reason that quotes an endpoint or a role, or a cell wrapped whole in
+  // backticks, is still a reason: nothing in it becomes a pickable file.
+  for (const evidence of [
+    "none: the response for `GET /members` is in the notes, signed in as `admin`",
+    "`none: driver cannot save images`",
+  ]) {
+    const read = readReport(
+      reportFor([
+        `| S1: An admin invites a new member | PASS | ${evidence} | invite sent |`,
+        S2_LEFT,
+      ]),
+    );
+    assert.deepEqual(read.problems, [], evidence);
+    assert.deepEqual(read.report.results[0].evidence, [], evidence);
+  }
 });
 
 test("a report that links local media per session, and a recording, reads against its plan", () => {

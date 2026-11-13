@@ -150,7 +150,7 @@ Capture the evidence as you go, without asking first, under `<working_dir>/qa-re
 - **On a FAIL,** a screenshot at the point it diverged too: `s<n>-fail.png`, or `s<n>-<session>-fail.png`.
 - **For a multi-session or timing-dependent scenario** (a revoked session, a redirect after an action), a recording of the key step when the driver can record: `s<n>.gif`, or the driver's video format. When it cannot, a screenshot before and after the key step: `s<n>-before.png` and `s<n>-after.png`, with the session letter as above.
 
-Link each file from the Evidence cell as a path relative to `working_dir`, in backticks. A PASS or FAIL with no file writes `none: <reason>`, without backticks, since a backticked word reads as a path: `none: api surface, the redacted response body is in the notes`, or `none: driver cannot save images`. A bare `none` is only for a scenario left for a person, whose note already says why it was not run.
+Link each file from the Evidence cell as a path relative to `working_dir`, in backticks. A PASS or FAIL with no file writes `none: <reason>`, as plain text in the cell: `none: api surface, the redacted response body is in the notes`, or `none: driver cannot save images`. A bare `none` is only for a scenario left for a person, whose note already says why it was not run.
 
 A FAIL's note says what appeared instead, and which of its **If this fails, first rule out** items you ruled out. Use the plan's **Expected red herrings** to tell a known failure from a finding.
 
