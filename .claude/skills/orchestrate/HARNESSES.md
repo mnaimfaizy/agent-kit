@@ -40,7 +40,7 @@ The harness can start a headless run in the background and resume it later, but 
 
 - `spawn`: `claude -p "<brief>" --model <model> --output-format json` as a background process, started in the Delegation's worktree, with its output written to `delegations/<id>/output.json` by its absolute path in the Chief of Staff's run folder. The handle is the session id in that output, with the process id. **Check before use:** the permission mode a headless run needs to commit and push without asking (`--permission-mode`), which is the human's choice to approve in the Dispatch Plan.
 - `message`: `claude -p "<text>" --resume <session-id>` in the same worktree, once the earlier run has ended. A message cannot reach a run while it is still working: it waits for that run's end.
-- A user-invoked skill, for a QA Delegation: `spawn` on the brief, then `/qa-plan <n>` as the text of a `message` once its first phase has stopped, and `/manual-qa <plan file>` as a later one. **Check before use:** whether `-p` runs a slash command as the user's own invocation, and whether a headless run can drive the browser `manual-qa` needs. Try it; if either fails, the QA Delegation becomes a session the human starts, as on tier 3. Record which happened in the Activity Log.
+- A user-invoked skill, for a QA Delegation: `spawn` on the brief, then `/qa-plan <n>` as the text of a `message` once its first phase has stopped, and `/manual-qa <plan file>` as a later one. **Check before use:** whether `-p` runs a slash command as the user's own invocation, and whether a headless run can drive the browser `manual-qa` needs. Try it; if either fails, the QA Delegation falls back to a session the human starts, as on tier 3. That fallback is part of the Executor the Dispatch Plan names for the QA row ("headless run; else a session you start"), so the switch needs no new plan. Record which happened in the Activity Log.
 - `await`: wait on the background processes; on an end, read its output and the report file. Check a long-running one's Activity Log at an interval matched to its work, not more often.
 - `report`: the report file, and the `result` in the output.
 - A sub-agent: the in-session agent tool, as in tier 1.
@@ -60,11 +60,11 @@ The Chief of Staff still never does a Delegation's work itself, here least of al
 
 ## Choosing an Executor
 
-| Delegation | Tier 1                                 | Tier 2                         | Tier 3                     |
-| ---------- | -------------------------------------- | ------------------------------ | -------------------------- |
-| building   | A Live Session                         | A headless run                 | A session the human starts |
-| analysis   | A sub-agent, or a Live Session if long | A sub-agent, or a headless run | A session the human starts |
-| QA         | A Live Session                         | A headless run                 | A session the human starts |
+| Delegation | Tier 1                                 | Tier 2                                          | Tier 3                     |
+| ---------- | -------------------------------------- | ----------------------------------------------- | -------------------------- |
+| building   | A Live Session                         | A headless run                                  | A session the human starts |
+| analysis   | A sub-agent, or a Live Session if long | A sub-agent, or a headless run                  | A session the human starts |
+| QA         | A Live Session                         | A headless run; else a session the human starts | A session the human starts |
 
 The Dispatch Plan names the Executor for every Delegation, and the human's "go" approves it.
 
