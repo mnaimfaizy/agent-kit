@@ -11,18 +11,18 @@ Each skill declares where it works, in its `SKILL.md` frontmatter (`metadata.age
 - **User-scope** (`user`): works from your own skills directory in any repository. Install it once with `-g`.
 - **Repo-scope** (`repo`): works only inside a repository that holds its supporting files. Install it into that repository, without `-g`.
 
-| Skill                                                                           | `agent-kit-scope` | What it needs                                                                                                                    |
-| ------------------------------------------------------------------------------- | ----------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| [`code-review`](../.claude/skills/code-review/SKILL.md)                         | `user`            | Nothing.                                                                                                                         |
-| [`explainer`](../.claude/skills/explainer/SKILL.md)                             | `user`            | Nothing; per-repository settings are optional.                                                                                   |
-| [`instruction-drift-audit`](../.claude/skills/instruction-drift-audit/SKILL.md) | `user`            | Node 22 or later. Its optional CI gate and hook need it installed in the repository too.                                         |
-| [`manual-qa`](../.claude/skills/manual-qa/SKILL.md)                             | `user`            | Node 22 or later, a QA Plan, and the repository's QA Stack commands or a hosted test URL; a tool that drives the plan's surface. |
-| [`orchestrate`](../.claude/skills/orchestrate/SKILL.md)                         | `user`            | Node 22 or later, `git` and `gh`; a harness that can start other sessions or headless runs (or a person to start them).          |
-| [`plain-prose`](../.claude/skills/plain-prose/SKILL.md)                         | `user`            | Nothing; it reads the repository's glossary when one exists.                                                                     |
-| [`qa-plan`](../.claude/skills/qa-plan/SKILL.md)                                 | `user`            | Node 22 or later, `git`, and an open pull request; `gh` to read it and to deliver beyond the working copy.                       |
-| [`security-audit`](../.claude/skills/security-audit/SKILL.md)                   | `repo`            | A Threat pack (threat model and findings ledger) in the repository. Without one it stops before any work.                        |
-| [`security-finding-triage`](../.claude/skills/security-finding-triage/SKILL.md) | `user`            | Nothing.                                                                                                                         |
-| [`security-response`](../.claude/skills/security-response/SKILL.md)             | `user`            | `security-finding-triage`, installed with it: its `triage` mode runs that skill.                                                 |
+| Skill                                                                           | `agent-kit-scope` | What it needs                                                                                                                                                                              |
+| ------------------------------------------------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [`code-review`](../.claude/skills/code-review/SKILL.md)                         | `user`            | Nothing.                                                                                                                                                                                   |
+| [`explainer`](../.claude/skills/explainer/SKILL.md)                             | `user`            | Nothing; per-repository settings are optional.                                                                                                                                             |
+| [`instruction-drift-audit`](../.claude/skills/instruction-drift-audit/SKILL.md) | `user`            | Node 22 or later. Its optional CI gate and hook need it installed in the repository too.                                                                                                   |
+| [`manual-qa`](../.claude/skills/manual-qa/SKILL.md)                             | `user`            | Node 22 or later, a QA Plan, and the repository's QA Stack commands or a hosted test URL; a tool that drives the plan's surface.                                                           |
+| [`orchestrate`](../.claude/skills/orchestrate/SKILL.md)                         | `user`            | Node 22 or later, `git` and `gh`; a harness that can start other sessions or headless runs (or a person to start them); an `orchestrate.config.yml` in the repository, or answers in chat. |
+| [`plain-prose`](../.claude/skills/plain-prose/SKILL.md)                         | `user`            | Nothing; it reads the repository's glossary when one exists.                                                                                                                               |
+| [`qa-plan`](../.claude/skills/qa-plan/SKILL.md)                                 | `user`            | Node 22 or later, `git`, and an open pull request; `gh` to read it and to deliver beyond the working copy.                                                                                 |
+| [`security-audit`](../.claude/skills/security-audit/SKILL.md)                   | `repo`            | A Threat pack (threat model and findings ledger) in the repository. Without one it stops before any work.                                                                                  |
+| [`security-finding-triage`](../.claude/skills/security-finding-triage/SKILL.md) | `user`            | Nothing.                                                                                                                                                                                   |
+| [`security-response`](../.claude/skills/security-response/SKILL.md)             | `user`            | `security-finding-triage`, installed with it: its `triage` mode runs that skill.                                                                                                           |
 
 ## Install
 
@@ -77,6 +77,8 @@ npx skills add mnaimfaizy/agent-kit#<tag> --skill plain-prose -g
 ```bash
 npx skills add mnaimfaizy/agent-kit#<tag> --skill orchestrate -g
 ```
+
+It reads the repository's routes (what a Delegation reads first, how it commits and opens a pull request, which commands re-gate a branch) from `orchestrate.config.yml` at the repository root, and asks for them in chat when there is none, or when it leaves out what a run needs. Start from [`examples/orchestrate.config.yml`](../examples/orchestrate.config.yml). The issues it runs need the five triage labels, or your own labels mapped to them. Guide: [Orchestrate](orchestrate.md).
 
 `security-audit`, from the root of the repository it audits, with no `-g`:
 
