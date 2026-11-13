@@ -13,6 +13,7 @@ Each skill declares where it works, in its `SKILL.md` frontmatter (`metadata.age
 
 | Skill                                                                           | `agent-kit-scope` | What it needs                                                                                                                                                                              |
 | ------------------------------------------------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [`address-pr-review`](../.claude/skills/address-pr-review/SKILL.md)             | `user`            | Node 22 or later, `git`, and `gh` signed in to the repository; an open pull request from a branch of that repository (not a fork).                                                         |
 | [`code-review`](../.claude/skills/code-review/SKILL.md)                         | `user`            | Nothing.                                                                                                                                                                                   |
 | [`explainer`](../.claude/skills/explainer/SKILL.md)                             | `user`            | Nothing; per-repository settings are optional.                                                                                                                                             |
 | [`instruction-drift-audit`](../.claude/skills/instruction-drift-audit/SKILL.md) | `user`            | Node 22 or later. Its optional CI gate and hook need it installed in the repository too.                                                                                                   |
@@ -79,6 +80,14 @@ npx skills add mnaimfaizy/agent-kit#<tag> --skill orchestrate -g
 ```
 
 It reads the repository's routes (what a Delegation reads first, how it commits and opens a pull request, which commands re-gate a branch) from `orchestrate.config.yml` at the repository root, and asks for them in chat when there is none, or when it leaves out what a run needs. Start from [`examples/orchestrate.config.yml`](../examples/orchestrate.config.yml). The issues it runs need the five triage labels, or your own labels mapped to them. Guide: [Orchestrate](orchestrate.md).
+
+`address-pr-review`:
+
+```bash
+npx skills add mnaimfaizy/agent-kit#<tag> --skill address-pr-review -g
+```
+
+Run it from the root of the repository the pull request belongs to. It reads `address-pr-review.config.yml` there when one exists ([`ADAPTER.md`](../.claude/skills/address-pr-review/ADAPTER.md)); with none, it answers the threads `github-actions` started and works under `tmp/address-pr-review/`, which must be gitignored.
 
 `security-audit`, from the root of the repository it audits, with no `-g`:
 
