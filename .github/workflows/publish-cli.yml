@@ -72,6 +72,11 @@ jobs:
           esac
           notes="release-notes/$TAG.md"
           if [ -f "$notes" ]; then
+            # The template's placeholder lines; cut-release.sh refuses them too.
+            if grep -q 'TODO(release-notes)' "$notes"; then
+              echo "::error::$notes still has TODO(release-notes) lines; fix the notes on main and cut the next tag."
+              exit 1
+            fi
             args+=(--notes-file "$notes")
           elif [[ "$TAG" == *-alpha.* ]]; then
             args+=(--notes "Pre-release $TAG")

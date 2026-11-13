@@ -29,6 +29,11 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+# pyproject.toml's floor. Checked first, so an older interpreter (macOS's system
+# python3 is 3.9) stops before it writes anything, not half-way through prepare.
+if sys.version_info < (3, 10):  # noqa: UP036 - the wrappers run whatever python3 is on PATH
+    sys.exit(f"Python 3.10 or later is required; this is {sys.version.split()[0]}. Put a newer python3 first on PATH.")
+
 SCRIPTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS))
 
@@ -54,6 +59,10 @@ MANIFEST = "scripts/release-snapshot-manifest.txt"
 HISTORY_PATHS = ("CHANGELOG.md", "release-notes/", "docs/adr/", "scripts/")
 TEST_FILE = re.compile(r"\.test\.(?:py|mjs)$")
 BROKEN_SECTION = "## Broken releases"
+# A line that calls a tag broken is history. A whole word, so "unbroken" is not.
+BROKEN_WORD = re.compile(r"\bbroken\b", re.IGNORECASE)
+# Lockfiles pin dependency versions, which can equal a stable tag's version.
+LOCKFILE = re.compile(r"(?:^|/)(?:package-lock\.json|npm-shrinkwrap\.json|uv\.lock|yarn\.lock|pnpm-lock\.yaml)$")
 STATUS_LINE = re.compile(r"(\*\*Status:\*\* pre-release \(`)([^`]+)(`\))")
 STAGE_RANK = {"alpha": 0, "beta": 1, "rc": 2, "": 3}
 STAGE_WORD = {"alpha": "alpha", "beta": "beta", "rc": "release candidate", "": "stable release"}
@@ -236,22 +245,35 @@ def email_fix() -> str:
 # --- prepare ----------------------------------------------------------------
 
 
+def write_file(path: Path, text: str) -> None:
+    """Write UTF-8 with LF line ends, whatever the platform."""
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        handle.write(text)
+
+
 def bump_pattern(old_tag: str) -> re.Pattern[str]:
     """A pin of `old_tag`: `v0.9.0-beta.2` or `0.9.0-beta.2`, but not `10.9.0-beta.2`, `0.9.0-beta.20`,
     or (for a stable `v0.9.0`) the pre-release `v0.9.0-rc.1`.
 
-    A bare stable `X.Y.Z` is too common in prose ("the 1.0.0 line") to be a pin, so for a stable
-    old tag only `vX.Y.Z` and an `X.Y.Z` right after `@`, `"` or a backtick move.
+    A stable `X.Y.Z` is common in prose and fixtures ("the `1.0.0` line", "starts at `v1.0.0`",
+    `"refs/tags/v1.0.0"`, a `"1.0.0"` dependency), so for a stable old tag only pin shapes move:
+    `@vX.Y.Z` and `#vX.Y.Z` (uses: and skills pins), `--tag vX.Y.Z`, `TAG=vX.Y.Z`, `` e.g. `vX.Y.Z` ``,
+    `` for example `vX.Y.Z` ``, `` from tag `vX.Y.Z` ``, `@X.Y.Z` (npm) and `"version": "X.Y.Z"`.
+    `prepare` lists the mentions it left for the author to check.
     """
     version = re.escape(old_tag[1:])
     end = r"(?![0-9A-Za-z]|-[0-9A-Za-z])"
     if parse_tag(old_tag) and parse_tag(old_tag)["stage"]:
         return re.compile(r"(?<![\w.])(v?)" + version + end)
-    return re.compile(r"(?<![\w.])(v|(?<=[@\"`]))" + version + end)
+    tagged = "|".join(f"(?<={before})" for before in ("@", "#", "--tag ", "TAG=", r"e\.g\. `", "example `", "tag `"))
+    bare = "|".join(f"(?<={before})" for before in ("@", r'"version": "'))
+    return re.compile(f"(?:(?:{tagged})(v)|(?:{bare})())" + version + end)
 
 
 def is_history(path: str) -> bool:
-    return bool(TEST_FILE.search(path)) or any(path == p or path.startswith(p) for p in HISTORY_PATHS)
+    if TEST_FILE.search(path) or LOCKFILE.search(path):
+        return True
+    return any(path == p or path.startswith(p) for p in HISTORY_PATHS)
 
 
 def bump_text(text: str, old_tag: str, new_tag: str) -> tuple[str, int]:
@@ -263,10 +285,10 @@ def bump_text(text: str, old_tag: str, new_tag: str) -> tuple[str, int]:
     for line in text.splitlines(keepends=True):
         if line.startswith("## "):
             in_broken = line.rstrip() == BROKEN_SECTION
-        if in_broken or "broken" in line.lower():
+        if in_broken or BROKEN_WORD.search(line):
             out.append(line)
             continue
-        new_line, n = pattern.subn(lambda m: m.group(1) + new_tag[1:], line)
+        new_line, n = pattern.subn(lambda m: "".join(g for g in m.groups() if g) + new_tag[1:], line)
         out.append(new_line)
         count += n
     return "".join(out), count
@@ -402,13 +424,21 @@ def prepare(args: argparse.Namespace) -> int:
 
     changed = bump_pins(old, tag) if old != tag else []
     print(f"Pins: {old} -> {tag}: " + (", ".join(changed) if changed else "nothing left to bump."))
+    if old != tag and not parse_tag(old)["stage"]:
+        left = git("-c", "core.quotePath=false", "grep", "-n", "-I", "-w", "-F", old, check=False)
+        left_lines = [line for line in left.splitlines() if not is_history(line.split(":", 1)[0])]
+        if left_lines:
+            # A list to read, not a blocker: most of these are prose and fixtures.
+            print(f"{old} is stable, so only pin-shaped mentions moved. Check these, and bump any that are pins:")
+            for line in left_lines:
+                print(f"  {line[:160]}")
 
     readme = Path("README.md")
     if readme.is_file():
         text = readme.read_text(encoding="utf-8")
         new_text, note = bump_status_line(text, tag)
         if new_text != text:
-            readme.write_text(new_text, encoding="utf-8", newline="")
+            write_file(readme, new_text)
             print("README.md: Status line moved to the new stage.")
         if note:
             notes_for_author.append(note)
@@ -417,7 +447,7 @@ def prepare(args: argparse.Namespace) -> int:
     date = args.date or datetime.date.today().isoformat()
     new_text, moved = move_unreleased(changelog.read_text(encoding="utf-8"), tag[1:], date)
     if moved:
-        changelog.write_text(new_text, encoding="utf-8", newline="")
+        write_file(changelog, new_text)
         print(f"CHANGELOG.md: [Unreleased] moved into [{tag[1:]}] - {date}.")
     else:
         print(f"CHANGELOG.md: [{tag[1:]}] exists already; left as is.")
@@ -427,7 +457,7 @@ def prepare(args: argparse.Namespace) -> int:
         print(f"{notes.as_posix()}: exists; left as is.")
     elif notes_required_for_tag(tag):
         notes.parent.mkdir(exist_ok=True)
-        notes.write_text(notes_from_template(tag), encoding="utf-8", newline="")
+        write_file(notes, notes_from_template(tag))
         print(f"{notes.as_posix()}: written from the template. Replace every {NOTES_MARKER} line.")
     else:
         print(f"{notes.as_posix()}: optional for alpha; not written.")
@@ -458,7 +488,21 @@ def prepare(args: argparse.Namespace) -> int:
             print(
                 "Not committed (untracked, not written by prepare):\n" + "\n".join(f"  {p}" for p in stray.split("\n"))
             )
-        if git("diff", "--cached", "--name-only"):
+        staged = git("diff", "--cached", "--name-only").splitlines()
+        expected = {"CHANGELOG.md", "README.md", notes.as_posix()}
+        unrelated = [
+            path
+            for path in staged
+            if path not in expected and tag[1:] not in git("diff", "--cached", "-U0", "--", path)
+        ]
+        if unrelated:
+            git("reset", "--quiet")
+            raise ReleaseError(
+                "Not committing: these staged changes do not look like release prep (no new tag in their diff):\n"
+                + "\n".join(f"  {path}" for path in unrelated)
+                + "\nCommit them separately, or move them off this branch, then re-run."
+            )
+        if staged:
             git("commit", "--quiet", "-m", title)
             print(f"Committed: {title}")
     if args.push or args.open_pr:
@@ -775,7 +819,7 @@ def cut(args: argparse.Namespace) -> int:
         return 0
 
     pushed = subprocess.run(
-        ["git", "push", REMOTE, f"refs/tags/{tag}"], capture_output=True, text=True, encoding="utf-8"
+        ["git", "push", REMOTE, f"refs/tags/{tag}"], capture_output=True, text=True, encoding="utf-8", check=False
     )
     if pushed.returncode != 0:
         err = pushed.stderr.strip()

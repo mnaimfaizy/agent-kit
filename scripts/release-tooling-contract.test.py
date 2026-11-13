@@ -271,18 +271,70 @@ def test_prepare_refuses_a_branch_that_exists_only_on_origin() -> None:
 
 
 def test_bump_leaves_pre_releases_prose_and_tooling_of_a_stable_tag_alone() -> None:
-    text = 'v1.0.0-beta.1 and v1.0.0-rc.1; the 1.0.0 line; @1.0.0 "1.0.0" `v1.0.0` v1.0.0.md\n'
-    bumped, count = release.bump_text(text, "v1.0.0", "v1.0.1")
-    assert bumped == 'v1.0.0-beta.1 and v1.0.0-rc.1; the 1.0.0 line; @1.0.1 "1.0.1" `v1.0.1` v1.0.1.md\n'
-    assert count == 4
+    # A stable old tag moves only where it is pin-shaped.
+    pins = (
+        "uses: o/r/.github/workflows/a.yml@v1.0.0 #v1.0.0 --tag v1.0.0 TAG=v1.0.0 e.g. `v1.0.0`"
+        ' for example `v1.0.0` from tag `v1.0.0` agent-kit@1.0.0 "version": "1.0.0"\n'
+    )
+    bumped, count = release.bump_text(pins, "v1.0.0", "v1.0.1")
+    assert bumped == pins.replace("1.0.0", "1.0.1") and count == 9
+    prose = (
+        'starts at `v1.0.0`; the `1.0.0` line; "refs/tags/v1.0.0"; "1.0.0" dep; v1.0.0-beta.1, v1.0.0-rc.1;'
+        " the 1.0.0 line; v1.0.0.md\n"
+    )
+    assert release.bump_text(prose, "v1.0.0", "v1.0.1") == (prose, 0)
     bumped, _ = release.bump_text(
         "v1.0.0-beta.5 @1.0.0-beta.5 v1.0.0-beta.50 v1.0.0-beta.5-x\n", "v1.0.0-beta.5", "v1.0.0-beta.6"
     )
     assert bumped == "v1.0.0-beta.6 @1.0.0-beta.6 v1.0.0-beta.50 v1.0.0-beta.5-x\n"
-    # Tooling and contract tests carry example tags, not pins.
-    for path in ("scripts/release.py", "scripts/release-notes-template.md", ".claude/skills/qa-plan/x.test.mjs"):
+    # "broken" as a word marks history; "unbroken" does not.
+    bumped, _ = release.bump_text(
+        "unbroken @v1.0.0-beta.5\nis broken: @v1.0.0-beta.5\n", "v1.0.0-beta.5", "v1.0.0-beta.6"
+    )
+    assert bumped == "unbroken @v1.0.0-beta.6\nis broken: @v1.0.0-beta.5\n"
+    # Tooling, contract tests and lockfiles carry example tags or dependency versions, not pins.
+    for path in (
+        "scripts/release.py",
+        "scripts/release-notes-template.md",
+        ".claude/skills/qa-plan/x.test.mjs",
+        "package-lock.json",
+        "cli/uv.lock",
+    ):
         assert release.is_history(path), path
     assert not release.is_history("docs/getting-started.md")
+
+
+def test_prepare_lists_the_stable_mentions_it_left() -> None:
+    with sandbox():
+        write("cli/package.json", '{\n  "name": "x",\n  "version": "1.0.0"\n}\n')
+        write("docs/notes.md", "The `1.0.0` line starts at `v1.0.0`. Install: --tag v1.0.0\n")
+        g("add", "-A")
+        g("commit", "-qm", "stable")
+        g("tag", "-a", "v1.0.0", "-m", "Release v1.0.0")
+        g("push", "-q", "origin", "main", "v1.0.0")
+        code, out = run("prepare", "--tag", "v1.0.1")
+        assert code == 0, out
+        assert read("docs/notes.md") == "The `1.0.0` line starts at `v1.0.0`. Install: --tag v1.0.1\n"
+        assert json.loads(read("cli/package.json"))["version"] == "1.0.1"
+        assert "only pin-shaped mentions moved" in out and "docs/notes.md:1:" in out
+
+
+def test_prepare_does_not_commit_unrelated_tracked_edits_on_a_re_run() -> None:
+    with sandbox():
+        assert run("prepare", "--tag", "v1.0.0-beta.2")[0] == 0
+        write("release-notes/v1.0.0-beta.2.md", "Real notes.\n")
+        write("docs/adr/0001-x.md", "An unrelated edit.\n")
+        code, out = run("prepare", "--tag", "v1.0.0-beta.2", "--commit")
+        assert code == 1 and "do not look like release prep" in out and "docs/adr/0001-x.md" in out
+        assert g("log", "-1", "--format=%s") == "seed", "nothing committed"
+        assert g("diff", "--cached", "--name-only") == "", "and nothing left staged"
+
+
+def test_release_tool_stops_on_python_before_3_10() -> None:
+    text = (SCRIPTS / "release.py").read_text(encoding="utf-8")
+    guard = text.index("if sys.version_info < (3, 10):")
+    assert guard < text.index("from verify_release_snapshot import"), "check the version before anything runs"
+    assert "write_text(" not in text.replace("NOTES_TEMPLATE.read_text", ""), "Path.write_text(newline=) needs 3.10"
 
 
 def test_prepare_refuses_backward_existing_and_invalid_tags() -> None:
@@ -552,6 +604,9 @@ def test_the_tag_push_creates_the_release_before_npm_publishes() -> None:
     # Notes are optional for alpha only.
     assert re.search(r'elif \[\[ "\$TAG" == \*-alpha\.\* \]\]; then\s+args\+=\(--notes "Pre-release \$TAG"\)', script)
     assert "beta, rc and stable Releases require notes" in script
+    # Unfinished notes are refused here too, not only by the cut.
+    assert "grep -q 'TODO(release-notes)' \"$notes\"" in script
+    assert script.index("TODO(release-notes)") < script.index('gh release create "$TAG"')
     for job in jobs.values():
         runs = "\n".join(s.get("run", "") for s in job["steps"])
         assert 'git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main' in runs
@@ -586,6 +641,9 @@ if __name__ == "__main__":
     test_prepare_commits_only_finished_notes_and_can_open_the_pr()
     test_prepare_refuses_a_branch_that_exists_only_on_origin()
     test_bump_leaves_pre_releases_prose_and_tooling_of_a_stable_tag_alone()
+    test_prepare_lists_the_stable_mentions_it_left()
+    test_prepare_does_not_commit_unrelated_tracked_edits_on_a_re_run()
+    test_release_tool_stops_on_python_before_3_10()
     test_prepare_refuses_backward_existing_and_invalid_tags()
     test_prepare_refuses_an_empty_unreleased_section_before_writing()
     test_prepare_moves_the_status_line_on_a_stage_change()
