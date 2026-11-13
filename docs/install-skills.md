@@ -26,7 +26,7 @@ Each skill declares where it works, in its `SKILL.md` frontmatter (`metadata.age
 
 ## Install
 
-Replace `<tag>` with the release you want, for example `v1.0.0-beta.5` (see the [releases](https://github.com/mnaimfaizy/agent-kit/releases)). Every install names a tag: an install without one follows `main`, which no release promises anything about, and is not supported.
+Replace `<tag>` with the release you want, for example `v1.0.0-beta.6` (see the [releases](https://github.com/mnaimfaizy/agent-kit/releases)). Every install names a tag: an install without one follows `main`, which no release promises anything about, and is not supported.
 
 **An install replaces any skill you already have with the same name.** `npx skills` keeps one skill per name in each place it installs to, and replaces it without asking. Its summary lists the agents it "overwrites". Other skill collections ship skills with the same names as these (a `code-review`, say), so check first:
 

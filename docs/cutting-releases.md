@@ -19,7 +19,7 @@ Each tag is a **whole-kit snapshot**: reusable workflows, shipped skills, docs, 
 
 ## Cut a release
 
-A cut is two steps: **prepare** writes the release-prep pull request on a branch, and **cut** tags `main` once that pull request is merged. The steps below use `<tag>`, e.g. `v1.0.0-beta.5`. The first cut on this line was `v1.0.0-alpha.1`.
+A cut is two steps: **prepare** writes the release-prep pull request on a branch, and **cut** tags `main` once that pull request is merged. The steps below use `<tag>`, e.g. `v1.0.0-beta.6`. The first cut on this line was `v1.0.0-alpha.1`.
 
 ### 1. Prepare: the release-prep pull request
 
@@ -75,7 +75,7 @@ If the Release job fails (missing notes, say), the npm publish does not run eith
 
 ## Publishing the CLI to npm
 
-Each pushed `v*` tag also publishes `cli/` as `@mnaimfaizy/agent-kit` through [publish-cli.yml](../.github/workflows/publish-cli.yml), with npm trusted publishing: the job's OIDC token is exchanged for a short-lived publish credential, and `npm publish --provenance --access public` links the package to the run. The repository stores no npm token. It publishes only a tag whose commit is on `main`. The package version must equal the tag without its `v`: `cut-release.sh` refuses to tag otherwise, and the workflow checks again before it publishes. `prepare-release.sh` sets `cli/package.json`'s `version` to the tag you are about to cut, for example `1.0.0-beta.5` for `v1.0.0-beta.5`. Every Release-line tag is published as `latest`, because the line only moves forward.
+Each pushed `v*` tag also publishes `cli/` as `@mnaimfaizy/agent-kit` through [publish-cli.yml](../.github/workflows/publish-cli.yml), with npm trusted publishing: the job's OIDC token is exchanged for a short-lived publish credential, and `npm publish --provenance --access public` links the package to the run. The repository stores no npm token. It publishes only a tag whose commit is on `main`. The package version must equal the tag without its `v`: `cut-release.sh` refuses to tag otherwise, and the workflow checks again before it publishes. `prepare-release.sh` sets `cli/package.json`'s `version` to the tag you are about to cut, for example `1.0.0-beta.6` for `v1.0.0-beta.6`. Every Release-line tag is published as `latest`, because the line only moves forward.
 
 ### One-time setup
 
