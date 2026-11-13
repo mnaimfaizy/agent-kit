@@ -141,7 +141,7 @@ A QA Plan's last section, empty after compose, where whoever runs the plan recor
 _Avoid_: results section, test log
 
 **QA Artifact**:
-A screenshot, recording or log captured during a QA run, only where a written result is not enough; private by default.
+A screenshot, recording or log captured during a QA run, saved locally by default at each scenario's expected result; private until the person picks it for upload.
 _Avoid_: evidence upload, attachment
 
 **QA Report**:
