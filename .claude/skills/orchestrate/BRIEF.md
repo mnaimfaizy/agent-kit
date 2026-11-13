@@ -23,7 +23,7 @@ A QA Delegation's brief carries the same eight items, filled for QA. It tests on
 2. **Goal, and what done means.** Run the QA the repository requires on pull request `#<n>` at `<head>`. Done is a QA Plan and a QA Report for `<head>`, both copied into the run folder, and delivered only as item 6 allows. A FAIL is a result to report, never a thing to fix.
 3. **Phases, with explicit stop points.**
    1. **Pin the head.** In its own working copy, fetch, then `git switch --detach <head>`. `git rev-parse HEAD` and the pull request's `headRefOid` must both be `<head>`. **Stop:** report the pinned head, or, if either is not `<head>`, the mismatch, and run nothing more. Then wait for `/qa-plan <n>`.
-   2. **Compose the QA Plan** with `/qa-plan <n>`, which reaches this session as a message after phase 1, as item 5 says. At `qa-plan`'s point of showing the draft, copy it to `qa-plan.md` in its Delegation folder, and raise a Decision Request that carries the draft's scenarios, each with what it checks, and where it would be delivered. When the human is in this session and answers `qa-plan` here, log the answer instead. **Stop:** wait for the answer, deliver on a yes, and report.
+   2. **Compose the QA Plan** with `/qa-plan <n>`, which reaches this session as a message after phase 1, as item 5 says. At `qa-plan`'s point of showing the draft, copy it to `qa-plan.md` in its Delegation folder, and raise a Decision Request that carries the draft's scenarios, each with what it checks, and where it would be delivered. When the human is in this session and answers `qa-plan` here, log the answer instead. **Stop:** wait for the answer, deliver on a yes, and report. When `qa-plan` finds no Residue and writes no plan, **Stop:** report that, with the claims it named as proving each promise, and skip phases 3 and 4.
    3. **Run it** with `/manual-qa <plan file>`, which reaches this session as a message after phase 2, as item 5 says, against the target `qa.config` names. On a `stack` target it holds the QA Stack until `manual-qa` has stopped what it started. **Stop:** none of its own: it goes straight on to phase 4, stopping only to raise a Decision Request item 6 needs, such as an upload, and waiting for its answer.
    4. **Report.** Copy the QA Report to `qa-report.md` in its Delegation folder. At `manual-qa`'s offer to post, post only as item 6 allows. **Stop:** write the QA report below.
 4. **Scope fences.** None: it commits nothing, pushes nothing, and changes no tracked file. Its working copy stays detached at `<head>`. The QA Stack is its only shared resource, when it holds it.
@@ -75,7 +75,7 @@ A QA Delegation reports in this form instead:
 
 **Stop point:** <phase number and its Stop: line>
 **Head:** <full commit SHA tested>; the pull request's head at the end: <full SHA>
-**QA Plan:** <path in the run folder>; delivered: <where, or not yet>
+**QA Plan:** <path in the run folder>; delivered: <where, or not yet>; or none: no Residue, with each claim that proves a promise
 **QA Report:** <path in the run folder, or none yet>; posted: <where, or no, and why>
 **Results:** <how many PASS, FAIL and left for a person; each FAIL and each left for a person by scenario>
 **QA Stack:** <started and stopped by this run, or not used>
