@@ -33,6 +33,7 @@ const PRE = "v1.0.0-alpha.10";
 const NO_PACK = "v1.0.0-alpha.12";
 const TAG = "v1.0.0-alpha.13";
 const BROKEN = "v1.0.0-alpha.20";
+const NO_RESPONSE = "v1.0.0-alpha.21";
 const GIT_ID = [
   "-c",
   "user.name=t",
@@ -81,6 +82,7 @@ const examples = Object.fromEntries(
   [
     "examples/plan-implement-review-caller.yml",
     "examples/security-audit-caller.yml",
+    "examples/review-response-caller.yml",
     ...readdirSync(join(repoRoot, "examples/setup-presets")).map(
       (f) => `examples/setup-presets/${f}`,
     ),
@@ -126,6 +128,10 @@ before(() => {
   git(kit, "add", "-A");
   git(kit, "commit", "-qm", "broken example");
   git(kit, "tag", "-a", BROKEN, "-m", BROKEN);
+  // A tag from before the Review response example.
+  git(kit, "rm", "-q", "examples/review-response-caller.yml");
+  git(kit, "commit", "-qm", "no review-response example");
+  git(kit, "tag", "-a", NO_RESPONSE, "-m", NO_RESPONSE);
   kitUrl = pathToFileURL(kit).href;
 });
 after(() => rmSync(tmp, { recursive: true, force: true }));
@@ -568,6 +574,123 @@ describe("init: refusals change nothing", () => {
       [...FULL, "--threat-pack-dir", ".github/agent-runtime/sec"],
       /overlaps the Kit-owned path/,
     );
+  });
+});
+
+describe("init: the review-response flow", () => {
+  const ARGS = [
+    "--tag",
+    TAG,
+    "--flows",
+    "review-response",
+    "--actors",
+    "alice",
+    "--verify",
+    "make test",
+    "--preset",
+    "node",
+    "--yes",
+  ];
+  let dir;
+  let res;
+  before(async () => {
+    dir = makeConsumer();
+    res = await init(dir, ARGS);
+  });
+
+  it("writes the Review response Caller with every placeholder filled in", () => {
+    assert.equal(res.code, 0, res.text);
+    const text = read(dir, ".github/workflows/agent-review-response.yml");
+    assert.match(text, /^name: agent-review-response$/m);
+    assert.doesNotMatch(text, /your-github-login|Provide Consumer verify/);
+    assert.match(text, /allowlist_actors: '\["alice"\]'/);
+    assert.ok(findKitPins(text).every((p) => p.ref === TAG));
+    assert.equal(findKitPins(text)[0].file, "agent-review-response-reusable.yml");
+    assert.match(text, /\n {8}set -e\n {8}make test\n/);
+    assert.match(text, /\n {6}setup_commands: \|\n {8}#!\/usr\/bin\/env bash\n/);
+    assert.equal(parseCaller(text).jobs.length, 1);
+  });
+
+  it("writes no other flow's Caller and no Threat pack", () => {
+    assert.ok(!existsSync(join(dir, ".github/workflows/agent-pipeline.yml")));
+    assert.ok(!existsSync(join(dir, ".github/workflows/security-audit.yml")));
+    assert.ok(!existsSync(join(dir, ".security")));
+  });
+
+  it("prints its label, Kill switch and auto-mode steps, and none of the other flows'", () => {
+    for (const line of [
+      "$ gh secret set CLAUDE_CODE_OAUTH_TOKEN",
+      "$ gh label create agent:address-review --color FBCA04 --description 'Agent-kit: answer the review on this PR'",
+      "$ gh variable set CLAUDE_REVIEW_RESPONSE_ENABLED --body true",
+      "$ gh variable set CLAUDE_REVIEW_RESPONSE_MODE --body auto",
+    ]) {
+      assert.ok(res.text.includes(line), `${line}\n${res.text}`);
+    }
+    assert.match(res.text, /blob\/v1\.0\.0-alpha\.13\/docs\/review-response\.md#auto-mode/);
+    assert.doesNotMatch(
+      res.text,
+      /agent:plan|CLAUDE_PIPELINE_ENABLED|AGENT_KIT_ADVISORIES_TOKEN|apps\/claude/,
+    );
+  });
+
+  it("asks for verify_commands and the preset, as for the pipeline", async () => {
+    const asked = [];
+    const out = await init(makeConsumer(), ["--tag", TAG, "--flows", "review-response"], {
+      prompt: async (q) => {
+        asked.push(q);
+        return q.startsWith("Allowlist") ? "alice" : q.startsWith("verify") ? "make test" : "";
+      },
+      confirm: async () => false,
+    });
+    assert.equal(out.code, 1, out.text);
+    assert.ok(
+      asked.some((q) => q.startsWith("verify_commands")),
+      asked.join("\n"),
+    );
+    assert.ok(
+      asked.some((q) => q.startsWith("setup_commands preset")),
+      asked.join("\n"),
+    );
+    assert.ok(!asked.some((q) => q.startsWith("Folder for the Threat pack")), asked.join("\n"));
+  });
+
+  it("with no terminal, names --verify among the missing flags", async () => {
+    const out = await init(makeConsumer(), ["--flows", "review-response"]);
+    assert.equal(out.code, 2, out.text);
+    assert.match(
+      out.text,
+      /pass --tag <vX> and --actors <login,...> and --verify <commands> and --yes/,
+    );
+  });
+
+  it("refuses a tag that has no Review response example, and writes nothing", async () => {
+    const consumer = makeConsumer();
+    const before = snapshot(consumer);
+    const out = await init(consumer, ["--tag", NO_RESPONSE, ...ARGS.slice(2)]);
+    assert.equal(out.code, 1, out.text);
+    assert.match(
+      out.text,
+      /REFUSED.*v1\.0\.0-alpha\.21 has no examples\/review-response-caller\.yml/s,
+    );
+    assert.deepEqual(snapshot(consumer), before);
+  });
+
+  it("takes every flow at once, each label printed once", () => {
+    assert.deepEqual(parseAnswer("flows", "review-response,audit pipeline").value, [
+      "pipeline",
+      "audit",
+      "review-response",
+    ]);
+    assert.match(parseAnswer("flows", "respond").error, /pipeline, audit and\/or review-response/);
+    const lines = manualSteps({
+      flows: ["pipeline", "review-response"],
+      tag: TAG,
+      kitRepo: KIT,
+      serverUrl: "https://github.com",
+    });
+    for (const label of ["agent:review", "agent:address-review"]) {
+      assert.equal(lines.filter((l) => l.includes(`label create ${label} `)).length, 1, label);
+    }
   });
 });
 
