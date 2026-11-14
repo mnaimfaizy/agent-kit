@@ -1465,7 +1465,7 @@ export function validatePlan(text) {
       const entry = get(label);
       if (!entry || entry.text === "") continue;
       const word = plainWord(entry.inline);
-      const stuck = stuckMark(word, (word) => choices.includes(word));
+      const stuck = stuckMark(word, (candidate) => choices.includes(candidate));
       if (stuck) at(entry.n, `**${label}:** read ${stuck}`);
       else if (!choices.includes(word))
         at(entry.n, `**${label}:** expected one of: ${choices.join(", ")}`);
@@ -1629,7 +1629,10 @@ export function validatePlan(text) {
         const creator = creatorOf.get(who);
         const stuck = stuckMark(
           who,
-          (who) => who === "nobody" || plan.brief.roles.includes(who) || creatorOf.has(who),
+          (candidate) =>
+            candidate === "nobody" ||
+            plan.brief.roles.includes(candidate) ||
+            creatorOf.has(candidate),
         );
         if (stuck) at(line, `${subject} signs in as ${stuck}`);
         else if (creator === undefined)
