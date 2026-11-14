@@ -192,11 +192,14 @@ export function isWorkflowPath(path) {
  * `git diff --name-status -z`. A rename or copy names both its paths, so
  * renaming `CLAUDE.md` away is seen whatever git's rename detection is set to
  * (`--name-only` would print only the new name). Anything that is not that
- * format, `--name-only` output included, throws: the gate fails closed.
+ * format, `--name-only` output included, throws: the gate fails closed. So
+ * does empty input: a pull request always changes at least one path, so an
+ * empty diff means the command that produced it failed (a pipe without
+ * `pipefail` hides that exit status).
  */
 export function protectedPathsInDiff(text, extra = []) {
   const fields = String(text).split("\0");
-  if (fields.at(-1) !== "") {
+  if (fields.at(-1) !== "" || fields.length < 3) {
     throw new Error("check-protected expects `git diff --name-status -z` output");
   }
   fields.pop();
@@ -229,8 +232,9 @@ export function isRefusedInRound(path, extra = []) {
  * alternate stream, is refused before it is pushed.
  */
 export function isUnportablePath(path) {
-  // Backslash, colon, or any control character anywhere in the path.
-  if (/[\\:\u0000-\u001f\u007f]/.test(path)) return true;
+  // Any character Windows refuses in a name (`\ : < > " | ? *`), or any
+  // control character, anywhere in the path.
+  if (/[\\:<>"|?*\u0000-\u001f\u007f]/.test(path)) return true;
   return path.split("/").some((segment) => {
     const folded = segment.toLowerCase().replace(/[. ]+$/, "");
     // Windows reserves these names with any extension: `nul.txt` is `NUL`.
@@ -238,7 +242,7 @@ export function isUnportablePath(path) {
     return (
       folded === ".git" ||
       folded === "git~1" ||
-      /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/.test(stem)
+      /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9]|conin\$|conout\$)$/.test(stem)
     );
   });
 }
@@ -497,7 +501,32 @@ const OUTCOME_LABEL = {
   declined: "Declined, left open",
   unverified: "Claimed fixed, not verified — left untouched",
   "no-verdict": "No verdict — left untouched",
+  "publish-failed": "Publishing failed, see the run",
 };
+
+/**
+ * Post each row's reply, and resolve the fixed ones, with `reply` and
+ * `resolve` doing the GitHub calls. A call that throws (a locked conversation,
+ * a thread deleted since `extract`) marks that row `publish-failed` and the
+ * loop goes on, so the round's summary is always posted: its marker is what
+ * the auto-mode round cap counts. The caller fails the job afterwards when
+ * `failures` is not zero. No error text is kept: the summary is public.
+ */
+export function publishRows(rows, { reply, resolve }) {
+  let failures = 0;
+  const done = rows.map((row) => {
+    if (!REPLIED.has(row.outcome)) return row;
+    try {
+      reply(row);
+      if (row.outcome === "fixed") resolve(row);
+      return row;
+    } catch {
+      failures += 1;
+      return { ...row, outcome: "publish-failed" };
+    }
+  });
+  return { rows: done, failures };
+}
 
 /**
  * The round's summary comment. Holds only facts this script established, never
@@ -528,7 +557,9 @@ export function renderSummary({
         "fixed-elsewhere",
         "addressed",
         "declined",
-      )} left open with a reply, ${count("unverified", "no-verdict")} left untouched.`,
+      )} left open with a reply, ${count("unverified", "no-verdict")} left untouched${
+        count("publish-failed") > 0 ? `, ${count("publish-failed")} failed to publish` : ""
+      }.`,
       "",
       "| Finding | Outcome | Commit |",
       "| --- | --- | --- |",
@@ -961,15 +992,17 @@ function publish({ pr, startHead, roundFile, runUrl, notes }) {
   }
 
   const workList = fetchWorkList(pr);
-  const { rows, dropped } = planPublication(workList, response, roundCommits, { extraProtected });
+  const { rows: planned, dropped } = planPublication(workList, response, roundCommits, {
+    extraProtected,
+  });
 
-  for (const row of rows) {
-    if (!REPLIED.has(row.outcome)) continue;
-    gh(
-      ["api", `repos/${slug}/pulls/${pr}/comments/${row.comment_id}/replies`, "--input", "-"],
-      JSON.stringify({ body: renderReply(row) }),
-    );
-    if (row.outcome === "fixed") {
+  const published = publishRows(planned, {
+    reply: (row) =>
+      gh(
+        ["api", `repos/${slug}/pulls/${pr}/comments/${row.comment_id}/replies`, "--input", "-"],
+        JSON.stringify({ body: renderReply(row) }),
+      ),
+    resolve: (row) =>
       gh([
         "api",
         "graphql",
@@ -977,9 +1010,9 @@ function publish({ pr, startHead, roundFile, runUrl, notes }) {
         "query=mutation($thread: ID!) { resolveReviewThread(input: {threadId: $thread}) { thread { isResolved } } }",
         "-f",
         `thread=${row.thread_id}`,
-      ]);
-    }
-  }
+      ]),
+  });
+  const { rows } = published;
 
   summary({ rows, notAttempted: workList.not_attempted, dropped, endHead: round.tip });
   const count = (outcome) => rows.filter((row) => row.outcome === outcome).length;
@@ -988,6 +1021,9 @@ function publish({ pr, startHead, roundFile, runUrl, notes }) {
       .map((outcome) => `${outcome}=${count(outcome)}`)
       .join(" ") + ` dropped=${dropped}`,
   );
+  if (published.failures > 0) {
+    throw new Error(`${published.failures} thread(s) could not be published`);
+  }
 }
 
 function option(args, name, { optional = false } = {}) {

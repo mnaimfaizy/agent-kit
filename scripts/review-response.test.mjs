@@ -28,6 +28,7 @@ import {
   pickHeldCiRun,
   planPublication,
   protectedPathsInDiff,
+  publishRows,
   receiveRound,
   renderBrief,
   renderReply,
@@ -1071,7 +1072,7 @@ describe("Review responder review fixes (PR #186)", () => {
     ]);
     assert.deepEqual(protectedPathsInDiff(diff("D", "AGENTS.md", "M", "src/a.ts")), ["AGENTS.md"]);
     assert.deepEqual(protectedPathsInDiff(diff("M", "src/a.ts", "A", "src/b.ts")), []);
-    assert.deepEqual(protectedPathsInDiff(""), []);
+    assert.throws(() => protectedPathsInDiff(""), /name-status/);
     assert.deepEqual(protectedPathsInDiff(diff("M", "docs/private/a.md"), ["docs/private"]), [
       "docs/private/a.md",
     ]);
@@ -1157,5 +1158,99 @@ describe("Review responder round tip (PR #186)", () => {
       round.commits.map((c) => c.sha),
       [commit],
     );
+  });
+});
+
+describe("Review responder review fixes, round 2 (PR #186)", () => {
+  it("check-protected refuses empty input: a pull request always changes a path", () => {
+    for (const empty of ["", "\0"]) {
+      assert.throws(() => protectedPathsInDiff(empty), /name-status/, JSON.stringify(empty));
+    }
+  });
+
+  it("refuses every character and name Windows will not check out", () => {
+    for (const path of [
+      "docs/a?b.md",
+      "a*b.ts",
+      "a<b",
+      "a>b",
+      'a"b',
+      "a|b",
+      "dev/CONIN$",
+      "conout$.txt",
+      "x/Conin$ ",
+    ]) {
+      assert.ok(isUnportablePath(path), `${JSON.stringify(path)} must be refused`);
+    }
+    for (const path of ["docs/conin.md", "src/$conout.ts", "a+b-c_d.e"]) {
+      assert.ok(!isUnportablePath(path), `${path} must be allowed`);
+    }
+  });
+
+  it("a failed reply or resolution does not stop the summary from being posted", () => {
+    const sha = "a".repeat(40);
+    const rows = [
+      {
+        thread_id: "T1",
+        comment_id: 1,
+        path: "src/a.ts",
+        line: 1,
+        outcome: "fixed",
+        commit: sha,
+        reply: "r",
+      },
+      {
+        thread_id: "T2",
+        comment_id: 2,
+        path: "src/b.ts",
+        line: 2,
+        outcome: "declined",
+        reply: "r",
+      },
+      {
+        thread_id: "T3",
+        comment_id: 3,
+        path: "src/c.ts",
+        line: 3,
+        outcome: "fixed",
+        commit: sha,
+        reply: "r",
+      },
+      { thread_id: "T4", comment_id: 4, path: "src/d.ts", line: 4, outcome: "no-verdict" },
+    ];
+    const replied = [];
+    const resolved = [];
+    const result = publishRows(rows, {
+      reply: (row) => {
+        if (row.comment_id === 2) throw new Error("conversation is locked");
+        replied.push(row.thread_id);
+      },
+      resolve: (row) => {
+        if (row.thread_id === "T3") throw new Error("thread is gone");
+        resolved.push(row.thread_id);
+      },
+    });
+    assert.deepEqual(replied, ["T1", "T3"], "every row is tried");
+    assert.deepEqual(resolved, ["T1"]);
+    assert.equal(result.failures, 2);
+    assert.deepEqual(
+      result.rows.map((row) => row.outcome),
+      ["fixed", "publish-failed", "publish-failed", "no-verdict"],
+    );
+
+    const summary = renderSummary({
+      rows: result.rows,
+      notAttempted: [],
+      dropped: 0,
+      startHead: "b".repeat(40),
+      runUrl: "u",
+    });
+    assert.ok(summary.startsWith(SUMMARY_MARKER), "still a counted round");
+    assert.match(
+      summary,
+      /1 fixed and resolved, 0 left open with a reply, 1 left untouched, 2 failed to publish/,
+    );
+    assert.match(summary, /\| `src\/b\.ts`:2 \| Publishing failed, see the run \|/);
+    assert.ok(!summary.includes("locked"), "no error text in the summary");
   });
 });
