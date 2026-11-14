@@ -243,7 +243,7 @@ test("unknown keys at every level are problems, with their line", () => {
   assert.deepEqual(problems, [
     "line 2: `workdir`: unknown key (ADAPTER.md documents: working_dir, plan, hazards, run)",
     "line 4: `plan.base`: unknown key (ADAPTER.md documents: base_ref, suites, publish, tracker)",
-    "line 6: `plan.suites[0].junit_path`: unknown key (ADAPTER.md documents: name, command, junit, surfaces)",
+    "line 6: `plan.suites[0].junit_path`: unknown key (ADAPTER.md documents: name, command, junit, surfaces, services)",
     "line 8: `plan.publish[0].when`: unknown key (ADAPTER.md documents: when_label, default, to, label)",
     "line 10: `hazards[0].globs`: unknown key (ADAPTER.md documents: pack)",
   ]);
@@ -256,7 +256,7 @@ test("wrong shapes are problems, with their line", () => {
     "  base_ref: []",
     "  tracker: jira",
     "  suites:",
-    "    - { command: x, junit: /abs/r.xml, surfaces: api }",
+    "    - { command: x, junit: /abs/r.xml, surfaces: api, services: redis }",
     "    - { name: b, command: y }",
     "    - { name: b, command: z }",
     "    - just-a-string",
@@ -269,6 +269,7 @@ test("wrong shapes are problems, with their line", () => {
     "line 6: `plan.suites[0].name`: required: expected a string",
     "line 6: `plan.suites[0].junit`: expected a relative path inside the repository",
     "line 6: `plan.suites[0].surfaces`: expected a list of globs",
+    "line 6: `plan.suites[0].services`: expected a list of service names",
     "line 8: `plan.suites[2].name`: duplicate suite name `b`",
     "line 9: `plan.suites[3]`: expected a mapping",
     "line 10: `hazards`: expected a list of `{ pack: <path> }`",
@@ -336,6 +337,26 @@ test("readiness notes a suite without a JUnit path, and is ready", () => {
   assert.deepEqual(readiness.needs, []);
   assert.equal(readiness.ready, true);
   assert.match(readiness.notes[0], /suite `e2e` has no `junit` path.*\[reconstructed\]/);
+});
+
+test("readiness notes when a QA Stack exists and no suite lists `services`", () => {
+  const config = (suite) =>
+    "plan:\n  base_ref: origin/main\n  suites:\n" +
+    `    - ${suite}\n` +
+    "run:\n  stack: { up: a, migrate: b, seed: c, down: d }\n";
+  const doubles = planReadiness(
+    readQaConfig(reader({ "qa.config.yml": config("{ name: unit, command: x, junit: r.xml }") })),
+  );
+  assert.equal(doubles.ready, true);
+  assert.match(doubles.notes[0], /no suite lists `services`.*Residue/);
+  const live = planReadiness(
+    readQaConfig(
+      reader({
+        "qa.config.yml": config("{ name: it, command: x, junit: r.xml, services: [postgres] }"),
+      }),
+    ),
+  );
+  assert.deepEqual(live.notes, []);
 });
 
 test("readiness is never ready over problems", () => {
@@ -495,6 +516,7 @@ test("a rendered config reads back unchanged, with no problems", () => {
           command: "pytest --junitxml=reports/backend.xml",
           junit: "reports/backend.xml",
           surfaces: ["backend/**", "shared/*.py"],
+          services: ["postgres", "redis"],
         },
         { name: "e2e", command: "npm run e2e -- --reporter=junit" },
       ],
