@@ -61,7 +61,7 @@ The Chief of Staff relays it as written, adding only which Delegation it is from
 **Pull request:** <URL, or none yet>
 **Done:** <each acceptance criterion, and how it was shown>
 **Re-gate:** <each command, and its result>
-**Review:** <each review comment, and how it was handled>
+**Review:** <each review comment, and how it was handled; where the repository runs Agent-kit's review workflow, its run on this head: finished, running, or not started>
 **Not done:** <what is left, and why>
 **Decision Requests:** <open ones, by heading>
 ```

@@ -61,9 +61,15 @@ export const MODEL_KEYS = /** @type {const} */ (["analysis", "build", "review", 
 export const LIMIT_KEYS = /** @type {const} */ (["building", "shared"]);
 export const DECISION_KEYS = /** @type {const} */ (["to", "marker"]);
 export const DECISION_TARGETS = /** @type {const} */ (["pull-request", "issue-comment"]);
-export const READY_KEYS = /** @type {const} */ (["review", "qa", "qa_labels"]);
+export const READY_KEYS = /** @type {const} */ (["review", "qa", "qa_labels", "review_workflow"]);
 export const REVIEW_RULES = /** @type {const} */ (["settled", "approved"]);
 export const QA_RULES = /** @type {const} */ (["none", "report"]);
+/**
+ * `ready_to_merge.review_workflow`'s two words. Any other value is the path
+ * of the Caller of Agent-kit's review workflow, under `.github/workflows/`.
+ */
+export const REVIEW_WORKFLOW_RULES = /** @type {const} */ (["detect", "none"]);
+const CALLER_PATH = /^\.github\/workflows\/[^/]+\.ya?ml$/;
 /**
  * The QA config the `qa-plan` and `manual-qa` skills read, in their lookup
  * order. Its presence is a sign the repository runs QA, so `readiness` asks
@@ -194,6 +200,7 @@ export const DEFAULTS = Object.freeze({
   decisions: "pull-request",
   review: "settled",
   qa: "none",
+  review_workflow: "detect",
   landing: "ask",
   integration_branch: "orchestrate/spec-<n>",
 });
@@ -773,6 +780,15 @@ export const SECTIONS = {
           "only `qa: report` is limited to labels; set it, or delete this key",
         );
     }
+    if (
+      given(sink, value, "review_workflow", path("review_workflow")) &&
+      !REVIEW_WORKFLOW_RULES.includes(value.review_workflow) &&
+      !(typeof value.review_workflow === "string" && CALLER_PATH.test(value.review_workflow))
+    )
+      sink.add(
+        path("review_workflow"),
+        "expected `detect`, `none`, or a workflow file directly under `.github/workflows/`",
+      );
   },
   spec(sink, value) {
     if (!isMapping(value)) return sink.add("spec", "expected a mapping");
@@ -951,7 +967,7 @@ function qaConfig(read) {
   return QA_CONFIG_FILES.find(present) ?? null;
 }
 
-/** A document a brief sends every Delegation to must be there. */
+/** Every path the config names must be in the repository: the documents a brief sends every Delegation to, and the review Caller. */
 function missingPaths(config, where, exists) {
   const sink = problemSink(where);
   (config.read_first ?? []).forEach((path, n) => {
@@ -959,6 +975,9 @@ function missingPaths(config, where, exists) {
   });
   if (typeof config.triage_labels === "string" && !exists(config.triage_labels))
     sink.add("triage_labels", `\`${config.triage_labels}\` is not in the repository`);
+  const caller = isMapping(config.ready_to_merge) ? config.ready_to_merge.review_workflow : null;
+  if (typeof caller === "string" && CALLER_PATH.test(caller) && !exists(caller))
+    sink.add("ready_to_merge.review_workflow", `\`${caller}\` is not in the repository`);
   return sink.problems;
 }
 
@@ -996,6 +1015,7 @@ export function effectiveConfig(config) {
       review: ready.review ?? DEFAULTS.review,
       qa: ready.qa ?? DEFAULTS.qa,
       qa_labels: ready.qa_labels ?? [],
+      review_workflow: ready.review_workflow ?? DEFAULTS.review_workflow,
     },
     spec: {
       landing: spec.landing ?? DEFAULTS.landing,
