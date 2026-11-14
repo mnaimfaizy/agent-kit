@@ -522,13 +522,14 @@ test("with the plan's head, a report comment for an older head is stale; one for
   // A comment whose **Plan:** line names no full head is unknown, not "same".
   const unread = [{ id: 42, body: `${REPORT_MARKER}\n\nno plan line`, user: ME }];
   assert.equal(findComments(unread, ME, { head: NEW_HEAD }).report.stale, null);
-  // Heads compare exactly in both: an uppercase head is not the lowercase one, and
-  // `stale` and `find --head` refuse it as no full head.
+  // A head that is not a full lowercase SHA is refused alike: unknown in `findComments`,
+  // no full head to `stale` and to `find --head`.
   const upper = "A".repeat(40);
   const lower = [
     { id: 43, body: reportComment(PASSED).body.replace(HEAD, "a".repeat(40)), user: ME },
   ];
-  assert.equal(findComments(lower, ME, { head: upper }).report.stale, true);
+  assert.equal(findComments(lower, ME, { head: upper }).report.stale, null);
+  assert.equal(findComments(lower, ME, { head: "3333333" }).report.stale, null);
   assert.match(staleComment(lower[0].body, upper).problems[0], /full head/);
   assert.equal(main(["find", "--login", ME, "--head", upper], { stdin: () => "" }).code, 1);
   // Without the plan's head, nothing is compared.
@@ -565,7 +566,9 @@ test("a same-head report comment, or a body that is no report comment, is not ma
 test("a report comment carrying the Stale line is still found, read, and replaced whole", () => {
   const stale = staleComment(reportComment(FAILED).body, NEW_HEAD).body;
   const comments = [{ id: 50, body: stale, user: ME }];
-  assert.deepEqual(findComments(comments, ME, { head: NEW_HEAD }).report, {
+  // Found as the comment to update; for a later revision it is stale again.
+  const later = "4".repeat(40);
+  assert.deepEqual(findComments(comments, ME, { head: later }).report, {
     action: "update",
     id: 50,
     duplicates: [],
@@ -582,6 +585,14 @@ test("a report comment carrying the Stale line is still found, read, and replace
   assert.equal(next.split("\n")[0], REPORT_MARKER);
 });
 
+test("a comment already marked stale for the plan's head draws no second warning", () => {
+  const marked = staleComment(reportComment(PASSED).body, NEW_HEAD).body;
+  const comments = [{ id: 60, body: marked, user: ME }];
+  assert.equal(findComments(comments, ME, { head: NEW_HEAD }).report.stale, false);
+  // A further revision, for another head, is stale again.
+  assert.equal(findComments(comments, ME, { head: "4".repeat(40) }).report.stale, true);
+});
+
 test("the CLI marks a report comment stale from its body on stdin, and finds with --head", () => {
   const body = reportComment(PASSED).body;
   const marked = main(["stale", "--head", NEW_HEAD], { stdin: () => body });
@@ -591,7 +602,7 @@ test("the CLI marks a report comment stale from its body on stdin, and finds wit
   assert.equal(main(["stale"], { stdin: () => body }).code, 2);
   const lines = JSON.stringify({ id: 7, body: marked.out, user: ME });
   const found = JSON.parse(
-    main(["find", "--login", ME, "--head", NEW_HEAD], { stdin: () => lines }).out,
+    main(["find", "--login", ME, "--head", "4".repeat(40)], { stdin: () => lines }).out,
   );
   assert.equal(found.report.stale, true);
   assert.equal(found.report.head, HEAD);

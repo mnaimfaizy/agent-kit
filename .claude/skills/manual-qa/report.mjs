@@ -64,6 +64,24 @@ const staleLine = (head, old) => `${STALE_START}${head}; this report is for ${ol
 /** A full head, as a plan's anchor carries it (SHA-1 or SHA-256). */
 const HEAD_HEX = "[0-9a-f]{40}(?:[0-9a-f]{24})?";
 const FULL_HEAD = new RegExp(`^${HEAD_HEX}$`);
+
+/**
+ * The head a report comment's **Stale:** line says the plan was revised for,
+ * or `null` when it carries no such line: the first line after the marker.
+ *
+ * @param {string} body
+ * @returns {string | null}
+ */
+function staleFor(body) {
+  const line = lf(body ?? "")
+    .split("\n")
+    .slice(1)
+    .find((text) => text.trim() !== "");
+  const named = line?.trim().startsWith(STALE_START)
+    ? line.trim().slice(STALE_START.length).split(";")[0]
+    : null;
+  return named && FULL_HEAD.test(named) ? named : null;
+}
 /** The first line of the PR comment `qa-plan` posts naming its tracker issue. */
 export const PLAN_LINK_MARKER = "<!-- qa-plan-link -->";
 export const RESULTS = /** @type {const} */ (["PASS", "FAIL", "left for a person"]);
@@ -337,7 +355,9 @@ const firstLine = (body) =>
  * The comment to update carries the head its report's **Plan:** line names,
  * read by `readReport`, a **Stale:** line or not. Given the plan's full `head`,
  * it also says whether that head is another one: `qa-plan` warns only then.
- * `stale` is `null` when the comment's **Plan:** line names no full head.
+ * A comment whose **Stale:** line already names the plan's head was marked
+ * for it, so it is not stale again. `stale` is `null` when either head is not
+ * a full SHA: the comment's **Plan:** line, or the `head` given.
  *
  * @param {{id: number | string, body: string, user?: string | {login?: string}}[]} comments
  *   oldest first, as GitHub lists them
@@ -362,8 +382,15 @@ export function findComments(comments, login, { head = null } = {}) {
           duplicates: own.slice(1).map((c) => c.id),
           head: reportHead,
           // Heads compare exactly, as `staleComment` compares them: both are full lowercase SHAs.
-          // A head the comment's report does not name is unknown, never "same".
-          ...(head ? { stale: reportHead === null ? null : reportHead !== head } : {}),
+          // A head that is not one is unknown, never "same".
+          ...(head
+            ? {
+                stale:
+                  reportHead === null || !FULL_HEAD.test(head)
+                    ? null
+                    : reportHead !== head && staleFor(own[0].body) !== head,
+              }
+            : {}),
         }
       : { action: "create" },
     others: marked.filter((c) => !own.includes(c)).map((c) => c.id),

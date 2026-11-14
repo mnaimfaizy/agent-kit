@@ -162,10 +162,10 @@ Then check for a QA Report left over from an older head. `manual-qa` posts one c
 gh api --paginate "repos/{owner}/{repo}/issues/<pr>/comments" --jq '.[] | {id, body, user: .user.login}' | node "<skill>/../manual-qa/report.mjs" find --login "<login>" --head <head>
 ```
 
-`<login>` is `gh api user --jq .login`, and `<head>` is the plan's full head anchor (step 3). Skip this check, and change nothing, when `gh` cannot reach the pull request, when there is no `manual-qa/report.mjs` beside this folder, when `report` is `create` (no report comment of the person's own), or when `report` has no `stale` key (an older `manual-qa` that does not read `--head`). A report comment someone else wrote, named in `others`, is never edited here.
+`<login>` is `gh api user --jq .login`, and `<head>` is the plan's full head anchor (step 3). Write every file this check needs (`<tmp>` below) in the system's temporary directory, and delete them when done. Skip this check, and change nothing, when `gh` cannot reach the pull request, when there is no `manual-qa/report.mjs` beside this folder, when `report` is `create` (no report comment of the person's own), or when `report` has no `stale` key (an older `manual-qa` that does not read `--head`). A report comment someone else wrote, named in `others`, is never edited here.
 
-- **`stale` is `false`:** the report is for the plan's head. Say nothing about it.
-- **`stale` is `null`:** the comment's **Plan:** line names no head that can be read. Tell the person its URL (as below) and that it could not be checked against the plan's head; offer no edit.
+- **`stale` is `false`:** the report is for the plan's head, or its **Stale:** line already names it. Say nothing about it.
+- **`stale` is `null`:** the comment's **Plan:** line, or the plan's head given, is not a full head SHA. Tell the person its URL (as below) and that it could not be checked against the plan's head; offer no edit.
 - **`stale` is `true`:** tell the person the comment's URL (`gh api "repos/{owner}/{repo}/issues/comments/<id>" --jq .html_url`), the head the report is for (`report.head`) and the plan's head, and ask whether to mark it stale. Editing the comment notifies the people watching the pull request, so do it only on their yes:
 
   ```bash
