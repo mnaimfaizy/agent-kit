@@ -156,4 +156,22 @@ Pass each of the subject issue's labels. It prints `to`, and the rule that chose
 
 A revision of the plan replaces the delivered one; it never adds a second. With `tracker: none`, the plan stays in the working copy whatever the rules say.
 
-**Done when:** the plan is at the target the rules chose, the person has its path or URL, and nothing was committed.
+Then check for a QA Report left over from an older head. `manual-qa` posts one comment on the pull request, its first line `<!-- qa-report -->`, whose **Plan:** line names the head it ran on; after a revision for a new head it describes a plan that no longer exists. Read it with `manual-qa`'s own `report.mjs`, in the `manual-qa` folder beside this one, rather than parsing the comment here:
+
+```bash
+gh api --paginate "repos/{owner}/{repo}/issues/<pr>/comments" --jq '.[] | {id, body, user: .user.login}' | node "<skill>/../manual-qa/report.mjs" find --login "<login>" --head <head>
+```
+
+`<login>` is `gh api user --jq .login`, and `<head>` is the plan's full head anchor (step 3). Skip this check, and change nothing, when `gh` cannot reach the pull request, when there is no `manual-qa/report.mjs` beside this folder, or when `report` is `create` (no report comment of the person's own). A report comment someone else wrote, named in `others`, is never edited here.
+
+- **`stale` is `false`:** the report is for the plan's head. Say nothing about it.
+- **`stale` is `true`:** tell the person the comment's URL (`gh api "repos/{owner}/{repo}/issues/comments/<id>" --jq .html_url`), the head the report is for (`report.head`) and the plan's head, and ask whether to mark it stale. Editing the comment notifies the people watching the pull request, so do it only on their yes:
+
+  ```bash
+  gh api "repos/{owner}/{repo}/issues/comments/<id>" --jq .body | node "<skill>/../manual-qa/report.mjs" stale --head <head> > "<tmp>/stale.md"
+  gh api -X PATCH "repos/{owner}/{repo}/issues/comments/<id>" -F body=@<tmp>/stale.md
+  ```
+
+  It adds `**Stale:** the plan was revised for head <head>; this report is for <old head>.` after the marker, and changes nothing else. On a no, leave the comment as it is. Never delete or hide it: the next `manual-qa` run replaces the whole comment, Stale line included.
+
+**Done when:** the plan is at the target the rules chose, the person has its path or URL, nothing was committed, and, when the pull request carries a QA Report comment for another head, the person has its URL and both heads and has answered whether to mark it stale.

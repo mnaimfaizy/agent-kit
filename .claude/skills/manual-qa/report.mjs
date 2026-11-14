@@ -17,9 +17,13 @@
 //   2. `find`: from a pull request's comments, the one QA Report comment to
 //      update (its body's first line is exactly `<!-- qa-report -->`, and the
 //      person posting wrote it), so a re-run edits it and never posts a second; and the tracker issue the
-//      plan's `<!-- qa-plan-link -->` comment names.
+//      plan's `<!-- qa-plan-link -->` comment names. With `--head`, the
+//      plan's head, it says whether that comment is for an older head.
 //   3. `comment`: the PR comment body: the marker, then the report, with each
 //      uploaded evidence path linked.
+//   3a. `stale`: a report comment's body with a **Stale:** line after the
+//      marker, for `qa-plan` to edit in on the person's yes after a revision.
+//      The next `comment` replaces the whole body, Stale line included.
 //   4. `tracker`: the tracker issue's new body: the plan as delivered, with
 //      each PASS scenario's Sign-off box ticked (every other box of a
 //      scenario cleared) and its Execution record replaced by the report's.
@@ -36,7 +40,8 @@
 //
 // CLI (run from the repository root; `--repo <dir>` points elsewhere)
 //   node report.mjs read <report> [--plan <plan>]
-//   node report.mjs find --login <login> < comments.jsonl
+//   node report.mjs find --login <login> [--head <sha>] < comments.jsonl
+//   node report.mjs stale --head <sha> < comment-body.md
 //   node report.mjs comment <report> [--link <path>=<url>]…
 //   node report.mjs tracker <report> --issue-body <file> [--link <path>=<url>]…
 //   node report.mjs evidence <report> [--pick <path>]… [--visibility <v>]
@@ -53,6 +58,11 @@ import { credentialProblems, effectiveConfig, readQaConfig, validatePlan } from 
 
 /** The first line of the one PR comment that carries a QA Report. */
 export const REPORT_MARKER = "<!-- qa-report -->";
+/** The line `qa-plan` adds after the marker of a report comment for an older head. */
+export const STALE_LINE =
+  /^\*\*Stale:\*\* the plan was revised for head \S+; this report is for \S+\.$/;
+/** A full head, as a plan's anchor carries it (SHA-1 or SHA-256). */
+const FULL_HEAD = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/;
 /** The first line of the PR comment `qa-plan` posts naming its tracker issue. */
 export const PLAN_LINK_MARKER = "<!-- qa-plan-link -->";
 export const RESULTS = /** @type {const} */ (["PASS", "FAIL", "left for a person"]);
@@ -323,25 +333,72 @@ const firstLine = (body) =>
  * never deleted here. The link comment is the developer's, so any author's
  * counts: `trackerBody` checks the issue it names against the report.
  *
+ * The comment to update carries the head its report's **Plan:** line names,
+ * read by `readReport`, a **Stale:** line or not. Given the plan's `head`, it
+ * also says whether that head is another one: `qa-plan` warns only then.
+ *
  * @param {{id: number | string, body: string, user?: string | {login?: string}}[]} comments
  *   oldest first, as GitHub lists them
  * @param {string} login who posts: `gh api user --jq .login`
- * @returns {{report: {action: "update", id: number | string, duplicates: (number | string)[]} |
- *   {action: "create"}, others: (number | string)[], planIssue: number | null}}
+ * @param {{head?: string | null}} [options] the plan's head
+ * @returns {{report: {action: "update", id: number | string, duplicates: (number | string)[],
+ *   head: string | null, stale?: boolean} | {action: "create"},
+ *   others: (number | string)[], planIssue: number | null}}
  */
-export function findComments(comments, login) {
+export function findComments(comments, login, { head = null } = {}) {
   const author = (c) => (typeof c.user === "string" ? c.user : c.user?.login);
   const marked = comments.filter((c) => firstLine(c.body) === REPORT_MARKER);
   const own = marked.filter((c) => login && author(c) === login);
   const link = comments.find((c) => firstLine(c.body) === PLAN_LINK_MARKER);
   const planIssue = link ? Number(/QA Plan: #(\d+)/.exec(link.body)?.[1]) || null : null;
+  let report = /** @type {any} */ ({ action: "create" });
+  if (own.length) {
+    const reportHead = readReport(own[0].body ?? "").report.head;
+    report = {
+      action: "update",
+      id: own[0].id,
+      duplicates: own.slice(1).map((c) => c.id),
+      head: reportHead,
+    };
+    if (head) report.stale = reportHead !== null && reportHead !== head;
+  }
   return {
-    report: own.length
-      ? { action: "update", id: own[0].id, duplicates: own.slice(1).map((c) => c.id) }
-      : { action: "create" },
+    report,
     others: marked.filter((c) => !own.includes(c)).map((c) => c.id),
     planIssue,
   };
+}
+
+/**
+ * A report comment's body marked stale after the plan was revised for `head`:
+ * the marker, then the **Stale:** line, then the report. An earlier Stale line
+ * is replaced, so a second revision leaves one line, naming the newest head.
+ *
+ * @param {string} body the comment's current body
+ * @param {string} head the revised plan's full head
+ * @returns {{body: string | null, problems: string[]}}
+ */
+export function staleComment(body, head) {
+  if (!FULL_HEAD.test(String(head ?? "")))
+    return { body: null, problems: [`\`${head}\` is not a full head SHA`] };
+  const lines = lf(body ?? "").split("\n");
+  if (lines[0].trim() !== REPORT_MARKER)
+    return {
+      body: null,
+      problems: [`its first line is not \`${REPORT_MARKER}\`: no report comment`],
+    };
+  const old = readReport(body).report.head;
+  if (!old) return { body: null, problems: ["its report's **Plan:** line names no full head"] };
+  if (old === head)
+    return { body: null, problems: [`its report is for the same head, ${head}: it is not stale`] };
+  // The report, without the marker, any Stale line, and the blank lines around them.
+  const rest = lines.slice(1);
+  while (rest.length && (rest[0].trim() === "" || STALE_LINE.test(rest[0].trim()))) rest.shift();
+  const line = `**Stale:** the plan was revised for head ${head}; this report is for ${old}.`;
+  const marked = `${REPORT_MARKER}\n\n${line}\n\n${rest.join("\n").trim()}\n`;
+  const problems = [];
+  checkBody(marked, problems);
+  return { body: problems.length ? null : marked, problems };
 }
 
 /** Link each uploaded evidence path where the text quotes it in backticks. */
@@ -591,7 +648,8 @@ export function main(argv, io = {}) {
   const usage = {
     code: 2,
     out:
-      "usage: node report.mjs read <report> [--plan <plan>] | find --login <login> < comments | " +
+      "usage: node report.mjs read <report> [--plan <plan>] | " +
+      "find --login <login> [--head <sha>] < comments | stale --head <sha> < body | " +
       "comment <report> [--link p=url]… | " +
       "tracker <report> --issue-body <file> [--link p=url]… | evidence <report> [--pick <path>]… " +
       "[--visibility <v>] [--release missing|prerelease|release] [--github <owner/name>]   [--repo <dir>]\n",
@@ -600,7 +658,17 @@ export function main(argv, io = {}) {
   if (command === "find") {
     const login = option(argv, "--login")[0];
     if (login === undefined || login.startsWith("--")) return usage;
-    return { code: 0, out: json(findComments(parseComments(stdin()), login)) };
+    const head = option(argv, "--head")[0];
+    if (argv.includes("--head") && (head === undefined || head.startsWith("--"))) return usage;
+    return { code: 0, out: json(findComments(parseComments(stdin()), login, { head })) };
+  }
+  if (command === "stale") {
+    const head = option(argv, "--head")[0];
+    if (head === undefined || head.startsWith("--")) return usage;
+    const result = staleComment(stdin(), head);
+    return result.body === null
+      ? { code: 1, out: json({ problems: result.problems }) }
+      : { code: 0, out: result.body };
   }
   if (!["read", "comment", "tracker", "evidence"].includes(command)) return usage;
   if (target === undefined || target.startsWith("--")) return usage;
