@@ -375,3 +375,17 @@ if __name__ == "__main__":
     test_review_restores_runtime_without_fetching_a_raw_sha()
     test_keep_draft_job_closes_a_non_draft_pr_whatever_verify_did()
     print("agent-pipeline contract seam tests passed")
+
+
+def test_review_run_logs_the_head_it_reviews() -> None:
+    # Read by orchestrate's SKILL.md step 7: a manually dispatched review run
+    # is recorded against the commit it was dispatched from, so the Chief of
+    # Staff finds which head it reviewed by `HEAD_SHA` in this step's logged
+    # env. Renaming the step or the variable breaks that match silently.
+    import yaml
+
+    jobs = yaml.safe_load(read(REVIEW_WORKFLOW))["jobs"]
+    steps = [s for job in jobs.values() for s in job.get("steps", [])]
+    brief = [s for s in steps if s.get("name") == "Build review brief"]
+    assert len(brief) == 1
+    assert brief[0]["env"]["HEAD_SHA"] == "${{ inputs.head_sha }}"
