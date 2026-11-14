@@ -1211,6 +1211,7 @@ test("`where` names the skill it checks, and refuses any other argument", () => 
     "home/orchestrate/SKILL.md",
     "repo/.git/HEAD",
     "repo/.claude/skills/orchestrate/SKILL.md",
+    "other/.git/HEAD",
   ]);
   const io = {
     skillDir: join(root, "home/orchestrate"),
@@ -1222,7 +1223,7 @@ test("`where` names the skill it checks, and refuses any other argument", () => 
   assert.equal(JSON.parse(ran.out).use, "repository");
   assert.equal(main(["where", "orchestrate", "--repo", "."], io).code, 0);
   assert.equal(
-    main(["where", "orchestrate", "--repo", join(root, "home")], io).out.includes('"use": "this"'),
+    main(["where", "orchestrate", "--repo", join(root, "other")], io).out.includes('"use": "this"'),
     true,
   );
   for (const argv of [

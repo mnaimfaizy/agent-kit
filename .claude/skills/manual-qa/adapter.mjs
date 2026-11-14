@@ -2012,7 +2012,7 @@ export function main(argv, io = {}) {
       "plan [<file>] < plan.md | host <url> [--target stack|url] [--confirmed <host>] | " +
       "hazards < changed-paths | " +
       "delivery [--label <name>]… | render [--write [--drop-comments]] < answers.json | " +
-      "where <skill> [--repo <dir>]   " +
+      "where <skill>   " +
       "[--repo <dir>]\n",
   };
   // A plan is the person's file, wherever they keep it: read from the working
