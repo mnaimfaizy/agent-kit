@@ -9,6 +9,7 @@ import { checkKitOwnedTrees } from "./checks/kit-owned-trees.mjs";
 import { checkLabels } from "./checks/labels.mjs";
 import { checkPins } from "./checks/pins.mjs";
 import { result, sanitizeLine } from "./checks/result.mjs";
+import { checkReviewResponseMode } from "./checks/review-response.mjs";
 import {
   checkCreationRule,
   checkPersonalTagPush,
@@ -46,6 +47,7 @@ export const LOCAL_ONLY_CHECKS = [
   ["ruleset-creation", "Release branches have a creation rule"],
   ["ruleset-tags", "Release tags have a v* tag ruleset"],
   ["release-tag-push", "Release tags can be pushed under the tag ruleset"],
+  ["review-response-mode", "Review response mode is set up"],
 ];
 
 const skipAll = (ids, reason) => ids.map(([id, title]) => result(id, title, "skip", reason));
@@ -303,6 +305,11 @@ function localChecks({ runner, cwd, info, files, callers, snapshot }) {
     out.push(...skipAll(LOCAL_ONLY_CHECKS.slice(4, 7), rulesetError));
   }
   out.push(guarded("release-tag-push", () => checkPersonalTagPush({ ownerType, files })));
+  out.push(
+    guarded("review-response-mode", () =>
+      checkReviewResponseMode({ github, repo, ownerType, callers }),
+    ),
+  );
   return raw;
 }
 

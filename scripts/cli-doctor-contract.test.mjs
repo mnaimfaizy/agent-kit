@@ -104,6 +104,12 @@ const KIT_FILES = {
   ".github/workflows/security-audit-reusable.yml": readRepo(
     ".github/workflows/security-audit-reusable.yml",
   ),
+  ".github/workflows/agent-review-reusable.yml": readRepo(
+    ".github/workflows/agent-review-reusable.yml",
+  ),
+  ".github/workflows/agent-review-response-reusable.yml": readRepo(
+    ".github/workflows/agent-review-response-reusable.yml",
+  ),
 };
 
 function callerFor(tag) {
@@ -1767,5 +1773,239 @@ describe("re-check follow-ups (PR #78)", () => {
       const at = bytes.findIndex((b) => b < 32 && !allowed.has(b));
       assert.equal(at, -1, `${f}: raw control byte ${bytes[at]} at offset ${at}; use an escape`);
     }
+  });
+});
+
+describe("Review response checks", () => {
+  const RESPONSE = readRepo("examples/review-response-caller.yml").replace(
+    /(agent-review-response-reusable\.yml)@\S+/,
+    `$1@${TAG}`,
+  );
+  const reviewCaller = (lines) => `name: review
+on:
+  pull_request:
+    types: [labeled]
+jobs:
+  review:
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: write
+      actions: write
+    uses: ${KIT}/.github/workflows/agent-review-reusable.yml@${TAG}
+    with:
+      kill_switch: \${{ vars.CLAUDE_PIPELINE_ENABLED != 'true' }}
+      trigger_label: "agent:review"
+${lines.map((l) => `      ${l}\n`).join("")}    secrets:
+      claude_code_oauth_token: \${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+`;
+  const MODE_LINE = "response_mode: ${{ vars.CLAUDE_REVIEW_RESPONSE_MODE || 'manual' }}";
+  const WIRED = reviewCaller([
+    MODE_LINE,
+    "response_workflow: .github/workflows/agent-review-response.yml",
+  ]);
+  const ROUTES = {
+    ...ALL_GOOD,
+    "repos/acme/app/actions/variables": [
+      "CLAUDE_PIPELINE_ENABLED",
+      "CLAUDE_REVIEW_RESPONSE_ENABLED",
+    ],
+    "repos/acme/app/labels": ["agent:plan", "agent:review", "agent:address-review"],
+  };
+  const MODE = "repos/acme/app/actions/variables/CLAUDE_REVIEW_RESPONSE_MODE";
+  const modeIs = (value) => ({
+    [MODE]: JSON.stringify({ name: "CLAUDE_REVIEW_RESPONSE_MODE", value }),
+  });
+  let made = 0;
+  const doctor = (routes, files = {}, opts = {}) => {
+    const dir = makeConsumer(`review-response-${++made}`, {
+      files: {
+        ".github/workflows/agent-review-response.yml": RESPONSE,
+        ".github/workflows/review.yml": WIRED,
+        ...files,
+      },
+    });
+    const gh = fakeGh(routes);
+    const report = runDoctor({ cwd: dir, runner: gh.runner, openTag, ...opts });
+    const byId = (id) => report.results.find((r) => r.id === id);
+    return { report, byId, calls: gh.calls };
+  };
+
+  it("is one of the local-only checks, skipped under --ci", () => {
+    assert.ok(LOCAL_ONLY_CHECKS.some(([id]) => id === "review-response-mode"));
+    const { byId } = doctor(ROUTES, {}, { ci: true });
+    assert.equal(byId("review-response-mode").status, "skip");
+  });
+
+  it("labels: the Caller's agent:address-review Trigger label must exist", () => {
+    const { byId } = doctor({ ...ROUTES, "repos/acme/app/labels": ["agent:plan", "agent:review"] });
+    const labels = byId("trigger-labels");
+    assert.equal(labels.status, "fail", JSON.stringify(labels));
+    assert.match(
+      labels.details.join("\n"),
+      /"agent:address-review" \(\.github\/workflows\/agent-review-response\.yml:respond\)/,
+    );
+    assert.ok(
+      labels.fix.includes("gh label create agent:address-review --repo acme/app"),
+      labels.fix.join("\n"),
+    );
+  });
+
+  it("variables: CLAUDE_REVIEW_RESPONSE_ENABLED is the required Kill switch; the mode is optional", () => {
+    const { byId } = doctor({
+      ...ROUTES,
+      "repos/acme/app/actions/variables": ["CLAUDE_PIPELINE_ENABLED"],
+    });
+    const variables = byId("variables");
+    assert.equal(variables.status, "fail", JSON.stringify(variables));
+    const details = variables.details.join("\n");
+    assert.match(details, /not set: CLAUDE_REVIEW_RESPONSE_ENABLED .*the Kill switch/);
+    assert.doesNotMatch(details, /CLAUDE_REVIEW_RESPONSE_MODE|CLAUDE_MODEL_REVIEW_RESPONSE/);
+    assert.ok(
+      variables.fix.includes(
+        "gh variable set CLAUDE_REVIEW_RESPONSE_ENABLED --repo acme/app --body true",
+      ),
+      variables.fix.join("\n"),
+    );
+  });
+
+  it("mode: unset or manual passes as manual, and doctor exits 0", () => {
+    for (const routes of [ROUTES, { ...ROUTES, ...modeIs("manual") }]) {
+      const { byId, report } = doctor(routes);
+      const mode = byId("review-response-mode");
+      assert.equal(mode.status, "pass", JSON.stringify(mode));
+      assert.match(mode.summary, /^Manual: /);
+      assert.equal(report.exitCode, 0, formatReport(report));
+    }
+  });
+
+  it("mode: an organization variable counts when the repository sets none", () => {
+    const { byId } = doctor({
+      ...ROUTES,
+      "repos/acme/app/actions/organization-variables": ["auto"],
+    });
+    assert.match(byId("review-response-mode").summary, /^Auto: /);
+  });
+
+  it("mode: a value that is not exactly auto warns, and fails with --strict", () => {
+    const loose = doctor({ ...ROUTES, ...modeIs("Auto") });
+    const mode = loose.byId("review-response-mode");
+    assert.equal(mode.status, "warn", JSON.stringify(mode));
+    assert.match(
+      mode.summary,
+      /"Auto", which is not exactly auto, so Review response stays manual/,
+    );
+    const strict = doctor({ ...ROUTES, ...modeIs("on") }, {}, { strict: true });
+    assert.equal(strict.byId("review-response-mode").status, "fail");
+  });
+
+  it("mode: auto passes when the review Caller hands off to a dispatchable Review response Caller", () => {
+    const { byId, report } = doctor({ ...ROUTES, ...modeIs("auto") });
+    const mode = byId("review-response-mode");
+    assert.equal(mode.status, "pass", JSON.stringify(mode));
+    assert.match(mode.summary, /^Auto: /);
+    assert.equal(report.exitCode, 0, formatReport(report));
+  });
+
+  for (const [what, files, pattern] of [
+    [
+      "the Review response Caller has no workflow_dispatch trigger",
+      {
+        ".github/workflows/agent-review-response.yml": RESPONSE.replace(
+          /^ {2}workflow_dispatch:\n {4}inputs:\n {6}pr_number:\n.*\n.*\n/m,
+          "",
+        ),
+      },
+      /agent-review-response\.yml: has no workflow_dispatch trigger/,
+    ],
+    [
+      "its workflow_dispatch takes no pr_number",
+      {
+        ".github/workflows/agent-review-response.yml": RESPONSE.replace(
+          /^ {6}pr_number:$/m,
+          "      number:",
+        ),
+      },
+      /workflow_dispatch trigger has no pr_number input/,
+    ],
+    [
+      "it does not pass response_mode",
+      {
+        ".github/workflows/agent-review-response.yml": RESPONSE.replace(
+          /^ {6}response_mode: .*\n/m,
+          "",
+        ),
+      },
+      /agent-review-response\.yml:respond: does not pass response_mode .*refuses every dispatched round/,
+    ],
+    [
+      "the review Caller does not pass response_mode",
+      {
+        ".github/workflows/review.yml": reviewCaller([
+          "response_workflow: .github/workflows/agent-review-response.yml",
+        ]),
+      },
+      /review\.yml:review: does not pass response_mode .*never hand off/,
+    ],
+    [
+      "the review Caller does not pass response_workflow",
+      { ".github/workflows/review.yml": reviewCaller([MODE_LINE]) },
+      /review\.yml:review: does not pass response_workflow/,
+    ],
+    [
+      "response_workflow names another file",
+      {
+        ".github/workflows/review.yml": reviewCaller([
+          MODE_LINE,
+          "response_workflow: .github/workflows/ci.yml",
+        ]),
+      },
+      /response_workflow "\.github\/workflows\/ci\.yml" is not a Review response Caller here/,
+    ],
+    [
+      "no Caller runs reviews",
+      { ".github/workflows/review.yml": "name: other\non: push\njobs: {}\n" },
+      /No Caller uses agent-review-reusable\.yml/,
+    ],
+  ]) {
+    it(`mode: auto fails when ${what}`, () => {
+      const { byId } = doctor({ ...ROUTES, ...modeIs("auto") }, files);
+      const mode = byId("review-response-mode");
+      assert.equal(mode.status, "fail", JSON.stringify(mode));
+      assert.match(mode.summary, /is auto, but 1 problem\(s\)/);
+      assert.match(mode.details.join("\n"), pattern);
+    });
+  }
+
+  it("mode: skipped, never passed, when the variable cannot be read", () => {
+    const { byId } = doctor({
+      ...ROUTES,
+      [MODE]: new Error("Resource not accessible (HTTP 403)"),
+    });
+    assert.equal(byId("review-response-mode").status, "skip");
+  });
+
+  it("mode: with no Review response Caller, passes without reading the variable", () => {
+    const dir = makeConsumer(`review-response-${++made}`);
+    const gh = fakeGh({ ...ALL_GOOD, ...modeIs("auto") });
+    const report = runDoctor({ cwd: dir, runner: gh.runner, openTag });
+    const mode = report.results.find((r) => r.id === "review-response-mode");
+    assert.equal(mode.status, "pass");
+    assert.match(mode.summary, /No Caller uses the Review response flow/);
+    assert.ok(
+      !gh.calls.some((args) => args.some((a) => a.includes("CLAUDE_REVIEW_RESPONSE_MODE"))),
+    );
+  });
+
+  it("parseCaller reads the workflow_dispatch inputs, or null with no such trigger", () => {
+    assert.deepEqual(parseCaller(RESPONSE).dispatchInputs, ["pr_number"]);
+    assert.deepEqual(
+      parseCaller(readRepo("examples/plan-implement-review-caller.yml")).dispatchInputs,
+      ["issue_number", "mode", "pr_number", "head_sha", "base_sha", "base_ref"],
+    );
+    assert.equal(parseCaller("on:\n  push:\njobs: {}\n").dispatchInputs, null);
+    assert.deepEqual(parseCaller("on: [push, workflow_dispatch]\njobs: {}\n").dispatchInputs, []);
+    assert.deepEqual(parseCaller("on: workflow_dispatch\njobs: {}\n").dispatchInputs, []);
+    assert.deepEqual(parseCaller("on:\n  workflow_dispatch:\njobs: {}\n").dispatchInputs, []);
   });
 });

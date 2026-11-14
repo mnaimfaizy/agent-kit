@@ -146,6 +146,22 @@ function unsupportedSecrets(value) {
 }
 
 /**
+ * The input names of a workflow's `workflow_dispatch` trigger: [] when it
+ * takes none, null when the workflow has no such trigger. `on:` may be a
+ * mapping, one event name, or a list of names.
+ */
+function dispatchInputs(on) {
+  const named = (text) => /(?:^|[\s,[])workflow_dispatch(?:$|[\s,\]])/.test(text);
+  if (typeof on === "string") return named(on) ? [] : null;
+  if (!on || typeof on !== "object") return null;
+  if (on.$seq) return on.$seq.some((line) => named(String(line))) ? [] : null;
+  if (!("workflow_dispatch" in on)) return null;
+  const trigger = on.workflow_dispatch;
+  const inputs = trigger && typeof trigger === "object" && !trigger.$seq ? trigger.inputs : null;
+  return inputs && typeof inputs === "object" && !inputs.$seq ? Object.keys(inputs) : [];
+}
+
+/**
  * The jobs of one workflow file that call an Agent-kit reusable workflow.
  * `parseIncomplete` is set when the file has more Agent-kit pins than jobs
  * the parser could read, so checks built on the jobs report it instead of
@@ -174,7 +190,13 @@ export function parseCaller(text) {
       ? `${pins.length} Agent-kit pin(s) but only ${jobs.length} job(s) doctor could read; ` +
         "the rest were not checked"
       : null;
-  return { jobs, pins, variables: variableRefs(text), parseIncomplete };
+  return {
+    jobs,
+    pins,
+    variables: variableRefs(text),
+    dispatchInputs: dispatchInputs(doc.on),
+    parseIncomplete,
+  };
 }
 
 /** Workflow files in .github/workflows/ (relative paths, sorted). */
