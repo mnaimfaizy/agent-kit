@@ -136,6 +136,46 @@ def test_callers_match_reusable_contract() -> None:
                     assert name in passed_secrets, f"{where}: missing required secret `{name}`"
 
 
+PERMISSION_LEVEL = {"none": 0, "read": 1, "write": 2}
+NAMES = {level: name for name, level in PERMISSION_LEVEL.items()}
+
+
+def called_workflow(uses: str) -> Path:
+    match = KIT_REF.match(uses)
+    return WORKFLOWS / match["file"] if match else ROOT / uses[2:]
+
+
+def granted_scopes(block: object) -> dict[str, int]:
+    """A permissions block as levels; `read-all` / `write-all` cover every scope."""
+    if isinstance(block, str):
+        level = {"read-all": 1, "write-all": 2}.get(block, 0)
+        return {scope: level for scope in PERMISSION_SCOPES}
+    return {scope: PERMISSION_LEVEL[level] for scope, level in (block or {}).items()}
+
+
+def test_callers_grant_what_the_called_jobs_request() -> None:
+    # GitHub refuses a called workflow whose job asks for more than its Caller
+    # grants, whether or not that job would run ("The nested job ... is
+    # requesting ..., but is only allowed ..."). A job-level grant replaces the
+    # Caller's top-level one for that job.
+    for path in callers():
+        caller = load(path)
+        for job_name, job in caller["jobs"].items():
+            uses = job.get("uses", "")
+            if not uses:
+                continue
+            block = job["permissions"] if "permissions" in job else caller.get("permissions")
+            assert block is not None, f"{path.name}:{job_name}: grant permissions explicitly"
+            granted = granted_scopes(block)
+            called = called_workflow(uses)
+            target = load(called)
+            for requested in all_permission_blocks(target):
+                for scope, level in granted_scopes(requested).items():
+                    assert granted.get(scope, 0) >= level, (
+                        f"{path.name}:{job_name}: grant `{scope}: {NAMES[level]}`, which {called.name} requests"
+                    )
+
+
 def test_callers_default_to_kill_switch_on() -> None:
     for path in callers():
         for job_name, job in load(path)["jobs"].items():
@@ -177,6 +217,7 @@ if __name__ == "__main__":
     test_permission_scopes_are_valid()
     test_live_step_actions_are_sha_pinned()
     test_callers_match_reusable_contract()
+    test_callers_grant_what_the_called_jobs_request()
     test_callers_default_to_kill_switch_on()
     test_callers_read_model_from_repository_variable()
     print("workflow-validity-contract tests passed")

@@ -57,6 +57,13 @@ jobs:
 
   review:
     if: ${{ github.event_name == 'pull_request' && github.event.label.name == 'agent:review' }}
+    # What agent-review-reusable.yml's jobs request: its handoff job needs
+    # actions: write, and GitHub refuses the run if the Caller grants less.
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: write
+      actions: write
     uses: ./.github/workflows/agent-review-reusable.yml
     with:
       kill_switch: ${{ vars.CLAUDE_PIPELINE_ENABLED != 'true' }}
