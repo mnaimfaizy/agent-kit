@@ -6,7 +6,7 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
-The coming release is classed **Minor** (per [docs/releases.md](docs/releases.md)): a third First-class flow, Review response, with its skill (`address-pr-review`), trusted script, reusable workflow, auto mode, guide, example Caller and CLI support. Everything is additive and off until you turn it on, with one **Consumer action** on upgrade: the review Caller's job needs `actions: write` (see the auto mode entry below).
+The coming release is classed **Minor**, as spec [#126](https://github.com/mnaimfaizy/agent-kit/issues/126) sets it: a third First-class flow, Review response, with its skill (`address-pr-review`), trusted script, reusable workflow, auto mode, guide, example Caller and CLI support. The new flow is off until you turn it on. One change is not additive: every review Caller's job must now grant `actions: write`, or the review stops running (the **Consumer action** in the auto mode entry below). That is a required new permission, which [docs/releases.md](docs/releases.md) classes as **Major**, so this class departs from that policy. The release is a pre-release on the `1.0.0` line, and the class is the maintainer's to confirm before it is cut.
 
 ### Added
 
