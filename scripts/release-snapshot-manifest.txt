@@ -45,6 +45,7 @@ docs/assets/logo.svg
 .claude/skills/manual-qa/
 .claude/skills/plain-prose/
 .claude/skills/orchestrate/
+.claude/skills/address-pr-review/
 
 examples/security-audit-caller.yml
 examples/plan-implement-review-caller.yml

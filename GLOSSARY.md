@@ -191,3 +191,35 @@ _Avoid_: wrap-up, final report
 **Ready to Merge**:
 A Delegation whose CI is green, whose review is settled, whose QA requirement is met on its current head and whose branch merges cleanly; the only Delegations the closing list names.
 _Avoid_: done, mergeable, green
+
+### Review response
+
+The `address-pr-review` Portable skill, which answers the code review on a pull request. Its [`DESIGN.md`](.claude/skills/address-pr-review/DESIGN.md#glossary) carries the same definitions, so the skill keeps them when it is installed alone. **Handoff** names the Auto mode that the Review response First-class flow adds; the skill alone has none.
+
+**Review responder**:
+The agent addressing a review.
+_Avoid_: fixer, review bot
+
+**Finding**:
+One unresolved review thread a configured reviewer started. Written alone, **Finding** means this; a security finding (the Threat pack's) and an **Upstream Finding** keep their qualifiers.
+_Avoid_: comment, issue (for a review point), review finding
+
+**Work list**:
+The findings one round is given.
+_Avoid_: backlog, queue
+
+**Verdict**:
+`fixed`, `addressed` or `declined`.
+_Avoid_: status, outcome
+
+**Response round**:
+One run, local or CI.
+_Avoid_: pass, iteration
+
+**Handoff**:
+Auto mode: a finished review starting a round.
+_Avoid_: trigger, chain
+
+**Maintainer guidance**:
+A trusted person's reply on a finding's thread, passed to the next round.
+_Avoid_: instructions, feedback
