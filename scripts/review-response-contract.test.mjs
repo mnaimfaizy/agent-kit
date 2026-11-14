@@ -1254,3 +1254,14 @@ describe("Review responder review fixes, round 2 (PR #186)", () => {
     assert.ok(!summary.includes("locked"), "no error text in the summary");
   });
 });
+
+describe("Review responder review fixes, round 2 summary (PR #186)", () => {
+  it("refuses a name ending in a dot or a space, which Windows strips", () => {
+    for (const path of ["docs/a.", "docs/a ", "a./b.ts", "src/x /y", "readme.md."]) {
+      assert.ok(isUnportablePath(path), `${JSON.stringify(path)} must be refused`);
+    }
+    for (const path of ["docs/a.md", "src/.env.example", ".github/x.yml"]) {
+      assert.ok(!isUnportablePath(path), `${path} must be allowed`);
+    }
+  });
+});
