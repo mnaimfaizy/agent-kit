@@ -153,6 +153,7 @@ MODEL_VARIABLE = {
     "agent-plan-reusable.yml": "CLAUDE_MODEL_PLAN",
     "agent-implement-reusable.yml": "CLAUDE_MODEL_IMPLEMENT",
     "agent-review-reusable.yml": "CLAUDE_MODEL_REVIEW",
+    "agent-review-response-reusable.yml": "CLAUDE_MODEL_REVIEW_RESPONSE",
     "security-audit-reusable.yml": "CLAUDE_MODEL_AUDIT",
 }
 

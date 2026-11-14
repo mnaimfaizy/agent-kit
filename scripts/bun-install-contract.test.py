@@ -17,15 +17,15 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = [
     ROOT / ".github" / "workflows" / f"{name}-reusable.yml"
-    for name in ("agent-implement", "agent-plan", "agent-review", "security-audit")
+    for name in ("agent-implement", "agent-plan", "agent-review", "agent-review-response", "security-audit")
 ]
 ACTION = "anthropics/claude-code-action@"
 
 # The Bun version each claude-code-action pin installs: `bun-version` in that
 # commit's action.yml. When you bump the action pin, read the new action.yml,
 # add its SHA here with its Bun version, and if the version changed, update
-# BUN_VERSION and both SHA-256 pins (and the release asset id) in all four
-# workflows. A Bun that does not match the action can break it.
+# BUN_VERSION and both SHA-256 pins (and the release asset id) in every
+# workflow above. A Bun that does not match the action can break it.
 BUN_FOR_ACTION = {
     "8cf3482550831fb35a4fc3fbf7ca139cf8028b4c": "1.3.14",  # v1.0.233
 }
@@ -64,7 +64,7 @@ def test_every_agent_step_gets_the_installed_bun() -> None:
         assert bun["env"] == {"GH_TOKEN": "${{ github.token }}"}, f"{name}: the Bun step gets only the job token"
 
 
-def test_the_four_install_scripts_are_identical() -> None:
+def test_the_install_scripts_are_identical() -> None:
     scripts = {name: _bun_step(steps, i)["run"] for name, steps, i in _agent_steps()}
     assert len(set(scripts.values())) == 1, f"keep the Bun install identical in {sorted(scripts)}"
 
@@ -105,7 +105,7 @@ def test_both_downloads_are_verified_before_use() -> None:
 
 if __name__ == "__main__":
     test_every_agent_step_gets_the_installed_bun()
-    test_the_four_install_scripts_are_identical()
+    test_the_install_scripts_are_identical()
     test_bun_version_matches_the_action_pin()
     test_both_downloads_are_verified_before_use()
     print("bun-install contract: ok")

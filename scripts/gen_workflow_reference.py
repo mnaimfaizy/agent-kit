@@ -22,6 +22,7 @@ FLOWS = [
     ("agent-plan-reusable.yml", "Plan", "plan-implement-review.md"),
     ("agent-implement-reusable.yml", "Implement", "plan-implement-review.md"),
     ("agent-review-reusable.yml", "Review", "plan-implement-review.md"),
+    ("agent-review-response-reusable.yml", "Review response", "adr/0005-review-responder-holds-no-write-credential.md"),
 ]
 
 

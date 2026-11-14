@@ -113,3 +113,26 @@ A Caller's `permissions:` must grant at least the permissions listed, or GitHub 
 | Secret                    | Required | Description                                         |
 | ------------------------- | -------- | --------------------------------------------------- |
 | `claude_code_oauth_token` | yes      | Subscription OAuth token from `claude setup-token`. |
+
+## Review response
+
+`uses: mnaimfaizy/agent-kit/.github/workflows/agent-review-response-reusable.yml@<tag>` — guide: [adr/0005-review-responder-holds-no-write-credential.md](adr/0005-review-responder-holds-no-write-credential.md)
+
+**Caller permissions:** `contents: write`, `pull-requests: write`, `actions: write`
+
+| Input                   | Required | Default                | Description                                                                                                                                                                                                                                         |
+| ----------------------- | -------- | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `kill_switch`           | no       | `false`                | If true, skip this run. Callers pass `vars.CLAUDE_REVIEW_RESPONSE_ENABLED != 'true'`.                                                                                                                                                               |
+| `allowlist_actors`      | no       | `[]`                   | JSON array of logins allowed to start a round. Their thread replies are also the only Maintainer guidance a round accepts. Empty skips the actor check and accepts guidance from no one.                                                            |
+| `trigger_label`         | no       | `agent:address-review` | Label that started this run; consumed by the gate.                                                                                                                                                                                                  |
+| `pr_number`             | yes      | —                      | Pull request to respond on. Read live from the API; nothing else is taken from the event.                                                                                                                                                           |
+| `reviewer_logins`       | no       | `[]`                   | JSON array of logins whose unresolved review threads are Findings (a trailing `[bot]` is allowed). Empty means `github-actions`, the kit reviewer.                                                                                                  |
+| `extra_protected_paths` | no       | `""`                   | Paths from the repository root added to the kit-fixed protected list, one per line or comma-separated. A pull request changing one is refused, and a round may not commit to one. No globs, `!`, `.` or `..`; nothing can be removed from the list. |
+| `setup_commands`        | no       | `""`                   | Caller-owned setup run before the agent (toolchain, dependencies), as for the implementer; see examples/setup-presets/. npm, pnpm and Yarn 2+ install scripts are always off. Code the job runs: never build it from issue or PR text.              |
+| `verify_commands`       | no       | `""`                   | Caller-owned checks the agent runs before each fix commit (multi-line shell). The agent's only build command. Code the job runs: never build it from issue or PR text.                                                                              |
+| `ci_workflow`           | no       | `""`                   | The one workflow whose held `pull_request` run publish may start for the commit it pushed, as `.github/workflows/<file>.yml`. Empty starts none: approve the run from the pull request's checks.                                                    |
+| `model`                 | no       | `claude-opus-5`        | Claude model id. Defaults to claude-opus-5.                                                                                                                                                                                                         |
+
+| Secret                    | Required | Description                                         |
+| ------------------------- | -------- | --------------------------------------------------- |
+| `claude_code_oauth_token` | yes      | Subscription OAuth token from `claude setup-token`. |
