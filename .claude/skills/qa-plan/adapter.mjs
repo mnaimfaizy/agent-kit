@@ -710,7 +710,8 @@ export function planReadiness({ path, config, problems }) {
   if (!plan.suites.length)
     needs.push(
       "plan.suites: each test suite CI runs, with its `name`, the `command` that runs it, " +
-        "the `junit` XML path it writes, and the `surfaces` globs it covers",
+        "the `junit` XML path it writes, the `surfaces` globs it covers, " +
+        "and the `services` it runs against for real",
     );
   for (const suite of plan.suites)
     if (!present(suite.junit))
