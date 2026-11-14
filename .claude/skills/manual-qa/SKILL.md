@@ -92,7 +92,7 @@ The Run brief's **Surface** says what the scenarios drive; find a tool this sess
 
 - `web`: a browser tool (the host's built-in browser, Claude in Chrome, a Playwright MCP server).
 - `desktop` or `mobile`: desktop control, with the app or its simulator on screen.
-- `api`: the shell's HTTP client (`curl`), or a browser tool.
+- `api`: `http.mjs`, this skill's request driver ([ADAPTER.md](ADAPTER.md#the-api-driver)), which runs on Node with no dependency and keeps one cookie jar per session; the shell's HTTP client (`curl`) when Node is not available; or a browser tool.
 
 Where a browser comes from depends on the harness:
 
@@ -102,12 +102,13 @@ Where a browser comes from depends on the harness:
 
 With none, every scenario on that surface is **left for a person** (_no tool here can drive a `<surface>` surface_); the rest of the run still goes ahead.
 
-For each driver, note two things step 6 needs: whether it can **save images** (write a screenshot to a file under `working_dir`), and whether it can **record** (save a GIF or video of a sequence, such as Claude in Chrome's GIF tool). A driver that only shows a screenshot to you, without saving it, cannot save images. The `api` surface's HTTP client saves no images; its evidence is the response, written to a text file or quoted, redacted, in the notes.
+For each driver, note two things step 6 needs: whether it can **save images** (write a screenshot to a file under `working_dir`), and whether it can **record** (save a GIF or video of a sequence, such as Claude in Chrome's GIF tool). A driver that only shows a screenshot to you, without saving it, cannot save images. The `api` surface's drivers save no images: `http.mjs` writes the scenario's evidence log (step 6), and with `curl` the evidence is the response, written to a text file or quoted, redacted, in the notes.
 
 A scenario with **Sessions:** (`plan.scenarios[].sessions` lists more than one) needs a driver per session, with each session's cookies and storage kept from every other's:
 
 - one isolated browser context per session, such as a separate context in a Playwright MCP server (`newContext`) or another driver with isolated contexts; or
-- a different browser for each session, such as the host's built-in browser for A and Claude in Chrome for B.
+- a different browser for each session, such as the host's built-in browser for A and Claude in Chrome for B; or
+- on the `api` surface, `http.mjs`, which keeps a cookie jar per session.
 
 Tabs in one browser profile never count: a second sign-in overwrites the first's cookies, and a tab can refresh into the other session and report the wrong thing. Nor does a second origin in front of the same API host, since the API host sets the cookies. With no such driver for every session, the scenario is **left for a person** (_no driver here gives N isolated sessions_, with its number of sessions as N); the rest of the run still goes ahead.
 
@@ -169,8 +170,17 @@ Capture the evidence as you go, without asking first, under `<working_dir>/qa-re
 - **At the expected result,** a screenshot: `s<n>.png`, or `s<n>-<session>.png` for each session of a multi-session scenario (`s3-a.png`, `s3-b.png`, the session letter in lower case).
 - **On a FAIL,** a screenshot at the point it diverged too: `s<n>-fail.png`, or `s<n>-<session>-fail.png`.
 - **For a multi-session or timing-dependent scenario** (a revoked session, a redirect after an action), a recording of the key step when the driver can record: `s<n>.gif`, or the driver's video format. When it cannot, a screenshot before and after the key step: `s<n>-before.png` and `s<n>-after.png`, with the session letter as above.
+- **For an `api` scenario driven by `http.mjs`,** its log in place of screenshots: `s<n>-http.log`, one per scenario, every session in it.
 
-Link each file from the Evidence cell as a path relative to `working_dir`, in backticks. A PASS or FAIL with no file writes `none: <reason>`, as plain text in the cell: `none: api surface, the redacted response body is in the notes`, or `none: driver cannot save images`. A bare `none` is only for a scenario left for a person, whose note already says why it was not run.
+An `api` scenario on `http.mjs` runs as a request sequence: write its steps, one request each, in the session each step names, to `<working_dir>/qa-report-pr-<n>/s<n>-http.json` in the format [ADAPTER.md](ADAPTER.md#the-api-driver) gives. You write the sequence from the steps; the plan's text is never run. Each sign-in value is a `{{env:QA_<NAME>}}` placeholder, never the value: the driver refuses a sequence that carries one inline, and sends nothing. Give the values as `QA_*` variables of that one command, never in a file or an exported variable, and `--base` as the address step 5 checked:
+
+```bash
+QA_A_EMAIL='…' QA_A_PASSWORD='…' node "<skill>/http.mjs" run "<working_dir>/qa-report-pr-<n>/s<n>-http.json" --base "<address>" --log "<working_dir>/qa-report-pr-<n>/s<n>-http.log"
+```
+
+Its exit status says whether every request completed, not whether the scenario passed: read the log, and judge it against **Expected result**, as you would a screen. Exit 1 with `problems` means the sequence was refused: fix it, never by writing a value in. Exit 1 with `completed: false` means a request got no response; the log holds every request up to it. A step the sequence format cannot carry (a value read from one response and sent in a later request, other than a cookie) leaves the scenario for a person, with that step quoted.
+
+Link each file from the Evidence cell as a path relative to `working_dir`, in backticks. A PASS or FAIL with no file writes `none: <reason>`, as plain text in the cell: `none: api surface driven by curl, the redacted response body is in the notes`, or `none: driver cannot save images`. A bare `none` is only for a scenario left for a person, whose note already says why it was not run.
 
 A FAIL's note says what appeared instead, and which of its **If this fails, first rule out** items you ruled out. Use the plan's **Expected red herrings** to tell a known failure from a finding.
 
