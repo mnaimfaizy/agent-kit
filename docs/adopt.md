@@ -50,6 +50,7 @@ Don't install a Kit-owned skill with `npx skills` in a Consumer: [Install indivi
   - `check-git-config.mjs`: allowlist check of the checkout's git config and hooks, run before and after the agent. Implement.
 - `.github/security-audit/` (prompt and the publish/email scripts the audit stages from a trusted commit)
 - `.github/agent-pipeline/` (planner and implementer contracts, and the draft-PR fallback script)
+- `.github/agent-review-response/` (the trusted script of the Review response flow, staged from a trusted commit; no flow runs it yet)
 
 The copied paths and workflow references should always move together on upgrade.
 

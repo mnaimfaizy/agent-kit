@@ -9,6 +9,7 @@
 /.github/agent-runtime/   @mnaimfaizy
 /.github/agent-pipeline/  @mnaimfaizy
 /.github/security-audit/  @mnaimfaizy
+/.github/agent-review-response/ @mnaimfaizy
 /.claude/skills/          @mnaimfaizy
 /kit-owned-paths.txt      @mnaimfaizy
 /security/                @mnaimfaizy

@@ -33,6 +33,7 @@ docs/assets/logo.svg
 .github/security-audit/
 .github/agent-pipeline/
 .github/agent-runtime/
+.github/agent-review-response/
 .github/workflows-archive/copilot/
 
 .claude/skills/code-review/

@@ -20,10 +20,10 @@ GETTING_STARTED = ROOT / "docs" / "getting-started.md"
 
 ENTRY = re.compile(r"^[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*/$")
 # Consumers run `rm -rf` on every entry, so only these shapes may appear: one
-# Portable skill folder, or one of the three runtime folders. Anything else
+# Portable skill folder, or one of the four runtime folders. Anything else
 # (`.github/workflows/`, `docs/`, a parent folder) would delete Consumer files.
 ALLOWED_SHAPE = re.compile(
-    r"^(?:\.claude/skills/[A-Za-z0-9._-]+/|\.github/(?:agent-runtime|agent-pipeline|security-audit)/)$"
+    r"^(?:\.claude/skills/[A-Za-z0-9._-]+/|\.github/(?:agent-runtime|agent-pipeline|security-audit|agent-review-response)/)$"
 )
 ADOPT_SECTION = "## Copy Kit-owned paths from the same tag"
 ADOPT_BULLET = re.compile(r"^- `([^`]+/)`", re.MULTILINE)
@@ -64,7 +64,12 @@ def test_manifest_format_is_trivially_parseable() -> None:
 
 def test_manifest_lists_the_expected_folders() -> None:
     entries = set(manifest_entries())
-    for runtime in (".github/agent-runtime/", ".github/agent-pipeline/", ".github/security-audit/"):
+    for runtime in (
+        ".github/agent-runtime/",
+        ".github/agent-pipeline/",
+        ".github/security-audit/",
+        ".github/agent-review-response/",
+    ):
         assert runtime in entries, f"kit-owned-paths.txt is missing {runtime}"
     skills = {e for e in entries if e.startswith(".claude/skills/")}
     # Every Portable skill shipped in this repository is Kit-owned, so a new
