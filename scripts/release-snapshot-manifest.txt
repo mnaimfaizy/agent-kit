@@ -30,6 +30,7 @@ docs/assets/logo.svg
 .github/workflows/agent-plan-reusable.yml
 .github/workflows/agent-implement-reusable.yml
 .github/workflows/agent-review-reusable.yml
+.github/workflows/agent-review-response-reusable.yml
 .github/security-audit/
 .github/agent-pipeline/
 .github/agent-runtime/
