@@ -48,7 +48,7 @@ It needs:
 
 - **Node 22 or later**, for its config reader, `config.mjs`;
 - **`git`** and **`gh`**, signed in to GitHub with access to the repository;
-- **a harness that can start other agents**: one with Live Sessions (the Claude Code desktop app) or headless runs (the Claude Code CLI). On a harness that can start neither, the skill writes each brief for you to start by hand, one building Delegation at a time ([HARNESSES.md](../.claude/skills/orchestrate/HARNESSES.md#tier-3-harnesses-that-run-sequentially));
+- **a harness that can start other agents.** The skill finds the one it runs on at the start of each run, and says how far it has been proven there ([Harnesses](#harnesses)). On a harness that can start none, the skill writes each brief for you to start by hand, one building Delegation at a time ([HARNESSES.md](../.claude/skills/orchestrate/HARNESSES.md#tiers));
 - **issues labelled with the five triage roles** (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`), or your own labels mapped to them in the config;
 - **a config** at the repository root, or your answers in chat on the first run ([The config](#the-config)).
 
@@ -67,6 +67,20 @@ Every form runs from the root of the repository the issues belong to.
 | `/orchestrate --resume <run>`   | Continues a run from its folder, after a usage limit, a closed laptop or a pause for merges. It checks every Delegation against git and the tracker first. |
 
 Any other argument, or a mix of these forms, stops the run before anything is read, with the list of forms this version knows. `<run>` is the run folder's name, such as `2026-11-13-12-34` or `2026-11-13-spec-50` ([Run state](#run-state)).
+
+## Harnesses
+
+The skill has a file for each harness it knows ([`harnesses/`](../.claude/skills/orchestrate/harnesses/)), and at step 1 it finds which one this run is on: from the environment and its own tools, or from the config's `harness` key. When it cannot tell, it asks. Each harness has a **Support Level**:
+
+| Harness                                                                           | Support Level | What that means for a run                                                                                                                                             |
+| --------------------------------------------------------------------------------- | ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Claude Code desktop app                                                           | `verified`    | Runs end to end: Live Sessions for building and QA.                                                                                                                   |
+| Cursor                                                                            | `tried`       | One run, with gaps: sub-agents must be checked for their own worktree, and you may type the QA commands.                                                              |
+| Claude Code CLI, Codex CLI, Copilot CLI, Gemini CLI, Antigravity, Devin, OpenCode | `documented`  | Written from their documentation; no run has tried them. Expect to type the QA commands, and to approve copies of the QA skills where some harnesses look for skills. |
+
+Below `verified`, the Dispatch Plan opens with the level and a **Harness limits** list: only the limits that bear on this run, such as "you will type `/qa-plan` in the QA session" or "review comments are watched with `gh`". The plan then waits for your "go", even when you typed `go` with the command. A harness with no file runs one Delegation at a time, with you starting each session.
+
+With `executors` in the config, one kind of Delegation runs on another harness's headless run: for example, from Cursor, `executors: { build: claude-code-cli }` builds with `claude -p`. It is never the default. That CLI must be installed and signed in, and `models` names models on it.
 
 ## A run, step by step
 
@@ -105,7 +119,7 @@ Before any Delegation starts, the skill shows one table, one row per Delegation:
 | Issue            | The issue, or for a spec written as phases, the phase.                                                                                                                                                                               |
 | Kind             | Building, analysis or QA.                                                                                                                                                                                                            |
 | Executor         | A Live Session, a headless run, a sub-agent, or a session you start by hand, chosen from what the harness offers.                                                                                                                    |
-| Model            | From the config's `models`, or the harness's default.                                                                                                                                                                                |
+| Model            | From the config's `models`, or the harness's default. With `executors` set, the harness it runs on is shown beside it.                                                                                                               |
 | Wave             | When it starts. No two Delegations in a wave overlap, a blocked issue is in a later wave than its blocker, and no wave holds more building Delegations than `limits.building`, or more than one on a harness that runs sequentially. |
 | Scope fence      | The paths it may change.                                                                                                                                                                                                             |
 | Shared resources | The named resources from `limits.shared` it will hold.                                                                                                                                                                               |
@@ -199,6 +213,8 @@ The repository's facts live in one file at its root: `orchestrate.config.yml`, `
 | `skills`         | The Companion skills a brief names: `implement`, `triage`, `review`.                                                                                                  |
 | `triage_labels`  | Your labels for the five triage roles: the path of a document that maps them, or a mapping. Unset, each label is the role's name.                                     |
 | `models`         | The model for `analysis`, `build`, `review` and `qa` work. Unset, the harness's default.                                                                              |
+| `harness`        | The harness the Chief of Staff runs on, pinned (`claude-code-desktop`, `cursor`, …). Unset, found each run; a disagreement is a question for you.                     |
+| `executors`      | Not the default: `build`, `analysis` or `qa` work moved onto another harness's headless run.                                                                          |
 | `limits`         | `building`: the most building Delegations at once (default 3; QA does not count). `shared`: resources one Delegation holds at a time.                                 |
 | `decisions`      | `to`: `pull-request` (default) or `issue-comment`. `marker`: a line each record starts with.                                                                          |
 | `ready_to_merge` | `review`: `settled` (default) or `approved`. `qa`: `none` (default) or `report` (a QA Delegation per head). `qa_labels`: with `qa: report`, the labels that need one. |
