@@ -211,6 +211,7 @@ def test_trusted_steps_run_before_any_pull_request_code() -> None:
             "Stage read-confinement hook outside the workspace",
             "Install the subprocess sandbox",
             "Run caller-owned setup commands",
+            "Check git configuration after setup",
             AGENT_STEP,
             "Verify read-confinement hook unchanged",
             "Collect the round",
@@ -236,7 +237,14 @@ def test_the_sandbox_and_install_rules_are_fixed_by_the_kit() -> None:
     assert "command -v bwrap" in sandbox
     setup = step(respond, "Run caller-owned setup commands")
     assert setup["env"] == {"SETUP": "${{ inputs.setup_commands }}"}
-    assert setup["run"].strip() == 'bash -c "$SETUP"'
+    # The first failing command stops setup, as in the step shell itself.
+    assert setup["run"].strip() == 'bash --noprofile --norc -eo pipefail -c "$SETUP"'
+    # Setup ran pull request code: the git config and the staged hooks are
+    # checked again before the action runs git with the subscription token.
+    recheck = code(step(respond, "Check git configuration after setup")["run"])
+    assert 'node "$STAGED/check-git-config.mjs" "$GITHUB_WORKSPACE/.git"' in recheck
+    assert '"$ACTUAL" != "$HOOK_SHA256"' in recheck
+    assert step_index(respond, "Check git configuration after setup") == step_index(respond, AGENT_STEP) - 3
 
 
 def test_the_agent_holds_no_write_credential_and_no_gh() -> None:
@@ -284,6 +292,10 @@ def test_the_round_leaves_as_size_capped_data() -> None:
     run = code(collect["run"])
     assert 'git bundle create "$BUNDLE" "$HEAD_SHA..HEAD"' in run
     assert '[ "$(wc -c < "$BUNDLE")" -le 500000 ]' in run
+    # A bundle dropped for size is reported on the pull request, not only logged.
+    assert 'echo "bundle_status=too-large" >> "$GITHUB_OUTPUT"' in run
+    push = code(step(jobs()["publish"], PUSH_STEP)["run"])
+    assert push.index('"$BUNDLE_STATUS" = "too-large"') < push.index('[ -z "$BUNDLE" ]')
     assert '[ -L "$FILE" ]' in run and '[ "$(wc -c < "$FILE")" -gt 150000 ]' in run
     # git in the agent's checkout runs no hook or fsmonitor it may have set.
     assert collect["env"]["GIT_CONFIG_KEY_0"] == "core.fsmonitor"
@@ -291,6 +303,7 @@ def test_the_round_leaves_as_size_capped_data() -> None:
     assert respond["outputs"] == {
         "state": "${{ steps.extract.outputs.state }}",
         "bundle": "${{ steps.collect.outputs.bundle }}",
+        "bundle_status": "${{ steps.collect.outputs.bundle_status }}",
         "response": "${{ steps.collect.outputs.response }}",
     }
 

@@ -94,7 +94,10 @@ permissions:
   actions: write
 
 # One group per pull request, shared with agent-review-reusable.yml, so a
-# review and a response never run on the same pull request at once.
+# review and a response never run on the same pull request at once. GitHub
+# keeps one pending run per group: a third run queued while one runs and one
+# waits cancels the waiting one before its gate, so its Trigger label stays on
+# the pull request. Remove and apply the label again to start that round.
 concurrency:
   group: agent-kit-pr-${{ inputs.pr_number }}
   cancel-in-progress: false
@@ -245,6 +248,7 @@ jobs:
     outputs:
       state: ${{ steps.extract.outputs.state }}
       bundle: ${{ steps.collect.outputs.bundle }}
+      bundle_status: ${{ steps.collect.outputs.bundle_status }}
       response: ${{ steps.collect.outputs.response }}
     env:
       # Fixed by the kit, not the Caller. Claude Code strips credentials from
@@ -430,7 +434,30 @@ jobs:
         env:
           SETUP: ${{ inputs.setup_commands }}
         shell: bash
-        run: bash -c "$SETUP"
+        # As the step shell itself runs: the first failing command stops setup.
+        run: bash --noprofile --norc -eo pipefail -c "$SETUP"
+
+      - name: Check git configuration after setup
+        # Setup ran pull request and dependency code, which can write
+        # .git/config or .git/hooks, and the action runs git in this checkout,
+        # outside the sandbox, while it holds the subscription token. Check it
+        # against the staged allowlist again, with the staged copies unchanged.
+        if: steps.extract.outputs.state == 'ready'
+        env:
+          HOOK_SHA256: ${{ steps.confine.outputs.hook_sha256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          STAGED="$RUNNER_TEMP/read-confinement"
+          ACTUAL="$(cat "$STAGED"/* | sha256sum | cut -d' ' -f1)"
+          if [ -z "$HOOK_SHA256" ] || [ "$ACTUAL" != "$HOOK_SHA256" ]; then
+            echo "The staged hooks changed during setup."
+            exit 1
+          fi
+          if ! node "$STAGED/check-git-config.mjs" "$GITHUB_WORKSPACE/.git"; then
+            echo "Setup left git configuration or hooks outside the allowlist in .github/agent-runtime/check-git-config.mjs."
+            exit 1
+          fi
 
       - name: Resolve the agent's tools
         id: tools
@@ -587,6 +614,7 @@ jobs:
               echo "bundle=$(base64 -w0 "$BUNDLE")" >> "$GITHUB_OUTPUT"
             else
               echo "The round's commits are too large to hand over."
+              echo "bundle_status=too-large" >> "$GITHUB_OUTPUT"
             fi
           else
             echo "No commits this round."
@@ -666,6 +694,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           BUNDLE: ${{ needs.respond.outputs.bundle }}
+          BUNDLE_STATUS: ${{ needs.respond.outputs.bundle_status }}
           EXTRA_PROTECTED_PATHS: ${{ inputs.extra_protected_paths }}
         shell: bash
         run: |
@@ -684,6 +713,10 @@ jobs:
               git "$@"
           }
 
+          if [ "$BUNDLE_STATUS" = "too-large" ]; then
+            note "The round's commits were not pushed: they were over the 500000-byte hand-over limit."
+            exit 0
+          fi
           if [ -z "$BUNDLE" ]; then
             echo "The round handed over no commits."
             exit 0

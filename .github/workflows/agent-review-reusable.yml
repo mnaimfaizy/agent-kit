@@ -90,6 +90,9 @@ permissions:
 
 # One group per pull request, shared with agent-review-response-reusable.yml,
 # so a review and a response never run on the same pull request at once.
+# GitHub keeps one pending run per group: a third run queued while one runs
+# and one waits cancels the waiting one, whose Trigger label then stays on the
+# pull request. Remove and apply the label again to start that run.
 concurrency:
   group: agent-kit-pr-${{ inputs.pr_number }}
   cancel-in-progress: false
