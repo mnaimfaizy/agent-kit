@@ -47,8 +47,52 @@ const jobsUsing = (callers, file) =>
 const passes = (job, input) =>
   typeof job.with?.[input] === "string" && job.with[input].trim() !== "";
 
-/** Why auto mode would never start a round from these Callers; empty when it would. */
-export function autoModeProblems(callers) {
+/**
+ * Where a job's `response_mode` comes from: "auto" (the literal), "variable"
+ * (an expression reading the mode variable), "other" (anything else), or
+ * null when the job does not pass it.
+ */
+export function modeSource(job) {
+  if (!passes(job, "response_mode")) return null;
+  const value = job.with.response_mode.trim();
+  if (value === "auto") return "auto";
+  // An expression that reads the variable: `${{ vars.CLAUDE_REVIEW_RESPONSE_MODE || 'manual' }}`.
+  if (/^\$\{\{.*\bvars\.CLAUDE_REVIEW_RESPONSE_MODE\b.*\}\}$/i.test(value)) return "variable";
+  return "other";
+}
+
+/** Does any Caller hardcode `response_mode: auto`, whatever the variable says? */
+const hardcodesAuto = (callers) =>
+  [...jobsUsing(callers, RESPONSE_REUSABLE), ...jobsUsing(callers, REVIEW_REUSABLE)].some(
+    ({ job }) => modeSource(job) === "auto",
+  );
+
+/**
+ * Why a job would not see `auto` as its `response_mode`, given the
+ * variable's value; null when it would.
+ */
+function notAuto(job, mode, consequence) {
+  const source = modeSource(job);
+  if (source === null) {
+    return `does not pass response_mode (vars.${MODE_VARIABLE}), so ${consequence}.`;
+  }
+  if (source === "other") {
+    return (
+      `passes response_mode ${JSON.stringify(job.with.response_mode.trim())}, which neither ` +
+      `reads vars.${MODE_VARIABLE} nor is auto, so ${consequence}.`
+    );
+  }
+  if (source === "variable" && mode !== "auto") {
+    return `reads response_mode from vars.${MODE_VARIABLE}, which is not auto, so ${consequence}.`;
+  }
+  return null;
+}
+
+/**
+ * Why auto mode would never start a round from these Callers; empty when it
+ * would. `mode` is the variable's value (null when unset).
+ */
+export function autoModeProblems(callers, mode = "auto") {
   const problems = [];
   const responders = jobsUsing(callers, RESPONSE_REUSABLE);
   // A responder file whose trigger is wrong is reported once, here, not again
@@ -66,11 +110,8 @@ export function autoModeProblems(callers) {
     }
   }
   for (const { job, where } of responders) {
-    if (!passes(job, "response_mode")) {
-      problems.push(
-        `${where}: does not pass response_mode (vars.${MODE_VARIABLE}), so its gate refuses every dispatched round.`,
-      );
-    }
+    const why = notAuto(job, mode, "its gate refuses every dispatched round");
+    if (why) problems.push(`${where}: ${why}`);
   }
 
   const reviewers = jobsUsing(callers, REVIEW_REUSABLE);
@@ -80,11 +121,8 @@ export function autoModeProblems(callers) {
     );
   }
   for (const { job, where } of reviewers) {
-    if (!passes(job, "response_mode")) {
-      problems.push(
-        `${where}: does not pass response_mode (vars.${MODE_VARIABLE}), so its reviews never hand off.`,
-      );
-    }
+    const why = notAuto(job, mode, "its reviews never hand off");
+    if (why) problems.push(`${where}: ${why}`);
     const target = passes(job, "response_workflow") ? job.with.response_workflow.trim() : "";
     if (!target) {
       problems.push(
@@ -116,6 +154,26 @@ export function checkReviewResponseMode({ github, repo, ownerType, callers }) {
   } catch (err) {
     return result(ID, TITLE, "skip", `Could not read ${MODE_VARIABLE}: ${err.message}`);
   }
+  // A Caller that hardcodes `response_mode: auto` is in auto mode whatever
+  // the variable says, so its wiring is checked too.
+  if (mode !== "auto" && hardcodesAuto(callers)) {
+    const problems = autoModeProblems(callers, mode);
+    if (problems.length) {
+      return result(
+        ID,
+        TITLE,
+        "fail",
+        `A Caller passes response_mode: auto, but ${problems.length} problem(s) keep the handoff from starting a round.`,
+        { details: problems },
+      );
+    }
+    return result(
+      ID,
+      TITLE,
+      "pass",
+      "Auto (response_mode: auto in the Callers): a finished review that left findings starts a round.",
+    );
+  }
   if (mode === null || mode === "" || mode === "manual") {
     return result(
       ID,
@@ -133,7 +191,7 @@ export function checkReviewResponseMode({ github, repo, ownerType, callers }) {
       { details: ["Set it to auto for auto mode, or to manual (or delete it) for manual mode."] },
     );
   }
-  const problems = autoModeProblems(callers);
+  const problems = autoModeProblems(callers, mode);
   if (problems.length) {
     return result(
       ID,

@@ -29,6 +29,7 @@ import {
   variableRefs,
 } from "../cli/src/callers.mjs";
 import { checkLabels, triggerLabels } from "../cli/src/checks/labels.mjs";
+import { modeSource } from "../cli/src/checks/review-response.mjs";
 import { command, sanitizeLine, shellQuote } from "../cli/src/checks/result.mjs";
 import { checkPins } from "../cli/src/checks/pins.mjs";
 import {
@@ -1963,6 +1964,26 @@ ${lines.map((l) => `      ${l}\n`).join("")}    secrets:
       /response_workflow "\.github\/workflows\/ci\.yml" is not a Review response Caller here/,
     ],
     [
+      "the review Caller passes response_mode: manual",
+      {
+        ".github/workflows/review.yml": reviewCaller([
+          "response_mode: manual",
+          "response_workflow: .github/workflows/agent-review-response.yml",
+        ]),
+      },
+      /review\.yml:review: passes response_mode "manual", which neither reads vars\.CLAUDE_REVIEW_RESPONSE_MODE nor is auto/,
+    ],
+    [
+      "the review Caller reads response_mode from another variable",
+      {
+        ".github/workflows/review.yml": reviewCaller([
+          "response_mode: ${{ vars.SOMETHING_ELSE }}",
+          "response_workflow: .github/workflows/agent-review-response.yml",
+        ]),
+      },
+      /review\.yml:review: passes response_mode "\$\{\{ vars\.SOMETHING_ELSE \}\}", which neither reads/,
+    ],
+    [
       "no Caller runs reviews",
       { ".github/workflows/review.yml": "name: other\non: push\njobs: {}\n" },
       /No Caller uses agent-review-reusable\.yml/,
@@ -1976,6 +1997,41 @@ ${lines.map((l) => `      ${l}\n`).join("")}    secrets:
       assert.match(mode.details.join("\n"), pattern);
     });
   }
+
+  it("mode: a Caller that hardcodes response_mode: auto is checked as auto with the variable unset", () => {
+    const hard = (text) => text.replace(/^( {6}response_mode: ).*$/m, "$1auto");
+    const both = doctor(ROUTES, {
+      ".github/workflows/agent-review-response.yml": hard(RESPONSE),
+      ".github/workflows/review.yml": hard(WIRED),
+    });
+    const pass = both.byId("review-response-mode");
+    assert.equal(pass.status, "pass", JSON.stringify(pass));
+    assert.match(pass.summary, /^Auto \(response_mode: auto in the Callers\)/);
+
+    // Only the review Caller hardcodes it: the round's gate still reads the
+    // unset variable, so every dispatched round would be refused.
+    const one = doctor(ROUTES, { ".github/workflows/review.yml": hard(WIRED) });
+    const fail = one.byId("review-response-mode");
+    assert.equal(fail.status, "fail", JSON.stringify(fail));
+    assert.match(fail.summary, /^A Caller passes response_mode: auto, but 1 problem\(s\)/);
+    assert.match(
+      fail.details.join("\n"),
+      /agent-review-response\.yml:respond: reads response_mode from vars\.CLAUDE_REVIEW_RESPONSE_MODE, which is not auto, so its gate refuses every dispatched round/,
+    );
+  });
+
+  it("modeSource tells the literal, the variable and anything else apart", () => {
+    const job = (value) => ({ with: value === undefined ? {} : { response_mode: value } });
+    assert.equal(modeSource(job("auto")), "auto");
+    assert.equal(
+      modeSource(job("${{ vars.CLAUDE_REVIEW_RESPONSE_MODE || 'manual' }}")),
+      "variable",
+    );
+    assert.equal(modeSource(job("${{ vars.CLAUDE_REVIEW_RESPONSE_MODE }}")), "variable");
+    assert.equal(modeSource(job("${{ vars.CLAUDE_REVIEW_RESPONSE_MODE_X }}")), "other");
+    assert.equal(modeSource(job("manual")), "other");
+    assert.equal(modeSource(job(undefined)), null);
+  });
 
   it("mode: skipped, never passed, when the variable cannot be read", () => {
     const { byId } = doctor({
