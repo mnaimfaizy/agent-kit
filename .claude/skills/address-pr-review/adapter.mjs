@@ -84,11 +84,7 @@ function scalar(raw, problem) {
       problem("a flow list must close on the same line with `]`");
       return [];
     }
-    return value
-      .slice(1, -1)
-      .split(",")
-      .map((item) => item.trim().replace(/^(['"])(.*)\1$/, "$2"))
-      .filter(Boolean);
+    return flowItems(value.slice(1, -1), problem);
   }
   if (value.startsWith("{") || value.startsWith("&") || value.startsWith("*"))
     problem(
@@ -100,6 +96,43 @@ function scalar(raw, problem) {
   if (value === "true") return true;
   if (value === "false") return false;
   return value;
+}
+
+/**
+ * The items of a one-line flow list, split on commas outside quotes. An empty
+ * item (`[a, , b]`, `[a,]`) is a problem, never silently dropped; `[]` is the
+ * empty list.
+ *
+ * @param {string} inner the text between `[` and `]`
+ * @param {(message: string) => void} problem
+ * @returns {string[]}
+ */
+function flowItems(inner, problem) {
+  if (inner.trim() === "") return [];
+  const raw = [];
+  let current = "";
+  let quote = null;
+  for (const char of inner) {
+    if (quote) {
+      if (char === quote) quote = null;
+      current += char;
+    } else if (char === "'" || char === '"') {
+      quote = char;
+      current += char;
+    } else if (char === ",") {
+      raw.push(current);
+      current = "";
+    } else current += char;
+  }
+  raw.push(current);
+  if (quote) problem(`unterminated ${quote} quote`);
+  const items = [];
+  for (const item of raw) {
+    const text = item.trim();
+    if (text === "") problem("an empty list item");
+    else items.push(text.replace(/^(['"])(.*)\1$/, "$2"));
+  }
+  return items;
 }
 
 /**
@@ -220,8 +253,12 @@ export function parseConfigJson(text) {
   const keyLines = {};
   const textLines = String(text).split(/\r?\n/);
   for (const key of Object.keys(parsed)) {
+    // The line where the key itself stands (`"key":`), not a value naming it.
     const quoted = JSON.stringify(key);
-    const index = textLines.findIndex((line) => line.includes(`${quoted}`));
+    const index = textLines.findIndex((line) => {
+      const at = line.indexOf(quoted);
+      return at !== -1 && /^\s*:/.test(line.slice(at + quoted.length));
+    });
     keyLines[key] = index === -1 ? 1 : index + 1;
   }
   return withShapes(parsed, keyLines, []);
@@ -237,7 +274,20 @@ function jsonErrorLine(text, message) {
 }
 
 const LOGIN = /^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\[bot\])?$/;
-const FORCE = /(?:^|\s)(?:--force(?:-with-lease)?(?:=\S*)?|-f|\+\S+)(?=\s|$)/;
+/**
+ * A token of `push_command` that would force-push, delete or mirror: a
+ * short-flag group holding `f` or `d` (`-f`, `-vf`, `-d`), a long option git
+ * would expand to `--force*`, `--delete`, `--mirror` or `--prune` (it accepts
+ * unambiguous abbreviations), or a refspec starting with `+` or `:`. Quotes
+ * are stripped first. An accident guard on a command the repository writes,
+ * not a security boundary (ADAPTER.md).
+ */
+const DESTRUCTIVE = [/^-[A-Za-z]*[fd][A-Za-z]*$/, /^--(?:for|de|mi|pru)/, /^[+:]/];
+const destructiveToken = (command) =>
+  command
+    .split(/\s+/)
+    .map((token) => token.replace(/^['"]/, ""))
+    .find((token) => DESTRUCTIVE.some((pattern) => pattern.test(token)));
 
 /** One check per documented key: null when the value is fine. */
 const SHAPES = {
@@ -268,7 +318,10 @@ const SHAPES = {
     if (typeof v !== "string" || v.trim() === "") return "expected a string";
     if (!v.includes("{branch}"))
       return "must contain `{branch}`, where the pull request's head branch goes";
-    return FORCE.test(v) ? "must never force-push (`--force`, `-f` or a `+` refspec)" : null;
+    const token = destructiveToken(v);
+    return token === undefined
+      ? null
+      : `must never force-push, delete or mirror (\`${token}\`; see ADAPTER.md)`;
   },
 };
 

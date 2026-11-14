@@ -236,3 +236,51 @@ test("ADAPTER.md's YAML and JSON examples read with no problems, and agree", () 
   assert.deepEqual(fromYaml.config, fromJson.config);
   assert.deepEqual(Object.keys(fromJson.config), Object.keys(DEFAULTS));
 });
+
+test("push_command may not force-push, delete or mirror, however it is spelled", () => {
+  const refused = [
+    "git push -vf origin HEAD:{branch}",
+    "git push --force-w origin HEAD:{branch}",
+    "git push --force-with-lease=x origin HEAD:{branch}",
+    'git push origin "+HEAD:refs/heads/{branch}"',
+    "git push origin '+HEAD:{branch}'",
+    "git push origin :refs/heads/{branch}",
+    "git push --delete origin {branch}",
+    "git push --del origin {branch}",
+    "git push -d origin {branch}",
+    "git push --mirror origin # {branch}",
+    "git push --prune origin HEAD:{branch}",
+  ];
+  for (const command of refused)
+    assert.match(
+      printed(parseConfigJson(JSON.stringify({ push_command: command }))).join("\n"),
+      /`push_command`: must never force-push, delete or mirror/,
+      command,
+    );
+  for (const command of [
+    "git push origin HEAD:refs/heads/{branch}",
+    "git push --follow-tags -v origin HEAD:{branch}",
+    "npm run push -- --branch {branch}",
+  ])
+    assert.deepEqual(
+      parseConfigJson(JSON.stringify({ push_command: command })).problems,
+      [],
+      command,
+    );
+});
+
+test("a flow list reports an empty item, and keeps a quoted comma inside its item", () => {
+  assert.match(printed(yaml("reviewer_logins: [a, , b]"))[0], /^line 1: an empty list item/);
+  assert.match(printed(yaml("reviewer_logins: [a, b,]"))[0], /^line 1: an empty list item/);
+  assert.deepEqual(yaml("reviewer_logins: []").problems, [
+    { line: 1, message: "`reviewer_logins`: expected a non-empty list of logins" },
+  ]);
+  const quoted = yaml("reviewer_logins: ['a, b', c]");
+  assert.deepEqual(quoted.config.reviewer_logins, ["a, b", "c"]);
+  assert.match(printed(quoted)[0], /`a, b` is not a GitHub login/);
+});
+
+test("a JSON problem is on the line of its key, not of an earlier value that names it", () => {
+  const text = '{\n  "working_dir": "worktree",\n  "worktree": "no"\n}';
+  assert.match(printed(parseConfigJson(text))[0], /^line 3: `worktree`: expected true or false/);
+});
