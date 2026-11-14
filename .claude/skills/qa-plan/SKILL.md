@@ -162,10 +162,10 @@ Then check for a QA Report left over from an older head. `manual-qa` posts one c
 gh api --paginate "repos/{owner}/{repo}/issues/<pr>/comments" --jq '.[] | {id, body, user: .user.login}' | node "<skill>/../manual-qa/report.mjs" find --login "<login>" --head <head>
 ```
 
-`<login>` is `gh api user --jq .login`, and `<head>` is the plan's full head anchor (step 3). Write every file this check needs (`<tmp>` below) in the system's temporary directory, and delete them when done. Skip this check, and change nothing, when `gh` cannot reach the pull request, when there is no `manual-qa/report.mjs` beside this folder, when `report` is `create` (no report comment of the person's own), or when `report` has no `stale` key (an older `manual-qa` that does not read `--head`). A report comment someone else wrote, named in `others`, is never edited here.
+`<login>` is `gh api user --jq .login`, and `<head>` is the plan's full head anchor (step 3). Write every file this check needs (`<tmp>` below) in the system's temporary directory, and delete them when done. Skip this check, and change nothing, when `gh` cannot reach the pull request, when there is no `manual-qa/report.mjs` beside this folder, when `report` is `create` (no report comment of the person's own), when `report` has no `stale` key (an older `manual-qa` that does not read `--head`), or when `find` exits 1 (the plan's head is not a full SHA: show the person the problems). A report comment someone else wrote, named in `others`, is never edited here.
 
 - **`stale` is `false`:** the report is for the plan's head, or its **Stale:** line already names it. Say nothing about it.
-- **`stale` is `null`:** the comment's **Plan:** line, or the plan's head given, is not a full head SHA. Tell the person its URL (as below) and that it could not be checked against the plan's head; offer no edit.
+- **`stale` is `null`:** the comment's **Plan:** line names no full head SHA. Tell the person its URL (as below) and that it could not be checked against the plan's head; offer no edit.
 - **`stale` is `true`:** tell the person the comment's URL (`gh api "repos/{owner}/{repo}/issues/comments/<id>" --jq .html_url`), the head the report is for (`report.head`) and the plan's head, and ask whether to mark it stale. Editing the comment notifies the people watching the pull request, so do it only on their yes:
 
   ```bash
@@ -173,6 +173,6 @@ gh api --paginate "repos/{owner}/{repo}/issues/<pr>/comments" --jq '.[] | {id, b
     gh api -X PATCH "repos/{owner}/{repo}/issues/comments/<id>" -F body=@<tmp>/stale.md
   ```
 
-  Run the PATCH only after `stale` exits 0. On exit 1, `stale.md` holds `{"problems": …}`, not a comment body: show the person the problems and edit nothing. It adds `**Stale:** the plan was revised for head <head>; this report is for <old head>.` after the marker, and leaves the report itself as it is. On a no, leave the comment as it is. Never delete or hide it: the next `manual-qa` run replaces the whole comment, Stale line included.
+  Run the PATCH only after `stale` exits 0. On exit 1, `stale.md` holds `{"problems": …}`, not a comment body: show the person the problems and edit nothing. It adds `**Stale:** the plan was revised for head <head>; this report is for <old head>.` after the marker, and leaves the report itself as it is. On a no, leave the comment as it is. Never delete or hide it: the next `manual-qa` run replaces the whole comment, Stale line included. That run is also what clears a Stale line that is no longer true, such as after the plan is revised back to the report's head. This step never removes one.
 
 **Done when:** the plan is at the target the rules chose, the person has its path or URL, nothing was committed, and, when the pull request carries a QA Report comment for another head, the person has its URL and both heads and has answered whether to mark it stale.
