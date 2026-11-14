@@ -194,15 +194,15 @@ _Avoid_: done, mergeable, green
 
 ### Review response
 
-The `address-pr-review` Portable skill, which answers the code review on a pull request. Its [`DESIGN.md`](.claude/skills/address-pr-review/DESIGN.md#glossary) carries the same definitions, so the skill keeps them when it is installed alone.
+The `address-pr-review` Portable skill, which answers the code review on a pull request. Its [`DESIGN.md`](.claude/skills/address-pr-review/DESIGN.md#glossary) carries the same definitions, so the skill keeps them when it is installed alone. **Handoff** names the Auto mode that the Review response First-class flow adds; the skill alone has none.
 
 **Review responder**:
 The agent addressing a review.
 _Avoid_: fixer, review bot
 
 **Finding**:
-One unresolved review thread a configured reviewer started.
-_Avoid_: comment, issue (for a review point)
+One unresolved review thread a configured reviewer started. Written alone, **Finding** means this; a security finding (the Threat pack's) and an **Upstream Finding** keep their qualifiers.
+_Avoid_: comment, issue (for a review point), review finding
 
 **Work list**:
 The findings one round is given.
