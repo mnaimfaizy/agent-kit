@@ -120,8 +120,22 @@ export const KIT_OWNED_PATHS = Object.freeze([
  */
 const WORKFLOW_DIR = ".github/workflows";
 
+/**
+ * A path as a case-insensitive checkout sees it. APFS and NTFS fold case, and
+ * Windows drops trailing dots and spaces from a name, so `.Claude/x`,
+ * `claude.md` and `CLAUDE.md.` all land on a protected file there. Every
+ * protected-path comparison is made on this form, on both sides.
+ */
+function fold(path) {
+  return path
+    .split("/")
+    .map((segment) => segment.toLowerCase().replace(/[. ]+$/, ""))
+    .join("/");
+}
+
 function isUnder(path, dir) {
-  return path === dir || path.startsWith(`${dir}/`);
+  const [p, d] = [fold(path), fold(dir)];
+  return p === d || p.startsWith(`${d}/`);
 }
 
 /**
@@ -155,20 +169,52 @@ export function parseProtectedPaths(text) {
  * Is `path` protected: refused at the gate, never committed to by a round?
  * `extra` only ever adds to the kit-fixed list and the Kit-owned paths.
  */
+const FOLDED_PROTECTED_FILES = new Set([...PROTECTED_FILES].map(fold));
+
 export function isProtectedPath(path, extra = []) {
-  const segments = path.split("/");
-  if (PROTECTED_FILES.has(segments.at(-1))) return true;
+  const segments = fold(path).split("/");
+  if (FOLDED_PROTECTED_FILES.has(segments.at(-1))) return true;
   const rooted = [...PROTECTED_ROOT_DIRS, ...KIT_OWNED_PATHS.map((p) => p.replace(/\/$/, ""))];
   if (rooted.some((dir) => isUnder(path, dir))) return true;
   if (extra.some((dir) => isUnder(path, dir))) return true;
   return PROTECTED_DIRS_ANY_DEPTH.some((dir) => {
-    const parts = dir.split("/");
+    const parts = fold(dir).split("/");
     return segments.some((_, at) => parts.every((part, offset) => segments[at + offset] === part));
   });
 }
 
 export function isWorkflowPath(path) {
   return isUnder(path, WORKFLOW_DIR);
+}
+
+/**
+ * The protected paths a pull request's diff touches, from the output of
+ * `git diff --name-status -z`. A rename or copy names both its paths, so
+ * renaming `CLAUDE.md` away is seen whatever git's rename detection is set to
+ * (`--name-only` would print only the new name). Anything that is not that
+ * format, `--name-only` output included, throws: the gate fails closed.
+ */
+export function protectedPathsInDiff(text, extra = []) {
+  const fields = String(text).split("\0");
+  if (fields.at(-1) !== "") {
+    throw new Error("check-protected expects `git diff --name-status -z` output");
+  }
+  fields.pop();
+  const paths = [];
+  for (let at = 0; at < fields.length;) {
+    const status = fields[at];
+    if (!/^[ACDMRTUXB][0-9]{0,3}$/.test(status)) {
+      throw new Error("check-protected expects `git diff --name-status -z` output");
+    }
+    const count = /^[RC]/.test(status) ? 2 : 1;
+    const named = fields.slice(at + 1, at + 1 + count);
+    if (named.length !== count || named.some((path) => path === "")) {
+      throw new Error("check-protected expects `git diff --name-status -z` output");
+    }
+    paths.push(...named);
+    at += 1 + count;
+  }
+  return paths.filter((path) => isProtectedPath(path, extra));
 }
 
 /** May a round's commits touch `path`? Protected and workflow paths are refused. */
@@ -233,10 +279,8 @@ export function buildWorkList(
   const isMaintainer = (author) => author?.__typename === "User" && maintainers.has(author.login);
   const isResponder = (author) =>
     author?.__typename === "Bot" && author.login === RESPONDER_GRAPHQL_LOGIN;
-  const counted = (comment) =>
-    isReviewer(comment.author) || isMaintainer(comment.author) || isResponder(comment.author)
-      ? markedVerdict(comment.body)
-      : null;
+  const isTrusted = (author) => isReviewer(author) || isMaintainer(author) || isResponder(author);
+  const counted = (comment) => (isTrusted(comment.author) ? markedVerdict(comment.body) : null);
 
   const answered = [];
   const findings = [];
@@ -251,7 +295,10 @@ export function buildWorkList(
       path: thread.path,
       line: thread.line ?? thread.originalLine ?? null,
     };
-    if (replies.length > 0 && counted(replies.at(-1))) {
+    // Answered is judged from the last trusted comment: an untrusted "+1"
+    // after an earlier round's reply must not reopen the thread.
+    const lastTrusted = replies.filter((r) => isTrusted(r.author)).at(-1);
+    if (lastTrusted && counted(lastTrusted)) {
       answered.push(where);
       continue;
     }
@@ -681,7 +728,13 @@ export function receiveRound({ cwd, bundle, start, extraProtected = [] }) {
     bundle,
     "+HEAD:refs/agent-review-response/round",
   ]);
-  const tip = git(cwd, ["rev-parse", "refs/agent-review-response/round"]).trim();
+  // Peeled to a commit: the bundle's HEAD may name an annotated tag, whose own
+  // sha must never be what is pushed or recorded as the round's tip.
+  const tip = git(cwd, [
+    "rev-parse",
+    "--verify",
+    "refs/agent-review-response/round^{commit}",
+  ]).trim();
   if (tip === start) throw new Error("the round holds no new commit");
 
   // Every commit reachable from the tip and not from start, oldest first.
@@ -730,6 +783,7 @@ export function receiveRound({ cwd, bundle, start, extraProtected = [] }) {
     commits.push({ sha, paths });
     previous = sha;
   }
+  if (previous !== tip) throw new Error("the round's tip is not its last checked commit");
   return { tip, commits };
 }
 
@@ -973,14 +1027,10 @@ function main([command, ...args]) {
       break;
     }
     case "check-protected": {
-      // NUL-delimited paths on stdin, as `git diff --name-only -z` prints them.
-      // Asks only about protected paths: a pull request may change workflow
-      // files and still get a round.
-      const extra = extraProtectedFromEnv();
-      const refused = readFileSync(0, "utf8")
-        .split("\0")
-        .filter(Boolean)
-        .filter((path) => isProtectedPath(path, extra));
+      // `git diff --name-status -z <base>...<head>` on stdin (see
+      // protectedPathsInDiff). Asks only about protected paths: a pull request
+      // may change workflow files and still get a round.
+      const refused = protectedPathsInDiff(readFileSync(0, "utf8"), extraProtectedFromEnv());
       if (refused.length > 0) {
         console.error(`refused paths:\n${refused.join("\n")}`);
         process.exitCode = 1;

@@ -27,6 +27,7 @@ import {
   parseResponse,
   pickHeldCiRun,
   planPublication,
+  protectedPathsInDiff,
   receiveRound,
   renderBrief,
   renderReply,
@@ -1028,5 +1029,133 @@ describe("Review responder script", () => {
     ]) {
       assert.match(text, new RegExp(`case "${command}":`), command);
     }
+  });
+});
+
+describe("Review responder review fixes (PR #186)", () => {
+  it("protects a path whatever its case, and with trailing dots or spaces", () => {
+    // APFS and NTFS fold case and Windows strips trailing dots and spaces, so
+    // each of these lands on a protected file in a checkout there.
+    for (const path of [
+      ".Claude/settings.json",
+      "claude.md",
+      "docs/Claude.Local.MD",
+      "agents.md",
+      "CLAUDE.md.",
+      "AGENTS.md ",
+      ".MCP.json",
+      ".Agents/Skills/x/SKILL.md",
+      ".HUSKY/pre-commit",
+      ".GitHub/Agent-Runtime/x.mjs",
+      ".github/agent-runtime./x.mjs",
+      ".github/Agent-Review-Response/review-response.mjs",
+      ".claude ./settings.json",
+    ]) {
+      assert.ok(isProtectedPath(path), `${JSON.stringify(path)} must be refused`);
+      assert.ok(isRefusedInRound(path), `${JSON.stringify(path)} must be refused in a round`);
+    }
+    assert.ok(isProtectedPath("Docs/Private/a.md", parseProtectedPaths("docs/private/")));
+    for (const path of [".GitHub/Workflows/ci.yml", ".github/workflows./ci.yml"]) {
+      assert.ok(isWorkflowPath(path), path);
+    }
+    for (const path of ["docs/claude.md.bak", "src/Claude.ts", ".claudex/a.md"]) {
+      assert.ok(!isProtectedPath(path), `${path} must be allowed`);
+    }
+  });
+
+  it("check-protected sees both sides of a rename", () => {
+    const diff = (...fields) => `${fields.join("\0")}\0`;
+    assert.deepEqual(protectedPathsInDiff(diff("R100", "CLAUDE.md", "docs/old.md")), ["CLAUDE.md"]);
+    assert.deepEqual(protectedPathsInDiff(diff("C075", "src/a.ts", ".claude/x.md")), [
+      ".claude/x.md",
+    ]);
+    assert.deepEqual(protectedPathsInDiff(diff("D", "AGENTS.md", "M", "src/a.ts")), ["AGENTS.md"]);
+    assert.deepEqual(protectedPathsInDiff(diff("M", "src/a.ts", "A", "src/b.ts")), []);
+    assert.deepEqual(protectedPathsInDiff(""), []);
+    assert.deepEqual(protectedPathsInDiff(diff("M", "docs/private/a.md"), ["docs/private"]), [
+      "docs/private/a.md",
+    ]);
+    // `--name-only` output, or anything else it cannot read, fails closed.
+    for (const bad of [
+      diff("CLAUDE.md"),
+      diff("src/a.ts", "CLAUDE.md"),
+      diff("R100", "CLAUDE.md"),
+      diff("M"),
+      "M\0src/a.ts",
+    ]) {
+      assert.throws(() => protectedPathsInDiff(bad), /name-status/, JSON.stringify(bad));
+    }
+  });
+
+  it("an untrusted reply after an answer does not reopen the thread", () => {
+    const answered = thread("T1", {}, [
+      reply(reviewer, marked("declined")),
+      reply(stranger, "+1", "2026-10-07T02:00:00Z"),
+      reply({ login: "other-app", __typename: "Bot" }, "bump", "2026-10-07T03:00:00Z"),
+    ]);
+    const list = buildWorkList([answered]);
+    assert.equal(list.items.length, 0);
+    assert.equal(list.answered.length, 1);
+    assert.equal(handoffDecision({ findings: list.items.length, rounds: 0 }), "none");
+
+    // A trusted reply still reopens it, untrusted noise after it or not.
+    const guided = thread("T1", {}, [
+      reply(reviewer, marked("declined")),
+      reply(maintainer, "try again", "2026-10-07T02:00:00Z"),
+      reply(stranger, "+1", "2026-10-07T03:00:00Z"),
+    ]);
+    assert.equal(buildWorkList([guided], { allowlist: ["mnaimfaizy"] }).items.length, 1);
+  });
+});
+
+describe("Review responder round tip (PR #186)", () => {
+  const env = {
+    ...process.env,
+    GIT_AUTHOR_NAME: "t",
+    GIT_AUTHOR_EMAIL: "t@example.test",
+    GIT_COMMITTER_NAME: "t",
+    GIT_COMMITTER_EMAIL: "t@example.test",
+  };
+  const run = (cwd, ...args) =>
+    execFileSync("git", args, {
+      cwd,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      env,
+    }).trim();
+
+  it("returns the commit, never an annotated tag, as the tip to push", (t) => {
+    const dir = mkdtempSync(join(tmpdir(), "review-response-tag-"));
+    t.after(() => rmSync(dir, { recursive: true, force: true }));
+    const origin = join(dir, "origin");
+    mkdirSync(origin);
+    run(origin, "init", "-q", "-b", "main");
+    writeFileSync(join(origin, "a.txt"), "one\n");
+    run(origin, "add", "a.txt");
+    run(origin, "commit", "-q", "-m", "start");
+    const start = run(origin, "rev-parse", "HEAD");
+    const trusted = join(dir, "trusted");
+    run(dir, "clone", "-q", origin, trusted);
+    writeFileSync(join(origin, "a.txt"), "two\n");
+    run(origin, "commit", "-q", "-a", "-m", "fix");
+    const commit = run(origin, "rev-parse", "HEAD");
+    run(origin, "tag", "-a", "-m", "tag", "round");
+    const tag = run(origin, "rev-parse", "refs/tags/round");
+    assert.notEqual(tag, commit);
+
+    // A bundle whose HEAD names the tag object, as a hostile runner could write.
+    const bundle = join(dir, "round.bundle");
+    run(origin, "bundle", "create", "-q", bundle, `${start}..refs/tags/round`);
+    const bytes = readFileSync(bundle);
+    const end = bytes.indexOf("\n\n") + 2;
+    const header = bytes.subarray(0, end).toString().replace("refs/tags/round", "HEAD");
+    writeFileSync(bundle, Buffer.concat([Buffer.from(header), bytes.subarray(end)]));
+
+    const round = receiveRound({ cwd: trusted, bundle, start });
+    assert.equal(round.tip, commit);
+    assert.deepEqual(
+      round.commits.map((c) => c.sha),
+      [commit],
+    );
   });
 });
