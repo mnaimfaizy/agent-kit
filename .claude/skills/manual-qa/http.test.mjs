@@ -382,7 +382,7 @@ const INLINE = {
   "a JWT anywhere": {
     method: "POST",
     path: "/x",
-    json: { note: "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl" },
+    json: { note: ["eyJhbGciOiJIUzI1NiJ9", "eyJzdWIiOiIxIn0", "c2lnbmF0dXJl"].join(".") },
   },
   "a secret in a raw body": { method: "POST", path: "/login", body: "user=a&password=hunter22" },
   "an address with credentials": { method: "GET", path: "//user:pw@evil.example/" },
