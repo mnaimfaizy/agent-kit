@@ -24,6 +24,11 @@ import { after, test } from "node:test";
 import {
   CONFIG_FILES,
   DEFAULTS,
+  HARNESSES,
+  HARNESS_ENV,
+  HARNESS_FILE_PROBLEMS,
+  harnessCatalog,
+  harnessCandidates,
   PROJECT_SKILL_DIRS,
   TRIAGE_ROLES,
   effectiveConfig,
@@ -154,6 +159,8 @@ test("each key's default, with an empty config", () => {
       labels: Object.fromEntries(TRIAGE_ROLES.map((role) => [role, role])),
     },
     models: { analysis: null, build: null, review: null, qa: null },
+    harness: null,
+    executors: { build: null, analysis: null, qa: null },
     limits: { building: 3, shared: [] },
     decisions: { to: "pull-request", marker: null },
     ready_to_merge: { review: "settled", qa: "none", qa_labels: [] },
@@ -690,7 +697,7 @@ test("JSON: each problem is named with its line, like YAML's", () => {
     "}",
   ].join("\n");
   assert.deepEqual(json(text).problems, [
-    "line 3: `routs`: unknown key (CONFIG.md documents: run_dir, read_first, routes, regate, skills, triage_labels, models, limits, decisions, ready_to_merge, spec)",
+    "line 3: `routs`: unknown key (CONFIG.md documents: run_dir, read_first, routes, regate, skills, triage_labels, models, harness, executors, limits, decisions, ready_to_merge, spec)",
     "line 10: `read_first[1]`: expected a relative path inside the repository",
     "line 6: `routes.push`: unknown key (CONFIG.md documents: commit, pull_request, merge)",
     "line 5: `routes.commit`: expected a non-empty string",
@@ -1243,4 +1250,187 @@ test("SKILL.md checks which copy runs before its first step", () => {
   assert.ok(check > 0, "SKILL.md runs `where orchestrate`");
   assert.ok(check < skill.indexOf("## Workflow"), "before the workflow");
   for (const dir of PROJECT_SKILL_DIRS) assert.ok(skill.includes(dir), `SKILL.md names ${dir}`);
+});
+
+// ── Harness ─────────────────────────────────────────────────────────────────
+
+const HARNESS_DIR = new URL("./harnesses/", import.meta.url);
+const HARNESSES_MD = readFileSync(new URL("./HARNESSES.md", import.meta.url), "utf8");
+
+test("every harness file is in HARNESSES.md's table, and every table row has a file", () => {
+  const rows = [
+    ...HARNESSES_MD.matchAll(/^\| `([a-z0-9-]+)` +\|.*\(harnesses\/[a-z0-9-]+\.md\)/gm),
+  ].map((m) => m[1]);
+  assert.deepEqual([...rows].sort(), Object.keys(HARNESSES).sort());
+  for (const id of rows)
+    assert.ok(HARNESSES_MD.includes(`(harnesses/${id}.md)`), `${id} links its file`);
+});
+
+test("each harness file names its Support Level, and only Claude Code desktop is verified", () => {
+  const verified = Object.entries(HARNESSES).filter(([, h]) => h.level === "verified");
+  assert.deepEqual(
+    verified.map(([id]) => id),
+    ["claude-code-desktop"],
+  );
+  assert.equal(HARNESSES.cursor.level, "tried");
+  assert.equal(HARNESSES["claude-code-desktop"].headless, false);
+  assert.equal(HARNESSES["claude-code-cli"].headless, true);
+  for (const id of Object.keys(HARNESSES)) {
+    const text = readFileSync(new URL(`${id}.md`, HARNESS_DIR), "utf8");
+    for (const heading of ["## Verbs", "## Limits", "## Check before use"])
+      assert.ok(text.includes(`\n${heading}\n`), `${id} has ${heading}`);
+    assert.ok(text.includes(`- **Id:** \`${id}\``), `${id} names its own id`);
+  }
+});
+
+test("a known `harness` and `executors` read the same in YAML and JSON", () => {
+  const y = yaml("harness: cursor", "executors: { build: claude-code-cli }");
+  const j = json('{ "harness": "cursor", "executors": { "build": "claude-code-cli" } }');
+  for (const read of [y, j]) {
+    assert.deepEqual(read.problems, []);
+    const effective = effectiveConfig(read.config);
+    assert.equal(effective.harness, "cursor");
+    assert.deepEqual(effective.executors, { build: "claude-code-cli", analysis: null, qa: null });
+  }
+});
+
+test("an unknown harness, or an executor with no headless run, is a problem with its line", () => {
+  const read = yaml(
+    "harness: aider",
+    "executors:",
+    "  build: claude-code-desktop",
+    "  qa: nope",
+    "  deploy: cursor",
+  );
+  assert.equal(read.problems.length, 4, read.problems.join(" | "));
+  assert.ok(
+    read.problems.some((p) => p.startsWith("line 1: `harness`: `aider` has no harness file")),
+  );
+  assert.ok(
+    read.problems.some((p) =>
+      p.startsWith("line 3: `executors.build`: `claude-code-desktop` has no headless run"),
+    ),
+  );
+  assert.ok(
+    read.problems.some((p) => p.startsWith("line 4: `executors.qa`: `nope` has no harness file")),
+  );
+  assert.ok(read.problems.some((p) => p.startsWith("line 5: `executors.deploy`: unknown key")));
+});
+
+test("a pinned harness below verified, and each executor harness, is a note", () => {
+  const read = readConfig(
+    reader({
+      "orchestrate.config.yml": [
+        ...READY_BASE,
+        "harness: cursor",
+        "executors: { build: claude-code-cli }",
+      ].join("\n"),
+    }),
+  );
+  const ready = readiness(read);
+  assert.equal(ready.ready, true);
+  assert.ok(
+    ready.notes.some((n) => n.startsWith("`harness` is `cursor`, at Support Level `tried`")),
+  );
+  assert.ok(
+    ready.notes.some((n) =>
+      n.startsWith(
+        "`executors.build` runs that work on `claude-code-cli`, at Support Level `documented`",
+      ),
+    ),
+  );
+  const verified = readiness(
+    readConfig(
+      reader({
+        "orchestrate.config.yml": [...READY_BASE, "harness: claude-code-desktop"].join("\n"),
+      }),
+    ),
+  );
+  assert.ok(!verified.notes.some((n) => n.startsWith("`harness`")));
+});
+
+test("the environment names candidates, and names none it does not know", () => {
+  assert.deepEqual(harnessCandidates({ CLAUDECODE: "1", CLAUDE_CODE_DESKTOP_APP_VERSION: "1.2" }), [
+    "claude-code-desktop",
+  ]);
+  assert.deepEqual(harnessCandidates({ CLAUDECODE: "1" }), ["claude-code-cli"]);
+  assert.deepEqual(harnessCandidates({}), []);
+  assert.deepEqual(harnessCandidates({ CURSOR_AGENT: "1", TERM_PROGRAM: "vscode" }), ["cursor"]);
+  assert.deepEqual(harnessCandidates({ CODEX_THREAD_ID: "t" }), ["codex-cli"]);
+  assert.deepEqual(harnessCandidates({ COPILOT_CLI: "1" }), ["copilot-cli"]);
+  assert.deepEqual(harnessCandidates({ GEMINI_CLI: "1" }), ["gemini-cli"]);
+  assert.deepEqual(harnessCandidates({ OPENCODE: "1" }), ["opencode"]);
+  // Nested harnesses both show: the session's tools decide (HARNESSES.md).
+  assert.deepEqual(harnessCandidates({ CURSOR_AGENT: "1", CLAUDECODE: "1" }), [
+    "claude-code-cli",
+    "cursor",
+  ]);
+  for (const rule of HARNESS_ENV) assert.ok(Object.hasOwn(HARNESSES, rule.harness), rule.harness);
+});
+
+test("check prints the harness report: candidates, the pinned harness and each level", () => {
+  const { code, out } = main(["check"], {
+    read: reader({ "orchestrate.config.yml": [...READY_BASE, "harness: cursor"].join("\n") }),
+    exists: () => true,
+    cwd: "/repo",
+    env: {},
+  });
+  assert.equal(code, 0);
+  const { harness } = JSON.parse(out);
+  assert.deepEqual(harness.candidates, []);
+  assert.equal(harness.pinned, "cursor");
+  assert.equal(harness.levels.cursor, "tried");
+  assert.equal(harness.levels["claude-code-desktop"], "verified");
+});
+
+test("an executor naming the pinned harness is that harness's own default: no problem, no note", () => {
+  const read = readConfig(
+    reader({
+      "orchestrate.config.yml": [
+        ...READY_BASE,
+        "harness: claude-code-desktop",
+        "executors: { build: claude-code-desktop }",
+      ].join("\n"),
+    }),
+  );
+  assert.deepEqual(read.problems, []);
+  assert.ok(!readiness(read).notes.some((n) => n.startsWith("`executors.")));
+});
+
+test("the skill's own harness files read with no problems", () => {
+  assert.deepEqual(HARNESS_FILE_PROBLEMS, []);
+});
+
+test("a malformed or stray harness file is a named problem, never a crash", () => {
+  const dir = mkdtempSync(join(tmpdir(), "harnesses-"));
+  try {
+    writeFileSync(join(dir, "README.md"), "# Harnesses\n");
+    writeFileSync(
+      join(dir, "good.md"),
+      "- **Id:** `good`\n- **Support Level:** `tried`\n- **Headless run:** `good -p`\n- **Headless QA:** none: no skills\n",
+    );
+    mkdirSync(join(dir, "dir.md"));
+    const { harnesses, problems } = harnessCatalog(dir);
+    assert.deepEqual(harnesses, { good: { level: "tried", headless: true, headlessQa: false } });
+    assert.equal(problems.length, 2);
+    assert.match(problems[0], /^harnesses\/README\.md: not a harness file; it needs /);
+    assert.match(problems[1], /^harnesses\/dir\.md cannot be read \(EISDIR\)$/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+  const missing = harnessCatalog(join(tmpdir(), "no-such-harnesses-folder"));
+  assert.deepEqual(missing.harnesses, {});
+  assert.match(missing.problems[0], /`harnesses\/` folder cannot be read/);
+});
+
+test("`executors.qa` naming a harness whose headless run cannot carry QA is a problem", () => {
+  for (const id of ["gemini-cli", "devin"]) {
+    const read = yaml("harness: cursor", `executors: { qa: ${id} }`);
+    assert.equal(read.problems.length, 1, read.problems.join(" | "));
+    assert.match(
+      read.problems[0],
+      new RegExp(`\`executors.qa\`: \`${id}\`'s headless run cannot carry QA`),
+    );
+    assert.deepEqual(yaml("harness: cursor", `executors: { build: ${id} }`).problems, []);
+  }
 });

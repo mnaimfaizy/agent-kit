@@ -18,6 +18,8 @@ TERMS = [
     "Chief of Staff",
     "Delegation",
     "Executor",
+    "Harness",
+    "Support Level",
     "Live Session",
     "Brief Contract",
     "Decision Request",
