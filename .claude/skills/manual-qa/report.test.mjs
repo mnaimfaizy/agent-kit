@@ -519,6 +519,18 @@ test("with the plan's head, a report comment for an older head is stale; one for
   const comments = [{ id: 41, body: reportComment(PASSED).body, user: ME }];
   assert.equal(findComments(comments, ME, { head: NEW_HEAD }).report.stale, true);
   assert.equal(findComments(comments, ME, { head: HEAD }).report.stale, false);
+  // A comment whose **Plan:** line names no full head is unknown, not "same".
+  const unread = [{ id: 42, body: `${REPORT_MARKER}\n\nno plan line`, user: ME }];
+  assert.equal(findComments(unread, ME, { head: NEW_HEAD }).report.stale, null);
+  // Heads compare exactly in both: an uppercase head is not the lowercase one, and
+  // `stale` and `find --head` refuse it as no full head.
+  const upper = "A".repeat(40);
+  const lower = [
+    { id: 43, body: reportComment(PASSED).body.replace(HEAD, "a".repeat(40)), user: ME },
+  ];
+  assert.equal(findComments(lower, ME, { head: upper }).report.stale, true);
+  assert.match(staleComment(lower[0].body, upper).problems[0], /full head/);
+  assert.equal(main(["find", "--login", ME, "--head", upper], { stdin: () => "" }).code, 1);
   // Without the plan's head, nothing is compared.
   assert.equal(findComments(comments, ME).report.stale, undefined);
   // With no report comment, there is nothing to warn about.

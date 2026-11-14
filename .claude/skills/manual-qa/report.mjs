@@ -337,13 +337,14 @@ const firstLine = (body) =>
  * The comment to update carries the head its report's **Plan:** line names,
  * read by `readReport`, a **Stale:** line or not. Given the plan's full `head`,
  * it also says whether that head is another one: `qa-plan` warns only then.
+ * `stale` is `null` when the comment's **Plan:** line names no full head.
  *
  * @param {{id: number | string, body: string, user?: string | {login?: string}}[]} comments
  *   oldest first, as GitHub lists them
  * @param {string} login who posts: `gh api user --jq .login`
  * @param {{head?: string | null}} [options] the plan's head
  * @returns {{report: {action: "update", id: number | string, duplicates: (number | string)[],
- *   head: string | null, stale?: boolean} | {action: "create"},
+ *   head: string | null, stale?: boolean | null} | {action: "create"},
  *   others: (number | string)[], planIssue: number | null}}
  */
 export function findComments(comments, login, { head = null } = {}) {
@@ -360,7 +361,9 @@ export function findComments(comments, login, { head = null } = {}) {
           id: own[0].id,
           duplicates: own.slice(1).map((c) => c.id),
           head: reportHead,
-          ...(head ? { stale: reportHead !== null && reportHead !== head.toLowerCase() } : {}),
+          // Heads compare exactly, as `staleComment` compares them: both are full lowercase SHAs.
+          // A head the comment's report does not name is unknown, never "same".
+          ...(head ? { stale: reportHead === null ? null : reportHead !== head } : {}),
         }
       : { action: "create" },
     others: marked.filter((c) => !own.includes(c)).map((c) => c.id),
