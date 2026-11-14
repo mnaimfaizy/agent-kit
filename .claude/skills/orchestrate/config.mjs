@@ -829,7 +829,7 @@ function qaConfig(read) {
   return QA_CONFIG_FILES.find(present) ?? null;
 }
 
-/** A document a brief sends every Delegation to must be there. */
+/** Every path the config names must be in the repository: the documents a brief sends every Delegation to, and the review Caller. */
 function missingPaths(config, where, exists) {
   const sink = problemSink(where);
   (config.read_first ?? []).forEach((path, n) => {
