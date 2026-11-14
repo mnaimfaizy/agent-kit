@@ -58,7 +58,7 @@ A finding with no single clear fix (more than one reasonable fix, a behaviour ch
 
 ## Memory is GitHub's thread state
 
-No state file, no commit trailers, no "since" list. A resolved thread drops out of the next round. An earlier round's reply on an open thread is visible to the next one, marked by a one-line HTML comment that carries its Verdict. Everything the next round needs is on the pull request, where the person and the reviewer can see it too, and a state file could drift from it.
+No state file, no commit trailers, no "since" list. A resolved thread drops out of the next round. An earlier round's reply on an open thread is visible to the next one, marked by a one-line HTML comment that carries its Verdict. A thread whose last word is that marker is **answered**: it stays off the Work list, and out of the 20, until the reviewer or a trusted person says something more. Otherwise every `addressed` or `declined` thread, open by design, would be answered again each round, and twenty of them would keep every newer finding off the list. Everything the next round needs is on the pull request, where the person and the reviewer can see it too, and a state file could drift from it.
 
 A thread still open after a `fixed` reply is a **persists** case: the reviewer, or the person, did not accept the fix. It goes to the person (locally) or is declined with that note (CI), and is never tried a second time: a second automated attempt at the same finding is the start of a loop.
 
