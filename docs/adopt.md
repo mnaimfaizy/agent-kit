@@ -21,6 +21,7 @@ Pin reusable jobs to an immutable SemVer tag:
 - `uses: <owner>/agent-kit/.github/workflows/agent-plan-reusable.yml@v1.2.3`
 - `uses: <owner>/agent-kit/.github/workflows/agent-implement-reusable.yml@v1.2.3`
 - `uses: <owner>/agent-kit/.github/workflows/agent-review-reusable.yml@v1.2.3`
+- `uses: <owner>/agent-kit/.github/workflows/agent-review-response-reusable.yml@v1.2.3`
 
 No floating major tags (`@v1`) are part of the contract.
 
@@ -40,7 +41,7 @@ Don't install a Kit-owned skill with `npx skills` in a Consumer: [Install indivi
 - `.claude/skills/manual-qa/` — a Kit-owned path copied with the rest. No First-class flow uses it; you run `/manual-qa` by hand on a QA Plan, against a local QA Stack or a hosted test URL. It reads the `run:` section of the same `qa.config.yml` (keys: [`ADAPTER.md`](../.claude/skills/manual-qa/ADAPTER.md)), which is not Kit-owned.
 - `.claude/skills/plain-prose/` — a Kit-owned path copied with the rest. No First-class flow uses it; you run `/plain-prose` by hand on a file or pasted text a person will read. It has no config: it reads your glossary (`CONTEXT.md` or `GLOSSARY.md`) when one exists and leaves its terms alone.
 - `.claude/skills/orchestrate/` — a Kit-owned path copied with the rest. No First-class flow uses it; you run `/orchestrate #<n> #<n>` by hand to have one session run a set of issues through other sessions. Its config, `orchestrate.config.yml` at your repository root (keys: [`CONFIG.md`](../.claude/skills/orchestrate/CONFIG.md)), is not Kit-owned and survives upgrades (template: [`examples/orchestrate.config.yml`](../examples/orchestrate.config.yml)); its run folders stay in the gitignored `run_dir` it names. Guide: [Orchestrate](orchestrate.md).
-- `.claude/skills/address-pr-review/` — a Kit-owned path copied with the rest. No First-class flow uses it yet; you run `/address-pr-review <n>` by hand to answer the review threads on an open pull request. It fixes in a worktree under a gitignored working directory, one commit per finding, and posts each reply and resolution only after you confirm. Its config, `address-pr-review.config.yml` at your repository root (keys: [`ADAPTER.md`](../.claude/skills/address-pr-review/ADAPTER.md)), is not Kit-owned and survives upgrades; without one, every key takes its default.
+- `.claude/skills/address-pr-review/` — a Kit-owned path copied with the rest. The [Review response](review-response.md) flow runs it unattended, reading it from your default branch; you can also run `/address-pr-review <n>` by hand to answer the review threads on an open pull request. It fixes in a worktree under a gitignored working directory, one commit per finding, and posts each reply and resolution only after you confirm. Its config, `address-pr-review.config.yml` at your repository root (keys: [`ADAPTER.md`](../.claude/skills/address-pr-review/ADAPTER.md)), is not Kit-owned and survives upgrades; without one, every key takes its default.
 - `.github/agent-runtime/` — hooks and settings the jobs load from the Consumer checkout and run from a read-only copy under `$RUNNER_TEMP`:
   - `confine-reads-to-workspace.mjs`: PreToolUse hook that denies Read/Grep/Glob outside the workspace. Plan, implement, review, audit.
   - `read-confinement.settings.json`: settings that run the read hook. Plan, review, audit (implement checks it too).
@@ -50,7 +51,7 @@ Don't install a Kit-owned skill with `npx skills` in a Consumer: [Install indivi
   - `check-git-config.mjs`: allowlist check of the checkout's git config and hooks, run before and after the agent. Implement.
 - `.github/security-audit/` (prompt and the publish/email scripts the audit stages from a trusted commit)
 - `.github/agent-pipeline/` (planner and implementer contracts, and the draft-PR fallback script)
-- `.github/agent-review-response/` (the trusted script of the Review response flow, staged from a trusted commit; no flow runs it yet)
+- `.github/agent-review-response/` (the trusted script of the [Review response](review-response.md) flow, read from your default branch's tip rather than the tag your `uses:` pins, so merge it there before the first round)
 
 The copied paths and workflow references should always move together on upgrade.
 

@@ -1,0 +1,80 @@
+name: agent-review-response
+
+# Review response: answers the code review on a pull request. One Response
+# round fixes, addresses or declines each unresolved review thread the
+# reviewer started, pushes the fixes, and replies on and resolves the threads.
+# Guide: docs/review-response.md in the Agent-kit tag you pin.
+#
+# The round reads its trusted script, hooks and skill from your default
+# branch, so copy the Kit-owned paths there before the first round.
+
+on:
+  # Manual mode: a person on the Allowlist applies agent:address-review.
+  pull_request:
+    types: [labeled]
+  # Auto mode only: the review workflow's handoff job dispatches this file on
+  # the default branch with pr_number. The gate refuses every other dispatch,
+  # a person's "Run workflow" included, so this trigger is safe to keep.
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "Pull request number (set by the review handoff)"
+        required: true
+
+# What agent-review-response-reusable.yml's jobs request. Only its publish
+# job, on a fresh runner with trusted code, holds the writes; the job that
+# runs the agent gets contents: read and pull-requests: read.
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+jobs:
+  respond:
+    # Fork pull requests are refused by the gate anyway (a fork run gets no
+    # secrets); skipping them here starts no run at all.
+    if: |
+      (github.event_name == 'pull_request' &&
+        github.event.label.name == 'agent:address-review' &&
+        github.event.pull_request.head.repo.full_name == github.repository) ||
+      github.event_name == 'workflow_dispatch'
+    uses: mnaimfaizy/agent-kit/.github/workflows/agent-review-response-reusable.yml@v1.0.0-beta.6
+    with:
+      kill_switch: ${{ vars.CLAUDE_REVIEW_RESPONSE_ENABLED != 'true' }}
+      # Exactly `auto` accepts the review handoff's dispatch; unset is manual.
+      response_mode: ${{ vars.CLAUDE_REVIEW_RESPONSE_MODE || 'manual' }}
+      model: ${{ vars.CLAUDE_MODEL_REVIEW_RESPONSE || vars.CLAUDE_MODEL || 'claude-opus-5' }}
+      # Who may start a round with the label, and whose thread replies are
+      # Maintainer guidance. Nobody else's reply reaches the agent.
+      allowlist_actors: '["your-github-login"]'
+      trigger_label: "agent:address-review"
+      pr_number: ${{ github.event_name == 'pull_request' && github.event.pull_request.number || inputs.pr_number }}
+      # Whose unresolved review threads are Findings. Empty means
+      # github-actions, the kit's own reviewer. Add a review bot's login to
+      # answer its threads too:
+      # reviewer_logins: '["github-actions", "coderabbitai"]'
+      # The checks the agent runs before each fix commit: its only build
+      # command. Code the job runs: never build it from issue or PR text.
+      verify_commands: |
+        # The agent runs this block as one `bash` script; set -e makes any failing command fail it.
+        set -e
+        echo "Provide Consumer verify commands here (lint/tests/typecheck)."
+      # setup_commands installs your toolchain and dependencies before the
+      # agent runs, with npm, pnpm and Yarn 2+ install scripts always off.
+      # Copy a preset from examples/setup-presets/ (python.sh, node.sh,
+      # mixed.sh, redis-service.sh) into the block and edit it:
+      # setup_commands: |
+      #   set -euo pipefail
+      #   ...
+      # A push made with the job token does not start your CI: GitHub holds
+      # its pull_request runs for approval. Name the one workflow whose held
+      # run for the pushed commit the round may start; unset, approve it from
+      # the pull request's checks.
+      # ci_workflow: .github/workflows/ci.yml
+      # Paths added to the kit-fixed protected list, one per line: a pull
+      # request that changes one is refused, and a round never commits to one.
+      # extra_protected_paths: |
+      #   deploy/
+      #   infra/production.tf
+    secrets:
+      claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}

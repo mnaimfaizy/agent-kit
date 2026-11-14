@@ -63,11 +63,20 @@ const LABELS = [
   ["agent:implement", "0E8A16", "Agent-kit: implement the Verified plan"],
   ["agent:review", "5319E7", "Agent-kit: review this PR"],
 ];
+const RESPONSE_LABEL = [
+  "agent:address-review",
+  "FBCA04",
+  "Agent-kit: answer the review on this PR",
+];
 
 /** The `init` answers, as flags name them, with what each one asks. */
 export const QUESTIONS = [
   { key: "tag", flag: "--tag <vX>", ask: "Agent-kit tag to adopt (for example v1.0.0)" },
-  { key: "flows", flag: "--flows pipeline,audit", ask: "Flows to set up (pipeline, audit)" },
+  {
+    key: "flows",
+    flag: "--flows pipeline,audit,review-response",
+    ask: "Flows to set up (pipeline, audit, review-response)",
+  },
   {
     key: "actors",
     flag: "--actors <login,...>",
@@ -78,19 +87,19 @@ export const QUESTIONS = [
     key: "verify",
     flag: "--verify <commands>",
     ask: "verify_commands (lint/tests/typecheck; use \\n between commands)",
-    only: "pipeline",
+    only: ["pipeline", "review-response"],
   },
   {
     key: "preset",
     flag: "--preset <name|none>",
     ask: "setup_commands preset (python, node, mixed, redis-service, or none)",
-    only: "pipeline",
+    only: ["pipeline", "review-response"],
   },
   {
     key: "threatPackDir",
     flag: "--threat-pack-dir <dir>",
     ask: "Folder for the Threat pack",
-    only: "audit",
+    only: ["audit"],
   },
 ];
 
@@ -118,7 +127,9 @@ export function parseAnswer(key, raw, { prompted = false } = {}) {
       const flows = [...new Set(split(s))];
       const bad = flows.filter((f) => !(f in FLOWS));
       if (flows.length === 0 || bad.length) {
-        return { error: `--flows takes pipeline and/or audit, got ${JSON.stringify(s)}` };
+        return {
+          error: `--flows takes pipeline, audit and/or review-response, got ${JSON.stringify(s)}`,
+        };
       }
       return { value: Object.keys(FLOWS).filter((f) => flows.includes(f)) };
     }
@@ -184,7 +195,7 @@ export async function collectAnswers({ flags, prompt, yes, defaultBranch }) {
   const answers = {};
   const missing = [];
   for (const q of QUESTIONS) {
-    if (q.only && answers.flows && !answers.flows.includes(q.only)) continue;
+    if (q.only && answers.flows && !q.only.some((f) => answers.flows.includes(f))) continue;
     let raw = flags[q.key];
     let prompted = false;
     const fallback = q.key === "defaultBranch" ? defaultBranch : DEFAULTS[q.key];
@@ -414,6 +425,7 @@ export function planInit({ runner, root, snap, answers, force }) {
 export function manualSteps({ flows, tag, kitRepo, serverUrl }) {
   const pipeline = flows.includes("pipeline");
   const audit = flows.includes("audit");
+  const response = flows.includes("review-response");
   const lines = [];
   let n = 0;
   const step = (title, ...cmds) => {
@@ -425,13 +437,16 @@ export function manualSteps({ flows, tag, kitRepo, serverUrl }) {
     command("gh", "secret", "set", "CLAUDE_CODE_OAUTH_TOKEN"),
     ...(audit ? [command("gh", "secret", "set", "AGENT_KIT_ADVISORIES_TOKEN")] : []),
   );
-  if (pipeline) {
+  const labels = [...(pipeline ? LABELS : []), ...(response ? [RESPONSE_LABEL] : [])];
+  if (labels.length) {
     step(
       "Trigger labels:",
-      ...LABELS.map(([name, color, description]) =>
+      ...labels.map(([name, color, description]) =>
         command("gh", "label", "create", name, "--color", color, "--description", description),
       ),
     );
+  }
+  if (pipeline) {
     step("Install the Claude GitHub App on this repository: https://github.com/apps/claude");
   }
   step(
@@ -447,7 +462,18 @@ export function manualSteps({ flows, tag, kitRepo, serverUrl }) {
     ...(audit
       ? [command("gh", "variable", "set", "CLAUDE_SECURITY_AUDIT_ENABLED", "--body", "true")]
       : []),
+    ...(response
+      ? [command("gh", "variable", "set", "CLAUDE_REVIEW_RESPONSE_ENABLED", "--body", "true")]
+      : []),
   );
+  if (response) {
+    step(
+      "Optional, Review response auto mode (a finished review starts a round): first give your " +
+        "review Caller response_mode and response_workflow, as " +
+        `${serverUrl}/${kitRepo}/blob/${tag}/docs/review-response.md#auto-mode says, then:`,
+      command("gh", "variable", "set", "CLAUDE_REVIEW_RESPONSE_MODE", "--body", "auto"),
+    );
+  }
   return lines;
 }
 

@@ -42,10 +42,10 @@ The CLI (from `v1.0.0-beta.1`) writes the files for steps 3, 5 and 7, then print
 npx @mnaimfaizy/agent-kit init --tag <tag>
 ```
 
-On a terminal it asks for the flows (`pipeline` for plan → implement → review, `audit` for the security audit, or both), the logins for `allowlist_actors`, the default branch, `verify_commands`, a [setup preset](../examples/setup-presets/) and where the Threat pack goes. Each answer is also a flag (`--flows`, `--actors`, `--default-branch`, `--verify`, `--preset`, `--threat-pack-dir`), and `--yes` asks nothing, for scripts and CI. It then:
+On a terminal it asks for the flows (`pipeline` for plan → implement → review, `audit` for the security audit, `review-response` for the [Review response](review-response.md), or several), the logins for `allowlist_actors`, the default branch, `verify_commands`, a [setup preset](../examples/setup-presets/) and where the Threat pack goes. Each answer is also a flag (`--flows`, `--actors`, `--default-branch`, `--verify`, `--preset`, `--threat-pack-dir`), and `--yes` asks nothing, for scripts and CI. It then:
 
 - copies every Kit-owned path from the tag (step 3);
-- writes `.github/workflows/agent-pipeline.yml` and/or `.github/workflows/security-audit.yml` from the tag's `examples/`, with your logins, the tag, your default branch, your `verify_commands` and the preset filled in (step 5). It refuses a tag whose example does not have the placeholders it expects, rather than write a half-filled Caller;
+- writes `.github/workflows/agent-pipeline.yml`, `.github/workflows/security-audit.yml` and/or `.github/workflows/agent-review-response.yml` from the tag's `examples/`, with your logins, the tag, your default branch, your `verify_commands` and the preset filled in (step 5). It refuses a tag whose example does not have the placeholders it expects, rather than write a half-filled Caller;
 - writes the Threat pack skeleton to `.security/threat-model.md` and `.security/findings-ledger.md`, or to `--threat-pack-dir`, and points the audit Caller there (step 7). Fill in the threat model before the first audit;
 - creates `.github/dependabot.yml` with the `github-actions` block if you have none; otherwise it prints the block for you to merge;
 - prints the secrets, labels, Claude GitHub App, rulesets and Kill switch steps as `gh` commands, and runs the `doctor --ci` checks.
@@ -92,7 +92,7 @@ Tags up to `v1.0.0-alpha.10` have no `kit-owned-paths.txt`; for those, copy the 
 | `.github/agent-runtime/`         | plan, implement, review, audit (hook that confines file reads to the workspace)                                                                                                               |
 | `.github/agent-pipeline/`        | plan, implement (prompts, draft-PR fallback)                                                                                                                                                  |
 | `.github/security-audit/`        | audit (prompt, advisory publisher, email notifier)                                                                                                                                            |
-| `.github/agent-review-response/` | Review response (trusted script; no flow runs it yet)                                                                                                                                         |
+| `.github/agent-review-response/` | Review response (trusted script). Read from your default branch, so merge it there before the first round                                                                                     |
 
 Commit these files. Do **not** copy `.github/workflows/*-reusable.yml`; you reference those remotely.
 
@@ -111,10 +111,11 @@ The job token (`GITHUB_TOKEN`) is **not** passed as a secret; the reusable workf
 
 ## 5. Add the Caller workflows
 
-Copy one or both templates into `.github/workflows/`:
+Copy the templates for the flows you want into `.github/workflows/`:
 
 - [`examples/security-audit-caller.yml`](../examples/security-audit-caller.yml)
 - [`examples/plan-implement-review-caller.yml`](../examples/plan-implement-review-caller.yml)
+- [`examples/review-response-caller.yml`](../examples/review-response-caller.yml)
 
 Then edit:
 
@@ -126,7 +127,8 @@ Then edit:
    - Don't copy your CI test environment into `verify_commands` or `setup_commands`: a password variable such as `DATABASE_PASSWORD` set in the Caller, even to a throwaway test value, sets off secret scanners like GitGuardian on the PR that adds it. Export non-secret settings only and let the app's defaults cover the rest.
    - An `extra_allowed_tools` entry that runs repository code gives the agent the Claude GitHub App token. Before you add one, protect your default branch and your release tags with rulesets that the App cannot bypass: see [Repository hardening](repository-hardening.md).
    - Permission rules and hooks in a committed `.claude/settings.json` also apply to every agent in CI, on top of the reviewed grants. Keep developer conveniences in the uncommitted `.claude/settings.local.json`.
-5. **Permissions:** keep the `permissions:` block. A Caller must grant at least what the reusable workflow requests — see [reference.md](reference.md).
+5. **Review response:** set `verify_commands` (the checks the agent runs before each fix commit) and, if needed, `setup_commands`, as for the implementer; and `ci_workflow` if your CI should start on the commits a round pushes. Auto mode needs two lines in the review Caller too: see [Review response](review-response.md#auto-mode).
+6. **Permissions:** keep the `permissions:` blocks, including the review job's own (`actions: write` among them, for the Review response handoff, even if you never turn auto mode on). A Caller must grant at least what the reusable workflow requests — see [reference.md](reference.md).
 
 Every input and secret is listed in the [workflow reference](reference.md).
 
@@ -136,6 +138,7 @@ Every input and secret is listed in the [workflow reference](reference.md).
 gh label create "agent:plan"      --color 1D76DB --description "Agent-kit: plan this issue"
 gh label create "agent:implement" --color 0E8A16 --description "Agent-kit: implement the Verified plan"
 gh label create "agent:review"    --color 5319E7 --description "Agent-kit: review this PR"
+gh label create "agent:address-review" --color FBCA04 --description "Agent-kit: answer the review on this PR"
 ```
 
 Each run removes its label when it finishes, so adding it again re-runs the stage.
@@ -151,27 +154,32 @@ Skip if you only use plan → implement → review.
 
 Callers read their **Kill switch** from repository variables and stay off until the variable is exactly `true`:
 
-| Variable                        | Enables                   |
-| ------------------------------- | ------------------------- |
-| `CLAUDE_SECURITY_AUDIT_ENABLED` | security audit            |
-| `CLAUDE_PIPELINE_ENABLED`       | plan → implement → review |
+| Variable                         | Enables                   |
+| -------------------------------- | ------------------------- |
+| `CLAUDE_SECURITY_AUDIT_ENABLED`  | security audit            |
+| `CLAUDE_PIPELINE_ENABLED`        | plan → implement → review |
+| `CLAUDE_REVIEW_RESPONSE_ENABLED` | Review response           |
 
 ```bash
 gh variable set CLAUDE_SECURITY_AUDIT_ENABLED --body true
 gh variable set CLAUDE_PIPELINE_ENABLED --body true
+gh variable set CLAUDE_REVIEW_RESPONSE_ENABLED --body true
 ```
+
+`CLAUDE_REVIEW_RESPONSE_MODE` (optional) set to exactly `auto` lets a finished review start a Review response round on its own; unset, a person applies the label. See [Review response](review-response.md#manual-and-auto-mode).
 
 Set a variable to anything else (or delete it) to stop a flow instantly without a commit.
 
 **Model (optional).** Each flow reads its own repository variable first, then the shared `CLAUDE_MODEL`, then `claude-opus-5`. For example, the plan job passes `model: ${{ vars.CLAUDE_MODEL_PLAN || vars.CLAUDE_MODEL || 'claude-opus-5' }}`. Change a model at any time, with no commit needed:
 
-| Variable                 | Flow                                       |
-| ------------------------ | ------------------------------------------ |
-| `CLAUDE_MODEL_PLAN`      | plan                                       |
-| `CLAUDE_MODEL_IMPLEMENT` | implement                                  |
-| `CLAUDE_MODEL_REVIEW`    | review                                     |
-| `CLAUDE_MODEL_AUDIT`     | security audit                             |
-| `CLAUDE_MODEL`           | any flow above whose own variable is unset |
+| Variable                       | Flow                                       |
+| ------------------------------ | ------------------------------------------ |
+| `CLAUDE_MODEL_PLAN`            | plan                                       |
+| `CLAUDE_MODEL_IMPLEMENT`       | implement                                  |
+| `CLAUDE_MODEL_REVIEW`          | review                                     |
+| `CLAUDE_MODEL_AUDIT`           | security audit                             |
+| `CLAUDE_MODEL_REVIEW_RESPONSE` | Review response                            |
+| `CLAUDE_MODEL`                 | any flow above whose own variable is unset |
 
 ```bash
 gh variable set CLAUDE_MODEL --body claude-opus-5-5
@@ -189,6 +197,8 @@ Delete a flow's variable to fall back to `CLAUDE_MODEL`, and delete that to fall
 1. Open an issue describing a small change. Add `agent:plan`. The planner comments a plan that starts with the planner marker — that comment is the **Verified plan**.
 2. Read the plan. If you agree, add `agent:implement`. The implementer works only from the Verified plan and opens a **draft** PR (or comments the exact error and a compare link).
 3. On the PR, add `agent:review`. The reviewer comments a three-axis review. It never pushes, approves, or merges.
+
+**Review response:** after a review has left findings on a pull request, add `agent:address-review` to it. One round fixes, addresses or declines each finding, pushes the fixes, replies on every thread, resolves the ones its fixes touched, and posts a summary. It never merges or starts a review.
 
 ## Check the setup with doctor
 

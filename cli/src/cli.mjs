@@ -35,13 +35,16 @@ Options for doctor:
 
 Options for init (each one is asked for when missing, on a terminal):
   --tag <vX>              The Agent-kit tag to adopt.
-  --flows <list>          pipeline, audit, or both (comma-separated).
+  --flows <list>          pipeline, audit and/or review-response
+                          (comma-separated).
   --actors <logins>       GitHub logins allowed to trigger runs.
   --default-branch <b>    Default branch (default: origin's HEAD, else main).
-  --verify <commands>     verify_commands for implement (pipeline). In a
+  --verify <commands>     verify_commands (pipeline: implement's checks;
+                          review-response: the agent's checks). In a
                           prompt, \\n separates commands.
   --preset <name|none>    Inline examples/setup-presets/<name>.sh as
-                          setup_commands (pipeline; default none).
+                          setup_commands (pipeline, review-response;
+                          default none).
   --threat-pack-dir <d>   Where the Threat pack goes (audit; default .security).
   --yes                   Ask nothing; every answer comes from flags.
   --force                 Overwrite existing Callers, Threat pack files and

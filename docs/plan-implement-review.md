@@ -8,7 +8,7 @@ This runbook documents the reusable plan -> implement -> review flow. Setup step
 2. A human reads it and adds `agent:implement`. The implement job extracts only the Verified plan, runs the Caller's `setup_commands`, lets the agent change code under a deny-by-default tool list, and opens a **draft** PR as the Claude GitHub App. A separate read-only job checks out the agent's branch and runs `setup_commands` and `verify_commands` there.
 3. A human adds `agent:review` to the PR. The review job restores its runtime from the PR base, reviews on three axes, and comments. It never pushes, approves, or merges.
 
-Each stage consumes its label, so re-adding the label re-runs the stage. Humans decide every transition.
+Each stage consumes its label, so re-adding the label re-runs the stage. Humans decide every transition. After review, [Review response](review-response.md) answers the review's findings: on its own label, or, in its auto mode, handed off by the review.
 
 ## Reusable jobs
 
@@ -57,6 +57,7 @@ Implement reads only a Verified plan comment that:
 - without a Verified plan, the Spec axis uses the latest issue comment that starts with `<!-- agent-kit-brief -->` and is written by a login in `trusted_spec_authors` (empty by default, which turns this off; logins match exactly, and an invalid value fails the review); a triage agent brief can carry the marker to become the spec
 - no push or product execution, no auto-fix
 - fork pull requests are a no-op; do not switch the Caller to `pull_request_target`
+- the review Caller's job grants `actions: write` (with `contents: read`, `issues: read`, `pull-requests: write`) for the `handoff` job, which runs only when `response_mode` is `auto`; see [Review response](review-response.md#auto-mode)
 
 ## Runner controls
 

@@ -7,7 +7,7 @@
 
 export class TemplateError extends Error {}
 
-/** The two flows init sets up, keyed by the name `--flows` takes. */
+/** The flows init sets up, keyed by the name `--flows` takes, in the order it writes them. */
 export const FLOWS = {
   pipeline: {
     example: "examples/plan-implement-review-caller.yml",
@@ -16,6 +16,10 @@ export const FLOWS = {
   audit: {
     example: "examples/security-audit-caller.yml",
     caller: ".github/workflows/security-audit.yml",
+  },
+  "review-response": {
+    example: "examples/review-response-caller.yml",
+    caller: ".github/workflows/agent-review-response.yml",
   },
 };
 
@@ -44,31 +48,31 @@ export const PLACEHOLDERS = [
   {
     name: "your-github-login",
     pattern: /your-github-login/g,
-    counts: { pipeline: 4, audit: 1 },
+    counts: { pipeline: 4, audit: 1, "review-response": 1 },
     replace: (v) => () => v.actors.join('","'),
   },
   {
     name: "the @vX.Y.Z pin of each Agent-kit uses:",
     pattern: KIT_PIN,
-    counts: { pipeline: 3, audit: 1 },
+    counts: { pipeline: 3, audit: 1, "review-response": 1 },
     replace: (v) => (_, path) => `${path}@${v.tag}`,
   },
   {
     name: '"main" (the default branch)',
     pattern: /"main"/g,
-    counts: { pipeline: 2, audit: 0 },
+    counts: { pipeline: 2, audit: 0, "review-response": 0 },
     replace: (v) => () => `"${v.defaultBranch}"`,
   },
   {
     name: "the placeholder verify_commands echo line",
     pattern: VERIFY_LINE,
-    counts: { pipeline: 1, audit: 0 },
+    counts: { pipeline: 1, audit: 0, "review-response": 1 },
     replace: (v) => (_, indent) => indentLines(v.verify, indent),
   },
   {
     name: "the commented `# setup_commands: |` block",
     pattern: SETUP_BLOCK,
-    counts: { pipeline: 1, audit: 0 },
+    counts: { pipeline: 1, audit: 0, "review-response": 1 },
     replace: (v) => (match, indent) =>
       v.preset === null
         ? match
@@ -77,13 +81,13 @@ export const PLACEHOLDERS = [
   {
     name: '".security/threat-model.md"',
     pattern: /"\.security\/threat-model\.md"/g,
-    counts: { pipeline: 0, audit: 1 },
+    counts: { pipeline: 0, audit: 1, "review-response": 0 },
     replace: (v) => () => `"${v.threatPackDir}/threat-model.md"`,
   },
   {
     name: '".security/findings-ledger.md"',
     pattern: /"\.security\/findings-ledger\.md"/g,
-    counts: { pipeline: 0, audit: 1 },
+    counts: { pipeline: 0, audit: 1, "review-response": 0 },
     replace: (v) => () => `"${v.threatPackDir}/findings-ledger.md"`,
   },
 ];

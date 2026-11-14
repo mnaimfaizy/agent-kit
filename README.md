@@ -19,12 +19,13 @@
 
 A kit of agent skills and reusable GitHub Actions workflows that runs [Claude Code](https://docs.anthropic.com/en/docs/claude-code) inside your repository. You adopt it by tag. Your repository (the **Consumer**) keeps everything product-specific.
 
-It ships two **First-class flows**:
+It ships three **First-class flows**:
 
-| Flow                          | What it does                                                                                                                               | Trigger (in your Caller)                                               |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------- |
-| **Security audit**            | Threat-led Medium+ audit of the whole repo (`full`) or a PR diff (`pr`). Findings go only to a private draft security advisory.            | Schedule, manual dispatch, or a PR label                               |
-| **Plan → implement → review** | Plans an issue, implements the Verified plan as a draft PR, reviews PRs on three axes (Standards, Spec, Correctness). Nothing auto-merges. | `agent:plan` / `agent:implement` issue labels, `agent:review` PR label |
+| Flow                          | What it does                                                                                                                                                                                        | Trigger (in your Caller)                                               |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| **Security audit**            | Threat-led Medium+ audit of the whole repo (`full`) or a PR diff (`pr`). Findings go only to a private draft security advisory.                                                                     | Schedule, manual dispatch, or a PR label                               |
+| **Plan → implement → review** | Plans an issue, implements the Verified plan as a draft PR, reviews PRs on three axes (Standards, Spec, Correctness). Nothing auto-merges.                                                          | `agent:plan` / `agent:implement` issue labels, `agent:review` PR label |
+| **Review response**           | Answers a PR's code review: fixes, addresses or declines each unresolved review thread, one commit per fix, pushed and replied to by a job the agent cannot reach. Never merges or starts a review. | `agent:address-review` PR label; or, in auto mode, a finished review   |
 
 Every flow is gated by a **Kill switch**, an **Allowlist**, and a consumed **Trigger label**, and treats issue/PR text as untrusted data. See [docs/security-model.md](docs/security-model.md).
 
@@ -64,17 +65,17 @@ It copies the Kit-owned paths, writes the Caller workflows and a Threat pack ske
 
 3. **Add secrets:** `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`), plus `AGENT_KIT_ADVISORIES_TOKEN` for the audit.
 4. **Copy a Caller** from [`examples/`](examples) into `.github/workflows/`, set your login in `allowlist_actors`, and keep the `@<tag>` pin equal to step 1.
-5. **Turn it on:** set the repository variable `CLAUDE_PIPELINE_ENABLED` and/or `CLAUDE_SECURITY_AUDIT_ENABLED` to `true`.
+5. **Turn it on:** set the repository variable `CLAUDE_PIPELINE_ENABLED`, `CLAUDE_SECURITY_AUDIT_ENABLED` and/or `CLAUDE_REVIEW_RESPONSE_ENABLED` to `true`.
 
 ## The CLI
 
 [`@mnaimfaizy/agent-kit`](https://www.npmjs.com/package/@mnaimfaizy/agent-kit) adopts, checks and upgrades the kit in a Consumer. The package holds only code: kit files are always read from the git tag your `uses:` pins name. Its version matches the Release line.
 
-| Command               | What it does                                                                                                                                                 |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `init --tag <tag>`    | First adoption: copies the Kit-owned paths, writes the Callers and the Threat pack skeleton, prints the GitHub-side steps as `gh` commands.                  |
-| `doctor`              | Read-only check of Kit-owned paths, pins, secrets, variables, labels, the Claude GitHub App and rulesets. `--ci` checks only paths and pins, for a PR check. |
-| `upgrade --tag <tag>` | Replaces each Kit-owned path from the new tag and rewrites the `@<tag>` of every Agent-kit pin, then prints the `examples/` diff to apply by hand.           |
+| Command               | What it does                                                                                                                                                                           |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `init --tag <tag>`    | First adoption: copies the Kit-owned paths, writes the Callers and the Threat pack skeleton, prints the GitHub-side steps as `gh` commands.                                            |
+| `doctor`              | Read-only check of Kit-owned paths, pins, secrets, variables, labels, the Claude GitHub App, rulesets and the Review response mode. `--ci` checks only paths and pins, for a PR check. |
+| `upgrade --tag <tag>` | Replaces each Kit-owned path from the new tag and rewrites the `@<tag>` of every Agent-kit pin, then prints the `examples/` diff to apply by hand.                                     |
 
 Run each with `npx @mnaimfaizy/agent-kit <command>`. `init` and `upgrade` ask before writing, change only local files and commit nothing. Details: [cli/README.md](cli/README.md), [checking a setup with `doctor`](docs/getting-started.md#check-the-setup-with-doctor) and [upgrading](docs/getting-started.md#upgrading).
 
@@ -105,26 +106,27 @@ For procedure skills such as `implement`, `tdd`, and `wayfinder`, adopt **[Matt 
 
 ## Documentation
 
-| Doc                                                        | For                                                                                    |
-| ---------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| [Getting started](docs/getting-started.md)                 | Step-by-step first adoption, secrets, variables, labels, troubleshooting               |
-| [Adopt](docs/adopt.md)                                     | Split contract: tag-pinned `uses:` + same-tag file copy; upgrades; Dependabot          |
-| [Install individual skills](docs/install-skills.md)        | One Portable skill at a time with `npx skills`, without adopting the kit               |
-| [Security audit](docs/security-audit.md)                   | `full` / `pr` modes, private delivery, Threat pack                                     |
-| [Plan → implement → review](docs/plan-implement-review.md) | Labels, Verified plan, implementer and reviewer contracts                              |
-| [QA](docs/qa.md)                                           | `qa-plan` → `manual-qa` handoff, `qa.config.yml`, host rule, QA Accounts, Hazard packs |
-| [Orchestrate](docs/orchestrate.md)                         | Run a set of issues or a spec through other sessions; Dispatch Plan, run state, config |
-| [Workflow reference](docs/reference.md)                    | Every input, secret, and required permission (generated)                               |
-| [Security model](docs/security-model.md)                   | Public-log rule, trust boundaries, runner controls                                     |
-| [Repository hardening](docs/repository-hardening.md)       | Rulesets for the default branch, release branches and release tags                     |
-| [CLI](cli/README.md)                                       | `init`, `doctor` and `upgrade` in full                                                 |
-| [Releases](docs/releases.md)                               | Whole-kit SemVer, pre-release stages, changelog policy                                 |
-| [Cutting releases](docs/cutting-releases.md)               | Maintainers: how to tag a release                                                      |
-| [Copilot restore](docs/copilot-restore.md)                 | Swapping the runner to the inert Copilot archive                                       |
-| [Issuebridge](docs/issuebridge.md)                         | Reference Consumer target state + stand-up checklist                                   |
-| [Decision records](docs/adr/)                              | Why the CLI ships on npm, skills install with `npx skills`, and QA is two skills       |
-| [GLOSSARY.md](GLOSSARY.md)                                 | Glossary of the terms used across these docs                                           |
-| [CHANGELOG.md](CHANGELOG.md)                               | Release history                                                                        |
+| Doc                                                        | For                                                                                      |
+| ---------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| [Getting started](docs/getting-started.md)                 | Step-by-step first adoption, secrets, variables, labels, troubleshooting                 |
+| [Adopt](docs/adopt.md)                                     | Split contract: tag-pinned `uses:` + same-tag file copy; upgrades; Dependabot            |
+| [Install individual skills](docs/install-skills.md)        | One Portable skill at a time with `npx skills`, without adopting the kit                 |
+| [Security audit](docs/security-audit.md)                   | `full` / `pr` modes, private delivery, Threat pack                                       |
+| [Plan → implement → review](docs/plan-implement-review.md) | Labels, Verified plan, implementer and reviewer contracts                                |
+| [Review response](docs/review-response.md)                 | `address-pr-review` run by you or in CI; manual and auto mode, refusals, resolution rule |
+| [QA](docs/qa.md)                                           | `qa-plan` → `manual-qa` handoff, `qa.config.yml`, host rule, QA Accounts, Hazard packs   |
+| [Orchestrate](docs/orchestrate.md)                         | Run a set of issues or a spec through other sessions; Dispatch Plan, run state, config   |
+| [Workflow reference](docs/reference.md)                    | Every input, secret, and required permission (generated)                                 |
+| [Security model](docs/security-model.md)                   | Public-log rule, trust boundaries, runner controls                                       |
+| [Repository hardening](docs/repository-hardening.md)       | Rulesets for the default branch, release branches and release tags                       |
+| [CLI](cli/README.md)                                       | `init`, `doctor` and `upgrade` in full                                                   |
+| [Releases](docs/releases.md)                               | Whole-kit SemVer, pre-release stages, changelog policy                                   |
+| [Cutting releases](docs/cutting-releases.md)               | Maintainers: how to tag a release                                                        |
+| [Copilot restore](docs/copilot-restore.md)                 | Swapping the runner to the inert Copilot archive                                         |
+| [Issuebridge](docs/issuebridge.md)                         | Reference Consumer target state + stand-up checklist                                     |
+| [Decision records](docs/adr/)                              | Why the CLI ships on npm, skills install with `npx skills`, and QA is two skills         |
+| [GLOSSARY.md](GLOSSARY.md)                                 | Glossary of the terms used across these docs                                             |
+| [CHANGELOG.md](CHANGELOG.md)                               | Release history                                                                          |
 
 Distribution is tags only, including skill installs: no Marketplace listing, no binaries, and no skills zip.
 
