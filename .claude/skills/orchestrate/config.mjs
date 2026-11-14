@@ -34,7 +34,7 @@
 //       applied, answers merged in) and readiness: what the run still needs
 //       to ask for, and notes to say. Prints JSON; exits 1 on any problem,
 //       2 on bad usage.
-//   node config.mjs where orchestrate
+//   node config.mjs where orchestrate [--repo <dir>]
 //       whether this copy of the skill is the repository's own, or the
 //       repository has its own copy to load instead (`whichCopy`). Prints
 //       JSON; exits 0, 2 on bad usage.
@@ -1022,12 +1022,18 @@ export function whichCopy(name, at) {
   };
 }
 
-/** `where <name>`: print `whichCopy` for the script's own folder. */
+/**
+ * `where <name> [--repo <dir>]`: print `whichCopy` for the script's own
+ * folder; null on any other argument.
+ */
 function whichCopyCommand(argv, io) {
-  const name = argv[1];
+  const [, name, ...rest] = argv;
   if (name === undefined || !SKILL_NAME.test(name)) return null;
+  if (rest.length !== 0 && (rest.length !== 2 || rest[0] !== "--repo" || rest[1].startsWith("--")))
+    return null;
+  const cwd = resolve(io.cwd ?? process.cwd(), rest[1] ?? ".");
   const skillDir = io.skillDir ?? dirname(fileURLToPath(import.meta.url));
-  const result = whichCopy(name, { skillDir, cwd: io.cwd ?? process.cwd() });
+  const result = whichCopy(name, { skillDir, cwd });
   return { code: 0, out: `${JSON.stringify(result, null, 2)}\n` };
 }
 
@@ -1051,7 +1057,7 @@ const inside = (dir, path) => {
 };
 
 const USAGE =
-  "usage: node config.mjs check [--answers <file.json>] [--repo <dir>] | where <skill>\n";
+  "usage: node config.mjs check [--answers <file.json>] [--repo <dir>] | where <skill> [--repo <dir>]\n";
 
 /**
  * @param {string[]} argv the arguments after the script
@@ -1061,7 +1067,7 @@ const USAGE =
 export function main(argv, io = {}) {
   const usage = { code: 2, out: USAGE };
   const [command, ...rest] = argv;
-  if (command === "where") return (rest.length === 1 && whichCopyCommand(argv, io)) || usage;
+  if (command === "where") return whichCopyCommand(argv, io) ?? usage;
   if (command !== "check") return usage;
   const options = {};
   for (let n = 0; n < rest.length; n += 2) {

@@ -7,16 +7,18 @@
 
 import assert from "node:assert/strict";
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   realpathSync,
+  rmSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { test } from "node:test";
+import { after, test } from "node:test";
 
 import {
   CONFIG_FILES,
@@ -847,6 +849,7 @@ test("check exits 1 and names the line for each out-of-subset input", () => {
 /** A home folder and a repository side by side, each with the files named. */
 function layout(files) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "which-copy-")));
+  after(() => rmSync(root, { recursive: true, force: true }));
   for (const path of files) {
     mkdirSync(dirname(join(root, path)), { recursive: true });
     writeFileSync(join(root, path), "");
@@ -904,9 +907,11 @@ test("the repository's own copy, or a user-level one with no repository copy, ru
   });
   assert.equal(other.use, "this");
   assert.deepEqual(other.repository_copies, []);
+  // Look no higher than the temp root: TMPDIR may sit inside a checkout.
   const none = whichCopy("qa-plan", {
     skillDir: join(root, "home/qa-plan"),
     cwd: join(root, "home"),
+    exists: (path) => path.startsWith(root) && existsSync(path),
   });
   assert.equal(none.repository, null);
   assert.equal(none.use, "this");
@@ -923,23 +928,20 @@ test("a repository copy that links outside the repository is still the repositor
   assert.equal(result.use, "this");
 });
 
-test(
-  "on Windows, paths that differ only in case are the same copy",
-  { skip: process.platform !== "win32" && "needs the Windows `node:path`" },
-  () => {
-    const files = new Set(["C:\\Repo\\.git", "C:\\Repo\\.claude\\skills\\qa-plan\\SKILL.md"]);
-    const at = {
-      cwd: "C:\\Repo",
-      exists: (path) => files.has(path.replaceAll("/", "\\")),
-      real: (path) => path,
-      platform: "win32",
-    };
-    assert.equal(
-      whichCopy("qa-plan", { ...at, skillDir: "c:\\repo\\.claude\\skills\\qa-plan" }).use,
-      "this",
-    );
-  },
-);
+test("on Windows, a repository copy linked to this copy matches whatever its case", () => {
+  // Drive letters dropped and slashes forward, so the same paths read on any platform.
+  const norm = (path) => path.replace(/^[A-Za-z]:/, "").replaceAll("\\", "/");
+  const files = new Set(["/C/Repo/.git", "/C/Repo/.claude/skills/qa-plan/SKILL.md"]);
+  const links = new Map([["/C/Repo/.claude/skills/qa-plan", "/D/Shared/qa-plan"]]);
+  const at = {
+    cwd: "/C/Repo",
+    skillDir: "/d/shared/qa-plan",
+    exists: (path) => files.has(norm(path)),
+    real: (path) => links.get(norm(path)) ?? norm(path),
+  };
+  assert.equal(whichCopy("qa-plan", { ...at, platform: "win32" }).use, "this");
+  assert.equal(whichCopy("qa-plan", { ...at, platform: "linux" }).use, "repository");
+});
 
 test("`where` names the skill it checks, and refuses any other argument", () => {
   const root = layout([
@@ -951,7 +953,19 @@ test("`where` names the skill it checks, and refuses any other argument", () => 
   const ran = main(["where", "qa-plan"], io);
   assert.equal(ran.code, 0);
   assert.equal(JSON.parse(ran.out).use, "repository");
-  for (const argv of [["where"], ["where", "../qa-plan"], ["where", "Upper"]])
+  assert.equal(main(["where", "qa-plan", "--repo", "."], io).code, 0);
+  assert.equal(
+    main(["where", "qa-plan", "--repo", join(root, "home")], io).out.includes('"use": "this"'),
+    true,
+  );
+  for (const argv of [
+    ["where"],
+    ["where", "../qa-plan"],
+    ["where", "Upper"],
+    ["where", "qa-plan", "extra"],
+    ["where", "qa-plan", "--repo"],
+    ["where", "qa-plan", "--repo", ".", "extra"],
+  ])
     assert.equal(main(argv, io).code, 2, argv.join(" "));
 });
 

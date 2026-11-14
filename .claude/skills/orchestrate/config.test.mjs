@@ -8,16 +8,18 @@
 
 import assert from "node:assert/strict";
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   realpathSync,
+  rmSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { test } from "node:test";
+import { after, test } from "node:test";
 
 import {
   CONFIG_FILES,
@@ -1103,6 +1105,7 @@ test("bad usage exits 2", () => {
 /** A home folder and a repository side by side, each with the files named. */
 function layout(files) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "which-copy-")));
+  after(() => rmSync(root, { recursive: true, force: true }));
   for (const path of files) {
     mkdirSync(dirname(join(root, path)), { recursive: true });
     writeFileSync(join(root, path), "");
@@ -1163,9 +1166,11 @@ test("the repository's own copy, or a user-level one with no repository copy, ru
   });
   assert.equal(other.use, "this");
   assert.deepEqual(other.repository_copies, []);
+  // Look no higher than the temp root: TMPDIR may sit inside a checkout.
   const none = whichCopy("orchestrate", {
     skillDir: join(root, "home/orchestrate"),
     cwd: join(root, "home"),
+    exists: (path) => path.startsWith(root) && existsSync(path),
   });
   assert.equal(none.repository, null);
   assert.equal(none.use, "this");
@@ -1186,23 +1191,20 @@ test("a repository copy that links outside the repository is still the repositor
   assert.equal(result.use, "this");
 });
 
-test(
-  "on Windows, paths that differ only in case are the same copy",
-  { skip: process.platform !== "win32" && "needs the Windows `node:path`" },
-  () => {
-    const files = new Set(["C:\\Repo\\.git", "C:\\Repo\\.claude\\skills\\orchestrate\\SKILL.md"]);
-    const at = {
-      cwd: "C:\\Repo",
-      exists: (path) => files.has(path.replaceAll("/", "\\")),
-      real: (path) => path,
-      platform: "win32",
-    };
-    assert.equal(
-      whichCopy("orchestrate", { ...at, skillDir: "c:\\repo\\.claude\\skills\\orchestrate" }).use,
-      "this",
-    );
-  },
-);
+test("on Windows, a repository copy linked to this copy matches whatever its case", () => {
+  // Drive letters dropped and slashes forward, so the same paths read on any platform.
+  const norm = (path) => path.replace(/^[A-Za-z]:/, "").replaceAll("\\", "/");
+  const files = new Set(["/C/Repo/.git", "/C/Repo/.claude/skills/orchestrate/SKILL.md"]);
+  const links = new Map([["/C/Repo/.claude/skills/orchestrate", "/D/Shared/orchestrate"]]);
+  const at = {
+    cwd: "/C/Repo",
+    skillDir: "/d/shared/orchestrate",
+    exists: (path) => files.has(norm(path)),
+    real: (path) => links.get(norm(path)) ?? norm(path),
+  };
+  assert.equal(whichCopy("orchestrate", { ...at, platform: "win32" }).use, "this");
+  assert.equal(whichCopy("orchestrate", { ...at, platform: "linux" }).use, "repository");
+});
 
 test("`where` names the skill it checks, and refuses any other argument", () => {
   const root = layout([
@@ -1218,7 +1220,19 @@ test("`where` names the skill it checks, and refuses any other argument", () => 
   const ran = main(["where", "orchestrate"], io);
   assert.equal(ran.code, 0);
   assert.equal(JSON.parse(ran.out).use, "repository");
-  for (const argv of [["where"], ["where", "../orchestrate"], ["where", "Upper"]])
+  assert.equal(main(["where", "orchestrate", "--repo", "."], io).code, 0);
+  assert.equal(
+    main(["where", "orchestrate", "--repo", join(root, "home")], io).out.includes('"use": "this"'),
+    true,
+  );
+  for (const argv of [
+    ["where"],
+    ["where", "../orchestrate"],
+    ["where", "Upper"],
+    ["where", "orchestrate", "extra"],
+    ["where", "orchestrate", "--repo"],
+    ["where", "orchestrate", "--repo", ".", "extra"],
+  ])
     assert.equal(main(argv, io).code, 2, argv.join(" "));
 });
 

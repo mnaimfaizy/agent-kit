@@ -1962,12 +1962,18 @@ export function whichCopy(name, at) {
   };
 }
 
-/** `where <name>`: print `whichCopy` for the script's own folder. */
+/**
+ * `where <name> [--repo <dir>]`: print `whichCopy` for the script's own
+ * folder; null on any other argument.
+ */
 function whichCopyCommand(argv, io) {
-  const name = argv[1];
+  const [, name, ...rest] = argv;
   if (name === undefined || !SKILL_NAME.test(name)) return null;
+  if (rest.length !== 0 && (rest.length !== 2 || rest[0] !== "--repo" || rest[1].startsWith("--")))
+    return null;
+  const cwd = resolve(io.cwd ?? process.cwd(), rest[1] ?? ".");
   const skillDir = io.skillDir ?? dirname(fileURLToPath(import.meta.url));
-  const result = whichCopy(name, { skillDir, cwd: io.cwd ?? process.cwd() });
+  const result = whichCopy(name, { skillDir, cwd });
   return { code: 0, out: `${JSON.stringify(result, null, 2)}\n` };
 }
 
@@ -2006,7 +2012,7 @@ export function main(argv, io = {}) {
       "plan [<file>] < plan.md | host <url> [--target stack|url] [--confirmed <host>] | " +
       "hazards < changed-paths | " +
       "delivery [--label <name>]… | render [--write [--drop-comments]] < answers.json | " +
-      "where <skill>   " +
+      "where <skill> [--repo <dir>]   " +
       "[--repo <dir>]\n",
   };
   // A plan is the person's file, wherever they keep it: read from the working
@@ -2026,8 +2032,7 @@ export function main(argv, io = {}) {
     return validatePlan(text);
   };
 
-  if (command === "where")
-    return whichCopyCommand(argv, { ...io, cwd: option(argv, "--repo")[0] ?? io.cwd }) ?? usage;
+  if (command === "where") return whichCopyCommand(argv, io) ?? usage;
   if (command === "plan") {
     const result = readPlan(argv[1] && !argv[1].startsWith("--") ? argv[1] : undefined);
     return { code: result.problems.length ? 1 : 0, out: json(result) };

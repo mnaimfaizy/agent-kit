@@ -301,7 +301,7 @@ test("every adapter command SKILL.md names is one adapter.mjs accepts", () => {
   const io = { read: () => null, readFile: () => null, stdin: () => "" };
   for (const command of new Set(commands))
     assert.notEqual(
-      main([command, "x", "--for", "run"], io).code,
+      main(command === "where" ? [command, "x"] : [command, "x", "--for", "run"], io).code,
       2,
       `adapter.mjs has no \`${command}\``,
     );
