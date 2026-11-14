@@ -21,13 +21,13 @@
 //      plan's head, it says whether that comment is for an older head.
 //   3. `comment`: the PR comment body: the marker, then the report, with each
 //      uploaded evidence path linked.
-//   3a. `stale`: a report comment's body with a **Stale:** line after the
+//   4. `stale`: a report comment's body with a **Stale:** line after the
 //      marker, for `qa-plan` to edit in on the person's yes after a revision.
 //      The next `comment` replaces the whole body, Stale line included.
-//   4. `tracker`: the tracker issue's new body: the plan as delivered, with
+//   5. `tracker`: the tracker issue's new body: the plan as delivered, with
 //      each PASS scenario's Sign-off box ticked (every other box of a
 //      scenario cleared) and its Execution record replaced by the report's.
-//   5. `evidence`: which picked files may go to the `gh-release:<tag>`
+//   6. `evidence`: which picked files may go to the `gh-release:<tag>`
 //      prerelease, and under what asset names. Nothing goes with
 //      `evidence.upload: none`; a file the report does not list as evidence
 //      is refused, as is one neither media nor plain text (an archive, a
@@ -58,11 +58,12 @@ import { credentialProblems, effectiveConfig, readQaConfig, validatePlan } from 
 
 /** The first line of the one PR comment that carries a QA Report. */
 export const REPORT_MARKER = "<!-- qa-report -->";
-/** The line `qa-plan` adds after the marker of a report comment for an older head. */
-export const STALE_LINE =
-  /^\*\*Stale:\*\* the plan was revised for head \S+; this report is for \S+\.$/;
+/** The start of the line `qa-plan` adds after the marker of a report comment for an older head. */
+const STALE_START = "**Stale:** the plan was revised for head ";
+const staleLine = (head, old) => `${STALE_START}${head}; this report is for ${old}.`;
 /** A full head, as a plan's anchor carries it (SHA-1 or SHA-256). */
-const FULL_HEAD = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/;
+const HEAD_HEX = "[0-9a-f]{40}(?:[0-9a-f]{24})?";
+const FULL_HEAD = new RegExp(`^${HEAD_HEX}$`);
 /** The first line of the PR comment `qa-plan` posts naming its tracker issue. */
 export const PLAN_LINK_MARKER = "<!-- qa-plan-link -->";
 export const RESULTS = /** @type {const} */ (["PASS", "FAIL", "left for a person"]);
@@ -176,7 +177,7 @@ export function readReport(text) {
     report.subject = Number(/subject #(\d+)/.exec(planLine)?.[1]) || null;
     report.pr = Number(/pull request #(\d+)/.exec(planLine)?.[1]) || null;
     // The full head, as the plan's anchor carries it (SHA-1 or SHA-256).
-    report.head = /head `([0-9a-f]{40}(?:[0-9a-f]{24})?)`/.exec(planLine)?.[1] ?? null;
+    report.head = new RegExp(`head \`(${HEAD_HEX})\``).exec(planLine)?.[1] ?? null;
     if (!report.subject) problems.push("the **Plan:** line names no `subject #<n>`");
     if (!report.pr) problems.push("the **Plan:** line names no `pull request #<n>`");
     if (!report.head) problems.push("the **Plan:** line names no full head `<sha>`");
@@ -334,8 +335,8 @@ const firstLine = (body) =>
  * counts: `trackerBody` checks the issue it names against the report.
  *
  * The comment to update carries the head its report's **Plan:** line names,
- * read by `readReport`, a **Stale:** line or not. Given the plan's `head`, it
- * also says whether that head is another one: `qa-plan` warns only then.
+ * read by `readReport`, a **Stale:** line or not. Given the plan's full `head`,
+ * it also says whether that head is another one: `qa-plan` warns only then.
  *
  * @param {{id: number | string, body: string, user?: string | {login?: string}}[]} comments
  *   oldest first, as GitHub lists them
@@ -351,19 +352,17 @@ export function findComments(comments, login, { head = null } = {}) {
   const own = marked.filter((c) => login && author(c) === login);
   const link = comments.find((c) => firstLine(c.body) === PLAN_LINK_MARKER);
   const planIssue = link ? Number(/QA Plan: #(\d+)/.exec(link.body)?.[1]) || null : null;
-  let report = /** @type {any} */ ({ action: "create" });
-  if (own.length) {
-    const reportHead = readReport(own[0].body ?? "").report.head;
-    report = {
-      action: "update",
-      id: own[0].id,
-      duplicates: own.slice(1).map((c) => c.id),
-      head: reportHead,
-    };
-    if (head) report.stale = reportHead !== null && reportHead !== head;
-  }
+  const reportHead = own.length ? readReport(own[0].body ?? "").report.head : null;
   return {
-    report,
+    report: own.length
+      ? {
+          action: "update",
+          id: own[0].id,
+          duplicates: own.slice(1).map((c) => c.id),
+          head: reportHead,
+          ...(head ? { stale: reportHead !== null && reportHead !== head.toLowerCase() } : {}),
+        }
+      : { action: "create" },
     others: marked.filter((c) => !own.includes(c)).map((c) => c.id),
     planIssue,
   };
@@ -393,9 +392,9 @@ export function staleComment(body, head) {
     return { body: null, problems: [`its report is for the same head, ${head}: it is not stale`] };
   // The report, without the marker, any Stale line, and the blank lines around them.
   const rest = lines.slice(1);
-  while (rest.length && (rest[0].trim() === "" || STALE_LINE.test(rest[0].trim()))) rest.shift();
-  const line = `**Stale:** the plan was revised for head ${head}; this report is for ${old}.`;
-  const marked = `${REPORT_MARKER}\n\n${line}\n\n${rest.join("\n").trim()}\n`;
+  while (rest.length && (rest[0].trim() === "" || rest[0].trim().startsWith(STALE_START)))
+    rest.shift();
+  const marked = `${REPORT_MARKER}\n\n${staleLine(head, old)}\n\n${rest.join("\n").trim()}\n`;
   const problems = [];
   checkBody(marked, problems);
   return { body: problems.length ? null : marked, problems };
@@ -660,6 +659,8 @@ export function main(argv, io = {}) {
     if (login === undefined || login.startsWith("--")) return usage;
     const head = option(argv, "--head")[0];
     if (argv.includes("--head") && (head === undefined || head.startsWith("--"))) return usage;
+    if (head !== undefined && !FULL_HEAD.test(head))
+      return { code: 1, out: json({ problems: [`\`${head}\` is not a full head SHA`] }) };
     return { code: 0, out: json(findComments(parseComments(stdin()), login, { head })) };
   }
   if (command === "stale") {

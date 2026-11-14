@@ -584,6 +584,8 @@ test("the CLI marks a report comment stale from its body on stdin, and finds wit
   assert.equal(found.report.stale, true);
   assert.equal(found.report.head, HEAD);
   assert.equal(main(["find", "--login", ME, "--head"], { stdin: () => lines }).code, 2);
+  // A short head is refused, so a same-head comment never draws a warning by mistake.
+  assert.equal(main(["find", "--login", ME, "--head", "3333333"], { stdin: () => lines }).code, 1);
 });
 
 test("comments read from every shape gh prints", () => {

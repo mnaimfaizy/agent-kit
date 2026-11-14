@@ -172,6 +172,6 @@ gh api --paginate "repos/{owner}/{repo}/issues/<pr>/comments" --jq '.[] | {id, b
   gh api -X PATCH "repos/{owner}/{repo}/issues/comments/<id>" -F body=@<tmp>/stale.md
   ```
 
-  It adds `**Stale:** the plan was revised for head <head>; this report is for <old head>.` after the marker, and changes nothing else. On a no, leave the comment as it is. Never delete or hide it: the next `manual-qa` run replaces the whole comment, Stale line included.
+  It adds `**Stale:** the plan was revised for head <head>; this report is for <old head>.` after the marker, and leaves the report itself as it is. On a no, leave the comment as it is. Never delete or hide it: the next `manual-qa` run replaces the whole comment, Stale line included.
 
 **Done when:** the plan is at the target the rules chose, the person has its path or URL, nothing was committed, and, when the pull request carries a QA Report comment for another head, the person has its URL and both heads and has answered whether to mark it stale.
