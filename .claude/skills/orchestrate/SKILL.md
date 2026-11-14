@@ -137,8 +137,20 @@ Check each claim the report makes ([BRIEF.md](BRIEF.md#report)) against the sour
 - **the tracker:** the pull request exists, targets the default branch, and its body closes the issue;
 - **CI:** every check on that head has passed;
 - **re-gate:** each `regate` command passes on that head, run in a detached worktree of the branch, never in the Delegation's;
-- **review:** every review comment is fixed or answered, and with `ready_to_merge.review: approved`, an approving review exists;
+- **review:** where the repository runs Agent-kit's review workflow, that review has run on that head ([below](#the-review-workflow)); every review comment is fixed or answered; and with `ready_to_merge.review: approved`, an approving review exists;
 - **scope fence:** every path the branch changes from the default branch (`git diff --name-only <merge-base> <head>`) is inside its scope fence, or was answered as a Decision Request. A change outside it that no Decision Request answered, a fix a reviewer or CI prompted included, is raised to the human as a Decision Request: the fence was approved in the Dispatch Plan, and only the human widens it.
+
+#### The review workflow
+
+The review workflow's Caller is the repository's workflow with a job that `uses:` Agent-kit's `agent-review-reusable.yml`. With `ready_to_merge.review_workflow: detect` (the default), look for it under `.github/workflows/`. With a path, that file is the Caller. With `none`, or when `detect` finds no Caller, there is no review workflow to wait for, and the review claim is the comments alone.
+
+With a Caller, green CI and no review comments is not a settled review: the review workflow posts its comments after CI is green, minutes later. Base the claim on the Caller's run for the verified head, never on whether comments exist yet. Find it with `gh run list --workflow <Caller> --commit <head>`, or the review job's check in `gh pr checks <pr>`. A run whose review job was skipped is not a review, and neither is a run for an earlier head. The review claim holds once a run's review job has finished on this head and every comment it posted is fixed or answered, or once the human has said no review is coming for this head, recorded where `decisions.to` says.
+
+- **The review is running or queued:** the row stays `reported`. Check it again at the pace the review takes, minutes apart: at each `await`, or with `gh run watch <run-id> --interval 60`. Never tighter than that. Where the harness delivers the pull request's events to this session, wait for them instead. Where it does not, as on harnesses with no CI or pull request subscription, these checks are the only way the comments reach the run.
+- **No run on this head:** the review starts on a trigger the human owns, such as a label (Agent-kit's example Caller runs on `agent:review`) or a manual dispatch. Raise a Decision Request: start the review on this head, or say no review is coming. Adding the label is a write as the human, drafted unless the human approved that kind in the Dispatch Plan.
+- **The review job failed or was cancelled:** it is not a review. Raise it to the human, with the run's link, with the same two options.
+
+A review can also land later on a head that has already passed this step: someone runs the review again, or a reviewer comments. The head did not move, so the push rule in step 6 does not apply. Set the building row back to `reported`, send each new comment to its Delegation, and check the review claim again. QA for that head holds, a `passed` QA Delegation included: if the comment is answered without a push, the row goes back to where it was without new QA. A fix is a push, and voids it as any push does. Before the close-out prints a row as Ready to Merge, check its head once more for a review run or a comment newer than its verification.
 
 QA is not checked here: it runs on the head this step verified (step 9).
 

@@ -143,7 +143,7 @@ test("each key's default, with an empty config", () => {
     models: { analysis: null, build: null, review: null, qa: null },
     limits: { building: 3, shared: [] },
     decisions: { to: "pull-request", marker: null },
-    ready_to_merge: { review: "settled", qa: "none", qa_labels: [] },
+    ready_to_merge: { review: "settled", qa: "none", qa_labels: [], review_workflow: "detect" },
     spec: { landing: "ask", integration_branch: "orchestrate/spec-<n>" },
   });
   assert.equal(DEFAULTS.run_dir, "tmp/orchestrate");
@@ -501,6 +501,16 @@ const YAML_PROBLEMS = [
     "qa_labels not a list",
     ["ready_to_merge:", "  qa: report", "  qa_labels: ui"],
     /^line 3: `ready_to_merge\.qa_labels`: expected a list of label names/,
+  ],
+  [
+    "a review workflow outside .github/workflows",
+    ["ready_to_merge:", "  review_workflow: ci/review.yml"],
+    /^line 2: `ready_to_merge\.review_workflow`: expected `detect`, `none`, or a workflow file/,
+  ],
+  [
+    "a review workflow in a folder below .github/workflows",
+    ["ready_to_merge:", "  review_workflow: .github/workflows/sub/review.yml"],
+    /^line 2: `ready_to_merge\.review_workflow`: expected `detect`, `none`/,
   ],
   [
     "an unknown Ready to Merge key",
@@ -863,6 +873,12 @@ const JSON_PROBLEMS = [
     /expected a list of label names/,
   ],
   [
+    "a review workflow that is not a workflow file",
+    { ready_to_merge: { review_workflow: "agent-review" } },
+    "ready_to_merge.review_workflow",
+    /expected `detect`, `none`, or a workflow file/,
+  ],
+  [
     "an unknown Ready to Merge key",
     { ready_to_merge: { ci: "green" } },
     "ready_to_merge.ci",
@@ -925,6 +941,25 @@ test("a read_first document or a triage mapping document that is not there is a 
   assert.deepEqual(read.problems, [
     "line 3: `read_first[1]`: `docs/missing.md` is not in the repository",
     "line 4: `triage_labels`: `docs/labels.md` is not in the repository",
+  ]);
+});
+
+test("`ready_to_merge.review_workflow` takes detect, none or a Caller that is there", () => {
+  for (const value of ["detect", "none", ".github/workflows/agent.yml"]) {
+    const files = { "orchestrate.config.yml": `ready_to_merge:\n  review_workflow: ${value}\n` };
+    const read = readConfig(reader(files), { exists: () => true });
+    assert.deepEqual(read.problems, [], value);
+    assert.equal(effectiveConfig(read.config).ready_to_merge.review_workflow, value);
+  }
+});
+
+test("a review workflow Caller that is not there is a problem", () => {
+  const files = {
+    "orchestrate.config.yml": "ready_to_merge:\n  review_workflow: .github/workflows/review.yaml\n",
+  };
+  const read = readConfig(reader(files), { exists: () => false });
+  assert.deepEqual(read.problems, [
+    "line 2: `ready_to_merge.review_workflow`: `.github/workflows/review.yaml` is not in the repository",
   ]);
 });
 
