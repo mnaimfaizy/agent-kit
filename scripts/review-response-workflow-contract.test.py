@@ -447,10 +447,12 @@ def test_the_round_cap_is_two() -> None:
 
 def test_the_review_caller_contract_gains_the_auto_mode_inputs() -> None:
     inputs = review_workflow()["on"]["workflow_call"]["inputs"]
-    for name in ("response_mode", "response_workflow"):
+    for name in ("response_mode", "response_workflow", "response_allowlist_actors"):
         assert inputs[name]["default"] == "", name
         assert inputs[name]["required"] is False, name
         assert inputs[name]["type"] == "string", name
+    assert inputs["response_reviewer_logins"]["default"] == "[]"
+    assert inputs["response_reviewer_logins"]["required"] is False
     # What a Caller must grant: the review's own, plus the handoff's dispatch.
     assert review_workflow()["permissions"] == {
         "contents": "read",
@@ -531,6 +533,51 @@ def test_handoff_runs_only_trusted_code_and_dispatches_on_the_default_branch() -
     assert env["RESPONSE_WORKFLOW"] == "${{ inputs.response_workflow }}"
     assert env["DEFAULT_BRANCH"] == "${{ steps.trusted.outputs.default_branch }}"
     assert "steps.trusted.outputs.proceed == 'true'" in handoff_step["if"]
+
+
+def test_handoff_counts_the_findings_the_round_will_see() -> None:
+    handoff_step = step(review_workflow()["jobs"]["handoff"], HANDOFF_STEP)
+    env = handoff_step["env"]
+    # The response Caller's lists, with the review's Allowlist as fallback.
+    assert env["RESPONSE_ALLOWLIST"] == "${{ inputs.response_allowlist_actors }}"
+    assert env["RESPONSE_REVIEWERS"] == "${{ inputs.response_reviewer_logins }}"
+    assert env["REVIEW_ALLOWLIST"] == "${{ inputs.allowlist_actors }}"
+    run = code(handoff_step["run"])
+    assert 'ALLOWLIST="$(logins "${RESPONSE_ALLOWLIST:-${REVIEW_ALLOWLIST:-[]}}")"' in run
+    assert 'REVIEWER_LOGINS="$(logins "${RESPONSE_REVIEWERS:-[]}")"' in run
+    assert "export ALLOWLIST REVIEWER_LOGINS" in run
+    # Validated as the response gate validates them.
+    gate_logins = re.search(r"logins\(\) \{.*?\n\}", gate_code(), re.DOTALL)
+    assert gate_logins and gate_logins.group(0) in run
+    assert run.index("export ALLOWLIST REVIEWER_LOGINS") < run.index("handoff --pr")
+
+
+def test_a_refused_dispatch_is_reported_without_failing_the_review() -> None:
+    run = code(step(review_workflow()["jobs"]["handoff"], HANDOFF_STEP)["run"])
+    branch = run[run.index("dispatch)") : run.index("capped)")]
+    # The one dispatch is the condition of the block that reports a refusal.
+    found = re.search(r"if ! gh api -X POST .*?\n\s*fi\n", branch, re.DOTALL)
+    assert found, "a refused dispatch is caught"
+    refused = found.group(0)
+    assert "/dispatches" in refused
+    assert "::error title=Review response handoff failed::" in refused
+    assert 'gh pr comment "$PR"' in refused and "response_workflow" in refused
+    # Reported, and the review run stays green.
+    assert re.search(r"exit 0\n\s*fi\n$", refused)
+
+
+def test_the_cap_is_reported_once_per_pull_request() -> None:
+    run = code(step(review_workflow()["jobs"]["handoff"], HANDOFF_STEP)["run"])
+    branch = run[run.index("capped)") : run.index("none)")]
+    marker = "<!-- agent-review-handoff capped -->"
+    # Checked by author and marker before the one comment that carries it.
+    check = f'select(.user.login == "{BOT}" and (.body | startswith("{marker}")))'
+    assert check in branch
+    assert branch.index(check) < branch.index('if [ "$POSTED" -eq 0 ]; then') < branch.index("gh pr comment")
+    assert branch.count("gh pr comment") == 1
+    assert f'"{marker}"' in branch.split("gh pr comment")[0]
+    # Never counted as a Response round.
+    assert not marker.startswith(summary_marker())
 
 
 def test_no_expression_is_interpolated_into_a_review_run_block() -> None:
@@ -621,6 +668,9 @@ if __name__ == "__main__":
     test_actions_write_is_held_by_the_handoff_job_only()
     test_handoff_runs_only_in_auto_mode_after_a_review_that_ran()
     test_handoff_runs_only_trusted_code_and_dispatches_on_the_default_branch()
+    test_handoff_counts_the_findings_the_round_will_see()
+    test_a_refused_dispatch_is_reported_without_failing_the_review()
+    test_the_cap_is_reported_once_per_pull_request()
     test_no_expression_is_interpolated_into_a_review_run_block()
     test_a_dispatch_is_accepted_only_from_the_bot_in_auto_mode()
     test_a_dispatch_off_the_default_branch_is_refused()

@@ -88,6 +88,16 @@ on:
         required: false
         type: string
         default: ""
+      response_allowlist_actors:
+        description: "Auto mode only: your Review response Caller's `allowlist_actors`, so the handoff counts the Findings the round will see (an Allowlist reply reopens a Finding an earlier round answered). Empty uses this workflow's `allowlist_actors`."
+        required: false
+        type: string
+        default: ""
+      response_reviewer_logins:
+        description: "Auto mode only: your Review response Caller's `reviewer_logins`, so the handoff counts the Findings the round will see. Empty means `github-actions`, the kit reviewer, as there."
+        required: false
+        type: string
+        default: "[]"
     secrets:
       claude_code_oauth_token:
         description: "Subscription OAuth token from `claude setup-token`."
@@ -709,34 +719,68 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ inputs.pr_number }}
-          ALLOWLIST_JSON: ${{ inputs.allowlist_actors }}
+          REVIEW_ALLOWLIST: ${{ inputs.allowlist_actors }}
+          RESPONSE_ALLOWLIST: ${{ inputs.response_allowlist_actors }}
+          RESPONSE_REVIEWERS: ${{ inputs.response_reviewer_logins }}
           RESPONSE_WORKFLOW: ${{ inputs.response_workflow }}
           DEFAULT_BRANCH: ${{ steps.trusted.outputs.default_branch }}
         shell: bash
         run: |
           set -euo pipefail
-          # The Allowlist decides, as in a round, which replies reopen a
-          # finding an earlier round answered.
-          ALLOWLIST="$(printf '%s' "${ALLOWLIST_JSON:-[]}" | jq -er 'if type == "array" then map(tostring) | join(",") else error("not an array") end')"
-          export ALLOWLIST
-          # Unresolved findings of the kit reviewer (github-actions) and the
-          # rounds the pull request has had, by the trusted script: rounds
-          # count by author and summary marker together, since anyone can
-          # write the marker in a comment.
+          # A JSON array of logins, as the trusted script's comma list; the
+          # same check the response gate makes.
+          logins() {
+            printf '%s' "$1" | jq -er '
+              if type == "array" and all(.[]; type == "string" and test("^[A-Za-z0-9-]+(\\[bot\\])?$"))
+              then join(",") else error("not a JSON array of logins") end'
+          }
+          # The round's own lists, so the handoff counts the Findings the
+          # round will be given: its Allowlist decides which replies reopen a
+          # finding an earlier round answered, and its reviewer logins whose
+          # threads are findings.
+          if ! ALLOWLIST="$(logins "${RESPONSE_ALLOWLIST:-${REVIEW_ALLOWLIST:-[]}}")"; then
+            echo "response_allowlist_actors (or allowlist_actors) must be a JSON array of logins."
+            exit 1
+          fi
+          if ! REVIEWER_LOGINS="$(logins "${RESPONSE_REVIEWERS:-[]}")"; then
+            echo "response_reviewer_logins must be a JSON array of logins."
+            exit 1
+          fi
+          export ALLOWLIST REVIEWER_LOGINS
+          # Unresolved findings and the rounds the pull request has had, by
+          # the trusted script: rounds count by author and summary marker
+          # together, since anyone can write the marker in a comment.
           DECISION="$(node .github/agent-review-response/review-response.mjs handoff --pr "$PR")"
           echo "Handoff decision: $DECISION"
           case "$DECISION" in
             dispatch)
               # A dispatch runs the Caller file of the ref it names, and only
-              # the default branch's is trusted.
-              gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/${RESPONSE_WORKFLOW##*/}/dispatches" \
-                -f ref="$DEFAULT_BRANCH" -f "inputs[pr_number]=$PR"
+              # the default branch's is trusted. A refused dispatch is the
+              # Consumer's setup, not the review: say what to fix, and leave
+              # the review run green.
+              if ! gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/${RESPONSE_WORKFLOW##*/}/dispatches" \
+                -f ref="$DEFAULT_BRANCH" -f "inputs[pr_number]=$PR"; then
+                echo "::error title=Review response handoff failed::GitHub refused to dispatch $RESPONSE_WORKFLOW on $DEFAULT_BRANCH. It must exist on that branch with a workflow_dispatch trigger that takes a pr_number input."
+                gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" \
+                  --body "Review response: auto mode could not start a Response round. GitHub refused to dispatch \`$RESPONSE_WORKFLOW\` (the review workflow's \`response_workflow\`) on \`$DEFAULT_BRANCH\`: it must exist there with a \`workflow_dispatch\` trigger that takes a \`pr_number\` input. Apply the Review response label (\`agent:address-review\` by default) to start a round by hand."
+                exit 0
+              fi
               gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" \
                 --body "Review response: this review left findings, so auto mode dispatched a Response round. It waits for this review run to finish. If no round reports here, the Review response is switched off, or a newer review or response run on this pull request replaced the waiting one: apply the Review response label (\`agent:address-review\` by default) to start it."
               ;;
             capped)
-              gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" \
-                --body "Review response not started automatically: this pull request has had 2 Response rounds, the most auto mode starts. Address the remaining findings by hand, or apply the Review response label (\`agent:address-review\` by default) for another round."
+              # Once per pull request: every later review with a finding left
+              # would otherwise say it again. Counted by author and marker.
+              POSTED="$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --paginate \
+                --jq '[.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- agent-review-handoff capped -->")))] | length' \
+                | jq -s 'add // 0')"
+              if [ "$POSTED" -eq 0 ]; then
+                BODY="$(printf '%s\n\n%s' "<!-- agent-review-handoff capped -->" \
+                  "Review response not started automatically: this pull request has had 2 Response rounds, the most auto mode starts. Address the remaining findings by hand, or apply the Review response label (\`agent:address-review\` by default) for another round.")"
+                gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body "$BODY"
+              else
+                echo "The cap was already reported on PR #$PR."
+              fi
               ;;
             none) ;;
             *)
