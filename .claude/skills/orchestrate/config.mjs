@@ -145,9 +145,10 @@ export const HARNESS_FILE_PROBLEMS = Object.freeze(CATALOG.problems);
 
 /**
  * The environment variables a harness sets in the shells its agent runs, read
- * from each harness's own documentation or source, cited beside each rule. A match makes the harness a **candidate** only: the Chief of Staff
- * confirms it against the tools it has, since a terminal inside an editor can
- * carry the editor's variables too.
+ * from each harness's own documentation or source, cited beside each rule. A
+ * match makes the harness a **candidate** only: the Chief of Staff confirms it
+ * against the tools it has, since a terminal inside an editor can carry the
+ * editor's variables too.
  *
  * @type {ReadonlyArray<{harness: string, when: (env: Record<string, string | undefined>) => boolean}>}
  */
