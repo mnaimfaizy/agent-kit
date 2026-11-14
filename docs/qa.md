@@ -36,7 +36,7 @@ The keys, in short:
 | Section   | Keys                                                                                                                                                                 |
 | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | both      | `working_dir` (default `tmp/qa`; keep it gitignored)                                                                                                                 |
-| `plan:`   | `base_ref`; `suites` (`name`, `command`, `junit`, `surfaces`); `publish` rules (`when_label` or `default: true`, `to`, `label`); `tracker`                           |
+| `plan:`   | `base_ref`; `suites` (`name`, `command`, `junit`, `surfaces`, `services`); `publish` rules (`when_label` or `default: true`, `to`, `label`); `tracker`               |
 | `hazards` | a list of `{ pack: <path> }`                                                                                                                                         |
 | `run:`    | `target`; `surface`; `stack` (`up`, `migrate`, `seed`, `down`); `accounts` (`print`, `restore`, `roles` of `{ id, purpose }`); `version_endpoint`; `evidence.upload` |
 

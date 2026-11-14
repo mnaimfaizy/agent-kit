@@ -38,6 +38,8 @@ A plan that re-tests what CI proves spends the tester's time on the parts least 
 
 **An empty Residue is a result**, not a failure to find work: the change is proved by automation, and the honest output is "merge without a plan".
 
+**A double does not prove a live path.** An empty Residue means `manual-qa` never runs, so the QA Stack never starts. If a suite that mocks the cache and uses SQLite could cover a promise alone, a change whose real path runs through Postgres and Redis would merge with nothing ever having run it against them (fastapi_rbac pull request 339 did, until a stack run outside the skill). Starting the stack for every such change would re-test what a CI integration job already proves against the real services, which is the waste Residue only exists to avoid. So the in-memory claim needs a live check beside it: a suite or CI job against the real services. With one, the Residue can still be empty, and naming it tells the reader why the stack was not started; without one, a stack scenario remains. A suite declares its real services in `services` because the runner cannot see what a test mocks, and an unlisted suite is read as doubles only, the safe default: forgetting the key costs a scenario, not a missed check.
+
 ## Observed and reconstructed
 
 A claim that a suite proves a promise can come from two places. `[observed]`: a run of the suite at the merge-base and at the head, compared. `[reconstructed]`: reading CI results, the diff and the issue history, which can be wrong in ways a run is not (a test that passes but asserts nothing, a check that never ran on the path). The tag tells the reader how far to trust each claim.
