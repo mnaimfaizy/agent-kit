@@ -88,6 +88,12 @@ permissions:
   issues: read
   pull-requests: write
 
+# One group per pull request, shared with agent-review-response-reusable.yml,
+# so a review and a response never run on the same pull request at once.
+concurrency:
+  group: agent-kit-pr-${{ inputs.pr_number }}
+  cancel-in-progress: false
+
 jobs:
   review:
     if: ${{ !inputs.kill_switch }}

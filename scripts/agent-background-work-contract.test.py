@@ -11,7 +11,8 @@ Every agent step therefore:
   `run_in_background` parameter from the Bash and subagent tools, so a subagent
   can only run in the foreground (review keeps its parallel subagents);
 - denies the scheduling, messaging and background tools a CI run never needs.
-The planner and the auditor do one task in one session, so they deny Agent too.
+The planner, the Review responder and the auditor do one task in one session,
+so they deny Agent too.
 """
 
 from pathlib import Path
@@ -22,9 +23,10 @@ AGENT_STEPS = {
     "agent-plan-reusable.yml": "Run planner (Claude Code)",
     "agent-implement-reusable.yml": "Run implementer (Claude Code)",
     "agent-review-reusable.yml": "Run code review (Claude Code)",
+    "agent-review-response-reusable.yml": "Run review responder (Claude Code)",
     "security-audit-reusable.yml": "Run security audit (Claude Code)",
 }
-SINGLE_SESSION = {"agent-plan-reusable.yml", "security-audit-reusable.yml"}
+SINGLE_SESSION = {"agent-plan-reusable.yml", "agent-review-response-reusable.yml", "security-audit-reusable.yml"}
 # Tools that need no permission and can leave a run waiting or reach outside it,
 # plus Workflow and Monitor, which start background work the variable may not cover.
 NEVER_IN_CI = (
