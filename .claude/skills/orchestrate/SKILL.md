@@ -13,7 +13,7 @@ A user-invoked skill. Running it makes this session the **Chief of Staff** for a
 
 The Chief of Staff plans, delegates, relays and verifies. It never builds a Delegation's work itself, and it never merges.
 
-Load [CONFIG.md](CONFIG.md) when reading or asking for the config. Load [BRIEF.md](BRIEF.md) before writing a brief or reading a report. Load [RUN.md](RUN.md) before opening, updating or resuming a run folder. Load [HARNESSES.md](HARNESSES.md) before the first `spawn`, `message`, `await` or `report` on this harness. Load [SPEC.md](SPEC.md) for `--spec`, or on `--resume` of a spec run ([RUN.md](RUN.md#resume)), and only then. Load [DESIGN.md](DESIGN.md) when a rule needs its reason, or before changing this skill.
+Load [CONFIG.md](CONFIG.md) when reading or asking for the config. Load [BRIEF.md](BRIEF.md) before writing a brief or reading a report. Load [RUN.md](RUN.md) before opening, updating or resuming a run folder. Load [HARNESSES.md](HARNESSES.md) at step 1, to find this run's **Harness**; then load that harness's own file under [harnesses/](harnesses/), and only that one, before the first `spawn`, `message`, `await` or `report`. Load [SPEC.md](SPEC.md) for `--spec`, or on `--resume` of a spec run ([RUN.md](RUN.md#resume)), and only then. Load [DESIGN.md](DESIGN.md) when a rule needs its reason, or before changing this skill.
 
 `<skill>` in a command below is the absolute path of the folder this file is in, written with forward slashes (`C:/Users/me/...` on Windows), inside double quotes because it may contain spaces. Every command runs from the root of the repository the issues belong to.
 
@@ -55,7 +55,9 @@ Before anything is written to `run_dir`, check that it is ignored: `git check-ig
 
 When `triage_labels.from` is `document`, read that document now: it maps each triage role to the repository's label.
 
-**Done when:** `check` exits 0 with `readiness.ready` true, `run_dir` is ignored, and each triage role's label is known.
+Then find the harness, from `check`'s `harness` output and this session's own tools, as [HARNESSES.md](HARNESSES.md#finding-the-harness) says: never guessed, and a pinned `harness` that disagrees is a Decision Request. Load its file. For each harness `executors` names, check its CLI answers `--version`, and load its file too.
+
+**Done when:** `check` exits 0 with `readiness.ready` true, `run_dir` is ignored, each triage role's label is known, and the harness is named, with its Support Level, in the Activity Log.
 
 ### 2. Open the run
 
@@ -86,7 +88,9 @@ Then decide which building Delegations need QA: all of them with `ready_to_merge
 
 ### 4. Show the Dispatch Plan
 
-One table, one row per Delegation: its issue, its kind (building, analysis or QA), its Executor, its model (from `models`), its wave, its scope fence and its shared resources. A QA Delegation's wave is "after `d<issue>` is verified", its scope fence is "none: commits nothing", and its shared resources are the QA Stack or nothing. Then the lists: the issues with no Delegation and why, the open Decision Requests from step 3, and the kinds of routine write the human may approve for the whole run (for example, moving an issue's label from one triage role to another when its Delegation starts).
+It opens with the harness, its tier and its **Support Level**. Below `verified`, it says what that level means for this run ([HARNESSES.md](HARNESSES.md#support-level)), and the plan waits for the human's "go" even when the invocation carried `go`. On an unlisted harness, it says no harness file exists, and that the run goes one Delegation at a time, on tier 3.
+
+Then one table, one row per Delegation: its issue, its kind (building, analysis or QA), its Executor, the harness that Executor runs on when `executors` moves it off this one, its model (from `models`), its wave, its scope fence and its shared resources. A QA Delegation's wave is "after `d<issue>` is verified", its scope fence is "none: commits nothing", and its shared resources are the QA Stack or nothing. Then **Harness limits**: each limit from the harness files loaded at step 1 that bears on this run's Delegations, with what the human will see because of it ([HARNESSES.md](HARNESSES.md#the-harness-limits-section)), and each persistent change the harness needs, such as a copy of the QA skills where it reads skills. Then the lists: the issues with no Delegation and why, the open Decision Requests from step 3, and the kinds of routine write the human may approve for the whole run (for example, moving an issue's label from one triage role to another when its Delegation starts).
 
 When the run has a QA Delegation, the plan also says:
 
@@ -98,13 +102,13 @@ Choose waves so that:
 
 - no two Delegations in one wave overlap in scope fence or shared resource;
 - a Delegation whose issue is blocked by another issue in the run is in a later wave than its blocker;
-- no wave holds more building Delegations than `limits.building`, or than one on a harness that runs sequentially ([HARNESSES.md](HARNESSES.md#tier-3-harnesses-that-run-sequentially)). QA Delegations do not count toward `limits.building`, as analysis Delegations do not; a QA Delegation on the QA Stack still never runs beside another holder of it.
+- no wave holds more building Delegations than `limits.building`, or than one on a harness that runs sequentially ([HARNESSES.md](HARNESSES.md#tiers)). QA Delegations do not count toward `limits.building`, as analysis Delegations do not; a QA Delegation on the QA Stack still never runs beside another holder of it.
 
 A Delegation in a later wave because of an overlap or a blocker starts only once the Delegation it waits for is merged, so it is built on the merged work, not beside it. Until then it is parked ([RUN.md](RUN.md#states)).
 
-Choose each Executor from what this harness offers ([HARNESSES.md](HARNESSES.md)): a Live Session for a building Delegation where the harness has one, so the human can open it; a headless run or a sub-agent for an analysis Delegation, or where the harness has no Live Sessions; a session the human starts where the harness can start neither. A QA Delegation is never a sub-agent: it runs user-invoked skills, and needs a working copy and a browser of its own.
+Choose each Executor from what this harness's file offers (its **Executors** line), or from what `executors` names: a Live Session for a building Delegation where the harness has one, so the human can open it; a headless run or a sub-agent for an analysis Delegation, or where the harness has no Live Sessions; a session the human starts where the harness can start neither. A QA Delegation is never a sub-agent: it runs user-invoked skills, and needs a working copy and a browser of its own.
 
-The human's "go" approves the whole plan: every row, and the routine writes they tick. A change to any row is a new plan, shown again. With `go` in the invocation, start as soon as the plan is shown, unless step 3 raised a Decision Request: then wait for its answer and the human's "go".
+The human's "go" approves the whole plan: every row, and the routine writes they tick. A change to any row is a new plan, shown again. With `go` in the invocation, start as soon as the plan is shown, unless step 3 raised a Decision Request, or a harness the plan uses is below `verified`: then wait for the answer and the human's "go".
 
 **Done when:** the human has said "go" to this plan, and the board records it.
 
@@ -190,6 +194,8 @@ Each QA run after the first, on a new head or on the same one, is a new QA Deleg
 First check each Ready to Merge row's head for a review run or comment newer than its verification ([step 7](#the-review-workflow)); a row with one goes back to step 7. Then print the Ready to Merge list, one row per Delegation with its pull request and head, and for one that needed QA, its QA result for that head; then the merge order from step 8. With `routes.merge` set, print the command for each, in order. Never run it.
 
 Also print what is not on the list and why: parked Delegations, analysis results waiting on a decision, issues for the human, and anything raised and unanswered.
+
+Then one line for the harness: each **check before use** item this run settled, and what it found, so the harness file can be corrected; and, on an unlisted harness, an offer to draft a harness file from what the run learned. Writing either is a change to this skill, made only on the human's yes.
 
 After the human says they have merged, offer a **Run Summary** on the umbrella issue the run's issues share, if they share one ([RUN.md](RUN.md#run-summary)). It is a write as the human: draft it, show it, and post it only on a yes. If parked Delegations are waiting on the merges, offer to resume the run.
 

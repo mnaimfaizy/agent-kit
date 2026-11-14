@@ -46,6 +46,12 @@ models: # model names the Executor's harness accepts, passed as written; leave o
   review: claude-opus-5-5 # a building brief's code-review phase, where the harness allows a model per phase
   qa: claude-sonnet-5-5 # QA Delegations: composing and running a QA Plan on a finished head
 
+harness: claude-code-desktop # the harness the Chief of Staff runs on, pinned; leave it out to detect it each run (ids: the skill's HARNESSES.md)
+executors: # not the default: each kind of Delegation runs on `harness` unless one names another harness's headless run
+  build: claude-code-desktop # building; from Cursor, `claude-code-cli` would build with `claude -p`
+  analysis: claude-code-desktop # analysis
+  qa: claude-code-desktop # QA
+
 limits: # how many building Delegations run at once, and what only one may hold
   building: 2 # most building Delegations running at once; a whole number, 1 or more; QA does not count
   shared: ["database migrations"] # resources one Delegation holds at a time; their holders never share a wave

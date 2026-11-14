@@ -164,6 +164,14 @@ _Avoid_: task, job, ticket (for the piece handed out)
 What carries out a Delegation: a Live Session, a headless run, or a sub-agent in the Chief of Staff's own session.
 _Avoid_: worker, runner
 
+**Harness**:
+The agent product a session runs in (Claude Code desktop, Claude Code CLI, Cursor, Codex CLI and the like), which decides how one session can start, message and wait for another; two versions of one product that behave differently are two harnesses.
+_Avoid_: tool, IDE, client, platform
+
+**Support Level**:
+How far `orchestrate` has been proven on a harness: verified (a full run passed), tried (a run happened, with known gaps) or documented (built from the harness's documentation alone).
+_Avoid_: compatibility, maturity, tier (a tier is what the harness can do)
+
 **Live Session**:
 A separate agent session the human can open, read and talk to while it works; always written in full, because a Session is a signed-in identity in a QA scenario.
 _Avoid_: session (alone), live agent
