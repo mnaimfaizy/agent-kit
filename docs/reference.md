@@ -120,7 +120,7 @@ A Caller's `permissions:` must grant at least the permissions listed, or GitHub 
 
 ## Review response
 
-`uses: mnaimfaizy/agent-kit/.github/workflows/agent-review-response-reusable.yml@<tag>` — guide: [adr/0005-review-responder-holds-no-write-credential.md](adr/0005-review-responder-holds-no-write-credential.md)
+`uses: mnaimfaizy/agent-kit/.github/workflows/agent-review-response-reusable.yml@<tag>` — guide: [review-response.md](review-response.md)
 
 **Caller permissions:** `contents: write`, `pull-requests: write`, `actions: write`
 

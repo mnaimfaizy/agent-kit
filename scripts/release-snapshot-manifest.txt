@@ -19,6 +19,7 @@ docs/security-model.md
 docs/repository-hardening.md
 docs/security-audit.md
 docs/plan-implement-review.md
+docs/review-response.md
 docs/qa.md
 docs/orchestrate.md
 docs/copilot-restore.md
@@ -51,6 +52,7 @@ docs/assets/logo.svg
 
 examples/security-audit-caller.yml
 examples/plan-implement-review-caller.yml
+examples/review-response-caller.yml
 examples/explainer-config.md
 examples/setup-presets/python.sh
 examples/setup-presets/node.sh
