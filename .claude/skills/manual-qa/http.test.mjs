@@ -89,6 +89,25 @@ before(async () => {
         res.writeHead(200, { "content-type": "text/plain" });
         return res.end(`you asked for ${req.url}`);
       }
+      if (url.pathname === "/prefs") {
+        res.writeHead(200, {
+          "content-type": "application/json",
+          "set-cookie": [
+            "logged_in=true; Path=/",
+            "theme=light; Path=/",
+            "user_id=1042; Path=/",
+            "csrftoken=k9Qw7xZp; Path=/",
+            "tracker=0123456789abcdefXYZ; Path=/",
+          ],
+        });
+        return res.end("{}");
+      }
+      if (url.pathname === "/profile") {
+        res.writeHead(200, { "content-type": "application/json" });
+        return res.end(
+          '{"admin": true, "theme": "light", "id": 1042, "csrf": "k9Qw7xZp", "t": "0123456789abcdefXYZ"}',
+        );
+      }
       if (url.pathname === "/debug") {
         res.writeHead(200, { "content-type": "application/json" });
         return res.end('{"debug": "Basic dXNlcjpwdzE=", "also": "Bearer abcdefgh1234="}');
@@ -267,6 +286,26 @@ test("an HttpOnly cookie's attributes appear in the log, and its value is redact
   assert.doesNotMatch(log, /dark-mode-cookie/);
   // A cookie value echoed in a body is redacted too.
   assert.match(log, /"echo": ?"sid=\[redacted:cookie sid\]; theme=\[redacted:cookie theme\]"/);
+});
+
+test("a flag-like cookie's value stays readable in bodies; a secret or opaque one does not", async () => {
+  const result = await run({
+    requests: [
+      { session: "A", method: "GET", path: "/prefs" },
+      { session: "A", method: "GET", path: "/profile" },
+    ],
+  });
+  assert.equal(result.code, 0);
+  const { log } = result;
+  // Every Set-Cookie line still redacts its own value.
+  for (const name of ["logged_in", "theme", "user_id", "csrftoken", "tracker"])
+    assert.match(log, new RegExp(`set-cookie: ${name}=\\[redacted:cookie ${name}\\]; Path=/`));
+  // The same text elsewhere is evidence, unless the cookie is a secret.
+  assert.match(
+    log,
+    /"admin": true, "theme": "light", "id": 1042, "csrf": "\[redacted:cookie csrftoken\]", "t": "\[redacted:cookie tracker\]"/,
+  );
+  assert.doesNotMatch(log, /k9Qw7xZp|0123456789abcdefXYZ/);
 });
 
 test("the log records method, path, status and the named headers, one entry per request", async () => {

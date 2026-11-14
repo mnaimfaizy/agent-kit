@@ -50,6 +50,8 @@ export const BODY_LIMIT = 65_536;
  * that short is not looked for in the sequence file.
  */
 const MIN_SECRET_LENGTH = 4;
+/** A cookie value this long is taken for an opaque token, whatever its name. */
+const OPAQUE_COOKIE_LENGTH = 16;
 
 const PLACEHOLDER = /\{\{(env|cookie):([^}]*)\}\}/g;
 const ENV_NAME = /^QA_[A-Z0-9_]+$/;
@@ -350,6 +352,20 @@ export function parseSetCookie(line) {
     : { name: pair.slice(0, eq).trim(), value: pair.slice(eq + 1).trim(), attributes };
 }
 
+/**
+ * Whether a cookie's value is also redacted wherever else it appears in the
+ * log, not only in its own `Set-Cookie` line: when the cookie is a secret by
+ * its name, is `HttpOnly`, or holds an opaque value of 16 characters or more.
+ * A flag-like cookie (`logged_in=true`, `theme=light`, `user_id=1042`) is not
+ * searched for, so the same text in a body stays readable evidence.
+ * @param {{name: string, value: string, attributes: string[]}} cookie
+ */
+export function searchedCookie({ name, value, attributes }) {
+  if (value.length < MIN_SECRET_LENGTH || /^(?:true|false|null)$/i.test(value)) return false;
+  const httpOnly = attributes.some((a) => a.trim().toLowerCase() === "httponly");
+  return secretName(name) || httpOnly || value.length >= OPAQUE_COOKIE_LENGTH;
+}
+
 /** An environment value with any trailing line ending removed (a `\r` from a Windows tool). */
 function envValue(env, name) {
   const value = env[name];
@@ -552,9 +568,6 @@ export async function runSequence(sequence, { base, env, fetch: send = fetch }) 
     const method = request.method;
     if (!jars.has(session)) jars.set(session, new CookieJar());
     const jar = jars.get(session);
-    // Every cookie value already held is redacted, even before it is sent.
-    for (const c of jar.all())
-      if (c.value.length >= MIN_SECRET_LENGTH) redact.add(c.value, `[redacted:cookie ${c.name}]`);
     const entry = { n: i + 1, session, method, path: request.path, status: null };
     entries.push(entry);
     try {
@@ -592,8 +605,10 @@ export async function runSequence(sequence, { base, env, fetch: send = fetch }) 
       const text = method === "HEAD" ? "" : await response.text();
       const setCookies = response.headers.getSetCookie();
       jar.store(setCookies, url.pathname);
-      for (const { name, value } of setCookies.map(parseSetCookie))
-        if (value.length >= MIN_SECRET_LENGTH) redact.add(value, `[redacted:cookie ${name}]`);
+      // Every cookie the jar takes in is redacted from here on, before it is
+      // ever sent: in its Set-Cookie line always, elsewhere by `searchedCookie`.
+      for (const cookie of setCookies.map(parseSetCookie))
+        if (searchedCookie(cookie)) redact.add(cookie.value, `[redacted:cookie ${cookie.name}]`);
       entry.status = response.status;
       entry.setCookies = setCookies;
       entry.headers = (request.capture ?? [])
