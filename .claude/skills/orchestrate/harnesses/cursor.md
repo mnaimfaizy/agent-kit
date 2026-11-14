@@ -24,6 +24,7 @@
 - Cursor deletes the oldest worktrees under `~/.cursor/worktrees/` once there are more than `cursor.worktreeMaxCount` (25 by default), including ones made by hand there. A Delegation pushes its branch as soon as it has a commit, and the Chief of Staff makes its own scratch worktrees outside that folder.
 - QA may fall back to a session the human starts, where the human types the two QA commands.
 - A Cursor Cloud Agent can subscribe to its own pull request, but cannot reach the run folder or the local QA Stack, and needs a cloud plan; it is offered only when the human asks.
+- Cursor Projects (beta) is never an Executor or the Chief of Staff. Its coordinator rewrites each brief, and no API setting picks a worker's model, branch or brief. Its local workers run in the existing checkout, with no isolation. Nothing it does reaches a local session as an event (read 2026-11-14).
 
 ## Check before use
 

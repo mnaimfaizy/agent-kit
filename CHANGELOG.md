@@ -22,7 +22,7 @@ The coming release is classed **Major** (per [docs/releases.md](docs/releases.md
 
 ### Fixed
 
-- `orchestrate` now has Executors for Cursor ([#189](https://github.com/mnaimfaizy/agent-kit/issues/189)), so a Cursor run no longer invents them. A building or analysis Delegation is a background sub-agent that the brief asks to work in its own worktree, and the Chief of Staff checks that it does, because a Cursor sub-agent shares the parent's checkout unless asked. A QA Delegation is never a sub-agent: it is a headless `agent -p` run, or else a session you start and type `/qa-plan <n>` and `/manual-qa <plan file>` in. The Chief of Staff watches CI and review comments itself, since a sub-agent cannot subscribe to them.
+- `orchestrate` now has Executors for Cursor ([#189](https://github.com/mnaimfaizy/agent-kit/issues/189)), so a Cursor run no longer invents them. A building or analysis Delegation is a background sub-agent that the brief asks to work in its own worktree, and the Chief of Staff checks that it does, because a Cursor sub-agent shares the parent's checkout unless asked. A QA Delegation is never a sub-agent: it is a headless `agent -p` run, or else a session you start and type `/qa-plan <n>` and `/manual-qa <plan file>` in. The Chief of Staff watches CI and review comments itself, since a sub-agent cannot subscribe to them. Cursor Projects is never used: its coordinator rewrites each brief, and its local workers share your checkout.
 
 ## [1.0.0-beta.6] - 2026-11-14
 
