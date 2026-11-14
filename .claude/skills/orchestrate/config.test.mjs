@@ -7,7 +7,7 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -1253,10 +1253,12 @@ test("a malformed or stray harness file is a named problem, never a crash", () =
       join(dir, "good.md"),
       "- **Id:** `good`\n- **Support Level:** `tried`\n- **Headless run:** `good -p`\n- **Headless QA:** none: no skills\n",
     );
+    mkdirSync(join(dir, "dir.md"));
     const { harnesses, problems } = harnessCatalog(dir);
     assert.deepEqual(harnesses, { good: { level: "tried", headless: true, headlessQa: false } });
-    assert.equal(problems.length, 1);
+    assert.equal(problems.length, 2);
     assert.match(problems[0], /^harnesses\/README\.md: not a harness file; it needs /);
+    assert.match(problems[1], /^harnesses\/dir\.md cannot be read \(EISDIR\)$/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

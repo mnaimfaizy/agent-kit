@@ -31,7 +31,7 @@ The id is the value `harness:` and `executors.*` take in the config ([CONFIG.md]
 
 ### A harness file
 
-`harnesses/<id>.md` opens with these bullets, each on its own line in this form, because `config.mjs` reads the first four. A file without them is a problem every `check` reports, so the run stops until it is fixed:
+`harnesses/<id>.md` opens with these bullets, each on its own line in this form, because `config.mjs` reads `Id`, `Support Level`, `Headless run` and `Headless QA`. A file without them is a problem every `check` reports, so the run stops until it is fixed:
 
 - `- **Id:** \`<id>\``, the file's own name.
 - `- **Support Level:** \`<level>\``, then what it rests on.

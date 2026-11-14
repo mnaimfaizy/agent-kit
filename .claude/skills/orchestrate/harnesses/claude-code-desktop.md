@@ -1,7 +1,7 @@
 # Claude Code desktop app
 
 - **Id:** `claude-code-desktop`
-- **Support Level:** `verified`. The first run (`/orchestrate #274 #275` on `mnaimfaizy/fastapi_rbac`, 2026-11-13, ending in pull request 331) built and verified its work through Live Sessions, and stopped short of Ready to Merge only on the QA gaps fixed in `mnaimfaizy/agent-kit#179`. The maintainer reports later runs passing end to end; the next one records its run folder's Activity Log here.
+- **Support Level:** `verified`. The first run (`/orchestrate #274 #275` on `mnaimfaizy/fastapi_rbac`, 2026-11-13, ending in pull request 331) built and verified its work through Live Sessions, and stopped short of Ready to Merge only on the QA gaps fixed in `mnaimfaizy/agent-kit#179`. That run did not reach close-out, so this level rests on the maintainer's report of later runs passing end to end, not on a recorded Activity Log: it is held over from before Support Levels existed. The next full run records its run folder's Activity Log here.
 - **Tier:** 1.
 - **Headless run:** none: a Live Session belongs to the app. This harness can start the Claude Code CLI's (`claude-code-cli`).
 - **Headless QA:** none: QA is a Live Session.

@@ -104,7 +104,13 @@ export function harnessCatalog(dir = fileURLToPath(new URL("./harnesses/", impor
   for (const name of names) {
     if (!name.endsWith(".md")) continue;
     const id = name.slice(0, -3);
-    const text = readFileSync(join(dir, name), "utf8");
+    let text;
+    try {
+      text = readFileSync(join(dir, name), "utf8");
+    } catch (error) {
+      problems.push(`harnesses/${name} cannot be read (${error?.code ?? error})`);
+      continue;
+    }
     const line = (label) => new RegExp(`^- \\*\\*${label}:\\*\\* (.*)$`, "m").exec(text)?.[1];
     const level = /^`([a-z]+)`/.exec(line("Support Level") ?? "")?.[1];
     const headless = line("Headless run");
