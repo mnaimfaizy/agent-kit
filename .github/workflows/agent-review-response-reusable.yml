@@ -409,6 +409,9 @@ jobs:
             exit 1
           fi
           echo "hook_sha256=$(cat "$STAGED"/* | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          # Resolved before setup can change PATH, for the check after it.
+          echo "node=$(command -v node)" >> "$GITHUB_OUTPUT"
+          echo "git=$(command -v git)" >> "$GITHUB_OUTPUT"
 
       - name: Install the subprocess sandbox
         if: steps.extract.outputs.state == 'ready'
@@ -438,23 +441,49 @@ jobs:
         run: bash --noprofile --norc -eo pipefail -c "$SETUP"
 
       - name: Check git configuration after setup
-        # Setup ran pull request and dependency code, which can write
-        # .git/config or .git/hooks, and the action runs git in this checkout,
-        # outside the sandbox, while it holds the subscription token. Check it
-        # against the staged allowlist again, with the staged copies unchanged.
+        # Setup ran pull request and dependency code. The action then runs git
+        # and Bun outside the sandbox while it holds the subscription token, so
+        # refuse what setup could have left to steer them: git config or hooks
+        # in the checkout, staged hooks that changed, git or loader settings in
+        # the environment (through $GITHUB_ENV), and a different git or a
+        # workspace directory on PATH (through $GITHUB_PATH). This is defence
+        # in depth, not a boundary: code that runs on this runner before the
+        # agent can reach the token in other ways too (ADR 0005, residual
+        # exposure).
         if: steps.extract.outputs.state == 'ready'
         env:
           HOOK_SHA256: ${{ steps.confine.outputs.hook_sha256 }}
+          NODE_BIN: ${{ steps.confine.outputs.node }}
+          GIT_BIN: ${{ steps.confine.outputs.git }}
         shell: bash
         run: |
           set -euo pipefail
           STAGED="$RUNNER_TEMP/read-confinement"
+          STEERING="$(env | grep -oE '^(GIT_[A-Z0-9_]*|LD_[A-Z0-9_]*|NODE_OPTIONS|NODE_PATH|BASH_ENV|ENV|BUN_OPTIONS)=' || true)"
+          if [ -n "$STEERING" ]; then
+            echo "Setup set variables that steer git, the loader or the action's runtimes:"
+            echo "$STEERING"
+            exit 1
+          fi
+          if [ -z "$GIT_BIN" ] || [ "$(command -v git)" != "$GIT_BIN" ]; then
+            echo "Setup changed which git runs."
+            exit 1
+          fi
+          IFS=: read -r -a ENTRIES <<< "$PATH"
+          for ENTRY in "${ENTRIES[@]}"; do
+            case "$ENTRY" in
+              "$GITHUB_WORKSPACE" | "$GITHUB_WORKSPACE"/* | "" | .*)
+                echo "Setup put the workspace or a relative directory on PATH: '$ENTRY'."
+                exit 1
+                ;;
+            esac
+          done
           ACTUAL="$(cat "$STAGED"/* | sha256sum | cut -d' ' -f1)"
           if [ -z "$HOOK_SHA256" ] || [ "$ACTUAL" != "$HOOK_SHA256" ]; then
             echo "The staged hooks changed during setup."
             exit 1
           fi
-          if ! node "$STAGED/check-git-config.mjs" "$GITHUB_WORKSPACE/.git"; then
+          if ! "$NODE_BIN" "$STAGED/check-git-config.mjs" "$GITHUB_WORKSPACE/.git"; then
             echo "Setup left git configuration or hooks outside the allowlist in .github/agent-runtime/check-git-config.mjs."
             exit 1
           fi
@@ -551,6 +580,11 @@ jobs:
           CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"
           # Agent mode reads the branch from here.
           CLAUDE_BRANCH: ${{ needs.gate.outputs.head_ref }}
+          # A step's env wins over $GITHUB_ENV: pinned here as well as refused
+          # above, so no git or loader setting from setup reaches the action.
+          GIT_CONFIG_COUNT: "0"
+          GIT_CONFIG_PARAMETERS: ""
+          LD_PRELOAD: ""
         with:
           path_to_bun_executable: ${{ steps.bun.outputs.path }}
           claude_code_oauth_token: ${{ secrets.claude_code_oauth_token }}

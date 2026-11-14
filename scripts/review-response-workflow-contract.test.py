@@ -242,7 +242,20 @@ def test_the_sandbox_and_install_rules_are_fixed_by_the_kit() -> None:
     # Setup ran pull request code: the git config and the staged hooks are
     # checked again before the action runs git with the subscription token.
     recheck = code(step(respond, "Check git configuration after setup")["run"])
-    assert 'node "$STAGED/check-git-config.mjs" "$GITHUB_WORKSPACE/.git"' in recheck
+    # With the node resolved before setup could change PATH.
+    assert '"$NODE_BIN" "$STAGED/check-git-config.mjs" "$GITHUB_WORKSPACE/.git"' in recheck
+    assert (
+        step(respond, "Check git configuration after setup")["env"]["NODE_BIN"] == "${{ steps.confine.outputs.node }}"
+    )
+    # Setup can also steer later steps through $GITHUB_ENV and $GITHUB_PATH.
+    for needle in ("GIT_[A-Z0-9_]*", "LD_[A-Z0-9_]*", "NODE_OPTIONS", "BASH_ENV"):
+        assert needle in recheck, f"refuse {needle} left by setup"
+    assert '"$(command -v git)" != "$GIT_BIN"' in recheck
+    assert '"$GITHUB_WORKSPACE" | "$GITHUB_WORKSPACE"/*' in recheck
+    agent_env = step(respond, AGENT_STEP)["env"]
+    assert agent_env["GIT_CONFIG_COUNT"] == "0"
+    assert agent_env["GIT_CONFIG_PARAMETERS"] == ""
+    assert agent_env["LD_PRELOAD"] == ""
     assert '"$ACTUAL" != "$HOOK_SHA256"' in recheck
     assert step_index(respond, "Check git configuration after setup") == step_index(respond, AGENT_STEP) - 3
 
