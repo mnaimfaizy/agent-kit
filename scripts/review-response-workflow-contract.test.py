@@ -507,6 +507,7 @@ def test_handoff_runs_only_trusted_code_and_dispatches_on_the_default_branch() -
         '"$(field .state)" != "open"',
         '"$(field .head.repo.full_name)" != "$GITHUB_REPOSITORY"',
         '"$(field .base.ref)" != "$DEFAULT_BRANCH"',
+        '"dependabot[bot]|"* | *"|dependabot/"*)',
     ):
         assert needle in trusted, f"the handoff checks {needle!r}"
 

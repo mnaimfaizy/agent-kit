@@ -680,6 +680,13 @@ jobs:
             echo "proceed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          case "$(field .user.login)|$(field .head.ref)" in
+            "dependabot[bot]|"* | *"|dependabot/"*)
+              echo "No handoff: the Review response does not run on Dependabot pull requests."
+              echo "proceed=false" >> "$GITHUB_OUTPUT"
+              exit 0
+              ;;
+          esac
           # The trusted script is the default branch's, as the response
           # workflow reads it: never the pull request's copy.
           TRUSTED_SHA="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$DEFAULT_BRANCH" --jq .object.sha)"
@@ -725,7 +732,7 @@ jobs:
               gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/${RESPONSE_WORKFLOW##*/}/dispatches" \
                 -f ref="$DEFAULT_BRANCH" -f "inputs[pr_number]=$PR"
               gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" \
-                --body "Review response: this review left findings, so auto mode started a Response round. It waits for this review run to finish. If no round reports here, a newer review or response run on this pull request replaced the waiting one: apply the Review response label (\`agent:address-review\` by default) to start it."
+                --body "Review response: this review left findings, so auto mode dispatched a Response round. It waits for this review run to finish. If no round reports here, the Review response is switched off, or a newer review or response run on this pull request replaced the waiting one: apply the Review response label (\`agent:address-review\` by default) to start it."
               ;;
             capped)
               gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" \
