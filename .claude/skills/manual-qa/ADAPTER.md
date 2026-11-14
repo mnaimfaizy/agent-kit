@@ -145,7 +145,7 @@ The file holds one key, `requests`, a list of 1 to 200 requests run in order. Ea
 | `headers` | Optional: header names to string values. Never `Cookie` (the Session's jar sends cookies), `Host` or `Content-Length`.                              |
 | `json`    | Optional: a JSON body, sent with `Content-Type: application/json` unless `headers` sets one.                                                        |
 | `form`    | Optional: names to string values, sent form-encoded.                                                                                                |
-| `body`    | Optional: a raw string body. At most one of `json`, `form` and `body`.                                                                              |
+| `body`    | Optional: a raw string body. At most one of `json`, `form` and `body`, and none on `GET` or `HEAD`.                                                 |
 | `capture` | Optional: the response headers to record in the log, by name. `Set-Cookie` is always recorded. Any other key in a request or the file is a problem. |
 
 Two placeholders may appear in `path`, a header value and any string of a body:

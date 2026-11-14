@@ -67,7 +67,9 @@ const SECRET_SHAPES = [
   ["a JWT", /eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]*/g],
   [
     "a bearer or basic credential",
-    /\b(?:Bearer|Basic)\s+(?!\{\{|\[redacted|[A-Za-z0-9_-]+=")[A-Za-z0-9._~+/=-]{6,}/g,
+    // A challenge's auth-param (`Bearer realm="api"`) is not a credential, but
+    // only these names count as one: a base64 credential can end `="` too.
+    /\b(?:Bearer|Basic)\s+(?!\{\{|\[redacted|(?:realm|error|error_description|error_uri|scope|charset|nonce|opaque|algorithm|qop|stale|domain)\s*=)[A-Za-z0-9._~+/=-]{6,}/g,
   ],
   ["a GitHub token", /\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})/g],
   ["an API key", /\b(?:sk-[A-Za-z0-9_-]{16,}|AKIA[0-9A-Z]{16}|xox[abpr]-[A-Za-z0-9-]{10,})/g],
@@ -212,6 +214,10 @@ export function checkSequence(sequence, env) {
       }
 
     const bodies = [json, form, body].filter((b) => b !== undefined).length;
+    // fetch refuses a body here at run time, which would read as a request
+    // that got no response.
+    if (bodies > 0 && ["GET", "HEAD"].includes(method))
+      flag(`${method} cannot carry a body; drop "json", "form" and "body", or use another method`);
     if (bodies > 1) flag('give at most one of "json", "form" and "body"');
     if (json !== undefined) {
       texts.push(...strings(json, "json"));

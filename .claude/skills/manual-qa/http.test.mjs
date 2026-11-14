@@ -89,6 +89,10 @@ before(async () => {
         res.writeHead(200, { "content-type": "text/plain" });
         return res.end(`you asked for ${req.url}`);
       }
+      if (url.pathname === "/debug") {
+        res.writeHead(200, { "content-type": "application/json" });
+        return res.end('{"debug": "Basic dXNlcjpwdzE=", "also": "Bearer abcdefgh1234="}');
+      }
       if (url.pathname === "/challenge") {
         res.writeHead(401, {
           "www-authenticate": 'Bearer realm="api", error="invalid_token"',
@@ -389,6 +393,22 @@ test("a sign-in value with ' ( ) ! * in a query is sent in a form the redactor k
   assert.match(result.log, /you asked for \/self\?u=\[redacted:QA_PW\]/);
 });
 
+test("a base64 credential ending in = before a quote is still redacted", async () => {
+  const result = await run({ requests: [{ session: "A", method: "GET", path: "/debug" }] });
+  assert.equal(result.code, 0);
+  assert.doesNotMatch(result.log, /dXNlcjpwdzE|abcdefgh1234/);
+  assert.match(result.log, /"debug": "Basic \[redacted\]", "also": "Bearer \[redacted\]"/);
+  // The same shape is refused in a raw body.
+  const problems = checkSequence(
+    { requests: [{ method: "POST", path: "/x", body: '{"debug": "Basic dXNlcjpwdzE="}' }] },
+    ENV,
+  );
+  assert.ok(
+    problems.some((p) => /bearer or basic credential/.test(p)),
+    problems.join("\n"),
+  );
+});
+
 test("a WWW-Authenticate challenge is logged, not redacted", async () => {
   const result = await run({
     requests: [{ session: "A", method: "GET", path: "/challenge", capture: ["WWW-Authenticate"] }],
@@ -509,6 +529,27 @@ test("every request stays on the checked address: a path is relative, never a UR
       checkSequence({ requests: [{ method: "GET", path }] }, ENV).length > 0,
       `path ${JSON.stringify(path)}`,
     );
+});
+
+test("a GET or HEAD with a body is refused at check time, not left to fail at run time", async () => {
+  for (const method of ["GET", "HEAD"])
+    for (const part of [{ json: { a: 1 } }, { form: { a: "1" } }, { body: "a=1" }]) {
+      const problems = checkSequence({ requests: [{ method, path: "/me", ...part }] }, ENV);
+      assert.ok(
+        problems.some(
+          (p) =>
+            p ===
+            `request 1: ${method} cannot carry a body; drop "json", "form" and "body", or use another method`,
+        ),
+        `${method} ${JSON.stringify(part)}: ${problems.join("; ")}`,
+      );
+    }
+  const start = seen.length;
+  const result = await run({ requests: [{ session: "A", method: "GET", path: "/me", json: {} }] });
+  assert.equal(result.code, 1);
+  assert.match(result.stdout, /GET cannot carry a body/);
+  assert.equal(result.log, null);
+  assert.equal(seen.length, start);
 });
 
 test("unknown keys, bad sessions, methods and body shapes are named problems", () => {
