@@ -755,14 +755,26 @@ jobs:
           case "$DECISION" in
             dispatch)
               # A dispatch runs the Caller file of the ref it names, and only
-              # the default branch's is trusted. A refused dispatch is the
-              # Consumer's setup, not the review: say what to fix, and leave
-              # the review run green.
-              if ! gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/${RESPONSE_WORKFLOW##*/}/dispatches" \
-                -f ref="$DEFAULT_BRANCH" -f "inputs[pr_number]=$PR"; then
-                echo "::error title=Review response handoff failed::GitHub refused to dispatch $RESPONSE_WORKFLOW on $DEFAULT_BRANCH. It must exist on that branch with a workflow_dispatch trigger that takes a pr_number input."
+              # the default branch's is trusted. A failed dispatch is not the
+              # review's failure: say why, and leave the review run green.
+              # GitHub answers 404 (no such workflow on that ref) or 422 (no
+              # workflow_dispatch trigger, or no pr_number input) when the
+              # Caller is the problem; anything else (5xx, a rate limit, the
+              # network) is not, and is reported as such.
+              if ! ERR="$(gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/${RESPONSE_WORKFLOW##*/}/dispatches" \
+                -f ref="$DEFAULT_BRANCH" -f "inputs[pr_number]=$PR" 2>&1 >/dev/null)"; then
+                echo "$ERR" >&2
+                case "$ERR" in
+                  *"(HTTP 404)"* | *"(HTTP 422)"*)
+                    WHY="GitHub refused to dispatch \`$RESPONSE_WORKFLOW\` (the review workflow's \`response_workflow\`) on \`$DEFAULT_BRANCH\`: it must exist there with a \`workflow_dispatch\` trigger that takes a \`pr_number\` input."
+                    ;;
+                  *)
+                    WHY="Dispatching \`$RESPONSE_WORKFLOW\` failed for a reason that is not its configuration (a GitHub error, a rate limit or the network); see the run log."
+                    ;;
+                esac
+                echo "::error title=Review response handoff failed::${WHY//\`/}"
                 gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" \
-                  --body "Review response: auto mode could not start a Response round. GitHub refused to dispatch \`$RESPONSE_WORKFLOW\` (the review workflow's \`response_workflow\`) on \`$DEFAULT_BRANCH\`: it must exist there with a \`workflow_dispatch\` trigger that takes a \`pr_number\` input. Apply the Review response label (\`agent:address-review\` by default) to start a round by hand."
+                  --body "Review response: auto mode could not start a Response round. $WHY Apply the Review response label (\`agent:address-review\` by default) to start a round by hand."
                 exit 0
               fi
               gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" \

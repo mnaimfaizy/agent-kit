@@ -556,10 +556,17 @@ def test_a_refused_dispatch_is_reported_without_failing_the_review() -> None:
     run = code(step(review_workflow()["jobs"]["handoff"], HANDOFF_STEP)["run"])
     branch = run[run.index("dispatch)") : run.index("capped)")]
     # The one dispatch is the condition of the block that reports a refusal.
-    found = re.search(r"if ! gh api -X POST .*?\n\s*fi\n", branch, re.DOTALL)
+    found = re.search(r'if ! ERR="\$\(gh api -X POST .*?\n\s*fi\n', branch, re.DOTALL)
     assert found, "a refused dispatch is caught"
     refused = found.group(0)
     assert "/dispatches" in refused
+    # The Caller is blamed only when GitHub says it is the problem.
+    assert '2>&1 >/dev/null)"; then' in refused
+    config = refused.index('*"(HTTP 404)"* | *"(HTTP 422)"*)')
+    other = re.compile(r"\n\s*\*\)\n").search(refused, config).start()
+    assert "workflow_dispatch" in refused[config:other]
+    assert "workflow_dispatch" not in refused[other : refused.index("esac")]
+    assert "not its configuration" in refused[other:]
     assert "::error title=Review response handoff failed::" in refused
     assert 'gh pr comment "$PR"' in refused and "response_workflow" in refused
     # Reported, and the review run stays green.

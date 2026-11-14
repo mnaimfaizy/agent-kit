@@ -169,7 +169,9 @@ def test_callers_grant_what_the_called_jobs_request() -> None:
             granted = granted_scopes(block)
             called = called_workflow(uses)
             target = load(called)
-            for requested in all_permission_blocks(target):
+            # `read-all` and `write-all` blocks too, which all_permission_blocks skips.
+            blocks = [target.get("permissions")] + [j.get("permissions") for j in target.get("jobs", {}).values()]
+            for requested in [b for b in blocks if b is not None]:
                 for scope, level in granted_scopes(requested).items():
                     assert granted.get(scope, 0) >= level, (
                         f"{path.name}:{job_name}: grant `{scope}: {NAMES[level]}`, which {called.name} requests"
