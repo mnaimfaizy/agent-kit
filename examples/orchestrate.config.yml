@@ -64,6 +64,7 @@ ready_to_merge: # what Ready to Merge needs beyond green CI and a clean merge
   review: settled # settled (every comment fixed or answered) | approved (that, and an approving review)
   qa: report # none | report (a QA Delegation runs qa-plan and manual-qa on each finished head; Ready to Merge needs its result)
   qa_labels: [ui] # with qa: report, only issues with one of these labels need one; [] for every issue
+  review_workflow: detect # detect (a Caller under .github/workflows/ that uses agent-review-reusable.yml) | none | its path; review waits for its run on each head
 
 spec: # read only by `/orchestrate --spec <n>`
   landing: ask # ask (the Dispatch Plan asks) | integration-branch | per-ticket
