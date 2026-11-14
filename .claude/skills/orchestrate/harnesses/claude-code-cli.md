@@ -4,6 +4,7 @@
 - **Support Level:** `documented`. No full run of `orchestrate` has been recorded on it.
 - **Tier:** 2.
 - **Headless run:** `claude -p`
+- **Headless QA:** yes, else a session the human starts.
 - **Facts from:** `claude --help`, version 2.1.312, on 2026-11-13.
 - **Executors:** building, a headless run; analysis, a sub-agent, or a headless run; QA, a headless run, else a session the human starts.
 

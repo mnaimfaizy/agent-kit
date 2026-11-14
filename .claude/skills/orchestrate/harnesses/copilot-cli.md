@@ -4,6 +4,7 @@
 - **Support Level:** `documented`.
 - **Tier:** 2, with a tier 1 `await`: a Chief of Staff in the Copilot CLI is told when a background shell ends.
 - **Headless run:** `copilot -p`
+- **Headless QA:** yes, with a Playwright MCP server; else a session the human starts.
 - **Facts from:** docs.github.com/copilot and the Copilot CLI changelog up to 1.0.112, read on 2026-11-14. `--worktree` needs 1.0.85 or later; before it, the flag is experimental. Copilot was not run with a prompt.
 - **Executors:** building and QA, a headless run in its own worktree; analysis, a `task` sub-agent; QA falls back to a session the human starts.
 

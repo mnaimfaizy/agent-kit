@@ -4,6 +4,7 @@
 - **Support Level:** `documented`.
 - **Tier:** 2, until a run confirms more. Its documentation describes tier 1: sub-agents in worktrees of their own, which the human can type into while they work.
 - **Headless run:** `agy -p`
+- **Headless QA:** yes, else a session the human starts.
 - **Facts from:** antigravity.google docs, App 2.32.0 and CLI `agy` 1.5.8, read on 2026-11-14. Antigravity was not run with a prompt.
 - **Executors:** building and analysis, a sub-agent in its own worktree; QA, a headless `agy` run in a worktree the Chief of Staff makes ([HARNESSES.md](../HARNESSES.md#a-headless-run-in-a-worktree)), else a session the human starts.
 

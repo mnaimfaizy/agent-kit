@@ -1,9 +1,10 @@
 # Claude Code desktop app
 
 - **Id:** `claude-code-desktop`
-- **Support Level:** `verified`. Runs of `orchestrate` from Dispatch Plan to close-out have passed on it since its first run on 2026-11-13, as the maintainer reports.
+- **Support Level:** `verified`. The first run (`/orchestrate #274 #275` on `mnaimfaizy/fastapi_rbac`, 2026-11-13, ending in pull request 331) built and verified its work through Live Sessions, and stopped short of Ready to Merge only on the QA gaps fixed in `mnaimfaizy/agent-kit#179`. The maintainer reports later runs passing end to end; the next one records its run folder's Activity Log here.
 - **Tier:** 1.
 - **Headless run:** none: a Live Session belongs to the app. This harness can start the Claude Code CLI's (`claude-code-cli`).
+- **Headless QA:** none: QA is a Live Session.
 - **Facts from:** the session tools the app gives a session, as offered on 2026-11-13.
 - **Executors:** building, a Live Session; analysis, a sub-agent, or a Live Session if long; QA, a Live Session.
 

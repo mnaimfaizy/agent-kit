@@ -4,6 +4,7 @@
 - **Support Level:** `documented`.
 - **Tier:** 2.
 - **Headless run:** `devin -p`
+- **Headless QA:** none, until a run shows `-p` takes a QA skill.
 - **Facts from:** docs.devin.ai, Devin CLI v3000.12.57 and Devin Desktop 3.12.59, read on 2026-11-14. Devin was not run with a prompt. Windsurf is now Devin Desktop; Cascade was removed in Desktop 3.9.19, and its agent is now the Devin CLI's.
 - **Executors:** building, a headless run in a worktree the Chief of Staff makes ([HARNESSES.md](../HARNESSES.md#a-headless-run-in-a-worktree)); analysis, a sub-agent; QA, a Desktop session the human starts.
 

@@ -4,6 +4,7 @@
 - **Support Level:** `documented`.
 - **Tier:** 2.
 - **Headless run:** `codex exec`
+- **Headless QA:** yes, with a browser MCP server; else a session the human starts.
 - **Facts from:** `openai/codex` rust-v0.169.0 and its docs at learn.chatgpt.com/docs, read on 2026-11-14. Codex was not run with a prompt.
 - **Executors:** building and QA, a headless run in a worktree the Chief of Staff makes ([HARNESSES.md](../HARNESSES.md#a-headless-run-in-a-worktree)); analysis, a sub-agent; QA falls back to a session the human starts.
 

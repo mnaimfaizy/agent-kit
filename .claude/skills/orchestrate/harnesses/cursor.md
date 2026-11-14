@@ -4,6 +4,7 @@
 - **Support Level:** `tried`. The first run (on `mnaimfaizy/fastapi_rbac`, pull request 339) found the gaps in mnaimfaizy/agent-kit#189 to #192: it had no Executor to follow, its building sub-agent shared the checkout, QA ran inside the building sub-agent, and a stale user-level copy of the skill was loaded.
 - **Tier:** between 1 and 2. It starts sub-agents in the background and tells the Chief of Staff when one ends, but the human cannot talk to a sub-agent while it works.
 - **Headless run:** `agent -p`
+- **Headless QA:** yes, else a session the human starts.
 - **Facts from:** cursor.com/docs, the Subagents, Worktrees, Skills, Headless and Run modes pages, read on 2026-11-14 with Cursor 3.28; and the first run.
 - **Executors:** building and analysis, a background sub-agent in its own worktree; QA, a headless run of the Cursor CLI (`agent`), else a session the human starts.
 
@@ -13,7 +14,7 @@
 - `message`: "Resume agent `<id>`: <text>", once the sub-agent has ended.
 - `await`: end the turn. A background sub-agent's end is announced with its final message. Never poll. If the editor does not announce it, read `~/.cursor/subagents/` at an interval matched to the work.
 - `report`: the report file, by its absolute path; a Delegation whose write is refused ends with its report as its last message instead.
-- A QA Delegation: `agent -p "<brief>" --worktree <name> --worktree-base <head> --model <model> --output-format json` as a background process, with `message` as `agent -p "<text>" --resume <session-id>` in that worktree. Print mode refuses every write outside the workspace, so the QA run ends with its report as its last message, unless the human approved `--force` in the Dispatch Plan. If `-p` does not run `/qa-plan <n>`, or has no browser, fall back to a session the human starts in a worktree, where the human types `/qa-plan <n>` and later `/manual-qa <plan file>`.
+- A QA Delegation: the Chief of Staff makes its worktree, `git worktree add --detach <path> <head>`, with `<path>` outside `~/.cursor/worktrees/`, which Cursor cleans up. Then `agent -p "<brief>" --model <model> --output-format json` in that worktree, as a background process, with `message` as `agent -p "<text>" --resume <session-id>` there. Print mode refuses every write outside the workspace, so the QA run ends with its report as its last message, unless the human approved `--force` in the Dispatch Plan. If `-p` does not run `/qa-plan <n>`, or has no browser, fall back to a session the human starts in a worktree, where the human types `/qa-plan <n>` and later `/manual-qa <plan file>`.
 
 ## Limits
 

@@ -15,19 +15,33 @@ The skill body speaks of four verbs only. This file says what they mean, how a r
 
 ## The harnesses
 
-| Id                    | Harness                                        | Tool signature: the session has…                                          | File                                                       |
-| --------------------- | ---------------------------------------------- | ------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| `claude-code-desktop` | Claude Code, in the Claude desktop app         | a session tool that starts another session (`start_session`)              | [claude-code-desktop.md](harnesses/claude-code-desktop.md) |
-| `claude-code-cli`     | Claude Code, in a terminal                     | Claude Code's tools, and no session tool                                  | [claude-code-cli.md](harnesses/claude-code-cli.md)         |
-| `cursor`              | Cursor, the editor or its `agent` CLI          | a Task tool whose sub-agent types include `best-of-n-runner` or `explore` | [cursor.md](harnesses/cursor.md)                           |
-| `codex-cli`           | OpenAI Codex CLI                               | `spawn_agent`, `send_input` and `wait_agent`                              | [codex-cli.md](harnesses/codex-cli.md)                     |
-| `copilot-cli`         | GitHub Copilot CLI                             | a `task` tool and `write_agent`                                           | [copilot-cli.md](harnesses/copilot-cli.md)                 |
-| `gemini-cli`          | Gemini CLI                                     | `codebase_investigator` among its sub-agents                              | [gemini-cli.md](harnesses/gemini-cli.md)                   |
-| `antigravity`         | Google Antigravity, the app or its `agy` CLI   | `invoke_subagent`                                                         | [antigravity.md](harnesses/antigravity.md)                 |
-| `devin`               | Devin CLI or Devin Desktop (formerly Windsurf) | `subagent_explore`                                                        | [devin.md](harnesses/devin.md)                             |
-| `opencode`            | OpenCode 2                                     | a `subagent` tool and a `shell` tool that runs in the background          | [opencode.md](harnesses/opencode.md)                       |
+| Id                    | Harness                                        | Tool signature: the session has…                                 | File                                                       |
+| --------------------- | ---------------------------------------------- | ---------------------------------------------------------------- | ---------------------------------------------------------- |
+| `claude-code-desktop` | Claude Code, in the Claude desktop app         | a session tool that starts another session (`start_session`)     | [claude-code-desktop.md](harnesses/claude-code-desktop.md) |
+| `claude-code-cli`     | Claude Code, in a terminal                     | Claude Code's tools, and no session tool                         | [claude-code-cli.md](harnesses/claude-code-cli.md)         |
+| `cursor`              | Cursor, the editor or its `agent` CLI          | a Task tool whose sub-agent types include `best-of-n-runner`     | [cursor.md](harnesses/cursor.md)                           |
+| `codex-cli`           | OpenAI Codex CLI                               | `spawn_agent`, `send_input` and `wait_agent`                     | [codex-cli.md](harnesses/codex-cli.md)                     |
+| `copilot-cli`         | GitHub Copilot CLI                             | a `task` tool and `write_agent`                                  | [copilot-cli.md](harnesses/copilot-cli.md)                 |
+| `gemini-cli`          | Gemini CLI                                     | `codebase_investigator` among its sub-agents                     | [gemini-cli.md](harnesses/gemini-cli.md)                   |
+| `antigravity`         | Google Antigravity, the app or its `agy` CLI   | `invoke_subagent`                                                | [antigravity.md](harnesses/antigravity.md)                 |
+| `devin`               | Devin CLI or Devin Desktop (formerly Windsurf) | `subagent_explore`                                               | [devin.md](harnesses/devin.md)                             |
+| `opencode`            | OpenCode 2                                     | a `subagent` tool and a `shell` tool that runs in the background | [opencode.md](harnesses/opencode.md)                       |
 
-The id is the value `harness:` and `executors.*` take in the config ([CONFIG.md](CONFIG.md#harness)). A harness's file holds its **Support Level**, its tier, its Executors, the four verbs, its **Limits** and its **check before use** items.
+The id is the value `harness:` and `executors.*` take in the config ([CONFIG.md](CONFIG.md#harness)).
+
+### A harness file
+
+`harnesses/<id>.md` opens with these bullets, each on its own line in this form, because `config.mjs` reads the first four. A file without them is a problem every `check` reports, so the run stops until it is fixed:
+
+- `- **Id:** \`<id>\``, the file's own name.
+- `- **Support Level:** \`<level>\``, then what it rests on.
+- `- **Tier:**`
+- `- **Headless run:**` the command, or `none: …` when another harness cannot start one.
+- `- **Headless QA:**` `yes` when that headless run can carry a QA Delegation, or `none: …`.
+- `- **Facts from:**` where and when each fact was read.
+- `- **Executors:**` building, analysis and QA.
+
+Then the sections `## Verbs`, `## Limits` and `## Check before use`. A draft for an unlisted harness follows the same form.
 
 ### Finding the harness
 

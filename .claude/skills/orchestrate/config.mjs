@@ -79,33 +79,67 @@ export const SUPPORT_LEVELS = /** @type {const} */ (["verified", "tried", "docum
 
 /**
  * The harnesses this skill has a file for, read from `harnesses/<id>.md`
- * beside this script (HARNESSES.md): each one's Support Level, and whether it
- * has a headless run another harness's Chief of Staff can start. A harness
- * file is the one source of both; this reader only finds them.
+ * beside this script (HARNESSES.md, "A harness file"): each one's Support
+ * Level, whether it has a headless run another harness's Chief of Staff can
+ * start, and whether that run can carry a QA Delegation. A harness file is the
+ * one source of all three; this reader only finds them. A file it cannot read
+ * them from is a **problem**, named, never a crash: `check` must still print
+ * JSON for step 1.
  *
  * @param {string} [dir]
- * @returns {Record<string, {level: string, headless: boolean}>}
+ * @returns {{harnesses: Record<string, {level: string, headless: boolean, headlessQa: boolean}>, problems: string[]}}
  */
 export function harnessCatalog(dir = fileURLToPath(new URL("./harnesses/", import.meta.url))) {
-  const catalog = {};
-  for (const name of readdirSync(dir).sort()) {
-    if (!name.endsWith(".md")) continue;
-    const text = readFileSync(join(dir, name), "utf8");
-    const level = /^- \*\*Support Level:\*\* `([a-z]+)`/m.exec(text)?.[1];
-    const headless = /^- \*\*Headless run:\*\* (.*)$/m.exec(text)?.[1];
-    if (!SUPPORT_LEVELS.includes(level) || headless === undefined)
-      throw new Error(`harnesses/${name}: no Support Level or Headless run line`);
-    catalog[name.slice(0, -3)] = { level, headless: !headless.startsWith("none") };
+  const harnesses = {};
+  const problems = [];
+  let names;
+  try {
+    names = readdirSync(dir).sort();
+  } catch (error) {
+    return {
+      harnesses,
+      problems: [`the skill's \`harnesses/\` folder cannot be read (${error?.code ?? error})`],
+    };
   }
-  return catalog;
+  for (const name of names) {
+    if (!name.endsWith(".md")) continue;
+    const id = name.slice(0, -3);
+    const text = readFileSync(join(dir, name), "utf8");
+    const line = (label) => new RegExp(`^- \\*\\*${label}:\\*\\* (.*)$`, "m").exec(text)?.[1];
+    const level = /^`([a-z]+)`/.exec(line("Support Level") ?? "")?.[1];
+    const headless = line("Headless run");
+    const headlessQa = line("Headless QA");
+    const missing = [
+      line("Id") === `\`${id}\`` ? null : `\`- **Id:** \`${id}\`\``,
+      SUPPORT_LEVELS.includes(level)
+        ? null
+        : "`- **Support Level:**` with one of " + SUPPORT_LEVELS.join(", "),
+      headless === undefined ? "`- **Headless run:**`" : null,
+      headlessQa === undefined ? "`- **Headless QA:**`" : null,
+    ].filter(Boolean);
+    if (missing.length) {
+      problems.push(
+        `harnesses/${name}: not a harness file; it needs ${missing.join(", ")} (HARNESSES.md, "A harness file")`,
+      );
+      continue;
+    }
+    harnesses[id] = {
+      level,
+      headless: !headless.startsWith("none"),
+      headlessQa: !headlessQa.startsWith("none"),
+    };
+  }
+  return { harnesses, problems };
 }
 
-export const HARNESSES = Object.freeze(harnessCatalog());
+const CATALOG = harnessCatalog();
+export const HARNESSES = Object.freeze(CATALOG.harnesses);
+/** Problems in the skill's own harness files: every `check` reports them. */
+export const HARNESS_FILE_PROBLEMS = Object.freeze(CATALOG.problems);
 
 /**
  * The environment variables a harness sets in the shells its agent runs, read
- * from each harness's own documentation or source (its HARNESSES.md file says
- * where). A match makes the harness a **candidate** only: the Chief of Staff
+ * from each harness's own documentation or source, cited beside each rule. A match makes the harness a **candidate** only: the Chief of Staff
  * confirms it against the tools it has, since a terminal inside an editor can
  * carry the editor's variables too.
  *
@@ -679,6 +713,11 @@ export const SECTIONS = {
         );
       else if (id !== config.harness && !HARNESSES[id].headless)
         sink.add(`executors.${key}`, `\`${id}\` has no headless run another harness can start`);
+      else if (id !== config.harness && key === "qa" && !HARNESSES[id].headlessQa)
+        sink.add(
+          "executors.qa",
+          `\`${id}\`'s headless run cannot carry QA (its harness file's Headless QA line): QA there is a session the human starts`,
+        );
     }
   },
   limits(sink, value) {
@@ -863,7 +902,7 @@ export function readConfig(read, { answers = null, exists } = {}) {
   }
 
   const shape = configProblems(config, where);
-  problems.push(...shape);
+  problems.push(...HARNESS_FILE_PROBLEMS, ...shape);
   if (!shape.length && exists) problems.push(...missingPaths(config, where, exists));
   return { path, config, problems, answers: answers?.path ?? null, qaConfig: qaConfig(read) };
 }

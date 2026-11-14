@@ -7,7 +7,9 @@
  */
 
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
 
 import {
@@ -15,6 +17,8 @@ import {
   DEFAULTS,
   HARNESSES,
   HARNESS_ENV,
+  HARNESS_FILE_PROBLEMS,
+  harnessCatalog,
   harnessCandidates,
   TRIAGE_ROLES,
   effectiveConfig,
@@ -1235,4 +1239,40 @@ test("an executor naming the pinned harness is that harness's own default: no pr
   );
   assert.deepEqual(read.problems, []);
   assert.ok(!readiness(read).notes.some((n) => n.startsWith("`executors.")));
+});
+
+test("the skill's own harness files read with no problems", () => {
+  assert.deepEqual(HARNESS_FILE_PROBLEMS, []);
+});
+
+test("a malformed or stray harness file is a named problem, never a crash", () => {
+  const dir = mkdtempSync(join(tmpdir(), "harnesses-"));
+  try {
+    writeFileSync(join(dir, "README.md"), "# Harnesses\n");
+    writeFileSync(
+      join(dir, "good.md"),
+      "- **Id:** `good`\n- **Support Level:** `tried`\n- **Headless run:** `good -p`\n- **Headless QA:** none: no skills\n",
+    );
+    const { harnesses, problems } = harnessCatalog(dir);
+    assert.deepEqual(harnesses, { good: { level: "tried", headless: true, headlessQa: false } });
+    assert.equal(problems.length, 1);
+    assert.match(problems[0], /^harnesses\/README\.md: not a harness file; it needs /);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+  const missing = harnessCatalog(join(tmpdir(), "no-such-harnesses-folder"));
+  assert.deepEqual(missing.harnesses, {});
+  assert.match(missing.problems[0], /`harnesses\/` folder cannot be read/);
+});
+
+test("`executors.qa` naming a harness whose headless run cannot carry QA is a problem", () => {
+  for (const id of ["gemini-cli", "devin"]) {
+    const read = yaml("harness: cursor", `executors: { qa: ${id} }`);
+    assert.equal(read.problems.length, 1, read.problems.join(" | "));
+    assert.match(
+      read.problems[0],
+      new RegExp(`\`executors.qa\`: \`${id}\`'s headless run cannot carry QA`),
+    );
+    assert.deepEqual(yaml("harness: cursor", `executors: { build: ${id} }`).problems, []);
+  }
 });
