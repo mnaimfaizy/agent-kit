@@ -78,15 +78,28 @@ on:
         required: false
         type: string
         default: "claude-opus-5"
+      response_mode:
+        description: "Callers pass `vars.CLAUDE_REVIEW_RESPONSE_MODE`. Exactly `auto` hands a finished review that left findings to the Review response flow (the Handoff), at most two rounds per pull request. Anything else, or empty, is manual: nothing is handed off."
+        required: false
+        type: string
+        default: ""
+      response_workflow:
+        description: "Auto mode only: your Review response Caller, as `.github/workflows/<file>.yml`. The handoff dispatches it on the default branch with the input `pr_number`; its `workflow_dispatch` trigger calls agent-review-response-reusable.yml. Required when `response_mode` is `auto`."
+        required: false
+        type: string
+        default: ""
     secrets:
       claude_code_oauth_token:
         description: "Subscription OAuth token from `claude setup-token`."
         required: true
 
+# What a Caller must grant. No job runs with this block: each names its own,
+# and only handoff holds actions: write.
 permissions:
   contents: read
   issues: read
   pull-requests: write
+  actions: write
 
 # One group per pull request, shared with agent-review-response-reusable.yml,
 # so a review and a response never run on the same pull request at once.
@@ -102,6 +115,13 @@ jobs:
     if: ${{ !inputs.kill_switch }}
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    # The reviewer reads pull request code: it can comment, never start a run.
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: write
+    outputs:
+      proceed: ${{ steps.gate.outputs.proceed }}
     steps:
       - name: Gate
         id: gate
@@ -598,3 +618,122 @@ jobs:
             exit 1
           fi
           echo "Aggregated three-axis report is present on PR #${PR}."
+
+  # Auto mode (the Handoff): a finished review that left findings starts one
+  # Review response round. Off unless the Caller passes `response_mode: auto`.
+  # Its own job, on a fresh runner with only the default branch's trusted
+  # script, so the one grant that can start a workflow run is never beside the
+  # agent that read pull request code. A reusable workflow cannot be
+  # dispatched, and GitHub starts no run for a label applied with the job
+  # token, so this dispatches the Consumer's Review response Caller, whose
+  # `workflow_dispatch` trigger calls agent-review-response-reusable.yml. That
+  # workflow's gate accepts the run only from github-actions[bot], on the
+  # default branch, in auto mode, and for at most two rounds; a round never
+  # starts a review, so this cannot loop.
+  #
+  # The dispatched run joins this run's concurrency group and waits for this
+  # run to end. GitHub keeps one waiting run per group: another review or
+  # response queued on the pull request meanwhile cancels the waiting round
+  # before its gate. The comment posted below says so and how to start it.
+  handoff:
+    needs: review
+    if: ${{ !inputs.kill_switch && inputs.response_mode == 'auto' && needs.review.result == 'success' && needs.review.outputs.proceed == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      # Reading the trusted script from the default branch.
+      contents: read
+      # Saying on the pull request what the handoff did.
+      pull-requests: write
+      # Dispatching the Review response Caller.
+      actions: write
+    steps:
+      - name: Read the default branch
+        id: trusted
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ inputs.pr_number }}
+          RESPONSE_WORKFLOW: ${{ inputs.response_workflow }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$PR" in
+            "" | *[!0-9]*)
+              echo "pr_number is not a pull request number."
+              exit 1
+              ;;
+          esac
+          if ! [[ "$RESPONSE_WORKFLOW" =~ ^\.github/workflows/[A-Za-z0-9_-][A-Za-z0-9._-]*\.ya?ml$ ]]; then
+            echo "::error title=Review response handoff not configured::response_mode is auto: set response_workflow to your Review response Caller, as .github/workflows/<file>.yml."
+            exit 1
+          fi
+
+          # The repository and the pull request as they are now. The response
+          # gate refuses the same cases; skipping them here starts no run.
+          DEFAULT_BRANCH="$(gh api "repos/$GITHUB_REPOSITORY" --jq .default_branch)"
+          INFO="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR")"
+          field() { printf '%s' "$INFO" | jq -r "$1"; }
+          if [ "$(field .state)" != "open" ] \
+            || [ "$(field .head.repo.full_name)" != "$GITHUB_REPOSITORY" ] \
+            || [ -z "$DEFAULT_BRANCH" ] || [ "$(field .base.ref)" != "$DEFAULT_BRANCH" ]; then
+            echo "No handoff: PR #$PR is not an open pull request from this repository into $DEFAULT_BRANCH."
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # The trusted script is the default branch's, as the response
+          # workflow reads it: never the pull request's copy.
+          TRUSTED_SHA="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$DEFAULT_BRANCH" --jq .object.sha)"
+          [[ "$TRUSTED_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "GitHub returned an unexpected sha."; exit 1; }
+          {
+            echo "default_branch=$DEFAULT_BRANCH"
+            echo "trusted_sha=$TRUSTED_SHA"
+            echo "proceed=true"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.trusted.outputs.proceed == 'true'
+        with:
+          ref: ${{ steps.trusted.outputs.trusted_sha }}
+          sparse-checkout: .github/agent-review-response
+          persist-credentials: false
+
+      - name: Hand off to the Review response
+        if: steps.trusted.outputs.proceed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ inputs.pr_number }}
+          ALLOWLIST_JSON: ${{ inputs.allowlist_actors }}
+          RESPONSE_WORKFLOW: ${{ inputs.response_workflow }}
+          DEFAULT_BRANCH: ${{ steps.trusted.outputs.default_branch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The Allowlist decides, as in a round, which replies reopen a
+          # finding an earlier round answered.
+          ALLOWLIST="$(printf '%s' "${ALLOWLIST_JSON:-[]}" | jq -er 'if type == "array" then map(tostring) | join(",") else error("not an array") end')"
+          export ALLOWLIST
+          # Unresolved findings of the kit reviewer (github-actions) and the
+          # rounds the pull request has had, by the trusted script: rounds
+          # count by author and summary marker together, since anyone can
+          # write the marker in a comment.
+          DECISION="$(node .github/agent-review-response/review-response.mjs handoff --pr "$PR")"
+          echo "Handoff decision: $DECISION"
+          case "$DECISION" in
+            dispatch)
+              # A dispatch runs the Caller file of the ref it names, and only
+              # the default branch's is trusted.
+              gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/${RESPONSE_WORKFLOW##*/}/dispatches" \
+                -f ref="$DEFAULT_BRANCH" -f "inputs[pr_number]=$PR"
+              gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" \
+                --body "Review response: this review left findings, so auto mode started a Response round. It waits for this review run to finish. If no round reports here, a newer review or response run on this pull request replaced the waiting one: apply the Review response label (\`agent:address-review\` by default) to start it."
+              ;;
+            capped)
+              gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" \
+                --body "Review response not started automatically: this pull request has had 2 Response rounds, the most auto mode starts. Address the remaining findings by hand, or apply the Review response label (\`agent:address-review\` by default) for another round."
+              ;;
+            none) ;;
+            *)
+              echo "Unexpected handoff decision." >&2
+              exit 1
+              ;;
+          esac
