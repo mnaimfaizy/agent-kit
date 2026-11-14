@@ -44,8 +44,12 @@ export const MAX_REQUESTS = 200;
 export const TIMEOUT_MS = 30_000;
 /** A response body longer than this is cut in the log. */
 export const BODY_LIMIT = 65_536;
-/** A cookie value shorter than this is redacted only in its `Set-Cookie` line. */
-const MIN_COOKIE_REDACT = 4;
+/**
+ * A value shorter than this is too common to find by its text: a cookie value
+ * that short is redacted only in its `Set-Cookie` line, and a `QA_*` value
+ * that short is not looked for in the sequence file.
+ */
+const MIN_SECRET_LENGTH = 4;
 
 const PLACEHOLDER = /\{\{(env|cookie):([^}]*)\}\}/g;
 const ENV_NAME = /^QA_[A-Z0-9_]+$/;
@@ -68,9 +72,18 @@ const SECRET_SHAPES = [
   ["a GitHub token", /\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})/g],
   ["an API key", /\b(?:sk-[A-Za-z0-9_-]{16,}|AKIA[0-9A-Z]{16}|xox[abpr]-[A-Za-z0-9-]{10,})/g],
 ];
-/** `key=value` or `"key": "value"` with a secret-named key, in raw text. */
+/**
+ * `key=value` or `"key": "value"` with a secret-named key, in raw text: the
+ * words `SECRET_NAME` holds, as whole keys. A quoted value runs to its closing
+ * quote; an unquoted one stops at a space or a separator.
+ */
 const NAMED_IN_TEXT =
-  /(["']?)([A-Za-z_-]*(?:password|passwd|secret|token|api[_-]?key)[A-Za-z_-]*)\1(\s*[:=]\s*)(["']?)([^\s"'&,;}]+)/gi;
+  /(?<![A-Za-z0-9_-])(["']?)([A-Za-z0-9_-]*(?:password|passwd|passphrase|secret|token|api[_-]?key|credential|recovery[_-]?code|mfa[_-]?code)[A-Za-z0-9_-]*|auth|pass|pwd|pw|otp|totp|pin|session|session[_-]?id|sid)\1(\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s"'&,;}[{?][^\s"'&,;}?]*)/gi;
+/** The text matches of `NAMED_IN_TEXT` that hold a value, not an empty or redacted one. */
+const namedValues = (text) =>
+  [...text.matchAll(NAMED_IN_TEXT)].filter(
+    ([, , , , value]) => !/^(?:""|''|["']?\[redacted)/.test(value),
+  );
 
 const secretName = (name) => SECRET_NAME.test(String(name).toLowerCase().replace(/[-_]/g, ""));
 const secretHeader = (name) => SECRET_HEADER.test(name.toLowerCase().replace(/[-_]/g, ""));
@@ -216,7 +229,7 @@ export function checkSequence(sequence, env) {
           parsed !== undefined
             ? [...secretFields(parsed, "body")].some(([, v]) => literalSecret(v))
             : pairs(body).some(([k, v]) => secretName(k) && !onlyPlaceholders(v)) ||
-              [...body.replace(PLACEHOLDER, "").matchAll(NAMED_IN_TEXT)].length > 0;
+              namedValues(body.replace(PLACEHOLDER, "")).length > 0;
         if (literal) flag("body names a secret; give it as {{env:QA_…}}");
       }
     }
@@ -244,11 +257,21 @@ export function checkSequence(sequence, env) {
     if (value === undefined || value === "") problems.push(`${name} is not set`);
     else if (/[\r\n]/.test(value)) problems.push(`${name} holds a line break`);
   }
-  // A sign-in value written into the file itself, in place of its placeholder.
-  const text = JSON.stringify(sequence);
+  // A sign-in value written into the file itself, in place of its placeholder,
+  // in any form it could be sent in: each string is also read percent- and
+  // form-decoded, since a value may be encoded in more than one way.
+  const written = [...strings(sequence, "")].flatMap(([, text]) => [
+    text,
+    decodeURIComponentSafe(text),
+    decodeURIComponentSafe(text.replace(/\+/g, " ")),
+  ]);
   for (const name of Object.keys(env)) {
     const value = ENV_NAME.test(name) ? envValue(env, name) : undefined;
-    if (value && value.length >= 4 && text.includes(JSON.stringify(value).slice(1, -1)))
+    if (
+      value &&
+      value.length >= MIN_SECRET_LENGTH &&
+      encodedForms(value).some((form) => written.some((text) => text.includes(form)))
+    )
       problems.push(
         `the sequence holds the value of ${name} inline; write {{env:${name}}} instead`,
       );
@@ -262,6 +285,36 @@ function decodeURIComponentSafe(text) {
   } catch {
     return text;
   }
+}
+
+/**
+ * Each form a value can travel or come back in: raw, URL-encoded, form-encoded
+ * (a space as `+`), JSON-escaped and HTML-escaped.
+ * @param {string} value
+ */
+export function encodedForms(value) {
+  const html = value.replace(
+    /[&<>"']/g,
+    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c],
+  );
+  return [
+    ...new Set([
+      value,
+      encodeURIComponent(value),
+      new URLSearchParams([["", value]]).toString().slice(1),
+      JSON.stringify(value).slice(1, -1),
+      html,
+    ]),
+  ];
+}
+
+/** A `Set-Cookie` line's name, value and attributes. @param {string} line */
+export function parseSetCookie(line) {
+  const [pair, ...attributes] = line.split(";");
+  const eq = pair.indexOf("=");
+  return eq < 0
+    ? { name: pair.trim(), value: "", attributes }
+    : { name: pair.slice(0, eq).trim(), value: pair.slice(eq + 1).trim(), attributes };
 }
 
 /** An environment value with any trailing line ending removed (a `\r` from a Windows tool). */
@@ -288,11 +341,8 @@ export class CookieJar {
    */
   store(setCookies, requestPath) {
     for (const line of setCookies) {
-      const [pair, ...attributes] = line.split(";");
-      const eq = pair.indexOf("=");
-      if (eq <= 0) continue;
-      const name = pair.slice(0, eq).trim();
-      const value = pair.slice(eq + 1).trim();
+      const { name, value, attributes } = parseSetCookie(line);
+      if (!name || !line.includes("=")) continue;
       let path = null;
       let expires = null;
       let maxAge = null;
@@ -312,11 +362,12 @@ export class CookieJar {
     }
   }
 
-  /** @param {string} name */
-  value(name) {
-    return this.all()
-      .sort((a, b) => b.path.length - a.path.length)
-      .find((c) => c.name === name)?.value;
+  /**
+   * The value the jar would send to a path under this name, or undefined.
+   * @param {string} name @param {string} requestPath
+   */
+  value(name, requestPath) {
+    return this.matching(requestPath).find((c) => c.name === name)?.value;
   }
 
   all() {
@@ -364,10 +415,10 @@ export class Redactor {
     this.secrets = [];
   }
 
-  /** A value replaced by `label` wherever it appears, raw, URL-encoded or JSON-escaped. */
+  /** A value replaced by `label` wherever it appears, in each of its `encodedForms`. */
   add(text, label) {
     if (!text) return;
-    for (const form of new Set([text, encodeURIComponent(text), JSON.stringify(text).slice(1, -1)]))
+    for (const form of encodedForms(text))
       if (!this.secrets.some((s) => s.text === form)) this.secrets.push({ text: form, label });
     this.secrets.sort((a, b) => b.text.length - a.text.length);
   }
@@ -380,9 +431,11 @@ export class Redactor {
       out = out.replace(pattern, (match) =>
         kind.startsWith("a bearer") ? `${match.split(/\s+/)[0]} [redacted]` : "[redacted]",
       );
-    return out.replace(NAMED_IN_TEXT, (match, q, key, sep, q2, value) =>
-      value.startsWith("[redacted") ? match : `${q}${key}${q}${sep}${q2}[redacted]`,
-    );
+    return out.replace(NAMED_IN_TEXT, (match, q, key, sep, value) => {
+      if (/^(?:""|''|["']?\[redacted)/.test(value)) return match;
+      const quote = /^["']/.test(value) ? value[0] : "";
+      return `${q}${key}${q}${sep}${quote}[redacted]${quote}`;
+    });
   }
 
   /** A path, with each secret-named query parameter's value redacted. */
@@ -397,9 +450,7 @@ export class Redactor {
 
   /** A `Set-Cookie` line: its value always redacted, its attributes kept. */
   setCookie(line) {
-    const [pair, ...attributes] = line.split(";");
-    const eq = pair.indexOf("=");
-    const name = eq < 0 ? pair.trim() : pair.slice(0, eq).trim();
+    const { name, attributes } = parseSetCookie(line);
     return this.text([`${name}=[redacted:cookie ${name}]`, ...attributes].join(";"));
   }
 
@@ -411,12 +462,9 @@ export class Redactor {
       if (parsed !== null && typeof parsed === "object")
         out = JSON.stringify(
           parsed,
+          // A secret-named field's whole value, list or object included.
           (key, value) =>
-            key &&
-            secretName(key) &&
-            value !== null &&
-            typeof value !== "object" &&
-            typeof value !== "boolean"
+            key && secretName(key) && value !== null && typeof value !== "boolean"
               ? "[redacted]"
               : value,
           2,
@@ -444,20 +492,20 @@ export async function runSequence(sequence, { base, env, fetch: send = fetch }) 
   /** @type {Map<string, CookieJar>} */
   const jars = new Map();
   const entries = [];
-  const fill = (text, jar, encode) =>
+  const fill = (text, jar, path, encode) =>
     text.replace(PLACEHOLDER, (_, kind, name) => {
-      const value = kind === "env" ? envValue(env, name) : jar.value(name);
+      const value = kind === "env" ? envValue(env, name) : jar.value(name, path);
       if (value === undefined) throw new Error(`the Session has no cookie ${name}`);
       if (kind === "env") redact.add(value, `[redacted:${name}]`);
       return encode ? encodeURIComponent(value) : value;
     });
-  const fillJson = (value, jar) =>
+  const fillJson = (value, jar, path) =>
     typeof value === "string"
-      ? fill(value, jar, false)
+      ? fill(value, jar, path, false)
       : Array.isArray(value)
-        ? value.map((v) => fillJson(v, jar))
+        ? value.map((v) => fillJson(v, jar, path))
         : isObject(value)
-          ? Object.fromEntries(Object.entries(value).map(([k, v]) => [k, fillJson(v, jar)]))
+          ? Object.fromEntries(Object.entries(value).map(([k, v]) => [k, fillJson(v, jar, path)]))
           : value;
 
   for (const [i, request] of sequence.requests.entries()) {
@@ -467,29 +515,31 @@ export async function runSequence(sequence, { base, env, fetch: send = fetch }) 
     const jar = jars.get(session);
     // Every cookie value already held is redacted, even before it is sent.
     for (const c of jar.all())
-      if (c.value.length >= MIN_COOKIE_REDACT) redact.add(c.value, `[redacted:cookie ${c.name}]`);
+      if (c.value.length >= MIN_SECRET_LENGTH) redact.add(c.value, `[redacted:cookie ${c.name}]`);
     const entry = { n: i + 1, session, method, path: request.path, status: null };
     entries.push(entry);
     try {
-      const path = fill(request.path, jar, true);
+      // A `{{cookie:…}}` takes the value the jar would send to this path.
+      const target = request.path.split("?")[0];
+      const path = fill(request.path, jar, target, true);
       entry.path = path;
       const url = new URL(path, origin);
       if (url.origin !== origin) throw new Error("the path leaves the checked address");
       const headers = new Headers();
       for (const [name, value] of Object.entries(request.headers ?? {}))
-        headers.set(name, fill(value, jar, false));
+        headers.set(name, fill(value, jar, url.pathname, false));
       let body;
       if (request.json !== undefined) {
-        body = JSON.stringify(fillJson(request.json, jar));
+        body = JSON.stringify(fillJson(request.json, jar, url.pathname));
         if (!headers.has("content-type")) headers.set("content-type", "application/json");
       } else if (request.form !== undefined)
         body = new URLSearchParams(
           Object.entries(request.form).map(([k, v]) => [
             k,
-            fill(/** @type {string} */ (v), jar, false),
+            fill(/** @type {string} */ (v), jar, url.pathname, false),
           ]),
         );
-      else if (request.body !== undefined) body = fill(request.body, jar, false);
+      else if (request.body !== undefined) body = fill(request.body, jar, url.pathname, false);
       const cookie = jar.header(url.pathname);
       if (cookie) headers.set("cookie", cookie);
 
@@ -503,11 +553,8 @@ export async function runSequence(sequence, { base, env, fetch: send = fetch }) 
       const text = method === "HEAD" ? "" : await response.text();
       const setCookies = response.headers.getSetCookie();
       jar.store(setCookies, url.pathname);
-      for (const line of setCookies) {
-        const value = line.split(";")[0].split("=").slice(1).join("=").trim();
-        const name = line.split("=")[0].trim();
-        if (value.length >= MIN_COOKIE_REDACT) redact.add(value, `[redacted:cookie ${name}]`);
-      }
+      for (const { name, value } of setCookies.map(parseSetCookie))
+        if (value.length >= MIN_SECRET_LENGTH) redact.add(value, `[redacted:cookie ${name}]`);
       entry.status = response.status;
       entry.setCookies = setCookies;
       entry.headers = (request.capture ?? [])
@@ -534,17 +581,12 @@ export async function runSequence(sequence, { base, env, fetch: send = fetch }) 
   const summary = [];
   for (const e of entries) {
     const path = redact.path(e.path);
+    const row = { n: e.n, session: e.session, method: e.method, path, status: e.status };
+    summary.push(row);
     lines.push("", `## ${e.n}. ${e.session} ${e.method} ${path}`);
     if (e.error) {
-      lines.push(`did not complete: ${redact.text(e.error)}`);
-      summary.push({
-        n: e.n,
-        session: e.session,
-        method: e.method,
-        path,
-        status: null,
-        error: redact.text(e.error),
-      });
+      row.error = redact.text(e.error);
+      lines.push(`did not complete: ${row.error}`);
       continue;
     }
     lines.push(`status: ${e.status}`);
@@ -552,10 +594,10 @@ export async function runSequence(sequence, { base, env, fetch: send = fetch }) 
     for (const [name, value] of e.headers)
       lines.push(`${name}: ${secretHeader(name) ? "[redacted]" : redact.text(value)}`);
     if (e.body) lines.push("", redact.body(e.body));
-    summary.push({ n: e.n, session: e.session, method: e.method, path, status: e.status });
   }
   const log = `${redact.text(lines.join("\n"))}\n`;
-  return { completed, log, requests: summary, redact };
+  // Each summary field that can carry a value (path, error) is redacted above.
+  return { completed, log, requests: summary };
 }
 
 // ── CLI ─────────────────────────────────────────────────────────────────────
@@ -626,9 +668,7 @@ export async function main(argv, io = {}) {
       writeFileSync(resolve(path), body);
     });
   writeFile(logPath, result.log);
-  const out = result.redact.text(
-    json({ log: logPath, completed: result.completed, requests: result.requests }),
-  );
+  const out = json({ log: logPath, completed: result.completed, requests: result.requests });
   return { code: result.completed ? 0 : 1, out };
 }
 

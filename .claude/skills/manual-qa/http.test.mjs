@@ -71,6 +71,24 @@ before(async () => {
         res.writeHead(signedIn ? 200 : 401, { "content-type": "application/json" });
         return res.end(JSON.stringify({ signedIn, echo: req.headers.cookie ?? null }));
       }
+      if (url.pathname === "/echo") {
+        // Echoes the request body as sent, and as an HTML page would.
+        const html = body.replace(/&/g, "&amp;");
+        res.writeHead(200, { "content-type": "text/plain" });
+        return res.end(`${body}\n${html}`);
+      }
+      if (url.pathname === "/tokens") {
+        res.writeHead(200, { "content-type": "application/json" });
+        return res.end(JSON.stringify({ refresh_tokens: ["abcdefgh12345"], keep: "visible" }));
+      }
+      if (url.pathname === "/text") {
+        res.writeHead(200, { "content-type": "text/plain" });
+        return res.end('password: "hunter two" and api_key=k3y-value-9');
+      }
+      if (url.pathname === "/cb") {
+        res.writeHead(302, { location: "/done?sid=abcdef12&next=/home" });
+        return res.end();
+      }
       if (url.pathname === "/go") {
         res.writeHead(302, { location: "/elsewhere" });
         return res.end();
@@ -292,6 +310,48 @@ test("only QA_ variables can be read, so no other shell secret can be sent", () 
   );
 });
 
+test("a sign-in value echoed form-encoded or HTML-escaped is still redacted", async () => {
+  const value = "my pass!x&y";
+  const result = await run(
+    { requests: [{ session: "A", method: "POST", path: "/echo", form: { pw: "{{env:QA_PW}}" } }] },
+    { env: { QA_PW: value } },
+  );
+  assert.equal(result.code, 0);
+  for (const form of [value, "my+pass%21x%26y", "my pass!x&amp;y", encodeURIComponent(value)])
+    assert.ok(!result.log.includes(form), `${form} in\n${result.log}`);
+  assert.match(result.log, /pw=\[redacted:QA_PW\]/);
+});
+
+test("a secret-named field's whole value is redacted, a list included, and the JSON stays whole", async () => {
+  const result = await run({ requests: [{ session: "A", method: "GET", path: "/tokens" }] });
+  assert.equal(result.code, 0);
+  assert.doesNotMatch(result.log, /abcdefgh12345/);
+  const body = result.log.slice(result.log.indexOf("{"));
+  assert.deepEqual(JSON.parse(body), { refresh_tokens: "[redacted]", keep: "visible" });
+});
+
+test("a quoted secret in plain text is redacted whole, and a captured Location's sid too", async () => {
+  const result = await run({
+    requests: [
+      { session: "A", method: "GET", path: "/text" },
+      { session: "A", method: "GET", path: "/cb", capture: ["Location"] },
+    ],
+  });
+  assert.equal(result.code, 0);
+  assert.match(result.log, /password: "\[redacted\]" and api_key=\[redacted\]/);
+  assert.doesNotMatch(result.log, /hunter|two"|k3y-value/);
+  assert.match(result.log, /^location: \/done\?sid=\[redacted\]&next=\/home$/m);
+});
+
+test("{{cookie:<name>}} takes the cookie the jar would send to that path", () => {
+  const jar = new CookieJar();
+  jar.store(["csrf=root-value; Path=/", "csrf=admin-value; Path=/admin"], "/");
+  assert.equal(jar.value("csrf", "/admin/users"), "admin-value");
+  assert.equal(jar.value("csrf", "/me"), "root-value");
+  jar.store(["only=x1; Path=/admin"], "/");
+  assert.equal(jar.value("only", "/me"), undefined);
+});
+
 // ── Inline secrets ──────────────────────────────────────────────────────────
 
 const INLINE = {
@@ -366,6 +426,17 @@ test("a sequence holding a sign-in value's own text is refused, without naming t
   assert.ok(!result.stdout.includes(PASSWORD));
   assert.equal(result.log, null, "nothing is logged");
   assert.equal(seen.length, start, "no request is sent");
+});
+
+test("a sign-in value written in encoded is refused too", () => {
+  const env = { QA_PW: "my pass!x" };
+  for (const path of ["/a?u=my%20pass%21x", "/a?u=my+pass%21x"])
+    assert.ok(
+      checkSequence({ requests: [{ method: "GET", path }] }, env).some((p) =>
+        /QA_PW inline/.test(p),
+      ),
+      path,
+    );
 });
 
 test("a refused sequence sends no request at all", async () => {
