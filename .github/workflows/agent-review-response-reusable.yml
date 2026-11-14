@@ -28,6 +28,13 @@ name: agent-review-response-reusable
 # `address-pr-review` skill there. Fork pull requests are refused, as are pull
 # requests into any other branch, Dependabot's, and (in respond) any that
 # change a protected path.
+#
+# Auto mode (the Handoff): with `response_mode` exactly `auto`, the review
+# workflow's handoff job dispatches the Caller after a review that left
+# findings. That is the only `workflow_dispatch` run the gate accepts: from
+# github-actions[bot], on the default branch, while the pull request has had
+# fewer than two rounds. A round never starts a review: it dispatches nothing,
+# applies no label, and starts only the held CI run of `ci_workflow`.
 
 on:
   workflow_call:
@@ -73,6 +80,11 @@ on:
         default: ""
       ci_workflow:
         description: "The one workflow whose held `pull_request` run publish may start for the commit it pushed, as `.github/workflows/<file>.yml`. Empty starts none: approve the run from the pull request's checks."
+        required: false
+        type: string
+        default: ""
+      response_mode:
+        description: "Callers pass `vars.CLAUDE_REVIEW_RESPONSE_MODE`. Exactly `auto` accepts a round dispatched by the review workflow's Handoff (`github-actions[bot]`, on the default branch, at most two rounds per pull request). Anything else, or empty, is manual: every `workflow_dispatch` run is refused and the label is the only way in."
         required: false
         type: string
         default: ""
@@ -128,7 +140,13 @@ jobs:
           PR: ${{ inputs.pr_number }}
           ALLOWLIST: ${{ inputs.allowlist_actors }}
           REVIEWERS: ${{ inputs.reviewer_logins }}
+          LABEL: ${{ inputs.trigger_label }}
+          MODE: ${{ inputs.response_mode }}
+          # The Caller's event, ref and actors: inside workflow_call these are
+          # the run the Caller was started by.
+          EVENT: ${{ github.event_name }}
           ACTOR: ${{ github.actor }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
         shell: bash
         run: |
           set -euo pipefail
@@ -159,7 +177,22 @@ jobs:
             echo "reviewer_logins must be a JSON array of logins."
             exit 1
           fi
-          if [ -n "$GUIDANCE" ]; then
+          # Auto mode: the review workflow's handoff job dispatches the Caller
+          # with the job token, which reports github-actions[bot] as both
+          # actor and triggering actor. A person pressing "Run workflow", or
+          # re-running a dispatched run, reports themselves and is refused:
+          # people start a round with the label, which the Allowlist gates.
+          DISPATCHED=false
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            if [ "$ACTOR" != "github-actions[bot]" ] || [ "$TRIGGERING_ACTOR" != "github-actions[bot]" ]; then
+              stop "A dispatch by $TRIGGERING_ACTOR is refused: to start a Review response round, apply the ${LABEL:-agent:address-review} label to the pull request."
+            fi
+            if [ "$MODE" != "auto" ]; then
+              stop "Review response is manual (CLAUDE_REVIEW_RESPONSE_MODE is not auto), so a dispatch is refused: apply the ${LABEL:-agent:address-review} label to the pull request."
+            fi
+            DISPATCHED=true
+          fi
+          if [ -n "$GUIDANCE" ] && [ "$DISPATCHED" = false ]; then
             if ! printf '%s' "$ALLOWLIST" | jq -e --arg actor "$ACTOR" 'index($actor) != null' >/dev/null; then
               gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" \
                 --body "Review response ignored: \`$ACTOR\` is not on the Allowlist."
@@ -172,6 +205,25 @@ jobs:
           DEFAULT_BRANCH="$(gh api "repos/$GITHUB_REPOSITORY" --jq .default_branch)"
           INFO="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR")"
           field() { printf '%s' "$INFO" | jq -r "$1"; }
+
+          if [ "$DISPATCHED" = true ]; then
+            # A dispatch runs the Caller file of the ref it names, and that
+            # file's inputs steer the round. The handoff names the default
+            # branch; hold it to that here as well.
+            if [ -z "$DEFAULT_BRANCH" ] || [ "$GITHUB_REF" != "refs/heads/$DEFAULT_BRANCH" ]; then
+              stop "A dispatch on $GITHUB_REF is refused: auto mode runs only from the default branch."
+            fi
+            # The cap, counted as the trusted script's handoff counts it: the
+            # summary comments this bot posted, one per round. Counted again
+            # here because a second dispatch can be queued before the first
+            # round posts its summary.
+            ROUNDS="$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --paginate \
+              --jq '[.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- agent-review-response -->")))] | length' \
+              | jq -s 'add // 0')"
+            if [ "$ROUNDS" -ge 2 ]; then
+              stop "PR #$PR has had $ROUNDS Response rounds; auto mode stops at 2. Apply the ${LABEL:-agent:address-review} label for another."
+            fi
+          fi
 
           if [ "$(field .state)" != "open" ]; then
             stop "PR #$PR is not open."
@@ -217,7 +269,9 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Consume trigger label
-        if: always()
+        # A dispatched round has no label to consume, and one a person applied
+        # meanwhile belongs to that person's own run.
+        if: always() && github.event_name != 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ inputs.pr_number }}

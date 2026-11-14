@@ -12,6 +12,13 @@ three jobs kept whole:
 - `publish` runs on a fresh runner with only trusted code checked out, and is
   the only job that can write the repository or start a workflow run.
 
+Auto mode (the Handoff) adds a `handoff` job to the review workflow: when the
+Caller's mode is exactly `auto` and the review left findings, it dispatches the
+Consumer's Review response Caller on the default branch. The response gate
+accepts a dispatched run only from `github-actions[bot]`, on the default
+branch, in `auto` mode, and for at most two rounds per pull request. A response
+round never starts a review.
+
 The script itself is covered by review-response-contract.test.mjs.
 """
 
@@ -106,11 +113,14 @@ def test_the_caller_contract() -> None:
         "setup_commands",
         "verify_commands",
         "ci_workflow",
+        "response_mode",
         "model",
     }
     assert contract["inputs"]["pr_number"]["required"] is True
     assert contract["inputs"]["trigger_label"]["default"] == "agent:address-review"
     assert contract["inputs"]["kill_switch"]["type"] == "boolean"
+    # Manual unless the Caller passes exactly `auto`.
+    assert contract["inputs"]["response_mode"]["default"] == ""
     for name in ("allowlist_actors", "reviewer_logins"):
         assert contract["inputs"][name]["default"] == "[]"
     # GitHub access is the job token throughout: the only secret is the
@@ -176,7 +186,9 @@ def test_the_gate_refuses_before_it_proceeds() -> None:
     for output in ("head_sha", "trusted_sha", "head_ref"):
         assert f'echo "{output}=' in gate, f"the gate records {output}"
     consume = step(jobs()["gate"], "Consume trigger label")
-    assert consume["if"] == "always()"
+    # A dispatched round has no label of its own to consume; one a person
+    # applied meanwhile is left for its own run.
+    assert consume["if"] == "always() && github.event_name != 'workflow_dispatch'"
     assert '--remove-label "$LABEL"' in consume["run"]
 
 
@@ -392,6 +404,253 @@ def test_review_and_response_share_one_group_per_pull_request() -> None:
         assert load(path).get("concurrency") == expected, f"{path.name}: share the per-PR concurrency group"
 
 
+# ---- Auto mode: the Handoff -------------------------------------------------
+
+HANDOFF_STEP = "Hand off to the Review response"
+BOT = "github-actions[bot]"
+
+
+def review_workflow() -> dict:
+    return load(REVIEW)
+
+
+def script_text() -> str:
+    return (ROOT / SCRIPT).read_text(encoding="utf-8")
+
+
+def summary_marker() -> str:
+    found = re.search(r'^export const SUMMARY_MARKER = "([^"]+)";$', script_text(), re.MULTILINE)
+    assert found, "the script exports its summary marker"
+    return found.group(1)
+
+
+def max_auto_rounds() -> int:
+    found = re.search(r"^export const MAX_AUTO_ROUNDS = (\d+);$", script_text(), re.MULTILINE)
+    assert found, "the script exports its round cap"
+    return int(found.group(1))
+
+
+def gate_code() -> str:
+    return code(step(jobs()["gate"], "Gate")["run"])
+
+
+def dispatch_branch(gate: str) -> str:
+    """The gate's workflow_dispatch block: from its test to the matching fi."""
+    start = gate.index('if [ "$EVENT" = "workflow_dispatch" ]; then')
+    return gate[start : gate.index("\nfi\n", start)]
+
+
+def test_the_round_cap_is_two() -> None:
+    assert max_auto_rounds() == 2
+    assert summary_marker() == "<!-- agent-review-response -->"
+
+
+def test_the_review_caller_contract_gains_the_auto_mode_inputs() -> None:
+    inputs = review_workflow()["on"]["workflow_call"]["inputs"]
+    for name in ("response_mode", "response_workflow", "response_allowlist_actors"):
+        assert inputs[name]["default"] == "", name
+        assert inputs[name]["required"] is False, name
+        assert inputs[name]["type"] == "string", name
+    assert inputs["response_reviewer_logins"]["default"] == "[]"
+    assert inputs["response_reviewer_logins"]["required"] is False
+    # What a Caller must grant: the review's own, plus the handoff's dispatch.
+    assert review_workflow()["permissions"] == {
+        "contents": "read",
+        "issues": "read",
+        "pull-requests": "write",
+        "actions": "write",
+    }
+
+
+def test_actions_write_is_held_by_the_handoff_job_only() -> None:
+    review_jobs = review_workflow()["jobs"]
+    assert list(review_jobs) == ["review", "handoff"]
+    # The reviewer reads pull request code: it never holds actions: write.
+    assert review_jobs["review"]["permissions"] == {"contents": "read", "issues": "read", "pull-requests": "write"}
+    assert review_jobs["handoff"]["permissions"] == {
+        "contents": "read",
+        "pull-requests": "write",
+        "actions": "write",
+    }
+    for name, job in review_jobs.items():
+        assert "id-token" not in job["permissions"], name
+    # In the response workflow, actions: write stays with publish, which starts
+    # only the held CI run.
+    holders = [name for name, job in jobs().items() if job["permissions"].get("actions") == "write"]
+    assert holders == ["publish"]
+
+
+def test_handoff_runs_only_in_auto_mode_after_a_review_that_ran() -> None:
+    review_jobs = review_workflow()["jobs"]
+    handoff = review_jobs["handoff"]
+    assert handoff["needs"] == "review"
+    condition = handoff["if"]
+    # Exactly `auto`: unset, `manual`, `Auto` or anything else stays manual.
+    assert "inputs.response_mode == 'auto'" in condition
+    assert "!inputs.kill_switch" in condition
+    assert "needs.review.result == 'success'" in condition
+    assert "needs.review.outputs.proceed == 'true'" in condition
+    assert "always()" not in condition
+    assert review_jobs["review"]["outputs"] == {"proceed": "${{ steps.gate.outputs.proceed }}"}
+
+
+def test_handoff_runs_only_trusted_code_and_dispatches_on_the_default_branch() -> None:
+    handoff = review_workflow()["jobs"]["handoff"]
+    checkouts = [s for s in handoff["steps"] if "uses" in s]
+    assert [s["uses"].split("@")[0] for s in checkouts] == ["actions/checkout"]
+    checkout = checkouts[0]
+    # The default branch's tip, read live: never the pull request's code.
+    assert checkout["with"]["ref"] == "${{ steps.trusted.outputs.trusted_sha }}"
+    assert checkout["with"]["persist-credentials"] is False
+    trusted = code(step(handoff, "Read the default branch")["run"])
+    assert 'gh api "repos/$GITHUB_REPOSITORY" --jq .default_branch' in trusted
+    assert 'gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$DEFAULT_BRANCH" --jq .object.sha' in trusted
+    for needle in (
+        '"$(field .state)" != "open"',
+        '"$(field .head.repo.full_name)" != "$GITHUB_REPOSITORY"',
+        '"$(field .base.ref)" != "$DEFAULT_BRANCH"',
+        '"dependabot[bot]|"* | *"|dependabot/"*)',
+    ):
+        assert needle in trusted, f"the handoff checks {needle!r}"
+
+    handoff_step = step(handoff, HANDOFF_STEP)
+    run = code(handoff_step["run"])
+    # The trusted script decides; the workflow only acts on its answer.
+    assert f'DECISION="$(node {SCRIPT} handoff --pr "$PR")"' in run
+    for decision in ("dispatch)", "capped)", "none)"):
+        assert decision in run
+    # One dispatch, of the Caller's Review response workflow, on the default
+    # branch, with the pull request as its one input.
+    assert run.count("/dispatches") == 1
+    assert '"repos/$GITHUB_REPOSITORY/actions/workflows/${RESPONSE_WORKFLOW##*/}/dispatches"' in run
+    assert '-f ref="$DEFAULT_BRANCH"' in run
+    assert '-f "inputs[pr_number]=$PR"' in run
+    assert "gh workflow run" not in run
+    # The Caller file is checked before it is used.
+    check = code(step(handoff, "Read the default branch")["run"])
+    assert r"^\.github/workflows/[A-Za-z0-9_-][A-Za-z0-9._-]*\.ya?ml$" in check
+    env = handoff_step["env"]
+    assert env["RESPONSE_WORKFLOW"] == "${{ inputs.response_workflow }}"
+    assert env["DEFAULT_BRANCH"] == "${{ steps.trusted.outputs.default_branch }}"
+    assert "steps.trusted.outputs.proceed == 'true'" in handoff_step["if"]
+
+
+def test_handoff_counts_the_findings_the_round_will_see() -> None:
+    handoff_step = step(review_workflow()["jobs"]["handoff"], HANDOFF_STEP)
+    env = handoff_step["env"]
+    # The response Caller's lists, with the review's Allowlist as fallback.
+    assert env["RESPONSE_ALLOWLIST"] == "${{ inputs.response_allowlist_actors }}"
+    assert env["RESPONSE_REVIEWERS"] == "${{ inputs.response_reviewer_logins }}"
+    assert env["REVIEW_ALLOWLIST"] == "${{ inputs.allowlist_actors }}"
+    run = code(handoff_step["run"])
+    assert 'ALLOWLIST="$(logins "${RESPONSE_ALLOWLIST:-${REVIEW_ALLOWLIST:-[]}}")"' in run
+    assert 'REVIEWER_LOGINS="$(logins "${RESPONSE_REVIEWERS:-[]}")"' in run
+    assert "export ALLOWLIST REVIEWER_LOGINS" in run
+    # Validated as the response gate validates them.
+    gate_logins = re.search(r"logins\(\) \{.*?\n\}", gate_code(), re.DOTALL)
+    assert gate_logins and gate_logins.group(0) in run
+    assert run.index("export ALLOWLIST REVIEWER_LOGINS") < run.index("handoff --pr")
+
+
+def test_a_refused_dispatch_is_reported_without_failing_the_review() -> None:
+    run = code(step(review_workflow()["jobs"]["handoff"], HANDOFF_STEP)["run"])
+    branch = run[run.index("dispatch)") : run.index("capped)")]
+    # The one dispatch is the condition of the block that reports a refusal.
+    found = re.search(r'if ! ERR="\$\(gh api -X POST .*?\n\s*fi\n', branch, re.DOTALL)
+    assert found, "a refused dispatch is caught"
+    refused = found.group(0)
+    assert "/dispatches" in refused
+    # The Caller is blamed only when GitHub says it is the problem.
+    assert '2>&1 >/dev/null)"; then' in refused
+    config = refused.index('*"(HTTP 404)"* | *"(HTTP 422)"*)')
+    other = re.compile(r"\n\s*\*\)\n").search(refused, config).start()
+    assert "workflow_dispatch" in refused[config:other]
+    assert "workflow_dispatch" not in refused[other : refused.index("esac")]
+    assert "not its configuration" in refused[other:]
+    assert "::error title=Review response handoff failed::" in refused
+    assert 'gh pr comment "$PR"' in refused and "response_workflow" in refused
+    # Reported, and the review run stays green.
+    assert re.search(r"exit 0\n\s*fi\n$", refused)
+
+
+def test_the_cap_is_reported_once_per_pull_request() -> None:
+    run = code(step(review_workflow()["jobs"]["handoff"], HANDOFF_STEP)["run"])
+    branch = run[run.index("capped)") : run.index("none)")]
+    marker = "<!-- agent-review-handoff capped -->"
+    # Checked by author and marker before the one comment that carries it.
+    check = f'select(.user.login == "{BOT}" and (.body | startswith("{marker}")))'
+    assert check in branch
+    assert branch.index(check) < branch.index('if [ "$POSTED" -eq 0 ]; then') < branch.index("gh pr comment")
+    assert branch.count("gh pr comment") == 1
+    assert f'"{marker}"' in branch.split("gh pr comment")[0]
+    # Never counted as a Response round.
+    assert not marker.startswith(summary_marker())
+
+
+def test_no_expression_is_interpolated_into_a_review_run_block() -> None:
+    for job_name, s in run_steps(review_workflow()):
+        assert "${{" not in s["run"], f"{job_name}/{s.get('name')}: pass the value through env"
+
+
+def test_a_dispatch_is_accepted_only_from_the_bot_in_auto_mode() -> None:
+    env = step(jobs()["gate"], "Gate")["env"]
+    assert env["EVENT"] == "${{ github.event_name }}"
+    assert env["ACTOR"] == "${{ github.actor }}"
+    # A person re-running a dispatched run is its triggering actor.
+    assert env["TRIGGERING_ACTOR"] == "${{ github.triggering_actor }}"
+    assert env["MODE"] == "${{ inputs.response_mode }}"
+    gate = gate_code()
+    branch = dispatch_branch(gate)
+    assert f'"$ACTOR" != "{BOT}"' in branch
+    assert f'"$TRIGGERING_ACTOR" != "{BOT}"' in branch
+    assert '"$MODE" != "auto"' in branch
+    # A person is told to use the label.
+    assert "apply the" in branch and "label" in branch
+    assert gate.index(branch) < gate.index('echo "proceed=true"')
+
+
+def test_a_dispatch_off_the_default_branch_is_refused() -> None:
+    gate = gate_code()
+    needle = '[ "$GITHUB_REF" != "refs/heads/$DEFAULT_BRANCH" ]'
+    at = gate.find(needle)
+    assert at != -1, "a dispatched run is held to the default branch"
+    # Checked once the default branch is read live, and before proceeding.
+    assert gate.index('gh api "repos/$GITHUB_REPOSITORY" --jq .default_branch') < at < gate.index('echo "proceed=true"')
+    assert 'if [ "$DISPATCHED" = true ]; then' in gate[:at]
+
+
+def test_a_dispatched_round_stops_at_the_cap() -> None:
+    gate = gate_code()
+    marker = summary_marker()
+    # Counted as the script counts them: the bot's comments that start with
+    # the summary marker, since anyone can write the marker in a comment.
+    assert f'select(.user.login == "{BOT}" and (.body | startswith("{marker}")))' in gate
+    assert f'[ "$ROUNDS" -ge {max_auto_rounds()} ]' in gate
+    assert gate.index('[ "$ROUNDS" -ge') < gate.index('echo "proceed=true"')
+
+
+def test_the_allowlist_still_gates_the_label_path() -> None:
+    gate = gate_code()
+    # The bot is on no Caller's Allowlist: only the dispatch path skips the
+    # actor check, and guidance still comes only from the Allowlist.
+    assert 'if [ -n "$GUIDANCE" ] && [ "$DISPATCHED" = false ]; then' in gate
+    assert 'echo "allowlist=$GUIDANCE"' in gate
+
+
+def test_a_response_round_never_starts_a_review() -> None:
+    text = code(RESPONSE.read_text(encoding="utf-8"))
+    # No dispatch, no new label (one applied with the job token starts no run
+    # anyway), no review requested: the only workflow run a round starts is
+    # the held CI run of the Caller's ci_workflow, for the commit it pushed.
+    for needle in ("/dispatches", "workflow run", "--add-label", "/labels", "requested_reviewers", "agent:review"):
+        assert needle not in text, f"the response workflow must not contain {needle!r}"
+    starts = [s for _, s in run_steps(workflow()) if "release-ci" in s["run"]]
+    assert [s["name"] for s in starts] == ["Start CI for the pushed commit"]
+    # The script approves only a held `pull_request` run of that workflow.
+    assert 'run.event === "pull_request"' in script_text()
+    assert 'run.conclusion === "action_required"' in script_text()
+
+
 if __name__ == "__main__":
     test_the_caller_contract()
     test_three_jobs_each_naming_their_permissions()
@@ -411,4 +670,18 @@ if __name__ == "__main__":
     test_no_expression_is_interpolated_into_a_run_block()
     test_checkouts_never_persist_credentials()
     test_review_and_response_share_one_group_per_pull_request()
+    test_the_round_cap_is_two()
+    test_the_review_caller_contract_gains_the_auto_mode_inputs()
+    test_actions_write_is_held_by_the_handoff_job_only()
+    test_handoff_runs_only_in_auto_mode_after_a_review_that_ran()
+    test_handoff_runs_only_trusted_code_and_dispatches_on_the_default_branch()
+    test_handoff_counts_the_findings_the_round_will_see()
+    test_a_refused_dispatch_is_reported_without_failing_the_review()
+    test_the_cap_is_reported_once_per_pull_request()
+    test_no_expression_is_interpolated_into_a_review_run_block()
+    test_a_dispatch_is_accepted_only_from_the_bot_in_auto_mode()
+    test_a_dispatch_off_the_default_branch_is_refused()
+    test_a_dispatched_round_stops_at_the_cap()
+    test_the_allowlist_still_gates_the_label_path()
+    test_a_response_round_never_starts_a_review()
     print("review-response-workflow contract: ok")
