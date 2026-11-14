@@ -125,7 +125,7 @@ The runner writes one sequence per scenario, from the scenario's steps, as a JSO
     },
     { "session": "A", "method": "GET", "path": "/api/me" },
     {
-      "session": "B",
+      "session": "A",
       "method": "POST",
       "path": "/api/users/7/password",
       "headers": { "X-CSRF-Token": "{{cookie:csrftoken}}" },
@@ -166,17 +166,17 @@ A redirect is recorded, with its `Location` when `capture` names it, and not fol
 
 ### The log and the redaction rule
 
-The log, `s<n>-http.log`, is the scenario's evidence file. For each request in order, it records `## <n>. <session> <method> <path>`, then `status: <code>`, each `Set-Cookie` line, each header `capture` names, and the response body (cut at 65,536 characters). A request that got no response is recorded as `did not complete: <why>`, and the log ends there.
+The log, `s<n>-http.log`, is the scenario's evidence file. For each request in order, it records `## <n>. <session> <method> <path>`, then `status: <code>`, each `Set-Cookie` line, each header `capture` names, and the response body (cut at 65,536 characters), exactly as the server sent it. A JSON body is written out again, indented, only when one of its fields is redacted. A request that got no response is recorded as `did not complete: <why>`, and the log ends there.
 
 Everything written to the log and to stdout is redacted first:
 
-| What                                                                                                                                                                                   | Replaced with                                                                                                               |
-| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| The value of each `QA_*` variable the sequence used, raw, URL-encoded, form-encoded, JSON-escaped or HTML-escaped                                                                      | `[redacted:<VARIABLE>]`, anywhere: path, headers, body                                                                      |
-| A cookie's value in its `Set-Cookie` line                                                                                                                                              | `[redacted:cookie <name>]`; the cookie's name and attributes (`HttpOnly`, `Path`, `SameSite`, `Secure`, `Max-Age`) are kept |
-| The value of any cookie the Session holds, four characters or more, wherever it appears                                                                                                | `[redacted:cookie <name>]`                                                                                                  |
-| A recorded header that names a credential, a query parameter whose name names a secret, and the whole value (a list or object included) of a JSON body field whose name names a secret | `[redacted]`                                                                                                                |
-| A JWT, a GitHub, OpenAI-style, AWS or Slack token, the credential after `Bearer` or `Basic`, and the value in `password=…` or `"token": "…"` text, quoted values whole                 | `[redacted]`                                                                                                                |
+| What                                                                                                                                                                                                                                                                                                        | Replaced with                                                                                                               |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| The value of each `QA_*` variable the sequence used, raw, URL-encoded, form-encoded, JSON-escaped or HTML-escaped                                                                                                                                                                                           | `[redacted:<VARIABLE>]`, anywhere: path, headers, body                                                                      |
+| A cookie's value in its `Set-Cookie` line                                                                                                                                                                                                                                                                   | `[redacted:cookie <name>]`; the cookie's name and attributes (`HttpOnly`, `Path`, `SameSite`, `Secure`, `Max-Age`) are kept |
+| The value of any cookie the Session holds, four characters or more, wherever it appears                                                                                                                                                                                                                     | `[redacted:cookie <name>]`                                                                                                  |
+| A recorded header that names a credential (not a challenge: `WWW-Authenticate`, `Proxy-Authenticate` and `Authentication-Info` go through the text rules only), a query parameter whose name names a secret, and the whole value (a list or object included) of a JSON body field whose name names a secret | `[redacted]`                                                                                                                |
+| A JWT, a GitHub, OpenAI-style, AWS or Slack token, the credential after `Bearer` or `Basic`, and the value in `password=…` or `"token": "…"` text, quoted values whole; `true`, `false` and `null` are kept                                                                                                 | `[redacted]`                                                                                                                |
 
 Stdout is a JSON summary: the log's path, `completed`, and each request's session, method, redacted path and status; or, for a refused sequence, `problems`.
 

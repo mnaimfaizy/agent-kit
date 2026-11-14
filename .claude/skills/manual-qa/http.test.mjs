@@ -77,6 +77,24 @@ before(async () => {
         res.writeHead(200, { "content-type": "text/plain" });
         return res.end(`${body}\n${html}`);
       }
+      if (url.pathname === "/flags") {
+        res.writeHead(200, { "content-type": "application/json" });
+        return res.end('{"password_changed": true, "session": null, "token_expired": false}');
+      }
+      if (url.pathname === "/ids") {
+        res.writeHead(200, { "content-type": "application/json" });
+        return res.end('{"id":9007199254740993,"ratio":1.0,"dup":1,"dup":2}');
+      }
+      if (url.pathname === "/self") {
+        res.writeHead(200, { "content-type": "text/plain" });
+        return res.end(`you asked for ${req.url}`);
+      }
+      if (url.pathname === "/challenge") {
+        res.writeHead(401, {
+          "www-authenticate": 'Bearer realm="api", error="invalid_token"',
+        });
+        return res.end();
+      }
       if (url.pathname === "/tokens") {
         res.writeHead(200, { "content-type": "application/json" });
         return res.end(JSON.stringify({ refresh_tokens: ["abcdefgh12345"], keep: "visible" }));
@@ -244,7 +262,7 @@ test("an HttpOnly cookie's attributes appear in the log, and its value is redact
   assert.doesNotMatch(log, /s3ss10n-value/);
   assert.doesNotMatch(log, /dark-mode-cookie/);
   // A cookie value echoed in a body is redacted too.
-  assert.match(log, /"echo": "sid=\[redacted:cookie sid\]; theme=\[redacted:cookie theme\]"/);
+  assert.match(log, /"echo": ?"sid=\[redacted:cookie sid\]; theme=\[redacted:cookie theme\]"/);
 });
 
 test("the log records method, path, status and the named headers, one entry per request", async () => {
@@ -341,6 +359,42 @@ test("a quoted secret in plain text is redacted whole, and a captured Location's
   assert.match(result.log, /password: "\[redacted\]" and api_key=\[redacted\]/);
   assert.doesNotMatch(result.log, /hunter|two"|k3y-value/);
   assert.match(result.log, /^location: \/done\?sid=\[redacted\]&next=\/home$/m);
+});
+
+test("true, false and null under a secret-named key are kept: they say whether, not what", async () => {
+  const result = await run({ requests: [{ session: "A", method: "GET", path: "/flags" }] });
+  assert.equal(result.code, 0);
+  assert.match(result.log, /"password_changed": true/);
+  assert.match(result.log, /"session": null/);
+  assert.match(result.log, /"token_expired": false/);
+});
+
+test("a body with no secret field is logged exactly as the server sent it", async () => {
+  const result = await run({ requests: [{ session: "A", method: "GET", path: "/ids" }] });
+  assert.equal(result.code, 0);
+  assert.ok(result.log.includes('{"id":9007199254740993,"ratio":1.0,"dup":1,"dup":2}'), result.log);
+});
+
+test("a sign-in value with ' ( ) ! * in a query is sent in a form the redactor knows", async () => {
+  const start = seen.length;
+  const value = "it's a (pw)!*";
+  const result = await run(
+    { requests: [{ session: "A", method: "GET", path: "/self?u={{env:QA_PW}}" }] },
+    { env: { QA_PW: value } },
+  );
+  assert.equal(result.code, 0);
+  const sent = seen[start].path;
+  assert.equal(new URLSearchParams(sent.split("?")[1]).get("u"), value);
+  assert.ok(!result.log.includes(sent.split("=")[1]), result.log);
+  assert.match(result.log, /you asked for \/self\?u=\[redacted:QA_PW\]/);
+});
+
+test("a WWW-Authenticate challenge is logged, not redacted", async () => {
+  const result = await run({
+    requests: [{ session: "A", method: "GET", path: "/challenge", capture: ["WWW-Authenticate"] }],
+  });
+  assert.equal(result.code, 0);
+  assert.match(result.log, /^www-authenticate: Bearer realm="api", error="invalid_token"$/m);
 });
 
 test("{{cookie:<name>}} takes the cookie the jar would send to that path", () => {
@@ -546,6 +600,21 @@ test("step 6 names s<n>-http.log as an api scenario's evidence", () => {
   assert.match(
     step6,
     /exit status says whether every request completed, not whether the scenario passed/,
+  );
+});
+
+test("ADAPTER.md's example sequence takes each cookie from a Session that holds one", () => {
+  const example = JSON.parse(/## The api driver[\s\S]*?```json\n([\s\S]*?)```/.exec(adapterDoc)[1]);
+  const signedIn = new Set();
+  for (const request of example.requests) {
+    const session = request.session ?? "A";
+    if (JSON.stringify(request).includes("{{cookie:"))
+      assert.ok(signedIn.has(session), `Session ${session} uses a cookie before it signs in`);
+    if (/sign-in|login/.test(request.path)) signedIn.add(session);
+  }
+  assert.deepEqual(
+    checkSequence(example, { QA_A_EMAIL: "a@x.test", QA_A_PASSWORD: "p1", QA_NEW_PASSWORD: "p2" }),
+    [],
   );
 });
 

@@ -67,7 +67,7 @@ const SECRET_SHAPES = [
   ["a JWT", /eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]*/g],
   [
     "a bearer or basic credential",
-    /\b(?:Bearer|Basic)\s+(?!\{\{|\[redacted)[A-Za-z0-9._~+/=-]{6,}/g,
+    /\b(?:Bearer|Basic)\s+(?!\{\{|\[redacted|[A-Za-z0-9_-]+=")[A-Za-z0-9._~+/=-]{6,}/g,
   ],
   ["a GitHub token", /\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})/g],
   ["an API key", /\b(?:sk-[A-Za-z0-9_-]{16,}|AKIA[0-9A-Z]{16}|xox[abpr]-[A-Za-z0-9-]{10,})/g],
@@ -79,14 +79,27 @@ const SECRET_SHAPES = [
  */
 const NAMED_IN_TEXT =
   /(?<![A-Za-z0-9_-])(["']?)([A-Za-z0-9_-]*(?:password|passwd|passphrase|secret|token|api[_-]?key|credential|recovery[_-]?code|mfa[_-]?code)[A-Za-z0-9_-]*|auth|pass|pwd|pw|otp|totp|pin|session|session[_-]?id|sid)\1(\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s"'&,;}[{?][^\s"'&,;}?]*)/gi;
+/**
+ * A value `NAMED_IN_TEXT` leaves as it is: empty, already redacted, or
+ * `true`, `false` or `null`, which say whether a secret is there, not what it
+ * is (`"password_changed": true`, `"session": null` after sign-out).
+ */
+const KEPT_VALUE = /^(?:""|''|["']?\[redacted|(?:true|false|null)$)/;
 /** The text matches of `NAMED_IN_TEXT` that hold a value, not an empty or redacted one. */
 const namedValues = (text) =>
-  [...text.matchAll(NAMED_IN_TEXT)].filter(
-    ([, , , , value]) => !/^(?:""|''|["']?\[redacted)/.test(value),
-  );
+  [...text.matchAll(NAMED_IN_TEXT)].filter(([, , , , value]) => !KEPT_VALUE.test(value));
 
 const secretName = (name) => SECRET_NAME.test(String(name).toLowerCase().replace(/[-_]/g, ""));
-const secretHeader = (name) => SECRET_HEADER.test(name.toLowerCase().replace(/[-_]/g, ""));
+/**
+ * Headers that name auth but carry no credential: a challenge's scheme, realm
+ * and `error="invalid_token"` are often the evidence an auth scenario needs.
+ * The text rules still remove anything token-shaped inside them.
+ */
+const CHALLENGE_HEADERS = new Set(["wwwauthenticate", "proxyauthenticate", "authenticationinfo"]);
+const secretHeader = (name) => {
+  const key = name.toLowerCase().replace(/[-_]/g, "");
+  return !CHALLENGE_HEADERS.has(key) && SECRET_HEADER.test(key);
+};
 const onlyPlaceholders = (text) => text.replace(PLACEHOLDER, "").trim() === "";
 const isObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 
@@ -301,11 +314,25 @@ export function encodedForms(value) {
     ...new Set([
       value,
       encodeURIComponent(value),
+      encodePathValue(value),
       new URLSearchParams([["", value]]).toString().slice(1),
       JSON.stringify(value).slice(1, -1),
       html,
     ]),
   ];
+}
+
+/**
+ * A value as it goes into a path: `encodeURIComponent`, and also `!'()*`,
+ * which `new URL` would otherwise percent-encode in a query on its own,
+ * sending a form the redactor would not know.
+ * @param {string} value
+ */
+export function encodePathValue(value) {
+  return encodeURIComponent(value).replace(
+    /[!'()*]/g,
+    (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
 }
 
 /** A `Set-Cookie` line's name, value and attributes. @param {string} line */
@@ -432,7 +459,7 @@ export class Redactor {
         kind.startsWith("a bearer") ? `${match.split(/\s+/)[0]} [redacted]` : "[redacted]",
       );
     return out.replace(NAMED_IN_TEXT, (match, q, key, sep, value) => {
-      if (/^(?:""|''|["']?\[redacted)/.test(value)) return match;
+      if (KEPT_VALUE.test(value)) return match;
       const quote = /^["']/.test(value) ? value[0] : "";
       return `${q}${key}${q}${sep}${quote}[redacted]${quote}`;
     });
@@ -454,21 +481,27 @@ export class Redactor {
     return this.text([`${name}=[redacted:cookie ${name}]`, ...attributes].join(";"));
   }
 
-  /** A response body: secret-named JSON fields first, then the text rules. */
+  /**
+   * A response body, as the server sent it, through the text rules. Only a
+   * JSON body with a secret-named field holding a value is written out again,
+   * with that field's whole value (a list or object included) redacted; a
+   * body that needs no field redacted keeps its exact text (a 64-bit id, a
+   * duplicate key, `1.0`).
+   */
   body(text) {
     let out = text;
     try {
       const parsed = JSON.parse(text);
-      if (parsed !== null && typeof parsed === "object")
-        out = JSON.stringify(
-          parsed,
-          // A secret-named field's whole value, list or object included.
-          (key, value) =>
-            key && secretName(key) && value !== null && typeof value !== "boolean"
-              ? "[redacted]"
-              : value,
-          2,
-        );
+      let redacted = false;
+      const replacer = (key, value) => {
+        if (!key || !secretName(key) || value === null || typeof value === "boolean") return value;
+        redacted = true;
+        return "[redacted]";
+      };
+      if (parsed !== null && typeof parsed === "object") {
+        const rewritten = JSON.stringify(parsed, replacer, 2);
+        if (redacted) out = rewritten;
+      }
     } catch {
       // not JSON: the text rules alone
     }
@@ -497,7 +530,7 @@ export async function runSequence(sequence, { base, env, fetch: send = fetch }) 
       const value = kind === "env" ? envValue(env, name) : jar.value(name, path);
       if (value === undefined) throw new Error(`the Session has no cookie ${name}`);
       if (kind === "env") redact.add(value, `[redacted:${name}]`);
-      return encode ? encodeURIComponent(value) : value;
+      return encode ? encodePathValue(value) : value;
     });
   const fillJson = (value, jar, path) =>
     typeof value === "string"
