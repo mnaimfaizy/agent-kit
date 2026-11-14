@@ -408,10 +408,12 @@ jobs:
             echo "The checkout's git configuration has keys or hooks outside the allowlist in .github/agent-runtime/check-git-config.mjs."
             exit 1
           fi
-          echo "hook_sha256=$(cat "$STAGED"/* | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
-          # Resolved before setup can change PATH, for the check after it.
-          echo "node=$(command -v node)" >> "$GITHUB_OUTPUT"
-          echo "git=$(command -v git)" >> "$GITHUB_OUTPUT"
+          {
+            echo "hook_sha256=$(cat "$STAGED"/* | sha256sum | cut -d' ' -f1)"
+            # Resolved before setup can change PATH, for the check after it.
+            echo "node=$(command -v node)"
+            echo "git=$(command -v git)"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Install the subprocess sandbox
         if: steps.extract.outputs.state == 'ready'
