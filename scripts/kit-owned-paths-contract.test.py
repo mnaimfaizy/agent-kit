@@ -23,7 +23,7 @@ ENTRY = re.compile(r"^[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*/$")
 # Portable skill folder, or one of the three runtime folders. Anything else
 # (`.github/workflows/`, `docs/`, a parent folder) would delete Consumer files.
 ALLOWED_SHAPE = re.compile(
-    r"^(?:\.claude/skills/[A-Za-z0-9._-]+/|\.github/(?:agent-runtime|agent-pipeline|security-audit)/)$"
+    r"^(?:\.claude/skills/[A-Za-z0-9._-]+/|\.github/(?:agent-runtime|agent-pipeline|security-audit|agent-review-response)/)$"
 )
 ADOPT_SECTION = "## Copy Kit-owned paths from the same tag"
 ADOPT_BULLET = re.compile(r"^- `([^`]+/)`", re.MULTILINE)
