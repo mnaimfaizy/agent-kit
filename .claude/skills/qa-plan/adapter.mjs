@@ -60,7 +60,13 @@ export const CONFIG_FILES = /** @type {const} */ ([
 
 export const TOP_KEYS = /** @type {const} */ (["working_dir", "plan", "hazards", "run"]);
 export const PLAN_KEYS = /** @type {const} */ (["base_ref", "suites", "publish", "tracker"]);
-export const SUITE_KEYS = /** @type {const} */ (["name", "command", "junit", "surfaces"]);
+export const SUITE_KEYS = /** @type {const} */ ([
+  "name",
+  "command",
+  "junit",
+  "surfaces",
+  "services",
+]);
 export const PUBLISH_KEYS = /** @type {const} */ (["when_label", "default", "to", "label"]);
 export const HAZARD_KEYS = /** @type {const} */ (["pack"]);
 export const PUBLISH_TARGETS = /** @type {const} */ ([
@@ -461,6 +467,8 @@ function planProblems(sink, plan) {
           sink.add(`${path}.junit`, "expected a relative path inside the repository");
         if (present(suite.surfaces) && !isStringList(suite.surfaces))
           sink.add(`${path}.surfaces`, "expected a list of globs");
+        if (present(suite.services) && !isStringList(suite.services))
+          sink.add(`${path}.services`, "expected a list of service names");
       });
     }
   }
@@ -702,12 +710,19 @@ export function planReadiness({ path, config, problems }) {
   if (!plan.suites.length)
     needs.push(
       "plan.suites: each test suite CI runs, with its `name`, the `command` that runs it, " +
-        "the `junit` XML path it writes, and the `surfaces` globs it covers",
+        "the `junit` XML path it writes, the `surfaces` globs it covers, " +
+        "and the `services` it runs against for real",
     );
   for (const suite of plan.suites)
     if (!present(suite.junit))
       notes.push(
         `suite \`${suite.name}\` has no \`junit\` path: what it proves is read from its exit code only, tagged [reconstructed]`,
+      );
+  if (isMapping(config.run) && present(config.run.stack) && plan.suites.length)
+    if (!plan.suites.some((suite) => isStringList(suite.services) && suite.services.length))
+      notes.push(
+        "no suite lists `services`: each suite is taken to run against doubles, so a promise " +
+          "that depends on a QA Stack service stays in the Residue unless a CI job against the real services covers it",
       );
   return { ready: needs.length === 0, needs, notes };
 }

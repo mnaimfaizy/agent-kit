@@ -26,6 +26,13 @@ plan:
       command: "uv run pytest --junitxml=reports/backend.xml"
       junit: reports/backend.xml # optional; without it, claims are [reconstructed]
       surfaces: ["backend/**"]
+      # no services: it mocks Redis and uses SQLite, so its claims never cover a
+      # promise that needs the QA Stack's Postgres or Redis
+    - name: backend-integration
+      command: "uv run pytest tests/integration --junitxml=reports/integration.xml"
+      junit: reports/integration.xml
+      surfaces: ["backend/**"]
+      services: ["postgres", "redis"] # QA Stack services it runs against, not doubles
     - name: frontend
       command: "npm ci && npm test -- --reporter=junit --outputFile=reports/frontend.xml"
       junit: reports/frontend.xml

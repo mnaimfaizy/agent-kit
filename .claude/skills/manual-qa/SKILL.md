@@ -80,6 +80,12 @@ The Run brief's **Surface** says what the scenarios drive; find a tool this sess
 - `desktop` or `mobile`: desktop control, with the app or its simulator on screen.
 - `api`: the shell's HTTP client (`curl`), or a browser tool.
 
+Where a browser comes from depends on the harness:
+
+- **Built in:** the Claude Code desktop app and Cursor each have their own browser.
+- **The human's Chrome:** Antigravity drives the person's running Chrome, after they click **Allow**, so they must be there.
+- **None in a headless run:** Codex CLI, Copilot CLI and OpenCode have no browser in a headless run, only one an MCP server such as Playwright MCP provides. With no such server configured, the `web` surface has no driver.
+
 With none, every scenario on that surface is **left for a person** (_no tool here can drive a `<surface>` surface_); the rest of the run still goes ahead.
 
 For each driver, note two things step 6 needs: whether it can **save images** (write a screenshot to a file under `working_dir`), and whether it can **record** (save a GIF or video of a sequence, such as Claude in Chrome's GIF tool). A driver that only shows a screenshot to you, without saving it, cannot save images. The `api` surface's HTTP client saves no images; its evidence is the response, written to a text file or quoted, redacted, in the notes.
