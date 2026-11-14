@@ -35,7 +35,7 @@
 //       to ask for, and notes to say. Prints JSON; exits 1 on any problem,
 //       2 on bad usage.
 
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -74,6 +74,75 @@ export const QA_CONFIG_FILES = /** @type {const} */ ([
   "qa.config.yaml",
   "qa.config.json",
 ]);
+export const EXECUTOR_KEYS = /** @type {const} */ (["build", "analysis", "qa"]);
+export const SUPPORT_LEVELS = /** @type {const} */ (["verified", "tried", "documented"]);
+
+/**
+ * The harnesses this skill has a file for, read from `harnesses/<id>.md`
+ * beside this script (HARNESSES.md): each one's Support Level, and whether it
+ * has a headless run another harness's Chief of Staff can start. A harness
+ * file is the one source of both; this reader only finds them.
+ *
+ * @param {string} [dir]
+ * @returns {Record<string, {level: string, headless: boolean}>}
+ */
+export function harnessCatalog(dir = fileURLToPath(new URL("./harnesses/", import.meta.url))) {
+  const catalog = {};
+  for (const name of readdirSync(dir).sort()) {
+    if (!name.endsWith(".md")) continue;
+    const text = readFileSync(join(dir, name), "utf8");
+    const level = /^- \*\*Support Level:\*\* `([a-z]+)`/m.exec(text)?.[1];
+    const headless = /^- \*\*Headless run:\*\* (.*)$/m.exec(text)?.[1];
+    if (!SUPPORT_LEVELS.includes(level) || headless === undefined)
+      throw new Error(`harnesses/${name}: no Support Level or Headless run line`);
+    catalog[name.slice(0, -3)] = { level, headless: !headless.startsWith("none") };
+  }
+  return catalog;
+}
+
+export const HARNESSES = Object.freeze(harnessCatalog());
+
+/**
+ * The environment variables a harness sets in the shells its agent runs, read
+ * from each harness's own documentation or source (its HARNESSES.md file says
+ * where). A match makes the harness a **candidate** only: the Chief of Staff
+ * confirms it against the tools it has, since a terminal inside an editor can
+ * carry the editor's variables too.
+ *
+ * @type {ReadonlyArray<{harness: string, when: (env: Record<string, string | undefined>) => boolean}>}
+ */
+export const HARNESS_ENV = Object.freeze([
+  // Claude Code sets CLAUDECODE=1 in its agent's shells (code.claude.com/docs/en/env-vars);
+  // the desktop app adds CLAUDE_CODE_DESKTOP_APP_VERSION (observed, app 5.11492, 2026-11-14).
+  // Claude Code's IDE extensions also set CLAUDECODE in integrated terminals.
+  {
+    harness: "claude-code-desktop",
+    when: (env) => env.CLAUDECODE === "1" && nonEmpty(env.CLAUDE_CODE_DESKTOP_APP_VERSION),
+  },
+  {
+    harness: "claude-code-cli",
+    when: (env) => env.CLAUDECODE === "1" && !nonEmpty(env.CLAUDE_CODE_DESKTOP_APP_VERSION),
+  },
+  // Cursor 3.28 sets CURSOR_AGENT=1 on the agent's own terminal only
+  // (cursor.com/docs/agent/tools/terminal; the value read in the 3.28.7 build).
+  { harness: "cursor", when: (env) => env.CURSOR_AGENT === "1" },
+  // Codex rust-v0.169.0 sets CODEX_THREAD_ID on every command it spawns (codex-rs/core/src/exec_env.rs).
+  { harness: "codex-cli", when: (env) => nonEmpty(env.CODEX_THREAD_ID) },
+  // Copilot CLI sets COPILOT_CLI=1 (its changelog, 0.0.421).
+  { harness: "copilot-cli", when: (env) => env.COPILOT_CLI === "1" },
+  // Gemini CLI v0.68.0 sets GEMINI_CLI=1 (packages/core/src/services/shellExecutionService.ts).
+  { harness: "gemini-cli", when: (env) => env.GEMINI_CLI === "1" },
+  // OpenCode sets OPENCODE=1: v2 only in the agent's shell (packages/core/src/tool/plugin/shell.ts),
+  // v1 in every child of the process.
+  { harness: "opencode", when: (env) => env.OPENCODE === "1" },
+  // Antigravity and Devin document none: they are found by their tools alone.
+]);
+
+/** The harnesses this environment points to, in HARNESS_ENV's order. */
+export function harnessCandidates(env = process.env) {
+  return HARNESS_ENV.filter((rule) => rule.when(env)).map((rule) => rule.harness);
+}
+
 export const SPEC_KEYS = /** @type {const} */ (["landing", "integration_branch"]);
 export const LANDINGS = /** @type {const} */ (["ask", "integration-branch", "per-ticket"]);
 
@@ -589,6 +658,29 @@ export const SECTIONS = {
   models(sink, value) {
     stringMapping(sink, value, "models", MODEL_KEYS);
   },
+  harness(sink, value) {
+    if (!nonEmpty(value)) return sink.add("harness", "expected a harness id");
+    if (!Object.hasOwn(HARNESSES, value))
+      sink.add(
+        "harness",
+        `\`${value}\` has no harness file; known: ${Object.keys(HARNESSES).join(", ")}`,
+      );
+  },
+  executors(sink, value, config) {
+    stringMapping(sink, value, "executors", EXECUTOR_KEYS);
+    if (!isMapping(value)) return;
+    for (const key of EXECUTOR_KEYS) {
+      const id = value[key];
+      if (!nonEmpty(id) || !Object.hasOwn(value, key)) continue;
+      if (!Object.hasOwn(HARNESSES, id))
+        sink.add(
+          `executors.${key}`,
+          `\`${id}\` has no harness file; known: ${Object.keys(HARNESSES).join(", ")}`,
+        );
+      else if (id !== config.harness && !HARNESSES[id].headless)
+        sink.add(`executors.${key}`, `\`${id}\` has no headless run another harness can start`);
+    }
+  },
   limits(sink, value) {
     if (!isMapping(value)) return sink.add("limits", "expected a mapping");
     unknownKeys(sink, value, "limits", LIMIT_KEYS);
@@ -847,6 +939,8 @@ export function effectiveConfig(config) {
     skills: pick(section("skills"), SKILL_KEYS),
     triage_labels: triageLabels(config.triage_labels),
     models: pick(section("models"), MODEL_KEYS),
+    harness: config.harness ?? null,
+    executors: pick(section("executors"), EXECUTOR_KEYS),
     limits: {
       building: limits.building === undefined ? DEFAULTS.building : Number(limits.building),
       shared: limits.shared ?? [],
@@ -915,6 +1009,21 @@ export function readiness({ path, config, problems, qaConfig = null }) {
   for (const key of MODEL_KEYS)
     if (effective.models[key] === null)
       notes.push(`no \`models.${key}\`: that work runs on the harness's default model`);
+  const below = (id) => HARNESSES[id] && HARNESSES[id].level !== "verified";
+  if (effective.harness !== null && below(effective.harness))
+    notes.push(
+      `\`harness\` is \`${effective.harness}\`, at Support Level \`${HARNESSES[effective.harness].level}\`: ` +
+        "the Dispatch Plan says so, and waits for the human's go",
+    );
+  for (const key of EXECUTOR_KEYS) {
+    const id = effective.executors[key];
+    if (id === null || id === effective.harness) continue;
+    notes.push(
+      `\`executors.${key}\` runs that work on \`${id}\`` +
+        (below(id) ? `, at Support Level \`${HARNESSES[id].level}\`` : "") +
+        `: check its CLI is installed and signed in, and that \`models.${key}\` names a model there`,
+    );
+  }
   if (qaConfig !== null) {
     const qaSet = isMapping(config.ready_to_merge) && config.ready_to_merge.qa !== undefined;
     if (!qaSet)
@@ -966,7 +1075,7 @@ const USAGE = "usage: node config.mjs check [--answers <file.json>] [--repo <dir
 
 /**
  * @param {string[]} argv the arguments after the script
- * @param {{read?: (path: string) => string | null, exists?: (path: string) => boolean, cwd?: string}} [io]
+ * @param {{read?: (path: string) => string | null, exists?: (path: string) => boolean, cwd?: string, env?: Record<string, string | undefined>}} [io]
  * @returns {{code: number, out: string}}
  */
 export function main(argv, io = {}) {
@@ -1019,9 +1128,25 @@ export function main(argv, io = {}) {
     problems: loaded.problems,
     effective: loaded.problems.length ? null : effectiveConfig(loaded.config),
     qa_config: loaded.qaConfig,
+    harness: harnessReport(loaded, io.env ?? process.env),
     readiness: readiness(loaded),
   };
   return { code: loaded.problems.length ? 1 : 0, out: `${JSON.stringify(result, null, 2)}\n` };
+}
+
+/**
+ * What step 1 needs to find the harness (HARNESSES.md, "Finding the
+ * harness"): the candidates the environment points to, the harness the config
+ * pins, and each known harness's Support Level.
+ */
+function harnessReport(loaded, env) {
+  const effective = loaded.problems.length ? null : effectiveConfig(loaded.config);
+  return {
+    candidates: harnessCandidates(env),
+    pinned: effective?.harness ?? null,
+    executors: effective?.executors ?? null,
+    levels: Object.fromEntries(Object.entries(HARNESSES).map(([id, h]) => [id, h.level])),
+  };
 }
 
 const real = (path) => {
