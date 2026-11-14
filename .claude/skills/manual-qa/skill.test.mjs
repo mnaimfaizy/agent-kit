@@ -10,7 +10,7 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { main, parseConfig } from "./adapter.mjs";
+import { PROJECT_SKILL_DIRS, main, parseConfig } from "./adapter.mjs";
 import { main as report } from "./report.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -301,7 +301,7 @@ test("every adapter command SKILL.md names is one adapter.mjs accepts", () => {
   const io = { read: () => null, readFile: () => null, stdin: () => "" };
   for (const command of new Set(commands))
     assert.notEqual(
-      main([command, "x", "--for", "run"], io).code,
+      main(command === "where" ? [command, "x"] : [command, "x", "--for", "run"], io).code,
       2,
       `adapter.mjs has no \`${command}\``,
     );
@@ -327,4 +327,11 @@ test("ADAPTER.md documents the QA Account and QA Stack contracts", () => {
     "stops what `up` started, and nothing else",
   ])
     assert.ok(adapter.includes(phrase), `ADAPTER.md lacks ${phrase}`);
+});
+
+test("SKILL.md checks which copy runs before its first step", () => {
+  const check = skill.indexOf('adapter.mjs" where manual-qa');
+  assert.ok(check > 0, "SKILL.md runs `where manual-qa`");
+  assert.ok(check < skill.indexOf("## Workflow"), "before the workflow");
+  for (const dir of PROJECT_SKILL_DIRS) assert.ok(skill.includes(dir), `SKILL.md names ${dir}`);
 });

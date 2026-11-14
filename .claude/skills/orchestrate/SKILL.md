@@ -17,6 +17,20 @@ Load [CONFIG.md](CONFIG.md) when reading or asking for the config. Load [BRIEF.m
 
 `<skill>` in a command below is the absolute path of the folder this file is in, written with forward slashes (`C:/Users/me/...` on Windows), inside double quotes because it may contain spaces. Every command runs from the root of the repository the issues belong to.
 
+## Which copy runs
+
+A harness can load this skill from a user-level folder (under the home folder) while the repository keeps its own copy, pinned to the version the repository was set up with. The user-level copy can be older, and would then follow rules the repository no longer uses. So before anything else, check which copy this is:
+
+```bash
+node "<skill>/config.mjs" where orchestrate
+```
+
+It finds the repository from the folder it runs in, and lists the copies of `orchestrate` the repository keeps in the folders harnesses read skills from: `.claude/skills`, `.agents/skills`, `.github/skills` and `.cursor/skills`.
+
+- `use` is `this`: go on. This copy is inside the repository, or the repository keeps none of its own.
+- `use` is `repository`: stop, and run nothing more from this copy. Read the `SKILL.md` that `load` names and follow it from its start instead, with `<skill>` its folder. Tell the human that the copy at `this_copy` was not used, and that the repository's copy at `load` was.
+- Exit 2, or no such script: compare by hand. When this file is outside the repository's root (`git rev-parse --show-toplevel`) and one of those folders in the repository holds `orchestrate/SKILL.md`, do as for `repository`.
+
 ## Invocations
 
 - `/orchestrate #12 #34`: a run for these issues. The Dispatch Plan waits for "go".
