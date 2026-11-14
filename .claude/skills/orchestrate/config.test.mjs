@@ -7,12 +7,22 @@
  */
 
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { test } from "node:test";
 
 import {
   CONFIG_FILES,
   DEFAULTS,
+  PROJECT_SKILL_DIRS,
   TRIAGE_ROLES,
   effectiveConfig,
   jsonLines,
@@ -21,6 +31,7 @@ import {
   parseConfig,
   readConfig,
   readiness,
+  whichCopy,
 } from "./config.mjs";
 
 const yaml = (...lines) => parseConfig("orchestrate.config.yml", lines.join("\n"));
@@ -1085,4 +1096,136 @@ test("bad usage exits 2", () => {
     ["check", "--repo", "a", "--repo", "b"],
   ])
     assert.equal(run(argv, {}).code, 2, argv.join(" "));
+});
+
+// ── Which copy runs ─────────────────────────────────────────────────────────
+
+/** A home folder and a repository side by side, each with the files named. */
+function layout(files) {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "which-copy-")));
+  for (const path of files) {
+    mkdirSync(dirname(join(root, path)), { recursive: true });
+    writeFileSync(join(root, path), "");
+  }
+  return root;
+}
+
+test("a user-level copy gives way to the repository's own copy", () => {
+  const root = layout([
+    "home/skills/orchestrate/SKILL.md",
+    "repo/.git/HEAD",
+    "repo/.claude/skills/orchestrate/SKILL.md",
+  ]);
+  const result = whichCopy("orchestrate", {
+    skillDir: join(root, "home/skills/orchestrate"),
+    cwd: join(root, "repo"),
+  });
+  assert.equal(result.use, "repository");
+  assert.equal(result.repository, join(root, "repo"));
+  assert.deepEqual(result.repository_copies, [".claude/skills/orchestrate"]);
+  assert.equal(result.load, join(root, "repo/.claude/skills/orchestrate/SKILL.md"));
+});
+
+test("a repository copy in any harness's folder counts, the first one is loaded", () => {
+  const root = layout([
+    "home/orchestrate/SKILL.md",
+    "repo/.git",
+    "repo/.agents/skills/orchestrate/SKILL.md",
+    "repo/.github/skills/orchestrate/SKILL.md",
+  ]);
+  const result = whichCopy("orchestrate", {
+    skillDir: join(root, "home/orchestrate"),
+    cwd: join(root, "repo/src"),
+  });
+  assert.equal(result.use, "repository", "a `.git` file (a worktree) marks the root too");
+  assert.deepEqual(result.repository_copies, [
+    ".agents/skills/orchestrate",
+    ".github/skills/orchestrate",
+  ]);
+  assert.equal(result.load, join(root, "repo/.agents/skills/orchestrate/SKILL.md"));
+});
+
+test("the repository's own copy, or a user-level one with no repository copy, runs", () => {
+  const root = layout([
+    "home/orchestrate/SKILL.md",
+    "repo/.git/HEAD",
+    "repo/.claude/skills/orchestrate/SKILL.md",
+  ]);
+  const own = whichCopy("orchestrate", {
+    skillDir: join(root, "repo/.claude/skills/orchestrate"),
+    cwd: join(root, "repo"),
+  });
+  assert.equal(own.use, "this");
+  assert.equal(own.load, null);
+  const other = whichCopy("other-skill", {
+    skillDir: join(root, "home/orchestrate"),
+    cwd: join(root, "repo"),
+  });
+  assert.equal(other.use, "this");
+  assert.deepEqual(other.repository_copies, []);
+  const none = whichCopy("orchestrate", {
+    skillDir: join(root, "home/orchestrate"),
+    cwd: join(root, "home"),
+  });
+  assert.equal(none.repository, null);
+  assert.equal(none.use, "this");
+});
+
+test("a repository copy that links outside the repository is still the repository's", () => {
+  const root = layout(["shared/orchestrate/SKILL.md", "repo/.git/HEAD"]);
+  mkdirSync(join(root, "repo/.claude/skills"), { recursive: true });
+  symlinkSync(
+    join(root, "shared/orchestrate"),
+    join(root, "repo/.claude/skills/orchestrate"),
+    "dir",
+  );
+  const result = whichCopy("orchestrate", {
+    skillDir: join(root, "shared/orchestrate"),
+    cwd: join(root, "repo"),
+  });
+  assert.equal(result.use, "this");
+});
+
+test(
+  "on Windows, paths that differ only in case are the same copy",
+  { skip: process.platform !== "win32" && "needs the Windows `node:path`" },
+  () => {
+    const files = new Set(["C:\\Repo\\.git", "C:\\Repo\\.claude\\skills\\orchestrate\\SKILL.md"]);
+    const at = {
+      cwd: "C:\\Repo",
+      exists: (path) => files.has(path.replaceAll("/", "\\")),
+      real: (path) => path,
+      platform: "win32",
+    };
+    assert.equal(
+      whichCopy("orchestrate", { ...at, skillDir: "c:\\repo\\.claude\\skills\\orchestrate" }).use,
+      "this",
+    );
+  },
+);
+
+test("`where` names the skill it checks, and refuses any other argument", () => {
+  const root = layout([
+    "home/orchestrate/SKILL.md",
+    "repo/.git/HEAD",
+    "repo/.claude/skills/orchestrate/SKILL.md",
+  ]);
+  const io = {
+    skillDir: join(root, "home/orchestrate"),
+    cwd: join(root, "repo"),
+    read: () => null,
+  };
+  const ran = main(["where", "orchestrate"], io);
+  assert.equal(ran.code, 0);
+  assert.equal(JSON.parse(ran.out).use, "repository");
+  for (const argv of [["where"], ["where", "../orchestrate"], ["where", "Upper"]])
+    assert.equal(main(argv, io).code, 2, argv.join(" "));
+});
+
+test("SKILL.md checks which copy runs before its first step", () => {
+  const skill = readFileSync(new URL("./SKILL.md", import.meta.url), "utf8");
+  const check = skill.indexOf('config.mjs" where orchestrate');
+  assert.ok(check > 0, "SKILL.md runs `where orchestrate`");
+  assert.ok(check < skill.indexOf("## Workflow"), "before the workflow");
+  for (const dir of PROJECT_SKILL_DIRS) assert.ok(skill.includes(dir), `SKILL.md names ${dir}`);
 });

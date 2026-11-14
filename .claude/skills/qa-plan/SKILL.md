@@ -15,6 +15,20 @@ Load [ANATOMY.md](ANATOMY.md) before writing the plan: it is the format, section
 
 `<skill>` in a command below is the absolute path of the folder this file is in, written with forward slashes (`C:/Users/me/...` on Windows), inside double quotes because it may contain spaces. Every command runs from the root of the repository the pull request belongs to.
 
+## Which copy runs
+
+A harness can load this skill from a user-level folder (under the home folder) while the repository keeps its own copy, pinned to the version the repository was set up with. The user-level copy can be older, and would then follow rules the repository no longer uses. So before anything else, check which copy this is:
+
+```bash
+node "<skill>/adapter.mjs" where qa-plan
+```
+
+It finds the repository from the folder it runs in, and lists the copies of `qa-plan` the repository keeps in the folders harnesses read skills from: `.claude/skills`, `.agents/skills`, `.github/skills` and `.cursor/skills`.
+
+- `use` is `this`: go on. This copy is inside the repository, or the repository keeps none of its own.
+- `use` is `repository`: stop, and run nothing more from this copy. Read the `SKILL.md` that `load` names and follow it from its start instead, with `<skill>` its folder. Tell the human that the copy at `this_copy` was not used, and that the repository's copy at `load` was.
+- Exit 2, or no such script: compare by hand. When this file is outside the repository's root (`git rev-parse --show-toplevel`) and one of those folders in the repository holds `qa-plan/SKILL.md`, do as for `repository`.
+
 ## Rules
 
 - **Residue only.** A scenario earns its place by naming what no passing suite establishes. Re-testing what CI proves wastes the tester and hides the scenarios that matter.

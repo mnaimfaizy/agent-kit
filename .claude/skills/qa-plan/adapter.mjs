@@ -42,13 +42,15 @@
 //   node adapter.mjs delivery [--label L]… where the plan goes, by `plan.publish`
 //   node adapter.mjs render [--write [--drop-comments]] < answers.json
 //                                          the config with the answers merged in
+//   node adapter.mjs where <skill>         whether this copy of the skill is the
+//                                          repository's own (`whichCopy`)
 //   Each prints JSON (render prints the new file body, or writes it with --write;
 //   --write over a commented YAML config exits 3 unless --drop-comments)
 //   and exits 1 on any problem, 2 on bad usage; `host` exits 0 when the run may
 //   sign in, 1 on a stop, 3 when the QA person must confirm the host in chat.
 
 import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /** Lookup order: the first file present is the config (ADAPTER.md). */
@@ -1885,6 +1887,90 @@ function repoReader(repo) {
   };
 }
 
+// ── Which copy runs ─────────────────────────────────────────────────────────
+//
+// A harness can hand a session a user-level copy of this skill (under the home
+// folder) while the repository the run is for keeps its own pinned copy. The
+// two drift apart, and the user-level one would then run out-of-date rules.
+// `whichCopy` is the comparison SKILL.md asks for before anything else: it is
+// copied, not imported, into each Portable skill that runs it, so each one
+// carries it.
+
+/** The repository folders a harness reads skills from, in the order checked. */
+export const PROJECT_SKILL_DIRS = /** @type {const} */ ([
+  ".claude/skills",
+  ".agents/skills",
+  ".github/skills",
+  ".cursor/skills",
+]);
+
+const SKILL_NAME = /^[a-z0-9][a-z0-9-]*$/;
+
+const realOrSelf = (path) => {
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
+};
+
+/**
+ * Whether the copy in `skillDir` is the repository's own, or the repository
+ * has its own copy of skill `name` to load instead.
+ * @param {string} name the skill's name, which is its folder's name
+ * @param {{skillDir: string, cwd: string, exists?: (path: string) => boolean,
+ *   real?: (path: string) => string, platform?: string}} at
+ */
+export function whichCopy(name, at) {
+  const exists = at.exists ?? existsSync;
+  const real = at.real ?? realOrSelf;
+  // Two spellings of one Windows path may differ only in case.
+  const key = (path) => ((at.platform ?? process.platform) === "win32" ? path.toLowerCase() : path);
+  const within = (dir, path) => {
+    const rel = relative(key(dir), key(path));
+    return rel === "" || (!/^\.\.(?:[\\/]|$)/.test(rel) && !isAbsolute(rel));
+  };
+  let repository = null;
+  for (let dir = resolve(at.cwd); ; dir = dirname(dir)) {
+    // `.git` is a folder in a clone and a file in a worktree.
+    if (exists(join(dir, ".git"))) {
+      repository = dir;
+      break;
+    }
+    if (dirname(dir) === dir) break;
+  }
+  const self = real(resolve(at.skillDir));
+  const copies =
+    repository === null
+      ? []
+      : PROJECT_SKILL_DIRS.map((dir) => `${dir}/${name}`).filter((dir) =>
+          exists(join(repository, dir, "SKILL.md")),
+        );
+  // A repository copy that is a link to this folder is this copy.
+  const ours =
+    repository !== null &&
+    (within(real(repository), self) ||
+      copies.some((dir) => key(real(join(repository, dir))) === key(self)));
+  const use = ours || copies.length === 0 ? "this" : "repository";
+  return {
+    skill: name,
+    this_copy: self,
+    repository,
+    repository_copies: copies,
+    use,
+    load: use === "repository" ? join(repository, copies[0], "SKILL.md") : null,
+  };
+}
+
+/** `where <name>`: print `whichCopy` for the script's own folder. */
+function whichCopyCommand(argv, io) {
+  const name = argv[1];
+  if (name === undefined || !SKILL_NAME.test(name)) return null;
+  const skillDir = io.skillDir ?? dirname(fileURLToPath(import.meta.url));
+  const result = whichCopy(name, { skillDir, cwd: io.cwd ?? process.cwd() });
+  return { code: 0, out: `${JSON.stringify(result, null, 2)}\n` };
+}
+
 function option(argv, name) {
   const values = [];
   argv.forEach((arg, n) => {
@@ -1919,7 +2005,8 @@ export function main(argv, io = {}) {
       "usage: node adapter.mjs check --for plan | check --for run [--plan <file>] | " +
       "plan [<file>] < plan.md | host <url> [--target stack|url] [--confirmed <host>] | " +
       "hazards < changed-paths | " +
-      "delivery [--label <name>]… | render [--write [--drop-comments]] < answers.json   " +
+      "delivery [--label <name>]… | render [--write [--drop-comments]] < answers.json | " +
+      "where <skill>   " +
       "[--repo <dir>]\n",
   };
   // A plan is the person's file, wherever they keep it: read from the working
@@ -1939,6 +2026,8 @@ export function main(argv, io = {}) {
     return validatePlan(text);
   };
 
+  if (command === "where")
+    return whichCopyCommand(argv, { ...io, cwd: option(argv, "--repo")[0] ?? io.cwd }) ?? usage;
   if (command === "plan") {
     const result = readPlan(argv[1] && !argv[1].startsWith("--") ? argv[1] : undefined);
     return { code: result.problems.length ? 1 : 0, out: json(result) };
