@@ -377,6 +377,24 @@ test("a mark stuck to a first-word value is named, with the fix (#201)", () => {
   assert.deepEqual(problemsOf(account), [
     `line ${lineOf(account, "- **Signs in as:** `temp-user`")}: S2 signs in as \`temp-user.\`: a \`.\` is stuck to the value; ${fix("temp-user")}`,
   ]);
+  // A Scenario account the scenario creates itself, or a later one creates, is no fix:
+  // without the mark it would still fail, so the problem is today's.
+  const neither = (word) =>
+    `S1 signs in as \`${word}\`, which is neither a role the Run brief's **Roles:** names nor a Scenario account an earlier scenario creates`;
+  const itself = broken(
+    "- **Signs in as:** `admin`\n",
+    "- **Signs in as:** `temp-user`.\n- **Creates:** `temp-user`\n",
+  );
+  assert.deepEqual(problemsOf(itself), [
+    `line ${lineOf(itself, "- **Signs in as:** `temp-user`")}: ${neither("temp-user.")}`,
+  ]);
+  const later = broken(
+    "- **Signs in as:** nobody\n",
+    "- **Signs in as:** nobody\n- **Creates:** `temp-user`\n",
+  ).replace("- **Signs in as:** `admin`", "- **Signs in as:** `temp-user`.");
+  assert.deepEqual(problemsOf(later), [
+    `line ${lineOf(later, "- **Signs in as:** `temp-user`")}: ${neither("temp-user.")}`,
+  ]);
   // No valid word under the mark, or no mark: today's message.
   for (const [from, to, problem] of [
     [

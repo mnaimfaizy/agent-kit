@@ -94,9 +94,9 @@ export const SURFACES = /** @type {const} */ (["web", "desktop", "mobile", "api"
 /**
  * Marks a writer may leave stuck to the end of a first-word value (#201). A comma,
  * semicolon, colon or parenthesis already ends the word (ANATOMY.md, "First-word
- * values"), so in practice only `.`, `!` and `?` are left on it.
+ * values"), so none of them is ever left on it.
  */
-const STUCK_MARKS = [".", ",", ";", ":", "!", "?", ")"];
+const STUCK_MARKS = [".", "!", "?"];
 
 /** ADAPTER.md's defaults. `base_ref` and `suites` have none: the readiness check asks. */
 export const DEFAULTS = Object.freeze({
@@ -1632,7 +1632,7 @@ export function validatePlan(text) {
           (candidate) =>
             candidate === "nobody" ||
             plan.brief.roles.includes(candidate) ||
-            creatorOf.has(candidate),
+            (creatorOf.get(candidate) ?? Infinity) < i,
         );
         if (stuck) at(line, `${subject} signs in as ${stuck}`);
         else if (creator === undefined)
