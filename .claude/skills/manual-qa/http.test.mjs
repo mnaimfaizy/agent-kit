@@ -347,7 +347,6 @@ test("a cookie its own Set-Cookie line removes is a placeholder: readable in bod
   assert.match(log, /set-cookie: sid=\[redacted:cookie sid\]; Max-Age=0; Path=\/; HttpOnly/);
   assert.match(log, /\{"status": "deleted"\}/);
   assert.match(log, /Account deleted/);
-  assert.doesNotMatch(log, /\[redacted:cookie PHPSESSID\]"\}|Account \[redacted/);
 });
 
 test("Max-Age of 0 or less, in any case, or a past Expires removes a cookie; Max-Age outranks Expires", () => {

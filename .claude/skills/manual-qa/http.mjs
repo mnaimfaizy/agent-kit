@@ -354,11 +354,12 @@ export function parseSetCookie(line) {
 
 /**
  * Whether a `Set-Cookie` line removes its own cookie: a `Max-Age` of 0 or
- * less, or, with no `Max-Age`, an `Expires` no later than now (the response's
- * arrival). Attribute names match in any case, as `CookieJar.store` reads them.
- * @param {string[]} attributes @param {number} [now]
+ * less, or, with no valid `Max-Age`, an `Expires` no later than now (just
+ * after the response arrived). Attribute names match in any case. The same
+ * rule as `CookieJar.store`, which drops such a cookie.
+ * @param {string[]} attributes
  */
-export function removedCookie(attributes, now = Date.now()) {
+function removesItself(attributes) {
   let maxAge = null;
   let expires = null;
   for (const attribute of attributes) {
@@ -368,7 +369,7 @@ export function removedCookie(attributes, now = Date.now()) {
     if (k === "max-age" && /^-?\d+$/.test(val)) maxAge = Number(val);
     else if (k === "expires" && !Number.isNaN(Date.parse(val))) expires = Date.parse(val);
   }
-  return maxAge !== null ? maxAge <= 0 : expires !== null && expires <= now;
+  return maxAge !== null ? maxAge <= 0 : expires !== null && expires <= Date.now();
 }
 
 /**
@@ -378,12 +379,13 @@ export function removedCookie(attributes, now = Date.now()) {
  * A flag-like cookie (`logged_in=true`, `theme=light`, `user_id=1042`) is not
  * searched for, so the same text in a body stays readable evidence. Nor is a
  * cookie its own line removes (`PHPSESSID=deleted; Max-Age=0`): its value is a
- * placeholder, not a credential. A value an earlier line made searched stays so.
+ * placeholder, not a credential. A value another line in the run made searched
+ * stays searched.
  * @param {{name: string, value: string, attributes: string[]}} cookie
  */
 export function searchedCookie({ name, value, attributes }) {
   if (value.length < MIN_SECRET_LENGTH || /^(?:true|false|null)$/i.test(value)) return false;
-  if (removedCookie(attributes)) return false;
+  if (removesItself(attributes)) return false;
   const httpOnly = attributes.some((a) => a.trim().toLowerCase() === "httponly");
   return secretName(name) || httpOnly || value.length >= OPAQUE_COOKIE_LENGTH;
 }
