@@ -103,7 +103,7 @@ The **Residue**: only what a passing CI run does not establish. One `###` headin
 - **A failure means:** what is broken if the expected result does not appear, so a failure is reported as a finding and not a symptom.
 - **If this fails, first rule out:** only in a scenario a Hazard pack matches. The pack's _Rule out first_ list, copied in under the pack's path.
 
-A plan with no scenarios is not written: an empty Residue means merge without a plan.
+A plan with no scenarios and no `Review:` box ([Sign-off checklist](#sign-off-checklist)) is not written: an empty Residue means merge without a plan. A plan whose Residue is only review boxes is still a plan: its Scenarios section says `None.`, and its run has no scenario to drive and starts no stack.
 
 ### Scenario accounts
 
@@ -156,7 +156,13 @@ A **Session** is one signed-in identity, with cookies and storage no other sessi
 
 ## Sign-off checklist
 
-One unticked box per scenario (`- [ ] S1: <what is verified>`), plus one per Setup step a person must confirm. Ticked by whoever runs the plan.
+One unticked box per scenario (`- [ ] S1: <what is verified>`), plus one per Setup step a person must confirm, plus one `Review:` box per promise only reading can check. Ticked by whoever runs the plan, except a `Review:` box, which the person who reads it ticks.
+
+A promise only reading can check (the copy of a doc, a static file the app does not serve, a code comment) has no surface to drive, so it is not a scenario. It is a box: `- [ ] Review: <what to read, and what it must say>`, such as `- [ ] Review: docs/x.html says the token lasts 30 days`. The text after `Review:` is required.
+
+- A `Review:` box is no scenario's box: each scenario still needs its own.
+- `manual-qa` runs nothing for one. It is never a Results row or a PASS: the QA Report's **Follow-ups** lists each open one for a person.
+- No check reads the text it names: the box is the whole of it.
 
 ## Stop and do not merge if
 

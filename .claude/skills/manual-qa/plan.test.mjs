@@ -1409,6 +1409,69 @@ test("`plan` prints each scenario's **Observes:** list", () => {
   );
 });
 
+// ── Review boxes (#205) ─────────────────────────────────────────────────────
+
+const REVIEW = "- [ ] Review: docs/x.html says the token lasts 30 days";
+/** The good plan with a `Review:` box added to its Sign-off checklist. */
+const withReview = (box = REVIEW) =>
+  broken(
+    "- [ ] Setup 1: the `admin` account was restored",
+    `- [ ] Setup 1: the \`admin\` account was restored\n${box}`,
+  );
+/** The good plan with no scenarios: its Scenarios says `None.`, and its checklist holds `boxes`. */
+const reviewOnly = (...boxes) =>
+  GOOD.replace(/(## Scenarios\n\n)[\s\S]*?(?=## Sign-off checklist)/, "$1None.\n\n").replace(
+    /(## Sign-off checklist\n\n)[\s\S]*?(?=\n## Stop)/,
+    `$1${boxes.join("\n")}\n`,
+  );
+
+test("a `Review:` box reads, and is in the parsed plan's review list", () => {
+  const { plan, problems } = validatePlan(withReview());
+  assert.deepEqual(problems, []);
+  assert.deepEqual(plan.reviews, [
+    { text: "docs/x.html says the token lasts 30 days", ticked: false },
+  ]);
+  assert.deepEqual(validatePlan(GOOD).plan.reviews, []);
+  const ticked = validatePlan(withReview("* [x] Review: README.md names the new flag")).plan;
+  assert.deepEqual(ticked.reviews, [{ text: "README.md names the new flag", ticked: true }]);
+});
+
+test("a `Review:` box says what to read, and what it must say", () => {
+  assertProblem(withReview("- [ ] Review:"), /a `Review:` box with nothing after it/);
+  assertProblem(withReview("- [ ] Review:   "), /a `Review:` box with nothing after it/);
+});
+
+test("a `Review:` box is no scenario's box, so a scenario without its own is still a problem", () => {
+  const text = broken(
+    "- [ ] S2: A signed-out visitor cannot open the members page",
+    "- [ ] Review: S2 docs/members.md says signed-out visitors are sent to sign in",
+  );
+  assertProblem(text, /no `- \[ \] S2: …` box for S2/);
+  assert.deepEqual(validatePlan(text).plan.reviews, [
+    {
+      text: "S2 docs/members.md says signed-out visitors are sent to sign in",
+      ticked: false,
+    },
+  ]);
+});
+
+test("a plan whose Residue is only review boxes is still a plan", () => {
+  const { plan, problems } = validatePlan(reviewOnly(REVIEW));
+  assert.deepEqual(problems, []);
+  assert.deepEqual(plan.scenarios, []);
+  assert.equal(plan.reviews.length, 1);
+  // With neither a scenario nor a review box, the Residue is empty: no plan.
+  assertProblem(
+    reviewOnly("- [ ] Setup 1: the `admin` account was restored"),
+    /no `### S1: …` scenario and no `Review:` box/,
+  );
+  // Prose in Scenarios is not `None.`: a scenario that lost its heading is still caught.
+  assertProblem(
+    reviewOnly(REVIEW).replace("## Scenarios\n\nNone.", "## Scenarios\n\nThe invite dialog."),
+    /no `### S1: …` scenario/,
+  );
+});
+
 // ── CLI ─────────────────────────────────────────────────────────────────────
 
 test("`plan <file>` prints the plan and exits 0; a broken plan exits 1", () => {

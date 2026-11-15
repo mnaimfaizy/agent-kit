@@ -170,7 +170,8 @@ const cells = (row) =>
     .map((cell) => cell.trim());
 
 /**
- * Read a QA Report file into what posting needs.
+ * Read a QA Report file into what posting needs. Its Results is a table of one
+ * row per scenario, or `None.` for a plan with no scenarios.
  *
  * @param {string} text
  * @returns {{report: {title: string | null, subject: number | null, pr: number | null,
@@ -277,7 +278,18 @@ export function readReport(text) {
         notes: notes.join("|").trim(),
       });
     }
-    if (report.results.length === 0) problems.push("the Results table has no scenario rows");
+    // `None.` in place of the table: a plan whose Residue is only `Review:` boxes has no
+    // scenarios to run (#205). Against its plan, one row per scenario still decides.
+    const none =
+      lines
+        .slice(results.start + 1, results.end)
+        .filter((line) => line.trim() !== "")
+        .join("\n")
+        .trim() === "None.";
+    if (report.results.length === 0 && !none)
+      problems.push(
+        "the Results table has no scenario rows: write `None.` in its place only when the plan has no scenarios",
+      );
   }
   report.stopped = report.results.some((row) =>
     /(?<![A-Za-z])the run stopped at S\d+/i.test(row.notes),
@@ -502,7 +514,7 @@ export function reportComment(reportText, { links = {} } = {}) {
  * The tracker issue's new body: the plan it carries, with each scenario's
  * Sign-off box ticked for PASS and cleared otherwise, and its Execution record
  * replaced by the report's, evidence linked. Boxes that are not a scenario's
- * (a Setup step) are a person's to tick, and are left as they are.
+ * (a Setup step, a `Review:` box) are a person's to tick, and are left as they are.
  *
  * @param {string} issueBody the issue's current body
  * @param {string} reportText

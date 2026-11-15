@@ -400,3 +400,33 @@ test("Expected result compares product outputs, never a default read from source
     "step 6 repeats the rule instead of pointing to it",
   );
 });
+
+test("a promise only reading can check is a `Review:` box, never a scenario (#205)", () => {
+  const signOff = section("Sign-off checklist").replace(/\s+/g, " ");
+  assert.match(signOff, /`- \[ \] Review: <what to read, and what it must say>`/);
+  assert.match(signOff, /`- \[ \] Review: docs\/x\.html says the token lasts 30 days`/);
+  assert.match(signOff, /A `Review:` box is no scenario's box: each scenario still needs its own/);
+  assert.match(signOff, /`manual-qa` runs nothing for one/);
+  assert.match(signOff, /never a Results row or a PASS/);
+  assert.match(signOff, /\*\*Follow-ups\*\* lists each open one for a person/);
+  assert.match(signOff, /No check reads the text it names/);
+  const scenarios = section("Scenarios").replace(/\s+/g, " ");
+  assert.match(
+    scenarios,
+    /A plan with no scenarios and no `Review:` box \(\[Sign-off checklist\]\(#sign-off-checklist\)\) is not written/,
+  );
+  assert.match(scenarios, /A plan whose Residue is only review boxes is still a plan/);
+  assert.match(scenarios, /its Scenarios section says `None\.`/);
+
+  const step = (n) => skill.split(/^### /m).find((part) => part.startsWith(`${n}. `)) ?? "";
+  const compose = step(6).replace(/\s+/g, " ");
+  assert.match(
+    compose,
+    /A promise only reading can check \(the copy of a doc, a static file the app does not serve, a code comment\)/,
+  );
+  assert.match(compose, /becomes a `- \[ \] Review: <what to read, and what it must say>` box/);
+  assert.match(compose, /\[ANATOMY\.md\]\(ANATOMY\.md#sign-off-checklist\)/);
+  assert.match(compose, /never dropped/);
+  const draft = step(7).replace(/\s+/g, " ");
+  assert.match(draft, /name each `Review:` box to the person/);
+});

@@ -308,6 +308,27 @@ test("a scenario's **Observes:** is checked against each driver before the run s
     assert.match(flat, row);
 });
 
+test("a `Review:` box runs nothing, is never a result, and is listed for a person (#205)", () => {
+  const flat = skill.replace(/\s+/g, " ");
+  // A plan of review boxes only: no driver, no stack.
+  assert.match(
+    flat,
+    /A plan with no scenarios \(`plan\.scenarios` is empty: its Residue is only `Review:` boxes\) needs no driver and starts no stack: skip to step 8/,
+  );
+  assert.match(
+    flat,
+    /A `Review:` box in the Sign-off checklist \(`plan\.reviews`\) is not a scenario: run nothing for it, and give it no result/,
+  );
+  assert.match(flat, /never a Results row or a PASS/);
+  assert.match(
+    flat,
+    /Each open `Review:` box \(`plan\.reviews` with `ticked: false`\) goes under \*\*Follow-ups\*\*, for a person to read/,
+  );
+  assert.match(flat, /`None\.` in place of the Results table when the plan has no scenarios/);
+  assert.match(flat, /- Review, for a person: <its text>/);
+  assert.match(flat, /a Setup box and a `Review:` box stay a person's to tick/);
+});
+
 test("finding a driver notes whether it can save images and record", () => {
   const flat = skill.replace(/\s+/g, " ");
   assert.match(flat, /whether it can \*\*save images\*\*.*and whether it can \*\*record\*\*/);

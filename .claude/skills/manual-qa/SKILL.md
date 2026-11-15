@@ -88,6 +88,8 @@ For `stack`, the stack runs the checkout, so `git rev-parse HEAD` must also equa
 
 ### 4. Find a driver
 
+A plan with no scenarios (`plan.scenarios` is empty: its Residue is only `Review:` boxes) needs no driver and starts no stack: skip to step 8.
+
 Each scenario drives its effective surface, `plan.scenarios[].surface` in the `plan` output: its own **Surface:** when it carries one, else the Run brief's ([ANATOMY.md](ANATOMY.md#scenarios)). When step 2 asked which surface this run uses and the answer differs from the Run brief's, the answer replaces it for every scenario whose effective surface is the Run brief's (a **Surface:** that repeats the Run brief's changes nothing); a scenario whose own **Surface:** names another keeps it. So one plan can drive more than one surface; find a tool this session has that can drive each surface the scenarios use:
 
 - `web`: a browser tool (the host's built-in browser, Claude in Chrome, a Playwright MCP server).
@@ -176,6 +178,8 @@ Carry out the plan's **Setup** steps in order, in the product, as a tester would
 
 ### 6. Run the scenarios
 
+A `Review:` box in the Sign-off checklist (`plan.reviews`) is not a scenario: run nothing for it, and give it no result. It is never a Results row or a PASS, even when you read the text it names and it says what the box asks; step 8 lists it for a person ([ANATOMY.md](ANATOMY.md#sign-off-checklist)).
+
 For each scenario, in order: sign in as its **Signs in as** role or Scenario account (signed out for `nobody`), or, for **Sessions:**, sign each session in on its own driver as its id. Carry out its **Steps** exactly, each in the session it names, one step at a time, and compare what appears with its **Expected result**. Record the result, the evidence and a note.
 
 Capture the evidence as you go, without asking first, under `<working_dir>/qa-report-pr-<n>/`, by the capture rules (Rules above, and the Run brief's **Capture rules**):
@@ -213,7 +217,7 @@ Only when this run ran `up` (step 5): run `down`, then stop each process in `sta
 
 ### 8. Write the QA Report
 
-Write `<working_dir>/qa-report-pr-<n>.md` in the shape below, and read it back: one row per scenario, no sign-in value anywhere in it or in the evidence folder. When the run departed from the plan as written or from the Rules above in any way the person reading the report must know about to trust its results (one of the plan's commands run before you noticed the rule against running it; a step carried out of order), add the **Run deviations:** line: each departure, and what was done about it, on one line, separated by semicolons. With none, leave the line out. When the plan file is in `working_dir`, replace its Execution record with the report's short record. Show the person the results and the report's path. Nothing is posted in this step.
+Write `<working_dir>/qa-report-pr-<n>.md` in the shape below, and read it back: one row per scenario, no sign-in value anywhere in it or in the evidence folder. When the run departed from the plan as written or from the Rules above in any way the person reading the report must know about to trust its results (one of the plan's commands run before you noticed the rule against running it; a step carried out of order), add the **Run deviations:** line: each departure, and what was done about it, on one line, separated by semicolons. With none, leave the line out. Each open `Review:` box (`plan.reviews` with `ticked: false`) goes under **Follow-ups**, for a person to read, with its text as the plan gives it. Write `None.` in place of the Results table when the plan has no scenarios. When the plan file is in `working_dir`, replace its Execution record with the report's short record. Show the person the results and the report's path. Nothing is posted in this step.
 
 ```bash
 node "<skill>/report.mjs" read "<report file>" --plan "<plan file>"
@@ -286,7 +290,7 @@ With `working-copy`, skip this step. Otherwise pass `--link <file>=<url>` for ea
   gh issue edit <planIssue> --body-file "<tmp>/issue-new.md"
   ```
 
-  Each scenario's Sign-off box is ticked when it passed and cleared otherwise; a Setup box stays a person's to tick. The issue's Execution record becomes the report's. The report's **Run deviations:** line is in its header, not its Execution record, so it does not reach the issue. An issue whose plan is for another pull request or another head is refused: the plan was revised after this run.
+  Each scenario's Sign-off box is ticked when it passed and cleared otherwise; a Setup box and a `Review:` box stay a person's to tick. The issue's Execution record becomes the report's. The report's **Run deviations:** line is in its header, not its Execution record, so it does not reach the issue. An issue whose plan is for another pull request or another head is refused: the plan was revised after this run.
 
 Give the person the comment or issue URL, and each uploaded file's URL.
 
@@ -315,9 +319,11 @@ Give the person the comment or issue URL, and each uploaded file's URL.
 | S2: …    | PASS              | none: api surface, the redacted response body is in the notes | …     |
 | S3: …    | left for a person | none                                                          | why   |
 
+`None.` in place of the Results table when the plan has no scenarios.
+
 ## Follow-ups
 
-Scenarios automation should own, steps that did not match the product, anything else a person should look at. `None.` when there are none.
+Each open `Review:` box, one line each (`- Review, for a person: <its text>`). Scenarios automation should own, steps that did not match the product, anything else a person should look at. `None.` when there are none.
 
 ## Execution record
 

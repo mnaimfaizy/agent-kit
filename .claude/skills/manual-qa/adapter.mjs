@@ -1120,6 +1120,8 @@ export const FORMATS = /** @type {const} */ ([1, 2]);
 /** The format the composer writes. */
 export const FORMAT = FORMATS.at(-1);
 const RULE_OUT = "If this fails, first rule out";
+/** A Sign-off box for a promise only reading can check: `- [ ] Review: <what to read, and what it must say>`. */
+const REVIEW_BOX = /^\s*[-*]\s+\[([ xX])\]\s+Review:(.*)$/;
 /** A role id, and a Scenario account id: letters, digits, `_` and `-`. */
 const ACCOUNT_ID = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
 export const NOT_RUN = "_Not run yet._";
@@ -1303,7 +1305,9 @@ export function credentialProblems(lines) {
  * scenario lists its `sessions` as `{name, id}`: one with `name: null` for
  * **Signs in as:**, else one per letter, its effective `surface`: its own
  * **Surface:** (format=2), else the Run brief's, and the values its **Observes:**
- * (format=2) lists, as `observes` (`[]` with none).
+ * (format=2) lists, as `observes` (`[]` with none). Each `Review:` box in the
+ * Sign-off checklist is in `reviews`, as `{text, ticked}`: never a scenario's box,
+ * and a plan whose Scenarios says `None.` reads when it has one.
  * `manual-qa` runs nothing from a plan with a problem.
  *
  * @param {string} text
@@ -1321,6 +1325,7 @@ export function validatePlan(text) {
     anchors: { subjectIssue: null, pullRequest: null, mergeBase: null, head: null },
     brief: { target: null, surface: null, versionEndpoint: null, roles: [] },
     scenarios: [],
+    reviews: [],
     executed: false,
   };
 
@@ -1660,6 +1665,18 @@ export function validatePlan(text) {
     commandProblems(from, to, { where: "Setup", section: "Setup" });
   }
 
+  // Each `Review:` box: a promise only reading can check (ANATOMY.md, "Sign-off checklist").
+  if (sections["Sign-off checklist"]) {
+    const { from, to } = sections["Sign-off checklist"];
+    for (let n = from; n < to; n += 1) {
+      const box = !fenced[n] && REVIEW_BOX.exec(lines[n]);
+      if (!box) continue;
+      if (box[2].trim() === "")
+        at(n, "a `Review:` box with nothing after it: say what to read, and what it must say");
+      else plan.reviews.push({ text: box[2].trim(), ticked: box[1] !== " " });
+    }
+  }
+
   if (sections.Scenarios) {
     const { n, from, to } = sections.Scenarios;
     const heads = [];
@@ -1669,8 +1686,16 @@ export function validatePlan(text) {
       const match = !fenced[i] && /^### (.*)$/.exec(lines[i]);
       if (match) heads.push({ text: match[1].trim(), n: i });
     }
-    if (!heads.length && textOf("Scenarios") !== "")
-      at(n, "no `### S1: …` scenario: a plan with no scenarios is not written (empty Residue)");
+    // A Residue of review boxes only is still a plan; its Scenarios says `None.`.
+    if (
+      !heads.length &&
+      textOf("Scenarios") !== "" &&
+      !(textOf("Scenarios") === "None." && plan.reviews.length)
+    )
+      at(
+        n,
+        "no `### S1: …` scenario and no `Review:` box: a plan with neither is not written (empty Residue)",
+      );
     heads.forEach((head, i) => {
       const match = /^S(\d+):\s*(\S.*)$/.exec(head.text);
       if (!match) return at(head.n, "expected `### S<n>: <what is verified>`");
