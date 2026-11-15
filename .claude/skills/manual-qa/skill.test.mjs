@@ -94,6 +94,23 @@ test("a Scenario account's values stay in the conversation, and the report lists
   );
 });
 
+test("step 2: a plan with no scenarios needs none of the run answers (#221)", () => {
+  const step = /### 2\. Read the config\n([\s\S]*?)\n### 3\./.exec(skill)?.[1] ?? "";
+  assert.match(
+    step,
+    /A plan with no scenarios \(`plan\.scenarios` is empty\) needs none of the run answers: no target, surface or roles, no stack commands or `accounts\.print`, and no address for `url`/,
+  );
+  assert.match(step, /Its `readiness\.needs` is empty, so nothing is asked/);
+  assert.match(
+    step,
+    /`readiness\.run\.target` is `url` and the plan has scenarios: no config key holds the address/,
+  );
+  assert.match(
+    step,
+    /\*\*Done when:\*\*[^\n]*, or the plan has no scenarios and needs none of them; and the plan file is in `working_dir`/,
+  );
+});
+
 test("the build check runs gh, then the version endpoint, then marks the report", () => {
   const gh = skill.indexOf("**With `gh` access:**");
   const endpoint = skill.indexOf("**Otherwise, with a version endpoint**");

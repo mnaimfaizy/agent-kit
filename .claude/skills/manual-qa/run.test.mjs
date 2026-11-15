@@ -334,6 +334,116 @@ test("readiness is never ready over `run:` problems", () => {
   assert.deepEqual(readiness.needs, ["a config with no problems in `run:`: fix each one listed"]);
 });
 
+// ── Readiness for a plan with no scenarios (#221) ─────────────────────────────
+
+/** The good plan with no scenarios: its Scenarios says `None.`, and its checklist one `Review:` box. */
+const REVIEW_ONLY = GOOD_PLAN.replace(
+  /(## Scenarios\n\n)[\s\S]*?(?=## Sign-off checklist)/,
+  "$1None.\n\n",
+).replace(
+  /(## Sign-off checklist\n\n)[\s\S]*?(?=\n## Stop)/,
+  "$1- [ ] Review: docs/x.html says the token lasts 30 days\n",
+);
+const reviewOnlyPlan = (text = REVIEW_ONLY) => {
+  const { plan, problems } = validatePlan(text);
+  assert.deepEqual(problems, []);
+  assert.equal(plan.scenarios.length, 0);
+  return plan;
+};
+
+test("a plan with no scenarios asks for nothing only driving scenarios needs", () => {
+  const plan = reviewOnlyPlan();
+  const none = runReadiness(readQaConfig(reader({})), plan);
+  assert.equal(none.ready, true);
+  assert.deepEqual(none.needs, []);
+  // A config that leaves out roles, stack commands and `accounts.print` asks nothing either.
+  const bare = runReadiness(
+    readQaConfig(reader({ "qa.config.yml": "run:\n  target: stack\n  stack: { up: go }\n" })),
+    plan,
+  );
+  assert.equal(bare.ready, true);
+  assert.deepEqual(bare.needs, []);
+  // Nor does a Run brief with no target or surface, or roles the config does not declare.
+  const unbriefed = {
+    ...plan,
+    brief: { ...plan.brief, target: null, surface: null, roles: ["admin", "member"] },
+  };
+  const asks = runReadiness(
+    readQaConfig(
+      reader({ "qa.config.yml": "run:\n  accounts:\n    roles: [{ id: admin, purpose: x }]\n" }),
+    ),
+    unbriefed,
+  );
+  assert.deepEqual(asks.needs, []);
+  assert.equal(asks.ready, true);
+});
+
+test("a plan with no scenarios raises no target or surface conflict, and still reports the run", () => {
+  const conflicting = [
+    "run:",
+    "  target: url",
+    "  surface: api",
+    "  accounts:",
+    "    roles: [{ id: admin, purpose: x }]",
+  ].join("\n");
+  const readiness = runReadiness(
+    readQaConfig(reader({ "qa.config.yml": conflicting })),
+    reviewOnlyPlan(),
+  );
+  assert.deepEqual(readiness.needs, []);
+  assert.equal(readiness.ready, true);
+  assert.deepEqual(readiness.run, { target: "url", surface: "api", roles: ["admin"] });
+  // The same config with the good plan's scenarios asks which surface and target this run uses.
+  const driven = runReadiness(
+    readQaConfig(reader({ "qa.config.yml": conflicting })),
+    validatePlan(GOOD_PLAN).plan,
+  );
+  assert.ok(driven.needs.some((n) => /^run\.surface: the config says `api`/.test(n)));
+  assert.ok(driven.needs.some((n) => /^run\.target: the config says `url`/.test(n)));
+});
+
+test("a plan with no scenarios keeps the build-check note, and drops the notes about driving", () => {
+  const unbuilt = REVIEW_ONLY.replace(
+    /- \*\*Build:\*\*.*\n/,
+    "- **Build:** 2222222222222222222222222222222222222222\n",
+  );
+  const url = "run:\n  target: url\n  surface: web\n";
+  const readiness = runReadiness(
+    readQaConfig(reader({ "qa.config.yml": url })),
+    reviewOnlyPlan(unbuilt),
+  );
+  assert.deepEqual(readiness.notes, [
+    "no `run.version_endpoint`: without `gh` access the build cannot be checked against the plan's head",
+  ]);
+  const unconfigured = runReadiness(readQaConfig(reader({})), reviewOnlyPlan(unbuilt));
+  assert.deepEqual(unconfigured.notes.length, 2);
+  assert.match(unconfigured.notes[0], /^no qa\.config\.yml/);
+  assert.match(unconfigured.notes[1], /^no `run\.version_endpoint`/);
+  // The Build names a version endpoint: nothing is left to say.
+  assert.deepEqual(
+    runReadiness(readQaConfig(reader({ "qa.config.yml": url })), reviewOnlyPlan()).notes,
+    [],
+  );
+});
+
+test("a plan with no scenarios still gets each `run:` config problem", () => {
+  const read = readQaConfig(reader({ "qa.config.yml": "run:\n  target: moon\n" }));
+  assert.ok(read.runProblems.length);
+  const readiness = runReadiness(read, reviewOnlyPlan());
+  assert.equal(readiness.ready, false);
+  assert.deepEqual(readiness.needs, ["a config with no problems in `run:`: fix each one listed"]);
+});
+
+test("check --for run --plan: a review-only plan with no config is ready and needs nothing", () => {
+  const io = { read: reader({}), readFile: (p) => (p === "plan.md" ? REVIEW_ONLY : null) };
+  const result = main(["check", "--for", "run", "--plan", "plan.md"], io);
+  assert.equal(result.code, 0);
+  const out = JSON.parse(result.out);
+  assert.deepEqual(out.planProblems, []);
+  assert.equal(out.readiness.ready, true);
+  assert.deepEqual(out.readiness.needs, []);
+});
+
 // ── check --for run ─────────────────────────────────────────────────────────
 
 test("check --for run prints problems and exits 1", () => {
