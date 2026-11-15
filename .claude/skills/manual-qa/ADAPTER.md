@@ -99,6 +99,93 @@ A `url` run signs in to an environment this run did not seed. Its role values co
 
 A QA team with no repository cannot run `accounts.print`. It asks the developer instead: for each role id in the plan's **Roles**, the developer runs `accounts.print` (or reads the values the environment was seeded with) and sends them to the QA person directly, never in the plan, a tracker comment or a file. The QA person then types them into chat. Values are never read from an env file, and never production credentials.
 
+## The api driver
+
+`http.mjs` drives the `api` surface (SKILL.md steps 4 and 6). It runs on Node's built-in `fetch` with no dependency, so no shell quoting or line ending can change a request: a carriage return at the end of a variable's value (from a Windows tool) is dropped, and one inside a value is refused.
+
+```bash
+node "<skill>/http.mjs" run <sequence.json> --base <address> --log <working_dir>/qa-report-pr-<n>/s<n>-http.log
+```
+
+`--base` is the address the host rule let through, with no path: each request's `path` carries its own. It takes no other option: no sign-in value is ever given on the command line.
+
+### The sequence
+
+The runner writes one sequence per scenario, from the scenario's steps, as a JSON file in `working_dir`. A plan is never run as code.
+
+```json
+{
+  "requests": [
+    {
+      "session": "A",
+      "method": "POST",
+      "path": "/api/sign-in",
+      "json": { "email": "{{env:QA_A_EMAIL}}", "password": "{{env:QA_A_PASSWORD}}" },
+      "capture": ["Location"]
+    },
+    { "session": "A", "method": "GET", "path": "/api/me" },
+    {
+      "session": "A",
+      "method": "POST",
+      "path": "/api/users/7/password",
+      "headers": { "X-CSRF-Token": "{{cookie:csrftoken}}" },
+      "form": { "password": "{{env:QA_NEW_PASSWORD}}" }
+    }
+  ]
+}
+```
+
+The file holds one key, `requests`, a list of 1 to 200 requests run in order. Each request has:
+
+| Key       | Meaning                                                                                                                                             |
+| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `session` | The Session it runs in: one capital letter, default `A`. Each Session has its own cookie jar.                                                       |
+| `method`  | `GET`, `HEAD`, `POST`, `PUT`, `PATCH`, `DELETE` or `OPTIONS`.                                                                                       |
+| `path`    | Starts with one `/`, and is sent to `--base`: never a URL, so every request goes to the checked address. A query string may follow.                 |
+| `headers` | Optional: header names to string values. Never `Cookie` (the Session's jar sends cookies), `Host` or `Content-Length`.                              |
+| `json`    | Optional: a JSON body, sent with `Content-Type: application/json` unless `headers` sets one.                                                        |
+| `form`    | Optional: names to string values, sent form-encoded.                                                                                                |
+| `body`    | Optional: a raw string body. At most one of `json`, `form` and `body`, and none on `GET` or `HEAD`.                                                 |
+| `capture` | Optional: the response headers to record in the log, by name. `Set-Cookie` is always recorded. Any other key in a request or the file is a problem. |
+
+Two placeholders may appear in `path`, a header value and any string of a body:
+
+- `{{env:QA_<NAME>}}`: the value of that environment variable. Only `QA_` variables can be read, so no other variable in the shell (a cloud token) can be sent. Sign-in values come from here, and only from here.
+- `{{cookie:<name>}}`: the value of that cookie the Session's jar would send to the request's path, for an API that wants it echoed in a header (a CSRF token).
+
+A redirect is recorded, with its `Location` when `capture` names it, and not followed: the next request in the sequence goes where the step says. A request with no response after 30 seconds did not complete. There are no retries, assertions or variables taken from a response body: the runner judges the log.
+
+**A sequence that carries a secret inline is refused**, and nothing is sent. `http.mjs` names the request and the field, never the value. It refuses:
+
+- a `Cookie` header;
+- a header that names a credential (`Authorization`, `Proxy-Authorization`, or a name with `token`, `secret`, `api-key`, `password`, `auth` or `session` in it) holding anything but a placeholder, after a scheme word (`Bearer`, `Basic`, `Token`, `Bot`) at most;
+- a body field or query parameter whose name names a secret (`password`, `passwd`, `secret`, `token`, `api_key`, `credential`, `otp`, `pin`, `session`, `sid` and the like) holding anything but placeholders, `null` or `true`/`false`;
+- a value shaped like a secret anywhere: a JWT, a literal `Bearer` or `Basic` credential, a GitHub, OpenAI-style, AWS or Slack token;
+- the text of any `QA_*` variable's value, of four characters or more, written into the file in place of its placeholder, in any of the forms the redaction rule below looks for;
+- a `{{env:…}}` placeholder naming a variable outside `QA_`, or one that is not set.
+
+### The log and the redaction rule
+
+The log, `s<n>-http.log`, is the scenario's evidence file. For each request in order, it records `## <n>. <session> <method> <path>`, then `status: <code>`, each `Set-Cookie` line, each header `capture` names, and the response body (cut at 65,536 characters), exactly as the server sent it. A JSON body is written out again, indented, only when one of its fields is redacted. A request that got no response is recorded as `did not complete: <why>`, and the log ends there.
+
+Everything written to the log and to stdout is redacted first:
+
+| What                                                                                                                                                                                                                                                                                                        | Replaced with                                                                                                               |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| The value of each `QA_*` variable the sequence used, raw, URL-encoded, form-encoded, JSON-escaped or HTML-escaped                                                                                                                                                                                           | `[redacted:<VARIABLE>]`, anywhere: path, headers, body                                                                      |
+| A cookie's value in its `Set-Cookie` line                                                                                                                                                                                                                                                                   | `[redacted:cookie <name>]`; the cookie's name and attributes (`HttpOnly`, `Path`, `SameSite`, `Secure`, `Max-Age`) are kept |
+| The value of a cookie that is a secret by its name, is `HttpOnly`, or holds 16 characters or more, wherever it appears (a flag-like cookie such as `logged_in=true` or `theme=light` is redacted in its `Set-Cookie` line only)                                                                             | `[redacted:cookie <name>]`                                                                                                  |
+| A recorded header that names a credential (not a challenge: `WWW-Authenticate`, `Proxy-Authenticate` and `Authentication-Info` go through the text rules only), a query parameter whose name names a secret, and the whole value (a list or object included) of a JSON body field whose name names a secret | `[redacted]`                                                                                                                |
+| A JWT, a GitHub, OpenAI-style, AWS or Slack token, the credential after `Bearer` or `Basic`, and the value in `password=…` or `"token": "…"` text, quoted values whole; `true`, `false` and `null` are kept                                                                                                 | `[redacted]`                                                                                                                |
+
+Stdout is a JSON summary: the log's path, `completed`, and each request's session, method, redacted path and status; or, for a refused sequence, `problems`.
+
+| Exit | Meaning                                                                                                          |
+| ---- | ---------------------------------------------------------------------------------------------------------------- |
+| 0    | Every request completed: each got a response, whatever its status. Not that the scenario passed.                 |
+| 1    | The sequence was refused (`problems`; nothing sent, no log), or a request did not complete (`completed: false`). |
+| 2    | Usage.                                                                                                           |
+
 ## QA Artifacts and posting
 
 The QA Report file in `working_dir` is always written, and is the whole result until the person says to post it. Posting needs `gh` access and the person's yes, after they have seen the results. It goes where the plan went, by `plan.publish` (`adapter.mjs delivery`, the rules `qa-plan` delivered with):
