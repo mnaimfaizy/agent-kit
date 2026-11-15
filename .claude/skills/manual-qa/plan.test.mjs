@@ -400,6 +400,7 @@ test("lowercase product copy that starts with a command word is not a command (#
       "  3. Check the toast reads `export started`, and the badge reads `env staging`.",
       "  4. Open `sh` under **Shells**, and `docker` under **Integrations**.",
       "  5. Pick `export to CSV/PDF`, check `env staging/eu` and the footer `node v20.x`.",
+      "  6. The toast reads `export started - 3 files`, the badge `env staging - eu`.",
     ].join("\n"),
   );
   assert.deepEqual(shellProblems(text), []);
@@ -420,6 +421,7 @@ test("a word that is also product copy is a command before a flag, a path, a scr
     "  1. Run `export A; b`.",
     "  1. Run `node x & y`.",
     "  1. Run `python < in`.",
+    "  1. Run `node --inspect app`.",
   ]) {
     const text = broken("  1. Open **Members**.", step);
     assert.equal(shellProblems(text).length, 1, `${step}\n${problemsOf(text).join("\n")}`);
@@ -477,6 +479,22 @@ test("an unclosed fence in one scenario's steps is named once, not again in a la
   const fences = shellProblems(text).filter((p) => /a fenced code block/.test(p));
   assert.equal(fences.length, 1, fences.join("\n"));
   assert.match(fences[0], /^line \d+: S1: /);
+});
+
+test("a line wrapped at column 0 carries on the prose above it; a `$ ` prompt there still fails", () => {
+  const wrapped = broken(
+    "1. Restore the `admin` account with `accounts.restore`.",
+    "1. Turn on **Invites** for the team that reads the\ncurl examples on the **Docs** page.\n\nThen open\nnode settings under **Admin**.",
+  );
+  assert.deepEqual(shellProblems(wrapped), []);
+  const prompt = "$ redis-cli FLUSHALL";
+  const prompted = broken(
+    "1. Restore the `admin` account with `accounts.restore`.",
+    `1. Clear the cache:\n${prompt}`,
+  );
+  const problems = shellProblems(prompted);
+  assert.equal(problems.length, 1, problems.join("\n"));
+  assert.match(problems[0], new RegExp(`^line ${lineHolding(prompted, prompt)}: Setup: a line`));
 });
 
 test("a command outside Setup and Steps is not this check's to report", () => {
