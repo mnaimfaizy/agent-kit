@@ -187,7 +187,7 @@ test("a scenario's **Observes:** takes values from a fixed list, after its **Sur
   );
   assert.match(
     flat,
-    /`manual-qa` leaves the scenario for a person when no driver here observes one of them/,
+    /`manual-qa` leaves the scenario for a person when no one driver here observes all of them/,
   );
 });
 
@@ -267,7 +267,7 @@ test("SKILL.md step 6 writes **Observes:** when not every driver of the surface 
   assert.match(flat, /Use the same list to choose the surface/);
   assert.match(
     flat,
-    /`local-file` on the surface whose driver can open a `file:\/\/` address, in practice `desktop`/,
+    /`local-file` on a surface whose driver can open a `file:\/\/` address, as `manual-qa`'s step 4 table gives it/,
   );
 });
 
