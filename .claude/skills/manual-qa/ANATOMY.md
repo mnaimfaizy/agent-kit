@@ -90,7 +90,7 @@ Each line is a product action, never a shell command or a code block: `manual-qa
 
 The **Residue**: only what a passing CI run does not establish. One `###` heading per scenario, numbered from `S1` with no gaps: `### S1: <what is verified>`. Each carries these labels, in this order:
 
-- **Why only a human can prove it:** what no suite in _What automation already proves_ covers, and why automation cannot or does not.
+- **Why only a human can prove it:** why no configured suite could reach the promise, not only that none covers it: what it needs that no test reaches (a real deployment, real infrastructure no suite starts, a real browser), beside what _What automation already proves_ leaves out.
 - **Signs in as:** a [first-word value](#first-word-values): a role id the Run brief's **Roles:** names, or `nobody` (signed out), or the id of a [Scenario account](#scenario-accounts) an earlier scenario creates. Prose may follow the word. Write `` `admin`, after S1 creates the new user ``, not `the new user from S1, then admin` (first word `the`), and not `` `manager`. `` (first word `manager.`).
 - **Sessions:** in place of **Signs in as:**, only in a scenario that needs two or more people signed in at once: `A = <id>, B = <id>`, one per [Session](#sessions). A scenario carries **Signs in as:** or **Sessions:**, never both and never neither.
 - **Creates:** only in a scenario that creates an account during the run, so a later scenario can sign in as it. The id of each [Scenario account](#scenario-accounts) it creates, then prose.
