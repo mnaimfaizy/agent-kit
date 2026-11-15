@@ -14,6 +14,10 @@ import { fileURLToPath } from "node:url";
 import {
   BRIEF_LABELS,
   ANCHOR_LABELS,
+  COMMAND_WORDS,
+  COMMAND_MARKS,
+  COPY_WORDS,
+  SCRIPT_EXTENSIONS,
   PLAN_SECTIONS,
   SCENARIO_LABELS,
   credentialProblems,
@@ -116,7 +120,11 @@ test("a filled execution record is read as a plan already run", () => {
 });
 
 test("a heading inside a fenced block is not a section", () => {
-  const text = broken("## Setup\n", "## Setup\n\n```text\n## Not a section\n```\n");
+  // Not under Setup or Steps, where a fence is a shell command (#199).
+  const text = broken(
+    "## Stop and do not merge if\n",
+    "## Stop and do not merge if\n\n```text\n## Not a section\n```\n",
+  );
   assert.deepEqual(problemsOf(text), []);
 });
 
@@ -266,6 +274,251 @@ test("steps are a numbered list", () => {
     broken("  1. Open `/members` while signed out.", "  - Open `/members` while signed out."),
     /S2: \*\*Steps:\*\* expected a numbered list/,
   );
+});
+
+// ── Shell commands in Setup and Steps (#199) ────────────────────────────────
+
+/** The 1-based number of the line of `text` that holds `needle`. */
+const lineHolding = (text, needle) =>
+  text.split("\n").findIndex((line) => line.includes(needle)) + 1;
+const SHELL =
+  /a plan carries product actions only, and `manual-qa` will not run it|a plan gives product actions, and any data to enter, as prose/;
+/** The problems that report a shell command. */
+const shellProblems = (text) => problemsOf(text).filter((p) => SHELL.test(p));
+
+test("ANATOMY.md's Setup names every command word the check reads", () => {
+  const setup = anatomy.split(/^## /m).find((part) => part.startsWith("Setup\n"));
+  for (const word of COMMAND_WORDS)
+    assert.ok(setup.includes(`\`${word}\``), `ANATOMY.md's Setup does not name \`${word}\``);
+  const copy = /`export`, `node`, `env`, `python` and `sh` also name things in a product/;
+  assert.match(setup, copy);
+  assert.deepEqual([...COPY_WORDS], ["export", "node", "env", "python", "sh"]);
+  const rule = setup.split("also name things in a product")[1].split("\n")[0];
+  for (const mark of COMMAND_MARKS)
+    assert.ok(
+      rule.includes(`\`${mark}\``),
+      `ANATOMY.md's copy-word rule does not name \`${mark}\``,
+    );
+  for (const extension of SCRIPT_EXTENSIONS)
+    assert.ok(
+      rule.includes(`\`.${extension}\``),
+      `ANATOMY.md's copy-word rule does not name \`.${extension}\``,
+    );
+  for (const start of ["`/`", "`./`", "`../`", "`~/`"])
+    assert.ok(rule.includes(start), `ANATOMY.md's copy-word rule does not name ${start}`);
+  assert.match(
+    setup,
+    /Give data to type or paste as prose, in a backticked span, not in a code block/,
+  );
+});
+
+test("a Setup line holding a backticked shell command fails, with its line number", () => {
+  const command = '1. Run `docker exec api python -c "print(settings.INVITES)"`.';
+  const text = broken("1. Restore the `admin` account with `accounts.restore`.", command);
+  const problems = shellProblems(text);
+  assert.equal(problems.length, 1, problems.join("\n"));
+  assert.match(problems[0], new RegExp(`^line ${lineHolding(text, command)}: Setup: `));
+  assert.match(problems[0], /`docker`/);
+});
+
+test("a Setup line that is itself a command, or a `$ ` prompt, fails", () => {
+  for (const line of [
+    "- env | grep -c INVITE",
+    "$ redis-cli FLUSHALL",
+    "1. curl -s localhost/version",
+  ]) {
+    const text = broken("1. Restore the `admin` account with `accounts.restore`.", line);
+    const problems = shellProblems(text);
+    assert.equal(problems.length, 1, `${line}\n${problems.join("\n")}`);
+    assert.match(problems[0], new RegExp(`^line ${lineHolding(text, line)}: Setup: `));
+  }
+});
+
+test("a scenario step running a command, in a span or after a `$ ` prompt, fails", () => {
+  const span = "  1. Run `redis-cli HGETALL session:1`.";
+  const text = broken("  1. Open **Members**.", span);
+  const problems = shellProblems(text);
+  assert.equal(problems.length, 1, problems.join("\n"));
+  assert.match(problems[0], new RegExp(`^line ${lineHolding(text, span)}: S1: step 1 `));
+  assert.match(problems[0], /`redis-cli`/);
+
+  for (const step of [
+    "  1. $ psql -c 'select 1'",
+    "  1. Type `$ kubectl get pods` into the shell.",
+  ]) {
+    const prompted = broken("  1. Open `/members` while signed out.", step);
+    const found = shellProblems(prompted);
+    assert.equal(found.length, 1, `${step}\n${found.join("\n")}`);
+    assert.match(found[0], new RegExp(`^line ${lineHolding(prompted, step)}: S2: step 1 `));
+  }
+});
+
+test("a fenced code block under Setup or Steps fails, once, at its opening fence", () => {
+  const setup = broken(
+    "1. Restore the `admin` account with `accounts.restore`.",
+    "1. Restore the `admin` account with `accounts.restore`.\n\n```\nmake seed\nmake flags\n```",
+  );
+  const atSetup = shellProblems(setup);
+  assert.equal(atSetup.length, 1, atSetup.join("\n"));
+  assert.match(
+    atSetup[0],
+    new RegExp(`^line ${lineHolding(setup, "```")}: Setup: a fenced code block`),
+  );
+
+  const steps = broken(
+    "  1. Open **Members**.",
+    "  1. Open **Members**.\n\n     ```sh\n     whoami\n     ```",
+  );
+  const atSteps = shellProblems(steps);
+  assert.equal(atSteps.length, 1, atSteps.join("\n"));
+  assert.match(
+    atSteps[0],
+    new RegExp(`^line ${lineHolding(steps, "```sh")}: S1: a fenced code block`),
+  );
+});
+
+test("product labels, copy, paths and role ids in Setup and Steps are not commands", () => {
+  assert.deepEqual(shellProblems(GOOD), []);
+  const text = broken(
+    "  1. Open **Members**.",
+    [
+      "  1. Click **Save changes**, then open `/version` and `/members/new`.",
+      "  2. Pick the role `admin`, then `member`, and type `node-1` into **Name**.",
+      "  3. Export the CSV from **Reports**, and check the **Env** badge reads `env: staging`.",
+      "     export is the menu's last item, after `Node` and `Python`.",
+    ].join("\n"),
+  );
+  assert.deepEqual(shellProblems(text), []);
+});
+
+test("lowercase product copy that starts with a command word is not a command (#214 review)", () => {
+  const text = broken(
+    "  1. Open **Members**.",
+    [
+      "  1. Click `export` in the toolbar.",
+      "  2. Pick `python` from **Language**, then `python 3.12`, and pick the `node` filter.",
+      "  3. Check the toast reads `export started`, and the badge reads `env staging`.",
+      "  4. Open `sh` under **Shells**, and `docker` under **Integrations**.",
+      "  5. Pick `export to CSV/PDF`, check `env staging/eu` and the footer `node v20.x`.",
+      "  6. The toast reads `export started - 3 files`, the badge `env staging - eu`.",
+    ].join("\n"),
+  );
+  assert.deepEqual(shellProblems(text), []);
+});
+
+test("a word that is also product copy is a command before a flag, a path, a script file or a shell mark", () => {
+  for (const step of [
+    "  1. Run `export INVITES_ENABLED=1`.",
+    "  1. Run `node scripts/seed.js`.",
+    "  1. Run `python manage.py shell`.",
+    "  1. Run `env | grep INVITE`.",
+    "  1. Run `sh -c whoami`.",
+    "  1. Run `kubectl get pods`.",
+    "  1. Run `node ./seed`.",
+    "  1. Run `python ~/x`.",
+    "  1. Run `sh ../go`.",
+    "  1. Run `env > out`.",
+    "  1. Run `export A; b`.",
+    "  1. Run `node x & y`.",
+    "  1. Run `python < in`.",
+    "  1. Run `node --inspect app`.",
+  ]) {
+    const text = broken("  1. Open **Members**.", step);
+    assert.equal(shellProblems(text).length, 1, `${step}\n${problemsOf(text).join("\n")}`);
+  }
+});
+
+test("a fenced block message says data goes in prose, not that it is a shell command", () => {
+  const text = broken(
+    "  1. Open **Members**.",
+    '  1. Open **Import** and paste:\n\n     ```json\n     {"name": "Ada"}\n     ```',
+  );
+  const [problem, ...rest] = shellProblems(text);
+  assert.deepEqual(rest, []);
+  assert.match(
+    problem,
+    /S1: a fenced code block; a plan gives product actions, and any data to enter, as prose/,
+  );
+  assert.doesNotMatch(problem, /shell command/);
+});
+
+test("an indented fence line inside an ordinary block neither closes it nor hides Setup", () => {
+  const text = broken(
+    "## Expected red herrings\n",
+    "## Expected red herrings\n\n```markdown\n1. step\n     ```sh\n     whoami\n     ```\n```\n",
+  );
+  const command = "1. Run `docker compose up -d`.";
+  const withSetup = text.replace(
+    "1. Restore the `admin` account with `accounts.restore`.",
+    command,
+  );
+  const problems = shellProblems(withSetup);
+  assert.equal(problems.length, 1, problems.join("\n"));
+  assert.match(problems[0], new RegExp(`^line ${lineHolding(withSetup, command)}: Setup: a line`));
+});
+
+test("a fence left open in an earlier section does not switch the check off for Setup", () => {
+  // CommonMark closes this fence (indent counts from the list item); the nested reader may not.
+  const text = broken(
+    "- The invite endpoint rejects a malformed email, by the `backend` suite `[observed]`.",
+    "- The invite endpoint rejects a malformed email, by the `backend` suite `[observed]`:\n\n    ```\n    npm test\n     ```",
+  );
+  const command = '1. Run `docker exec api python -c "print(1)"`.';
+  const withSetup = text.replace(
+    "1. Restore the `admin` account with `accounts.restore`.",
+    command,
+  );
+  assert.deepEqual(problemsOf(text), []);
+  const problems = shellProblems(withSetup);
+  assert.equal(problems.length, 1, problems.join("\n"));
+  assert.match(problems[0], new RegExp(`^line ${lineHolding(withSetup, command)}: Setup: a line`));
+});
+
+test("an unclosed fence in one scenario's steps is named once, not again in a later one", () => {
+  const text = broken("  1. Open **Members**.", "  1. Open **Members**.\n\n     ```\n     whoami");
+  const fences = shellProblems(text).filter((p) => /a fenced code block/.test(p));
+  assert.equal(fences.length, 1, fences.join("\n"));
+  assert.match(fences[0], /^line \d+: S1: /);
+});
+
+test("a column-0 line after prose is read as a whole line, so a bare command there fails", () => {
+  const setup = "1. Restore the `admin` account with `accounts.restore`.";
+  for (const [before, command] of [
+    ["1. Seed the database:", "npx prisma db seed"],
+    ["### Data", "docker compose up -d"],
+    // Accepted false positive: unindented wrapped prose that starts with a command word
+    // is reported; the author indents or re-wraps it. The check errs toward reporting.
+    ["1. Turn on **Invites** for the team that reads the", "curl examples on the **Docs** page."],
+  ]) {
+    const text = broken(setup, `${before}\n${command}`);
+    const problems = shellProblems(text);
+    assert.equal(problems.length, 1, `${command}\n${problems.join("\n")}`);
+    assert.match(problems[0], new RegExp(`^line ${lineHolding(text, command)}: Setup: a line`));
+  }
+  // Indented, the wrap carries on the prose, and only a `$ ` prompt there still counts.
+  assert.deepEqual(
+    shellProblems(
+      broken(setup, "1. Turn on **Invites** for the team that reads the\n   curl examples."),
+    ),
+    [],
+  );
+  const prompted = broken(setup, "1. Clear the cache:\n   $ redis-cli FLUSHALL");
+  assert.equal(shellProblems(prompted).length, 1, problemsOf(prompted).join("\n"));
+});
+
+test("a command outside Setup and Steps is not this check's to report", () => {
+  const text = broken(
+    "- **A failure means:** the dialog does not save an invitation.",
+    "- **A failure means:** the dialog does not save an invitation (`docker logs api` shows why).",
+  );
+  assert.deepEqual(shellProblems(text), []);
+});
+
+test("a plan with a shell command in a step exits 1 from `plan`", () => {
+  const text = broken("  1. Open **Members**.", "  1. Run `npx prisma db seed`.");
+  const result = main(["plan"], { read: () => null, stdin: () => text });
+  assert.equal(result.code, 1);
+  assert.ok(JSON.parse(result.out).problems.some((p) => SHELL.test(p)));
 });
 
 test("a scenario signs in only as a role the Run brief names, or nobody", () => {

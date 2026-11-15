@@ -122,6 +122,8 @@ Each pack it prints matched at least one changed path. Exit 1 means a pack in `h
 
 Each promise step 4 left uncovered becomes a scenario ([ANATOMY.md](ANATOMY.md#scenarios)). For each one, read the code and templates it exercises and quote their real labels in the steps. A scenario that touches a path a Hazard pack matched gets that pack's _Rule out first_ list; every matching pack's _Capture rules_ go into the Run brief.
 
+A promise that only a command can observe (a setting, a cache entry, internal state) is either observable through the product surface, or it is not Residue: Setup and steps are product actions, and the plan check reports one that reads as a shell command ([ANATOMY.md](ANATOMY.md#setup)).
+
 When a promise needs two people signed in at once, compose a multi-session scenario. For example, an `admin`'s action ends a `user`'s session elsewhere. Give it **Sessions:** (`A = user, B = admin`) in place of **Signs in as:**, and start every step `In session <name>,` ([ANATOMY.md](ANATOMY.md#sessions)). Never fold the second person into a step's prose: the run would sign in once and could not carry the scenario out.
 
 A promise step 4 left for the Residue because only doubles covered it becomes a scenario that runs against the real services, even when the in-memory suite is green. A plan has one target for every scenario, so set the Run brief's **Target:** to `stack` ([ANATOMY.md](ANATOMY.md#run-brief)), unless a hosted test environment that runs those services is the target; with neither, say so to the person, since no run can carry the scenario out. Its steps drive the path that reaches them, through the API when no screen calls it.

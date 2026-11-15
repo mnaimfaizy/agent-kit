@@ -682,8 +682,12 @@ test("a tracker issue whose report misses a plan scenario is not touched", () =>
 test("the tracker's sections and boxes are read as validatePlan reads them", () => {
   const closed = PLAN.replace("## Sign-off checklist", "## Sign-off checklist ##");
   assert.match(trackerBody(closed, PASSED).body, /^- \[x\] S1:/m);
-  // A fenced `## Execution record` in Setup is no heading: the real one is replaced.
-  const fenced = PLAN.replace("## Scenarios", "```text\n## Execution record\n```\n\n## Scenarios");
+  // A fenced `## Execution record` is no heading: the real one is replaced. Not under
+  // Setup or Steps, where a fence is a shell command (#199).
+  const fenced = PLAN.replace(
+    "## Execution record",
+    "```text\n## Execution record\n```\n\n## Execution record",
+  );
   const { body, problems } = trackerBody(fenced, PASSED);
   assert.deepEqual(problems, []);
   assert.ok(body.includes("```text\n## Execution record\n```"));

@@ -918,20 +918,29 @@ const SECTIONS = /** @type {const} */ ([
  * inside one (a shell comment, say) is not a heading.
  *
  * @param {string[]} lines
+ * @param {boolean} [nested] also open a fence indented four or more spaces, as
+ *   one inside a list item is. A fence then closes only on a line indented no
+ *   deeper than its opening one (or 3 spaces), so an indented fence line inside an
+ *   ordinary block is its content, as it is without `nested`.
  * @returns {boolean[]}
  */
-function fencedLines(lines) {
+function fencedLines(lines, nested = false) {
   const fenced = [];
   let fence = null;
+  let indent = 0;
+  const opens = nested ? /^(\s*)(`{3,}|~{3,})/ : /^(\s{0,3})(`{3,}|~{3,})/;
   for (const line of lines) {
-    const marker = /^\s{0,3}(`{3,}|~{3,})/.exec(line)?.[1];
+    const found = opens.exec(line);
+    const marker = found?.[2];
     if (fence === null && marker) {
       fence = marker;
+      indent = found[1].length;
       fenced.push(true);
     } else if (fence !== null) {
       fenced.push(true);
       if (
         marker &&
+        found[1].length <= Math.max(indent, 3) &&
         marker[0] === fence[0] &&
         marker.length >= fence.length &&
         line.trim() === marker
@@ -1089,6 +1098,61 @@ const RULE_OUT = "If this fails, first rule out";
 const ACCOUNT_ID = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
 export const NOT_RUN = "_Not run yet._";
 
+/**
+ * The words a shell command starts with (#199). A Setup line or a step that begins with
+ * one followed by an argument, or holds a backticked span that does, reads as a command,
+ * not a product action. Matched in lower case only, and only as a whole word followed by
+ * an argument, so `Export the CSV` and a lone `docker` label are prose.
+ */
+export const COMMAND_WORDS = /** @type {const} */ ([
+  "docker",
+  "docker-compose",
+  "kubectl",
+  "redis-cli",
+  "psql",
+  "mysql",
+  "python",
+  "python3",
+  "node",
+  "npm",
+  "npx",
+  "curl",
+  "wget",
+  "env",
+  "export",
+  "bash",
+  "sh",
+]);
+/**
+ * Command words that also name things in a product (a toolbar's `export`, a `python`
+ * language, an `env staging` badge). These read as a command only before an argument
+ * that reads as one; the others before any argument. A word alone is never a command.
+ */
+export const COPY_WORDS = /** @type {const} */ (["export", "node", "env", "python", "sh"]);
+/**
+ * The marks after a `COPY_WORDS` word that make it a command: assignment, pipes,
+ * variables, lists, redirects.
+ */
+export const COMMAND_MARKS = /** @type {const} */ (["=", "|", "$", ";", "&", "<", ">"]);
+/** The script files a `COPY_WORDS` word runs: `node seed.js`, `python manage.py`. */
+export const SCRIPT_EXTENSIONS = /** @type {const} */ (["py", "js", "mjs", "cjs", "ts", "sh"]);
+/**
+ * An argument as a command takes one: a flag (`-c`, `--force`: a dash before a
+ * letter, so a lone `-` separator is copy), a path that starts with `/`, `./`,
+ * `../` or `~/`, a script file, or one of `COMMAND_MARKS`. A `/` inside a word
+ * (`CSV/PDF`) and a version (`v20.x`) are copy.
+ */
+const COMMAND_ARGUMENT = new RegExp(
+  `(?:^|\\s)(?:-{1,2}[A-Za-z]|(?:\\.{1,2}|~)?/)|[${COMMAND_MARKS.join("")}]|\\w\\.(?:${SCRIPT_EXTENSIONS.join("|")})(?=\\s|$)`,
+);
+const COMMAND_START = new RegExp(`^(?:\\$\\s|(${COMMAND_WORDS.join("|")})\\s+(\\S.*))`);
+const NOT_RUN_HERE =
+  "a plan carries product actions only, and `manual-qa` will not run it: " +
+  "write the product action that shows the same thing, or leave the promise out of the Residue";
+const NO_CODE_BLOCK =
+  "a plan gives product actions, and any data to enter, as prose, never as a code block, " +
+  "and `manual-qa` runs nothing from one: quote data to type or paste in a backticked span";
+
 const MARKER = /^<!-- qa-plan format=(\d+) subject=#(\d+) pr=#(\d+) -->$/;
 const FULL_SHA = /\b[0-9a-f]{40}(?:[0-9a-f]{24})?\b/;
 const LABEL = /^\s*(?:[-*]\s+)?\*\*([^*]+?):\*\*\s*(.*)$/;
@@ -1209,8 +1273,9 @@ export function credentialProblems(lines) {
  * every label each section requires, the scenarios numbered from S1, each
  * scenario's one **Signs in as:** or its **Sessions:** (with each step naming
  * its session), each Scenario account created once and signed in as only after
- * it, and no credentials. Each parsed scenario lists its `sessions` as
- * `{name, id}`: one with `name: null` for **Signs in as:**, else one per letter.
+ * it, no shell command in Setup or Steps, and no credentials. Each parsed
+ * scenario lists its `sessions` as `{name, id}`: one with `name: null` for
+ * **Signs in as:**, else one per letter.
  * `manual-qa` runs nothing from a plan with a problem.
  *
  * @param {string} text
@@ -1401,6 +1466,73 @@ export function validatePlan(text) {
     }
   };
 
+  /**
+   * The shell command a line of Setup or Steps reads as (#199): `$ `, or the command word
+   * that the line's text, or a backticked span on it, begins with before an argument
+   * (`COPY_WORDS` before one that reads as a command's); `null` for a product action. A
+   * `continuation` (an indented line that is no list item) carries on the prose
+   * above it, so only its spans and a `$ ` prompt are read. A lone word, such as a
+   * role id or a label, is no command.
+   */
+  const commandIn = (text, continuation) => {
+    const starts = (value) => {
+      const match = COMMAND_START.exec(value);
+      if (!match) return null;
+      if (match[1] === undefined) return "$ ";
+      return COPY_WORDS.includes(match[1]) && !COMMAND_ARGUMENT.test(match[2]) ? null : match[1];
+    };
+    for (const [, span] of text.matchAll(/`([^`]+)`/g)) {
+      const word = starts(span.trim());
+      if (word) return word;
+    }
+    // A `$ ` prompt is never prose, so it counts on a continuation too.
+    if (continuation) return /^\s*\$\s/.test(text) ? "$ " : null;
+    return starts(text.replace(/^\s*(?:[-*+]\s+|\d+[.)]\s+)/, ""));
+  };
+  /**
+   * Each line in `from`–`to` that reads as a shell command, and each fenced block there
+   * (named once, at its opening fence), as a problem: Setup and Steps carry product
+   * actions only (ANATOMY.md). In Steps, `where` is the scenario's id and each problem
+   * names the numbered step it is in; `first` stands in for line `from`'s text.
+   * @param {number} from
+   * @param {number} to
+   * @param {{where: string, section: string, steps?: boolean, first?: string}} options
+   */
+  const commandProblems = (from, to, { where, section, steps = false, first }) => {
+    const cite = `(ANATOMY.md, "${section}")`;
+    let step = null;
+    let column = null;
+    // Fences as a list item nests them too (a step's fence sits four or more spaces in),
+    // read within this range only: a fence ends with its section or field, as CommonMark
+    // ends one with its container, so one left open elsewhere never hides this range.
+    const fenced = fencedLines(lines.slice(from, to), true);
+    for (let n = from; n < to; n += 1) {
+      if (fenced[n - from]) {
+        if (n === from || !fenced[n - from - 1])
+          at(n, `${where}: a fenced code block; ${NO_CODE_BLOCK} ${cite}`);
+        continue;
+      }
+      const text = n === from && first !== undefined ? first : lines[n];
+      const numbered = /^(\s*)(\d+)[.)]\s+(.*)$/.exec(text);
+      if (numbered) {
+        column ??= text.length - numbered[3].length;
+        if (numbered[1].length < column) step = numbered[2];
+      }
+      // An indented line that is no list item carries on the prose above it. A column-0
+      // line is read whole, even when it wraps prose: the check errs toward reporting.
+      const continuation = !numbered && !/^\s*[-*+]\s/.test(text) && /^\s/.test(text);
+      const word = commandIn(text, continuation);
+      if (word === null) continue;
+      const what = !steps
+        ? `${where}: a line`
+        : step === null
+          ? `${where}: **Steps:**`
+          : `${where}: step ${step}`;
+      const named = word === "$ " ? "a `$ ` prompt" : `\`${word}\``;
+      at(n, `${what} reads as a shell command (${named}); ${NOT_RUN_HERE} ${cite}`);
+    }
+  };
+
   if (sections.Anchors) {
     const { n, from, to } = sections.Anchors;
     const found = labelsIn(from, to);
@@ -1491,6 +1623,11 @@ export function validatePlan(text) {
     }
   }
 
+  if (sections.Setup) {
+    const { from, to } = sections.Setup;
+    commandProblems(from, to, { where: "Setup", section: "Setup" });
+  }
+
   if (sections.Scenarios) {
     const { n, from, to } = sections.Scenarios;
     const heads = [];
@@ -1536,6 +1673,13 @@ export function validatePlan(text) {
       const steps = get("Steps");
       if (steps && steps.text !== "" && !/^\s*\d+\.\s+\S/m.test(steps.text))
         at(steps.n, `${id}: **Steps:** expected a numbered list`);
+      if (steps)
+        commandProblems(steps.n, found[position("Steps") + 1]?.n ?? heads[i + 1]?.n ?? to, {
+          where: id,
+          section: "Scenarios",
+          steps: true,
+          first: steps.inline,
+        });
       const signs = get("Signs in as");
       const who = signs ? plainWord(signs.inline) : null;
       /** @type {{name: string | null, id: string}[]} */
