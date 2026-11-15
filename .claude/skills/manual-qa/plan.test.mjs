@@ -519,6 +519,37 @@ test("a column-0 line after prose is read as a whole line, so a bare command the
   assert.equal(shellProblems(prompted).length, 1, problemsOf(prompted).join("\n"));
 });
 
+test("an indented line after a blank line carries on no prose, so a bare command there fails", () => {
+  // #215: only a line directly under non-blank, unfenced prose in the same range continues it.
+  const setup = "1. Restore the `admin` account with `accounts.restore`.";
+  for (const [before, command] of [
+    ["1. Seed the database:", "        npx prisma db seed"],
+    ["Bring the stack up before the first scenario.", "    docker compose up -d"],
+  ]) {
+    const text = broken(setup, `${before}\n\n${command}`);
+    const problems = shellProblems(text);
+    assert.equal(problems.length, 1, `${command}\n${problems.join("\n")}`);
+    assert.match(
+      problems[0],
+      new RegExp(`^line ${lineHolding(text, command)}: Setup: a line reads as a shell command`),
+    );
+  }
+  const step = "  1. Open **Members**.";
+  const command = "     npx prisma db seed";
+  const text = broken(step, `  1. Seed the database:\n\n${command}`);
+  const problems = shellProblems(text);
+  assert.equal(problems.length, 1, problems.join("\n"));
+  assert.match(
+    problems[0],
+    new RegExp(`^line ${lineHolding(text, command)}: S1: step 1 reads as a shell command`),
+  );
+  // Indented prose after a blank line is still prose; only a command there is reported.
+  assert.deepEqual(
+    shellProblems(broken(step, "  1. Open **Members**:\n\n     the list of the team's members.")),
+    [],
+  );
+});
+
 test("a command outside Setup and Steps is not this check's to report", () => {
   const text = broken(
     "- **A failure means:** the dialog does not save an invitation.",
