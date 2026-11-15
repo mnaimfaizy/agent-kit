@@ -15,7 +15,9 @@ import {
   BRIEF_LABELS,
   ANCHOR_LABELS,
   COMMAND_WORDS,
+  COMMAND_MARKS,
   COPY_WORDS,
+  SCRIPT_EXTENSIONS,
   PLAN_SECTIONS,
   SCENARIO_LABELS,
   credentialProblems,
@@ -291,6 +293,19 @@ test("ANATOMY.md's Setup names every command word the check reads", () => {
   const copy = /`export`, `node`, `env`, `python` and `sh` also name things in a product/;
   assert.match(setup, copy);
   assert.deepEqual([...COPY_WORDS], ["export", "node", "env", "python", "sh"]);
+  const rule = setup.split("also name things in a product")[1].split("\n")[0];
+  for (const mark of COMMAND_MARKS)
+    assert.ok(
+      rule.includes(`\`${mark}\``),
+      `ANATOMY.md's copy-word rule does not name \`${mark}\``,
+    );
+  for (const extension of SCRIPT_EXTENSIONS)
+    assert.ok(
+      rule.includes(`\`.${extension}\``),
+      `ANATOMY.md's copy-word rule does not name \`.${extension}\``,
+    );
+  for (const start of ["`/`", "`./`", "`../`", "`~/`"])
+    assert.ok(rule.includes(start), `ANATOMY.md's copy-word rule does not name ${start}`);
   assert.match(
     setup,
     /Give data to type or paste as prose, in a backticked span, not in a code block/,
@@ -384,12 +399,13 @@ test("lowercase product copy that starts with a command word is not a command (#
       "  2. Pick `python` from **Language**, then `python 3.12`, and pick the `node` filter.",
       "  3. Check the toast reads `export started`, and the badge reads `env staging`.",
       "  4. Open `sh` under **Shells**, and `docker` under **Integrations**.",
+      "  5. Pick `export to CSV/PDF`, check `env staging/eu` and the footer `node v20.x`.",
     ].join("\n"),
   );
   assert.deepEqual(shellProblems(text), []);
 });
 
-test("a word that is also product copy is a command before a flag, path, file or `=`, `|`, `$`", () => {
+test("a word that is also product copy is a command before a flag, a path, a script file or a shell mark", () => {
   for (const step of [
     "  1. Run `export INVITES_ENABLED=1`.",
     "  1. Run `node scripts/seed.js`.",
@@ -397,6 +413,13 @@ test("a word that is also product copy is a command before a flag, path, file or
     "  1. Run `env | grep INVITE`.",
     "  1. Run `sh -c whoami`.",
     "  1. Run `kubectl get pods`.",
+    "  1. Run `node ./seed`.",
+    "  1. Run `python ~/x`.",
+    "  1. Run `sh ../go`.",
+    "  1. Run `env > out`.",
+    "  1. Run `export A; b`.",
+    "  1. Run `node x & y`.",
+    "  1. Run `python < in`.",
   ]) {
     const text = broken("  1. Open **Members**.", step);
     assert.equal(shellProblems(text).length, 1, `${step}\n${problemsOf(text).join("\n")}`);
@@ -427,6 +450,23 @@ test("an indented fence line inside an ordinary block neither closes it nor hide
     "1. Restore the `admin` account with `accounts.restore`.",
     command,
   );
+  const problems = shellProblems(withSetup);
+  assert.equal(problems.length, 1, problems.join("\n"));
+  assert.match(problems[0], new RegExp(`^line ${lineHolding(withSetup, command)}: Setup: a line`));
+});
+
+test("a fence left open in an earlier section does not switch the check off for Setup", () => {
+  // CommonMark closes this fence (indent counts from the list item); the nested reader may not.
+  const text = broken(
+    "- The invite endpoint rejects a malformed email, by the `backend` suite `[observed]`.",
+    "- The invite endpoint rejects a malformed email, by the `backend` suite `[observed]`:\n\n    ```\n    npm test\n     ```",
+  );
+  const command = '1. Run `docker exec api python -c "print(1)"`.';
+  const withSetup = text.replace(
+    "1. Restore the `admin` account with `accounts.restore`.",
+    command,
+  );
+  assert.deepEqual(problemsOf(text), []);
   const problems = shellProblems(withSetup);
   assert.equal(problems.length, 1, problems.join("\n"));
   assert.match(problems[0], new RegExp(`^line ${lineHolding(withSetup, command)}: Setup: a line`));

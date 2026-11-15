@@ -1129,8 +1129,18 @@ export const COMMAND_WORDS = /** @type {const} */ ([
  * that reads as one; the others before any argument. A word alone is never a command.
  */
 export const COPY_WORDS = /** @type {const} */ (["export", "node", "env", "python", "sh"]);
-/** An argument as a command takes one: a flag, a path, a file name, or `=`, `|`, `$`, `;`, `&`, `<`, `>`. */
-const COMMAND_ARGUMENT = /(?:^|\s)-|[/=|$<>;&]|[A-Za-z_]\w*\.[a-z]{1,4}(?=\s|$)/;
+/** The marks after a `COPY_WORDS` word that make it a command: assignment, pipes, variables, lists, redirects. */
+export const COMMAND_MARKS = /** @type {const} */ (["=", "|", "$", ";", "&", "<", ">"]);
+/** The script files a `COPY_WORDS` word runs: `node seed.js`, `python manage.py`. */
+export const SCRIPT_EXTENSIONS = /** @type {const} */ (["py", "js", "mjs", "cjs", "ts", "sh"]);
+/**
+ * An argument as a command takes one: a flag (`-c`), a path that starts with `/`, `./`,
+ * `../` or `~/`, a script file, or one of `COMMAND_MARKS`. A `/` inside a word
+ * (`CSV/PDF`) and a version (`v20.x`) are copy.
+ */
+const COMMAND_ARGUMENT = new RegExp(
+  `(?:^|\\s)(?:-|(?:\\.{1,2}|~)?/)|[${COMMAND_MARKS.join("")}]|\\w\\.(?:${SCRIPT_EXTENSIONS.join("|")})(?=\\s|$)`,
+);
 const COMMAND_START = new RegExp(`^(?:\\$\\s|(${COMMAND_WORDS.join("|")})\\s+(\\S.*))`);
 const NOT_RUN_HERE =
   "a plan carries product actions only, and `manual-qa` will not run it: " +
@@ -1451,8 +1461,6 @@ export function validatePlan(text) {
     }
   };
 
-  /** Fences as a list item nests them too: a step's fence sits four or more spaces in. */
-  const blockFenced = fencedLines(lines, true);
   /**
    * The shell command a line of Setup or Steps reads as (#199): `$ `, or the command word
    * that the line's text, or a backticked span on it, begins with before an argument
@@ -1486,10 +1494,13 @@ export function validatePlan(text) {
     const cite = `(ANATOMY.md, "${section}")`;
     let step = null;
     let column = null;
+    // Fences as a list item nests them too (a step's fence sits four or more spaces in),
+    // read within this range only: a fence ends with its section or field, as CommonMark
+    // ends one with its container, so one left open elsewhere never hides this range.
+    const fenced = fencedLines(lines.slice(from, to), true);
     for (let n = from; n < to; n += 1) {
-      if (blockFenced[n]) {
-        // Named at its opening fence only, so a fence left open is not named again later.
-        if (n === 0 || !blockFenced[n - 1])
+      if (fenced[n - from]) {
+        if (n === from || !fenced[n - from - 1])
           at(n, `${where}: a fenced code block; ${NO_CODE_BLOCK} ${cite}`);
         continue;
       }
