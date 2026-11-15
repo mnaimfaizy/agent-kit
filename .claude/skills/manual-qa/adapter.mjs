@@ -1700,7 +1700,7 @@ export function validatePlan(text) {
         else if (misplaced)
           at(
             own.n,
-            `${id}: **${SCENARIO_SURFACE}:** is out of position: it goes right after **Signs in as:** or **${SESSIONS}:** (and **${CREATES}:**, when present), before **Steps:**`,
+            `${id}: **${SCENARIO_SURFACE}:** is out of position: it goes right after **${SCENARIO_LABELS[1]}:** or **${SESSIONS}:** (and **${CREATES}:**, when present), before **Steps:**`,
           );
         else if (own.text === "") at(own.n, `${id}: **${SCENARIO_SURFACE}:** is empty`);
         else if (stuck) at(own.n, `${id}: **${SCENARIO_SURFACE}:** read ${stuck}`);

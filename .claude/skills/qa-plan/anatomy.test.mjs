@@ -222,10 +222,10 @@ test("SKILL.md step 6 picks each scenario's surface from what its expected resul
   );
   assert.match(
     flat,
-    /response headers, cookies \(including `HttpOnly`\), status codes and response bodies: `api`/,
+    /Response headers, cookies \(including `HttpOnly`\), status codes and response bodies are seen on `api`/,
   );
-  assert.match(flat, /rendered copy, flows and layout: `web`/);
-  assert.match(flat, /the app itself: `desktop` or `mobile`/);
+  assert.match(flat, /Rendered copy, flows and layout are seen on `web`/);
+  assert.match(flat, /The app itself is seen on `desktop` or `mobile`/);
   assert.match(flat, /The Run brief's \*\*Surface:\*\* is the one most scenarios use/);
   assert.match(flat, /`run\.surface` in the config is only the starting default/);
   assert.match(flat, /\[ANATOMY\.md\]\(ANATOMY\.md#scenarios\)/);

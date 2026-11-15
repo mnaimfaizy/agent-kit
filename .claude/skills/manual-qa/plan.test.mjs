@@ -701,13 +701,13 @@ test("a mark stuck to a first-word value is named, with the fix (#201)", () => {
 // ── Scenario accounts ───────────────────────────────────────────────────────
 
 const S1_SIGNS = "- **Signs in as:** `admin`\n";
-const S2_SIGNS_IN = "- **Signs in as:** nobody\n";
+const S2_SIGNS = "- **Signs in as:** nobody\n";
 /** The good plan with S1 creating `temp-user` and S2 signing in as it, then any edits. */
 function withAccount(...edits) {
   let text = broken(
     S1_SIGNS,
     `${S1_SIGNS}- **Creates:** \`temp-user\` (its values chosen when S1 creates it)\n`,
-  ).replace(S2_SIGNS_IN, "- **Signs in as:** `temp-user` (created in S1)\n");
+  ).replace(S2_SIGNS, "- **Signs in as:** `temp-user` (created in S1)\n");
   for (const [from, to] of edits) {
     assert.ok(text.includes(from), `the plan has no ${JSON.stringify(from)}`);
     text = text.replace(from, to);
@@ -790,17 +790,14 @@ test("a sign-in as an account no scenario creates is a problem on its line", () 
 test("only a scenario after its creator may sign in as a Scenario account", () => {
   // S1 signs in as what S2 creates.
   const forward = broken(S1_SIGNS, "- **Signs in as:** `temp-user`\n").replace(
-    S2_SIGNS_IN,
-    `${S2_SIGNS_IN}- **Creates:** \`temp-user\`\n`,
+    S2_SIGNS,
+    `${S2_SIGNS}- **Creates:** \`temp-user\`\n`,
   );
   assert.deepEqual(problemsOf(forward), [
     `line ${lineOf(forward, "- **Signs in as:** `temp-user`")}: S1 signs in as \`temp-user\`, which S2 creates later: only a scenario after its creator may sign in as it`,
   ]);
   // A scenario signs in as what it creates itself.
-  const itself = broken(
-    S2_SIGNS_IN,
-    "- **Signs in as:** `temp-user`\n- **Creates:** `temp-user`\n",
-  );
+  const itself = broken(S2_SIGNS, "- **Signs in as:** `temp-user`\n- **Creates:** `temp-user`\n");
   assert.deepEqual(problemsOf(itself), [
     `line ${lineOf(itself, "- **Signs in as:** `temp-user`")}: S2 signs in as \`temp-user\`, which it creates itself: only a later scenario may sign in as it`,
   ]);
@@ -1197,8 +1194,7 @@ test("`plan` prints each scenario's sessions", () => {
 /** The 1-based number of the last line starting `start`: a scenario's, past the Run brief's. */
 const lastLineOf = (text, start) => text.split("\n").findLastIndex((l) => l.startsWith(start)) + 1;
 /** The good plan with S2's **Surface:** line, placed right after **Signs in as:**. */
-const withSurface = (line = "- **Surface:** `api`") =>
-  broken(S2_SIGNS_IN, `${S2_SIGNS_IN}${line}\n`);
+const withSurface = (line = "- **Surface:** `api`") => broken(S2_SIGNS, `${S2_SIGNS}${line}\n`);
 
 test("a scenario's **Surface:** overrides the Run brief's for that scenario only", () => {
   const { plan, problems } = validatePlan(withSurface());
