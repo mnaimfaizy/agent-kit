@@ -106,14 +106,14 @@ Then, for each promise, find what proves it: the rows for the tests the diff add
 
 Optional, when a claim carries the plan: perturb the code it covers (comment out the guard, invert the condition) and run the suite. A green suite that stays green is not a proving suite; the promise moves to the Residue. Revert the change before going on.
 
-**Could a test prove it?** Last, for each promise left for the Residue, ask whether a test in a configured suite could prove it. A suite whose `services` names the real services counts as real infrastructure, so a test there is a live check. What a test cannot reach is a real deployment, real infrastructure no configured suite starts, or a real browser; a promise that needs one stays for the Residue with no question to ask. When a test could prove one or more promises, stop before step 6, and for each one tell the person which suite, and what the test would assert. They choose, promise by promise:
+**Could a test prove it?** Last, for each promise left for the Residue, check whether a test in a configured suite could prove it; this check is yours, and the person is asked only where the answer is yes. A suite whose `services` names the real services counts as real infrastructure, so a test there is a live check. What a test cannot reach is a real deployment, real infrastructure no configured suite starts, or a real browser; a promise that needs one stays for the Residue, with nothing to ask the person. When a test could prove one or more promises, stop before step 6, and for each one tell the person which suite, and what the test would assert. They choose, promise by promise:
 
-- **Add the test.** They write it, commit it and push it. The head moves, so check step 1 again (the local `HEAD` must equal the pull request's new head), take the new head as step 3's head anchor, and run step 4 again on the new head, from `two-point.mjs`. A promise the new test covers is then a claim like any other. A promise the person already chose to keep as a scenario is not asked again on the new head; their choice stands.
+- **Add the test.** They write it, commit it and push it. The head moves, so check step 1 again (the local `HEAD` must equal the pull request's new head), take the new head as step 3's head anchor and compute step 3's merge-base again (a rebase or a merge of the base ref moves it), and run step 4 again on the new head, from `two-point.mjs`. A promise the new test covers is then a claim like any other. A promise the person already chose to keep as a scenario is not checked again on the new head; their choice stands.
 - **Keep it as a scenario.** The promise stays for the Residue, and step 6 composes it.
 
 Never write the test for them, and never carry the suggestion into the plan.
 
-**Done when:** no regression is left, every `unknown` row has the person's answer, every promise is either covered by a named claim, with a named live check when its path reaches a QA Stack service, or left for the Residue, and every promise left for the Residue has been asked the question once, with the person's choice for each one a test could prove.
+**Done when:** no regression is left, every `unknown` row has the person's answer, every promise is either covered by a named claim, with a named live check when its path reaches a QA Stack service, or left for the Residue, and every promise left for the Residue has been checked once for a test that could prove it, with the person's choice for each one a test could prove.
 
 ### 5. Match the Hazard packs
 

@@ -223,7 +223,7 @@ test("step 4 asks whether a configured suite's test could prove each promise lef
   assert.match(establish, /\*\*Could a test prove it\?\*\*/);
   assert.match(
     establish,
-    /for each promise left for the Residue, ask whether a test in a configured suite could prove it/,
+    /for each promise left for the Residue, check whether a test in a configured suite could prove it; this check is yours, and the person is asked only where the answer is yes/,
   );
   assert.match(
     establish,
@@ -239,14 +239,18 @@ test("step 4 asks whether a configured suite's test could prove each promise lef
   assert.match(establish, /\*\*Keep it as a scenario\.\*\*/);
   assert.match(establish, /The head moves/);
   assert.match(establish, /run step 4 again on the new head/);
+  assert.match(establish, /compute step 3's merge-base again/);
   assert.match(establish, /Never write the test for them/);
   assert.match(
     establish,
-    /A promise the person already chose to keep as a scenario is not asked again on the new head/,
+    /A promise the person already chose to keep as a scenario is not checked again on the new head/,
   );
   const done = establish.split("**Done when:**")[1];
   assert.ok(done, "step 4 has no **Done when:**");
-  assert.match(done, /every promise left for the Residue has been asked the question/);
+  assert.match(
+    done,
+    /every promise left for the Residue has been checked once for a test that could prove it/,
+  );
   assert.match(done, /the person's choice/);
   const compose = parts.find((part) => part.startsWith("6. Compose the Residue"));
   assert.ok(compose, "SKILL.md has no step 6, Compose the Residue");
