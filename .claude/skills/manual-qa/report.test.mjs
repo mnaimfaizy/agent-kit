@@ -115,10 +115,12 @@ test("the head is the full SHA: a short one is a problem, SHA-256 reads", () => 
 });
 
 const DEVIATION = "ran `env | grep` from Setup before noticing; its output was not used";
-const DEVIATED = PASSED.replace(
-  "- **Teardown:** `down` run; nothing else started\n",
-  `- **Teardown:** \`down\` run; nothing else started\n- **Run deviations:** ${DEVIATION}\n`,
-);
+/** A report with a **Run deviations:** line after **Teardown:**, as the template places it. */
+const withDeviations = (text, deviations) => {
+  const teardown = "- **Teardown:** `down` run; nothing else started\n";
+  return text.replace(teardown, `${teardown}- **Run deviations:**${deviations}\n`);
+};
+const DEVIATED = withDeviations(PASSED, ` ${DEVIATION}`);
 
 test("a **Run deviations:** line reads with no problem, its text kept", () => {
   assert.notEqual(DEVIATED, PASSED);
@@ -146,11 +148,16 @@ test("a report without the **Run deviations:** line reads as before, deviations 
 });
 
 test("an empty **Run deviations:** line is a problem: list each one, or leave it out", () => {
-  const empty = PASSED.replace(
-    "- **Teardown:** `down` run; nothing else started\n",
-    "- **Teardown:** `down` run; nothing else started\n- **Run deviations:**   \n",
-  );
+  const empty = withDeviations(PASSED, "   ");
   assert.match(readReport(empty).problems.join("\n"), /Run deviations:\*\* line is empty/);
+});
+
+test("a **Run deviations:** line under a later section is not the header's", () => {
+  const prose = PASSED.replace("None.", `None.\n\n- **Run deviations:** ${DEVIATION}`);
+  assert.notEqual(prose, PASSED);
+  const { report, problems } = readReport(prose);
+  assert.deepEqual(problems, []);
+  assert.equal(report.deviations, null);
 });
 
 test("a result other than the three is a problem", () => {

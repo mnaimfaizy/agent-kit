@@ -200,7 +200,7 @@ Only when this run ran `up` (step 5): run `down`, then stop each process in `sta
 
 ### 8. Write the QA Report
 
-Write `<working_dir>/qa-report-pr-<n>.md` in the shape below, and read it back: one row per scenario, no sign-in value anywhere in it or in the evidence folder. When the run departed from the plan as written or from the Rules above in any way the person reading the report must know about to trust its results (a command the plan only quoted, run before you caught it; a step carried out of order), add the **Run deviations:** line: each departure, and what was done about it, on one line, separated by semicolons. With none, leave the line out. When the plan file is in `working_dir`, replace its Execution record with the report's short record. Show the person the results and the report's path. Nothing is posted in this step.
+Write `<working_dir>/qa-report-pr-<n>.md` in the shape below, and read it back: one row per scenario, no sign-in value anywhere in it or in the evidence folder. When the run departed from the plan as written or from the Rules above in any way the person reading the report must know about to trust its results (one of the plan's commands run before you noticed the rule against running it; a step carried out of order), add the **Run deviations:** line: each departure, and what was done about it, on one line, separated by semicolons. With none, leave the line out. When the plan file is in `working_dir`, replace its Execution record with the report's short record. Show the person the results and the report's path. Nothing is posted in this step.
 
 ```bash
 node "<skill>/report.mjs" read "<report file>" --plan "<plan file>"

@@ -7,12 +7,11 @@
 //   results and said yes, and hands this file what `gh` printed.
 //
 //   1. `read`: reads a QA Report file (SKILL.md "The QA Report") into its
-//      anchors, its optional **Run deviations:** line, and one result per
-//      scenario, and says whether the run failed (a FAIL, or a run stopped
-//      on a blocking outcome). A PASS or FAIL row
-//      links its evidence in backticks, or says `none: <reason>`; a row left
-//      for a person may say a bare `none`. With `--plan`, it
-//      also checks the report against the plan it ran: the same anchors, one
+//      anchors, its optional **Run deviations:** header line, and one result
+//      per scenario, and says whether the run failed (a FAIL, or a run
+//      stopped on a blocking outcome). A PASS or FAIL row links its evidence
+//      in backticks, or says `none: <reason>`; a row left for a person may
+//      say a bare `none`. With `--plan`, it also checks the report against the plan it ran: the same anchors, one
 //      row per scenario, and each scenario that signs in as a Scenario
 //      account left for a person when the scenario creating it did not pass.
 //   2. `find`: from a pull request's comments, the one QA Report comment to
@@ -83,6 +82,8 @@ function staleFor(body) {
     : null;
   return named && FULL_HEAD.test(named) ? named : null;
 }
+/** The optional QA Report header line listing where the run departed from the plan or the rules. */
+const DEVIATIONS_LABEL = "- **Run deviations:**";
 /** The first line of the PR comment `qa-plan` posts naming its tracker issue. */
 export const PLAN_LINK_MARKER = "<!-- qa-plan-link -->";
 export const RESULTS = /** @type {const} */ (["PASS", "FAIL", "left for a person"]);
@@ -204,9 +205,12 @@ export function readReport(text) {
     if (!report.head) problems.push("the **Plan:** line names no full head `<sha>`");
   }
 
-  const deviationsLine = lines.find((line) => /^- \*\*Run deviations:\*\*/.test(line));
+  // A header line: one under a later section (Follow-ups, say) is that section's prose.
+  const firstSection = lines.findIndex((line) => line.startsWith("## "));
+  const header = firstSection === -1 ? lines : lines.slice(0, firstSection);
+  const deviationsLine = header.find((line) => line.startsWith(DEVIATIONS_LABEL));
   if (deviationsLine !== undefined) {
-    report.deviations = deviationsLine.slice("- **Run deviations:**".length).trim();
+    report.deviations = deviationsLine.slice(DEVIATIONS_LABEL.length).trim();
     if (!report.deviations)
       problems.push(
         "the **Run deviations:** line is empty: list each departure and what was done about it, " +
