@@ -240,6 +240,10 @@ test("step 4 asks whether a configured suite's test could prove each promise lef
   assert.match(establish, /The head moves/);
   assert.match(establish, /run step 4 again on the new head/);
   assert.match(establish, /Never write the test for them/);
+  assert.match(
+    establish,
+    /A promise the person already chose to keep as a scenario is not asked again on the new head/,
+  );
   const done = establish.split("**Done when:**")[1];
   assert.ok(done, "step 4 has no **Done when:**");
   assert.match(done, /every promise left for the Residue has been asked the question/);
@@ -251,6 +255,10 @@ test("step 4 asks whether a configured suite's test could prove each promise lef
     /Each promise step 4 left for the Residue, including each one the person chose to keep as a scenario, becomes a scenario/,
   );
   assert.match(compose, /The plan carries no test recommendations/);
+  assert.match(
+    compose,
+    /\*\*Done when:\*\* every promise step 4 left for the Residue is a scenario/,
+  );
 });
 
 test("Why only a human can prove it says why no configured suite could reach the promise (#206)", () => {
