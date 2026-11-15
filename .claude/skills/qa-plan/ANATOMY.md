@@ -95,7 +95,7 @@ The **Residue**: only what a passing CI run does not establish. One `###` headin
 - **Sessions:** in place of **Signs in as:**, only in a scenario that needs two or more people signed in at once: `A = <id>, B = <id>`, one per [Session](#sessions). A scenario carries **Signs in as:** or **Sessions:**, never both and never neither.
 - **Creates:** only in a scenario that creates an account during the run, so a later scenario can sign in as it. The id of each [Scenario account](#scenario-accounts) it creates, then prose.
 - **Steps:** a numbered list. Each step quotes the real label, button text or copy from the source (`Click **Save changes**`), never an imagined one. A step is a product action, never a shell command, and the plan check reports one as it does in [Setup](#setup): a promise that only a command can observe is either observable through the product surface, or it is not Residue.
-- **Expected result:** what the tester sees when it works, in the product's own words.
+- **Expected result:** what the tester sees when it works, in the product's own words. Write it as a comparison between product outputs, or a value the product itself shows during the run; never a number or default read from source or a config file, since the stack the plan runs on may set it differently. For example: the session lifetime on **Settings** equals the one on **Profile**, not: the session lifetime is `144000` minutes.
 - **A failure means:** what is broken if the expected result does not appear, so a failure is reported as a finding and not a symptom.
 - **If this fails, first rule out:** only in a scenario a Hazard pack matches. The pack's _Rule out first_ list, copied in under the pack's path.
 

@@ -280,3 +280,34 @@ test("DESIGN.md says why a test is asked for before a scenario (#206)", () => {
   const design = readFileSync(join(HERE, "DESIGN.md"), "utf8");
   assert.match(design, /a manual scenario costs a run every time; a test costs once/);
 });
+
+test("Expected result compares product outputs, never a default read from source (#200)", () => {
+  const scenarios = section("Scenarios");
+  const bullet = scenarios.split("\n").find((line) => line.startsWith("- **Expected result:**"));
+  assert.ok(bullet, "Scenarios has no **Expected result:** bullet");
+  assert.match(bullet, /what the tester sees when it works, in the product's own words/);
+  assert.match(
+    bullet,
+    /a comparison between product outputs, or a value the product itself shows during the run/,
+  );
+  assert.match(
+    bullet,
+    /never a number or default read from source or a config file, since the stack the plan runs on may set it differently/,
+  );
+  assert.match(
+    bullet,
+    /For example: the session lifetime on \*\*Settings\*\* equals the one on \*\*Profile\*\*, not: the session lifetime is `144000` minutes/,
+  );
+  const compose = skill.split(/^### /m).find((part) => part.startsWith("6. Compose the Residue"));
+  assert.ok(compose, "SKILL.md has no step 6, Compose the Residue");
+  assert.match(compose, /\[ANATOMY\.md\]\(ANATOMY\.md#scenarios\)/);
+  assert.match(
+    compose,
+    /Write each expected result as \[ANATOMY\.md\]\(ANATOMY\.md#scenarios\) says/,
+  );
+  assert.doesNotMatch(
+    compose,
+    /read from source|config file/,
+    "step 6 repeats the rule instead of pointing to it",
+  );
+});
