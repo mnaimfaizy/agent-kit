@@ -88,7 +88,7 @@ For `stack`, the stack runs the checkout, so `git rev-parse HEAD` must also equa
 
 ### 4. Find a driver
 
-Each scenario drives its effective surface, `plan.scenarios[].surface` in the `plan` output: its own **Surface:** when it carries one, else the Run brief's ([ANATOMY.md](ANATOMY.md#scenarios)). So one plan can drive more than one surface; find a tool this session has that can drive each surface the scenarios use:
+Each scenario drives its effective surface, `plan.scenarios[].surface` in the `plan` output: its own **Surface:** when it carries one, else the Run brief's ([ANATOMY.md](ANATOMY.md#scenarios)). When step 2 asked which surface this run uses and the answer differs from the Run brief's, the answer replaces the Run brief's for every scenario with no **Surface:** of its own; a scenario's own **Surface:** stays. So one plan can drive more than one surface; find a tool this session has that can drive each surface the scenarios use:
 
 - `web`: a browser tool (the host's built-in browser, Claude in Chrome, a Playwright MCP server).
 - `desktop` or `mobile`: desktop control, with the app or its simulator on screen.

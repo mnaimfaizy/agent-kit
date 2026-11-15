@@ -262,6 +262,10 @@ test("a driver is found per scenario by its effective surface, and the Run line 
   const flat = skill.replace(/\s+/g, " ");
   assert.match(flat, /Each scenario drives its effective surface, `plan\.scenarios\[\]\.surface`/);
   assert.match(flat, /its own \*\*Surface:\*\* when it carries one, else the Run brief's/);
+  assert.match(
+    flat,
+    /the answer replaces the Run brief's for every scenario with no \*\*Surface:\*\* of its own; a scenario's own \*\*Surface:\*\* stays/,
+  );
   assert.match(flat, /find a tool this session has that can drive each surface the scenarios use/);
   assert.match(
     flat,

@@ -193,7 +193,7 @@ test("a scenario may carry its own Surface, after its sign-in fields and before 
   assert.ok(at("Surface") > at("Creates") && at("Surface") < at("Steps"), labels.join(" · "));
   assert.match(
     scenarios,
-    /\*\*Surface:\*\* only when this scenario drives another surface than the Run brief's \*\*Surface:\*\*/,
+    /\*\*Surface:\*\* when this scenario drives another surface than the Run brief's \*\*Surface:\*\* \(one that repeats the Run brief's is accepted and changes nothing\)/,
   );
   assert.match(scenarios, /\[first-word value\]\(#first-word-values\)/);
   assert.match(scenarios, /`format=2` only/);
