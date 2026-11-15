@@ -277,6 +277,37 @@ test("a driver is found per scenario by its effective surface, and the Run line 
   );
 });
 
+test("a scenario's **Observes:** is checked against each driver before the run starts", () => {
+  const flat = skill.replace(/\s+/g, " ");
+  assert.match(
+    flat,
+    /A scenario that carries \*\*Observes:\*\* \(`plan\.scenarios\[\]\.observes`\) needs a driver of its surface that observes every value it lists/,
+  );
+  assert.match(
+    flat,
+    /When none can, the scenario is \*\*left for a person\*\* before the stack starts \(_no driver here observes `<value>`_, naming the first value no driver observes;/,
+  );
+  // One driver runs the scenario: values split across drivers are named together.
+  assert.match(flat, /One driver runs the whole scenario/);
+  assert.match(
+    flat,
+    /when each value has a driver but none has them all, _no driver here observes `<value>` and `<value>` together_/,
+  );
+  assert.match(flat, /_no driver here observes `body` and `local-file` together_/);
+  // The dated table of what each Driver observes, to be corrected by any run that finds it wrong.
+  assert.match(flat, /What each driver observes, as of \d{4}-\d{2}-\d{2}/);
+  assert.match(flat, /correct it in this table/);
+  for (const row of [
+    /\| The host's built-in browser, by its network reader \| `screen`, `body` \| Not headers\. \|/,
+    /\| Claude in Chrome \| `screen` \| Headers are not promised\. \|/,
+    /\| `http\.mjs`, and `curl` \| `headers`, `cookies`, `httponly-cookies`, `status`, `body` \|/,
+    /\| Desktop control \| `screen` \| On the app, or its simulator\. \|/,
+    /\| Any other browser tool \| `screen` \|/,
+    /\| A driver that can open a `file:\/\/` address \| `local-file` \|/,
+  ])
+    assert.match(flat, row);
+});
+
 test("finding a driver notes whether it can save images and record", () => {
   const flat = skill.replace(/\s+/g, " ");
   assert.match(flat, /whether it can \*\*save images\*\*.*and whether it can \*\*record\*\*/);

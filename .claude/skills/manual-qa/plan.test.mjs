@@ -90,6 +90,7 @@ test("the good plan reads with no problems, and its parts are read out", () => {
       sessions: [{ name: null, id: "admin" }],
       creates: [],
       surface: "web",
+      observes: [],
     },
     {
       id: "S2",
@@ -98,6 +99,7 @@ test("the good plan reads with no problems, and its parts are read out", () => {
       sessions: [{ name: null, id: "nobody" }],
       creates: [],
       surface: "web",
+      observes: [],
     },
   ]);
   assert.equal(plan.executed, false);
@@ -1282,6 +1284,128 @@ test("`plan` prints each scenario's effective surface", () => {
   assert.deepEqual(
     JSON.parse(result.out).plan.scenarios.map((s) => s.surface),
     ["web", "api"],
+  );
+});
+
+// ── What a scenario observes (format=2) ─────────────────────────────────────
+
+/** The good plan with S2 on `api`, then its **Observes:** line right after **Surface:**. */
+const withObserves = (line = "- **Observes:** headers, httponly-cookies") =>
+  withSurface(`- **Surface:** \`api\`\n${line}`);
+const OBSERVES_POSITION =
+  "**Observes:** is out of position: it goes right after the scenario's **Surface:**, or after **Signs in as:** or **Sessions:** (and **Creates:**, when present) when it has none, before **Steps:**";
+
+test("**Observes:** reads into the scenario's list; a scenario without one observes `[]`", () => {
+  const { plan, problems } = validatePlan(withObserves());
+  assert.deepEqual(problems, []);
+  assert.deepEqual(
+    plan.scenarios.map((s) => [s.id, s.observes]),
+    [
+      ["S1", []],
+      ["S2", ["headers", "httponly-cookies"]],
+    ],
+  );
+  // Backticks and `*` or `_` around a value are dropped; prose may follow the list.
+  const prose = withObserves("- **Observes:** `headers`, **status** (the `Set-Cookie` line)");
+  assert.deepEqual(problemsOf(prose), []);
+  assert.deepEqual(validatePlan(prose).plan.scenarios[1].observes, ["headers", "status"]);
+  // Every value in the list reads.
+  const all = withObserves(
+    "- **Observes:** headers, cookies, httponly-cookies, status, body, screen, local-file",
+  );
+  assert.deepEqual(problemsOf(all), []);
+  assert.equal(validatePlan(all).plan.scenarios[1].observes.length, 7);
+});
+
+test("**Observes:** with a value outside the list is a problem naming it, on its line", () => {
+  const html = withObserves("- **Observes:** headers, html");
+  assert.deepEqual(problemsOf(html), [
+    `line ${lastLineOf(html, "- **Observes:**")}: S2: **Observes:** \`html\`: expected one of: headers, cookies, httponly-cookies, status, body, screen, local-file`,
+  ]);
+  const stuck = withObserves("- **Observes:** headers.");
+  assert.deepEqual(problemsOf(stuck), [
+    `line ${lastLineOf(stuck, "- **Observes:**")}: S2: **Observes:** read \`headers.\`: a \`.\` is stuck to the value; write \`headers\` followed by a space, comma or parenthesis`,
+  ]);
+  const comma = withObserves("- **Observes:** headers,, status");
+  assert.deepEqual(problemsOf(comma), [
+    `line ${lastLineOf(comma, "- **Observes:**")}: S2: **Observes:** has an empty value: a comma with nothing after it`,
+  ]);
+  const twice = withObserves("- **Observes:** headers, headers");
+  assert.deepEqual(problemsOf(twice), [
+    `line ${lastLineOf(twice, "- **Observes:**")}: S2: **Observes:** \`headers\` is named twice`,
+  ]);
+  const empty = withObserves("- **Observes:**");
+  assert.deepEqual(problemsOf(empty), [
+    `line ${lastLineOf(empty, "- **Observes:**")}: S2: **Observes:** is empty`,
+  ]);
+  const prose = withObserves("- **Observes:** (the header)");
+  assert.deepEqual(problemsOf(prose), [
+    `line ${lastLineOf(prose, "- **Observes:**")}: S2: **Observes:** expected one or more of: headers, cookies, httponly-cookies, status, body, screen, local-file`,
+  ]);
+  const again = withObserves("- **Observes:** headers\n- **Observes:** body");
+  assert.deepEqual(problemsOf(again), [
+    `line ${lastLineOf(again, "- **Observes:** body")}: S2: a second **Observes:**: a scenario has at most one`,
+  ]);
+});
+
+test("**Observes:** with no **Surface:** follows the sign-in field", () => {
+  const signs = broken(S2_SIGNS, `${S2_SIGNS}- **Observes:** screen\n`);
+  assert.deepEqual(problemsOf(signs), []);
+  assert.deepEqual(validatePlan(signs).plan.scenarios[1].observes, ["screen"]);
+  const creates = broken(
+    "- **Signs in as:** `admin`\n",
+    "- **Signs in as:** `admin`\n- **Creates:** `temp-user` (chosen in S1)\n- **Observes:** body\n",
+  );
+  assert.deepEqual(problemsOf(creates), []);
+  const sessions = withSessions().replace(
+    "(each in its own browser)\n",
+    "(each in its own browser)\n- **Observes:** screen\n",
+  );
+  assert.deepEqual(problemsOf(sessions), []);
+});
+
+test("**Observes:** out of position is a problem naming its line", () => {
+  const beforeSurface = withSurface("- **Observes:** headers\n- **Surface:** `api`");
+  assert.deepEqual(problemsOf(beforeSurface), [
+    `line ${lastLineOf(beforeSurface, "- **Observes:**")}: S2: ${OBSERVES_POSITION}`,
+  ]);
+  const early = broken(
+    "- **Why only a human can prove it:** the redirect",
+    "- **Observes:** status\n- **Why only a human can prove it:** the redirect",
+  );
+  assert.deepEqual(problemsOf(early), [
+    `line ${lastLineOf(early, "- **Observes:**")}: S2: ${OBSERVES_POSITION}`,
+  ]);
+  const late = broken(
+    "- **A failure means:** the members page is reachable without signing in.",
+    "- **A failure means:** the members page is reachable without signing in.\n- **Observes:** status",
+  );
+  assert.deepEqual(problemsOf(late), [
+    `line ${lastLineOf(late, "- **Observes:**")}: S2: ${OBSERVES_POSITION}`,
+  ]);
+  const beforeCreates = broken(
+    "- **Signs in as:** `admin`\n",
+    "- **Signs in as:** `admin`\n- **Observes:** body\n- **Creates:** `temp-user` (chosen in S1)\n",
+  );
+  assertProblem(beforeCreates, /S1: \*\*Observes:\*\* is out of position/);
+});
+
+test("a format=1 plan carries no **Observes:**", () => {
+  const text = broken(S2_SIGNS, `${S2_SIGNS}- **Observes:** screen\n`).replace(
+    "format=2",
+    "format=1",
+  );
+  assert.deepEqual(problemsOf(text), [
+    `line ${lastLineOf(text, "- **Observes:**")}: S2: **Observes:** is a format=2 field: mark the plan \`format=2\`, or leave it out`,
+  ]);
+});
+
+test("`plan` prints each scenario's **Observes:** list", () => {
+  const result = main(["plan"], { read: () => null, stdin: () => withObserves() });
+  assert.equal(result.code, 0);
+  assert.deepEqual(
+    JSON.parse(result.out).plan.scenarios.map((s) => s.observes),
+    [[], ["headers", "httponly-cookies"]],
   );
 });
 

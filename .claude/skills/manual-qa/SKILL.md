@@ -102,6 +102,19 @@ Where a browser comes from depends on the harness:
 
 With none, every scenario on that surface is **left for a person** (_no tool here can drive a `<surface>` surface_); the rest of the run still goes ahead.
 
+A scenario that carries **Observes:** (`plan.scenarios[].observes`) needs a driver of its surface that observes every value it lists ([ANATOMY.md](ANATOMY.md#scenarios)); pick that one among the drivers above, using the table below. One driver runs the whole scenario, so drivers that each see some of the values do not add up to one that sees them all. When none can, the scenario is **left for a person** before the stack starts (_no driver here observes `<value>`_, naming the first value no driver observes; or, when each value has a driver but none has them all, _no driver here observes `<value>` and `<value>` together_, naming the values listed, such as _no driver here observes `body` and `local-file` together_); the rest of the run still goes ahead.
+
+What each driver observes, as of 2026-11-15. A run that finds a row wrong (a driver sees more, or less, than its row says) names it in the report's **Follow-ups**, so someone can correct it in this table and its date.
+
+| Driver                                             | Observes                                                   | Notes                                                    |
+| -------------------------------------------------- | ---------------------------------------------------------- | -------------------------------------------------------- |
+| The host's built-in browser, by its network reader | `screen`, `body`                                           | Not headers.                                             |
+| Claude in Chrome                                   | `screen`                                                   | Headers are not promised.                                |
+| `http.mjs`, and `curl`                             | `headers`, `cookies`, `httponly-cookies`, `status`, `body` | All cookies, including `HttpOnly`.                       |
+| Desktop control                                    | `screen`                                                   | On the app, or its simulator.                            |
+| Any other browser tool                             | `screen`                                                   |                                                          |
+| A driver that can open a `file://` address         | `local-file`                                               | Only such a driver; a browser tool may refuse `file://`. |
+
 For each driver, note two things step 6 needs: whether it can **save images** (write a screenshot to a file under `working_dir`), and whether it can **record** (save a GIF or video of a sequence, such as Claude in Chrome's GIF tool). A driver that only shows a screenshot to you, without saving it, cannot save images. The `api` surface's drivers save no images: `http.mjs` writes the scenario's evidence log (step 6), and with `curl` the evidence is the response, written to a text file or quoted, redacted, in the notes.
 
 A scenario with **Sessions:** (`plan.scenarios[].sessions` lists more than one) needs a driver per session, with each session's cookies and storage kept from every other's:
@@ -114,7 +127,7 @@ Tabs in one browser profile never count: a second sign-in overwrites the first's
 
 With no scenario left to run, skip to step 8: nothing was started, so there is nothing to tear down.
 
-**Done when:** each scenario has a driver, and each multi-session scenario one per session, kept apart; or it is recorded as left for a person, with the reason. Each driver's ability to save images and to record is noted.
+**Done when:** each scenario has a driver that observes everything its **Observes:** lists, and each multi-session scenario one per session, kept apart; or it is recorded as left for a person, with the reason. Each driver's ability to save images and to record is noted.
 
 ### 5. Start the QA Stack, or check the hosted URL
 

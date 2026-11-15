@@ -1099,6 +1099,22 @@ export const CREATES = "Creates";
  * **Steps:**.
  */
 export const SCENARIO_SURFACE = "Surface";
+/**
+ * The optional field (format=2) naming what a scenario's result observes, for `manual-qa`
+ * to check each driver against: right after the scenario's **Surface:**, or after its
+ * sign-in field (and **Creates:**) when it has none, before **Steps:**.
+ */
+export const SCENARIO_OBSERVES = "Observes";
+/** The values **Observes:** takes, from ANATOMY.md "Scenarios". */
+export const OBSERVES = /** @type {const} */ ([
+  "headers",
+  "cookies",
+  "httponly-cookies",
+  "status",
+  "body",
+  "screen",
+  "local-file",
+]);
 /** The plan formats this copy reads. A format=1 plan carries no per-scenario field. */
 export const FORMATS = /** @type {const} */ ([1, 2]);
 /** The format the composer writes. */
@@ -1285,8 +1301,9 @@ export function credentialProblems(lines) {
  * its session), each Scenario account created once and signed in as only after
  * it, no shell command in Setup or Steps, and no credentials. Each parsed
  * scenario lists its `sessions` as `{name, id}`: one with `name: null` for
- * **Signs in as:**, else one per letter, and its effective `surface`: its own
- * **Surface:** (format=2), else the Run brief's.
+ * **Signs in as:**, else one per letter, its effective `surface`: its own
+ * **Surface:** (format=2), else the Run brief's, and the values its **Observes:**
+ * (format=2) lists, as `observes` (`[]` with none).
  * `manual-qa` runs nothing from a plan with a problem.
  *
  * @param {string} text
@@ -1402,7 +1419,8 @@ export function validatePlan(text) {
     return `\`${word}\`: a \`${mark}\` is stuck to the value; write \`${bare}\` followed by a space, comma or parenthesis`;
   };
   /**
-   * The ids a **Creates:** line names (ANATOMY.md, "Scenario accounts"): first-word values
+   * The ids a **Creates:** line names (ANATOMY.md, "Scenario accounts"), and the values an
+   * **Observes:** line names, read the same way: first-word values
    * joined by commas, with any spaces around each comma. Any other space, a semicolon, a
    * colon or a parenthesis ends the list; the rest is prose. An empty id after a comma is
    * kept as `""`, so the checker names it on this line.
@@ -1708,6 +1726,41 @@ export function validatePlan(text) {
           at(own.n, `${id}: **${SCENARIO_SURFACE}:** expected one of: ${SURFACES.join(", ")}`);
         else surface = word;
       }
+      // What the scenario observes (#204): after its Surface, else after its sign-in field.
+      /** @type {string[]} */
+      const observes = [];
+      const observing = found.filter((entry) => entry.label === SCENARIO_OBSERVES);
+      for (const extra of observing.slice(1))
+        at(extra.n, `${id}: a second **${SCENARIO_OBSERVES}:**: a scenario has at most one`);
+      const listed = observing[0];
+      if (listed) {
+        const k = found.indexOf(listed);
+        const misplaced =
+          found.slice(k + 1).some((entry) => [...before, SCENARIO_SURFACE].includes(entry.label)) ||
+          found.slice(0, k).some((entry) => after.includes(entry.label));
+        const what = `${id}: **${SCENARIO_OBSERVES}:**`;
+        if (plan.format === 1)
+          at(listed.n, `${what} is a format=2 field: mark the plan \`format=2\`, or leave it out`);
+        else if (misplaced)
+          at(
+            listed.n,
+            `${what} is out of position: it goes right after the scenario's **${SCENARIO_SURFACE}:**, or after **${SCENARIO_LABELS[1]}:** or **${SESSIONS}:** (and **${CREATES}:**, when present) when it has none, before **Steps:**`,
+          );
+        else if (listed.text === "") at(listed.n, `${what} is empty`);
+        else if (!idList(listed.inline).length)
+          at(listed.n, `${what} expected one or more of: ${OBSERVES.join(", ")}`);
+        else
+          for (const value of idList(listed.inline)) {
+            const stuck = stuckMark(value, (candidate) => OBSERVES.includes(candidate));
+            if (value === "")
+              at(listed.n, `${what} has an empty value: a comma with nothing after it`);
+            else if (stuck) at(listed.n, `${what} read ${stuck}`);
+            else if (!OBSERVES.includes(value))
+              at(listed.n, `${what} \`${value}\`: expected one of: ${OBSERVES.join(", ")}`);
+            else if (observes.includes(value)) at(listed.n, `${what} \`${value}\` is named twice`);
+            else observes.push(value);
+          }
+      }
       const steps = get("Steps");
       if (steps && steps.text !== "" && !/^\s*\d+\.\s+\S/m.test(steps.text))
         at(steps.n, `${id}: **Steps:** expected a numbered list`);
@@ -1769,6 +1822,7 @@ export function validatePlan(text) {
         sessions,
         creates: [...new Set(made.filter((made) => made !== ""))],
         surface,
+        observes,
       });
       accountLines.push({ signs: (named ?? signs)?.n, creates: creates?.n, made });
     });
