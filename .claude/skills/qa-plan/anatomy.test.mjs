@@ -243,7 +243,7 @@ test("step 4 asks whether a configured suite's test could prove each promise lef
   assert.match(establish, /Never write the test for them/);
   assert.match(
     establish,
-    /A promise the person already chose to keep as a scenario is not checked again on the new head/,
+    /A promise the person already chose to keep as a scenario is not asked about again on the new head; their choice stands, unless the new run covers it, in which case it is a claim/,
   );
   const done = establish.split("**Done when:**")[1];
   assert.ok(done, "step 4 has no **Done when:**");
