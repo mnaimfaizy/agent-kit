@@ -77,7 +77,7 @@ With `CLAUDE_REVIEW_RESPONSE_MODE` set to exactly `auto`, a finished review that
 
 Both Callers need wiring.
 
-**The review Caller** (the job that `uses:` `agent-review-reusable.yml`) passes the mode, names your Review response Caller, and grants `actions: write` for the handoff job. Every review Caller needs that job-level grant, even in manual mode: GitHub refuses a called workflow whose job asks for more than its Caller grants, even when that job would not run. The [example](../examples/plan-implement-review-caller.yml) already has it. Add the four `response_*` lines:
+**The review Caller** (the job that `uses:` `agent-review-reusable.yml`) passes the mode, names your Review response Caller, and grants `actions: write` for the handoff job. Every review Caller needs that job-level grant, even in manual mode: GitHub refuses a called workflow whose job asks for more than its Caller grants, even when that job would not run. The [example](../examples/plan-implement-review-caller.yml) already has it, and carries the four `response_*` lines commented: uncomment them. A Caller not built from the example adds them:
 
 ```yaml
 review:

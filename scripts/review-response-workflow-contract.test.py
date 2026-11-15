@@ -462,6 +462,36 @@ def test_the_review_caller_contract_gains_the_auto_mode_inputs() -> None:
     }
 
 
+HANDOFF_INPUTS = {"response_mode", "response_workflow", "response_allowlist_actors", "response_reviewer_logins"}
+EXAMPLE_CALLER = ROOT / "examples" / "plan-implement-review-caller.yml"
+GUIDE = ROOT / "docs" / "review-response.md"
+COMMENTED_INPUT = re.compile(r"^(\s*)# (response_\w+): (.*)$", re.MULTILINE)
+
+
+def test_the_example_review_caller_carries_the_handoff_inputs_commented() -> None:
+    text = EXAMPLE_CALLER.read_text(encoding="utf-8")
+    commented = {m.group(2): m.group(3) for m in COMMENTED_INPUT.finditer(text)}
+    assert set(commented) == HANDOFF_INPUTS
+    declared = review_workflow()["on"]["workflow_call"]["inputs"]
+    assert set(declared) >= HANDOFF_INPUTS, "the commented inputs are ones the review workflow declares"
+    # Copied as it is, the example stays in manual mode.
+    as_copied = load(EXAMPLE_CALLER)["jobs"]["review"]["with"]
+    assert not HANDOFF_INPUTS & set(as_copied)
+    # Uncommented, the lines are review inputs, every one declared.
+    uncommented = yaml.safe_load(COMMENTED_INPUT.sub(r"\1\2: \3", text))
+    params = uncommented["jobs"]["review"]["with"]
+    assert set(params) - set(as_copied) == HANDOFF_INPUTS
+    assert set(params) <= set(declared)
+    assert params["response_mode"] == "${{ vars.CLAUDE_REVIEW_RESPONSE_MODE || 'manual' }}"
+    assert params["response_workflow"] == ".github/workflows/agent-review-response.yml"
+    assert params["response_allowlist_actors"] == '["your-github-login"]'
+    assert params["response_reviewer_logins"] == "[]"
+    # The same values as the guide's snippet.
+    guide = GUIDE.read_text(encoding="utf-8")
+    for name, value in commented.items():
+        assert f"    {name}: {value}\n" in guide, f"{name}: keep the example and the guide's snippet equal"
+
+
 def test_actions_write_is_held_by_the_handoff_job_only() -> None:
     review_jobs = review_workflow()["jobs"]
     assert list(review_jobs) == ["review", "handoff"]
@@ -672,6 +702,7 @@ if __name__ == "__main__":
     test_review_and_response_share_one_group_per_pull_request()
     test_the_round_cap_is_two()
     test_the_review_caller_contract_gains_the_auto_mode_inputs()
+    test_the_example_review_caller_carries_the_handoff_inputs_commented()
     test_actions_write_is_held_by_the_handoff_job_only()
     test_handoff_runs_only_in_auto_mode_after_a_review_that_ran()
     test_handoff_runs_only_trusted_code_and_dispatches_on_the_default_branch()

@@ -48,7 +48,7 @@ export const PLACEHOLDERS = [
   {
     name: "your-github-login",
     pattern: /your-github-login/g,
-    counts: { pipeline: 4, audit: 1, "review-response": 1 },
+    counts: { pipeline: 5, audit: 1, "review-response": 1 },
     replace: (v) => () => v.actors.join('","'),
   },
   {
