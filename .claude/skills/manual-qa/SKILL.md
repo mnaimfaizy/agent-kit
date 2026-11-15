@@ -111,6 +111,7 @@ What each driver observes, as of 2026-11-15. A run that finds a row wrong (a dri
 | The host's built-in browser, by its network reader | `screen`, `body`                                           | Not headers.                                             |
 | Claude in Chrome                                   | `screen`                                                   | Headers are not promised.                                |
 | `http.mjs`, and `curl`                             | `headers`, `cookies`, `httponly-cookies`, `status`, `body` | All cookies, including `HttpOnly`.                       |
+| Desktop control                                    | `screen`                                                   | On the app, or its simulator.                            |
 | Any other browser tool                             | `screen`                                                   |                                                          |
 | A driver that can open a `file://` address         | `local-file`                                               | Only such a driver; a browser tool may refuse `file://`. |
 

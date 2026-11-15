@@ -183,6 +183,10 @@ test("a scenario's **Observes:** takes values from a fixed list, after its **Sur
   assert.match(flat, /The plan check refuses any other value, naming it/);
   assert.match(
     flat,
+    /Whether a driver can see a value is checked at run time, .* not by the plan check/,
+  );
+  assert.match(
+    flat,
     /`manual-qa` leaves the scenario for a person when no driver here observes one of them/,
   );
 });

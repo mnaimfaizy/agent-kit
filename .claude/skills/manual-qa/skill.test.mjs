@@ -294,6 +294,7 @@ test("a scenario's **Observes:** is checked against each driver before the run s
     /\| The host's built-in browser, by its network reader \| `screen`, `body` \| Not headers\. \|/,
     /\| Claude in Chrome \| `screen` \| Headers are not promised\. \|/,
     /\| `http\.mjs`, and `curl` \| `headers`, `cookies`, `httponly-cookies`, `status`, `body` \|/,
+    /\| Desktop control \| `screen` \| On the app, or its simulator\. \|/,
     /\| Any other browser tool \| `screen` \|/,
     /\| A driver that can open a `file:\/\/` address \| `local-file` \|/,
   ])
