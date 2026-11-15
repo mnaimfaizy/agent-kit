@@ -16,7 +16,7 @@ import { dirname, join } from "node:path";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { CookieJar, checkSequence, main } from "./http.mjs";
+import { CookieJar, checkSequence, main, parseSetCookie, searchedCookie } from "./http.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SCRIPT = join(HERE, "http.mjs");
@@ -101,6 +101,29 @@ before(async () => {
           ],
         });
         return res.end("{}");
+      }
+      if (url.pathname === "/signout") {
+        // PHP's own sign-out line: the value is a placeholder, not a session.
+        res.writeHead(200, {
+          "content-type": "application/json",
+          "set-cookie": [
+            "PHPSESSID=deleted; expires=Thu, 01 Jan 1970 00:00:01 GMT; Max-Age=0; path=/; HttpOnly",
+          ],
+        });
+        return res.end('{"status": "deleted"}');
+      }
+      if (url.pathname === "/signout-sid") {
+        // Removes the session cookie the last sign-in set.
+        res.writeHead(200, {
+          "content-type": "text/plain",
+          "set-cookie": ["sid=deleted; Max-Age=0; Path=/; HttpOnly"],
+        });
+        return res.end("Account deleted");
+      }
+      if (url.pathname === "/last-session") {
+        // A careless page that shows the session value it issued.
+        res.writeHead(200, { "content-type": "text/plain" });
+        return res.end(`last session: s3ss10n-value-${sid}-abcdef`);
       }
       if (url.pathname === "/profile") {
         res.writeHead(200, { "content-type": "application/json" });
@@ -306,6 +329,64 @@ test("a flag-like cookie's value stays readable in bodies; a secret or opaque on
     /"admin": true, "theme": "light", "id": 1042, "csrf": "\[redacted:cookie csrftoken\]", "t": "\[redacted:cookie tracker\]"/,
   );
   assert.doesNotMatch(log, /k9Qw7xZp|0123456789abcdefXYZ/);
+});
+
+test("a cookie its own Set-Cookie line removes is a placeholder: readable in bodies, redacted in its line", async () => {
+  const result = await run({
+    requests: [
+      { session: "A", method: "DELETE", path: "/signout" },
+      { session: "A", method: "GET", path: "/signout-sid" },
+    ],
+  });
+  assert.equal(result.code, 0);
+  const { log } = result;
+  assert.match(
+    log,
+    /set-cookie: PHPSESSID=\[redacted:cookie PHPSESSID\]; expires=Thu, 01 Jan 1970 00:00:01 GMT; Max-Age=0; path=\/; HttpOnly/,
+  );
+  assert.match(log, /set-cookie: sid=\[redacted:cookie sid\]; Max-Age=0; Path=\/; HttpOnly/);
+  assert.match(log, /\{"status": "deleted"\}/);
+  assert.match(log, /Account deleted/);
+  assert.doesNotMatch(log, /\[redacted:cookie PHPSESSID\]"\}|Account \[redacted/);
+});
+
+test("Max-Age of 0 or less, in any case, or a past Expires removes a cookie; Max-Age outranks Expires", () => {
+  const searched = (line) => searchedCookie(parseSetCookie(line));
+  // Removed: never searched for, whatever the name, length or HttpOnly.
+  assert.equal(
+    searched(
+      "PHPSESSID=deleted; expires=Thu, 01 Jan 1970 00:00:01 GMT; Max-Age=0; path=/; HttpOnly",
+    ),
+    false,
+  );
+  assert.equal(searched("session=deleted; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly"), false);
+  assert.equal(searched("sid=removed-placeholder-value; max-age=0; HttpOnly"), false);
+  assert.equal(searched("token=gone-gone-gone-gone; MAX-AGE=-1"), false);
+  assert.equal(searched("sid=deleted; EXPIRES=Wed, 21 Oct 2015 07:28:00 GMT; HttpOnly"), false);
+  // Not removed: still searched.
+  assert.equal(searched("PHPSESSID=8f3k2j9d0a7b6c5e4f3g; path=/; HttpOnly"), true);
+  assert.equal(
+    searched("sid=8f3k2j9d0a7b; Max-Age=3600; Expires=Thu, 01 Jan 1970 00:00:01 GMT; HttpOnly"),
+    true,
+  );
+  assert.equal(searched("sid=8f3k2j9d0a7b; Expires=Fri, 01 Jan 2100 00:00:00 GMT; HttpOnly"), true);
+  assert.equal(searched("sid=8f3k2j9d0a7b; Expires=not a date; HttpOnly"), true);
+  assert.equal(searched("theme=light"), false);
+});
+
+test("a real session value stays redacted across the log after a later response removes its cookie", async () => {
+  const result = await run({
+    requests: [
+      signIn("A"),
+      { session: "A", method: "GET", path: "/signout-sid" },
+      { session: "A", method: "GET", path: "/last-session" },
+    ],
+  });
+  assert.equal(result.code, 0);
+  const { log } = result;
+  assert.doesNotMatch(log, /s3ss10n-value/);
+  assert.match(log, /last session: \[redacted:cookie sid\]/);
+  assert.match(log, /Account deleted/);
 });
 
 test("the log records method, path, status and the named headers, one entry per request", async () => {
