@@ -91,6 +91,12 @@ export const ROLE_KEYS = /** @type {const} */ (["id", "purpose"]);
 export const EVIDENCE_KEYS = /** @type {const} */ (["upload"]);
 export const TARGETS = /** @type {const} */ (["stack", "url"]);
 export const SURFACES = /** @type {const} */ (["web", "desktop", "mobile", "api"]);
+/**
+ * Marks a writer may leave stuck to the end of a first-word value (#201). A comma,
+ * semicolon, colon or parenthesis already ends the word (ANATOMY.md, "First-word
+ * values"), so none of them is ever left on it.
+ */
+const STUCK_MARKS = [".", "!", "?"];
 
 /** ADAPTER.md's defaults. `base_ref` and `suites` have none: the readiness check asks. */
 export const DEFAULTS = Object.freeze({
@@ -1302,6 +1308,21 @@ export function validatePlan(text) {
         .split(/[\s,;:()]+/)[0] ?? ""
     ).replace(/^[*_]+|[*_]+$/g, "");
   /**
+   * A first-word value that fails only because a mark is stuck to its end (#201), such
+   * as `api.` for `api`: the word as read, the mark and the fix, for the problem to name.
+   * The plan still fails; this only says why. `null` when `word` is valid, or is not
+   * valid without its last mark either.
+   * @param {string} word the value as `plainWord` read it
+   * @param {(word: string) => boolean} valid
+   */
+  const stuckMark = (word, valid) => {
+    const mark = word.slice(-1);
+    if (valid(word) || !STUCK_MARKS.includes(mark)) return null;
+    const bare = word.slice(0, -1).replace(/[*_]+$/, "");
+    if (bare === "" || !valid(bare)) return null;
+    return `\`${word}\`: a \`${mark}\` is stuck to the value; write \`${bare}\` followed by a space, comma or parenthesis`;
+  };
+  /**
    * The ids a **Creates:** line names (ANATOMY.md, "Scenario accounts"): first-word values
    * joined by commas, with any spaces around each comma. Any other space, a semicolon, a
    * colon or a parenthesis ends the list; the rest is prose. An empty id after a comma is
@@ -1444,7 +1465,9 @@ export function validatePlan(text) {
       const entry = get(label);
       if (!entry || entry.text === "") continue;
       const word = plainWord(entry.inline);
-      if (!choices.includes(word))
+      const stuck = stuckMark(word, (candidate) => choices.includes(candidate));
+      if (stuck) at(entry.n, `**${label}:** read ${stuck}`);
+      else if (!choices.includes(word))
         at(entry.n, `**${label}:** expected one of: ${choices.join(", ")}`);
       else plan.brief[key] = word;
     }
@@ -1604,7 +1627,15 @@ export function validatePlan(text) {
         const line = accountLines[i].signs;
         const subject = name === null ? id : `${id}'s session ${name}`;
         const creator = creatorOf.get(who);
-        if (creator === undefined)
+        const stuck = stuckMark(
+          who,
+          (candidate) =>
+            candidate === "nobody" ||
+            plan.brief.roles.includes(candidate) ||
+            (creatorOf.get(candidate) ?? Infinity) < i,
+        );
+        if (stuck) at(line, `${subject} signs in as ${stuck}`);
+        else if (creator === undefined)
           at(
             line,
             `${subject} signs in as \`${who}\`, which is neither a role the Run brief's **Roles:** names nor a Scenario account an earlier scenario creates`,

@@ -277,9 +277,10 @@ test("a scenario signs in only as a role the Run brief names, or nobody", () => 
 
 test("first-word values are read as ANATOMY.md states: marks dropped, nothing else stripped", () => {
   // The three draft lines the #124 pilot wrote, which ANATOMY.md now rules out.
+  // A mark stuck to a valid word still fails; the problem says so (#201).
   assertProblem(
     broken("- **Surface:** `web`", "- **Surface:** `web`."),
-    /\*\*Surface:\*\* expected one of: web, desktop, mobile, api/,
+    /\*\*Surface:\*\* read `web\.`: a `\.` is stuck to the value/,
   );
   assertProblem(
     broken("- **Signs in as:** `admin`", "- **Signs in as:** the new user from S1, then `admin`."),
@@ -287,11 +288,11 @@ test("first-word values are read as ANATOMY.md states: marks dropped, nothing el
   );
   assertProblem(
     broken("- **Signs in as:** `admin`", "- **Signs in as:** `admin`."),
-    /S1 signs in as `admin\.`, which is neither a role the Run brief's \*\*Roles:\*\* names nor a Scenario account an earlier scenario creates/,
+    /S1 signs in as `admin\.`: a `\.` is stuck to the value/,
   );
   assertProblem(
     broken("- **Target:** `stack`", "- **Target:** `stack`."),
-    /\*\*Target:\*\* expected one of: stack, url/,
+    /\*\*Target:\*\* read `stack\.`: a `\.` is stuck to the value/,
   );
   // The forms ANATOMY.md allows: bare, in backticks or emphasis, prose after a space or comma.
   for (const [from, to] of [
@@ -323,6 +324,114 @@ test("first-word values are read as ANATOMY.md states: marks dropped, nothing el
     plan.scenarios.map((s) => s.signsInAs),
     ["team_admin", "nobody"],
   );
+});
+
+test("a mark stuck to a first-word value is named, with the fix (#201)", () => {
+  const fix = (word) => `write \`${word}\` followed by a space, comma or parenthesis`;
+  const surfaceLine = lineOf(GOOD, "- **Surface:**");
+  const targetLine = lineOf(GOOD, "- **Target:**");
+  const signsLine = lineOf(GOOD, "- **Signs in as:** `admin`");
+  for (const [from, to, problem] of [
+    [
+      "- **Surface:** `web`",
+      "- **Surface:** `api`.",
+      `line ${surfaceLine}: **Surface:** read \`api.\`: a \`.\` is stuck to the value; ${fix("api")}`,
+    ],
+    [
+      "- **Surface:** `web`",
+      "- **Surface:** `api.` in Chrome",
+      `line ${surfaceLine}: **Surface:** read \`api.\`: a \`.\` is stuck to the value; ${fix("api")}`,
+    ],
+    [
+      "- **Surface:** `web`",
+      "- **Surface:** **web**!",
+      `line ${surfaceLine}: **Surface:** read \`web**!\`: a \`!\` is stuck to the value; ${fix("web")}`,
+    ],
+    [
+      "- **Target:** `stack`",
+      "- **Target:** `url`?",
+      `line ${targetLine}: **Target:** read \`url?\`: a \`?\` is stuck to the value; ${fix("url")}`,
+    ],
+    [
+      "- **Signs in as:** `admin`",
+      "- **Signs in as:** admin. Then S1 invites a member",
+      `line ${signsLine}: S1 signs in as \`admin.\`: a \`.\` is stuck to the value; ${fix("admin")}`,
+    ],
+    [
+      "- **Signs in as:** `admin`",
+      "- **Signs in as:** `nobody`.",
+      `line ${signsLine}: S1 signs in as \`nobody.\`: a \`.\` is stuck to the value; ${fix("nobody")}`,
+    ],
+  ])
+    assert.deepEqual(problemsOf(broken(from, to)), [problem], to);
+  // A session id gets it too, on the Sessions line.
+  const session = withSessions("A = member, B = admin.");
+  assert.deepEqual(problemsOf(session), [
+    `line ${sessionsLine(session)}: S1's session B signs in as \`admin.\`: a \`.\` is stuck to the value; ${fix("admin")}`,
+  ]);
+  // A Scenario account id with a mark stuck to it, too.
+  const account = withAccount([
+    "- **Signs in as:** `temp-user` (created in S1)",
+    "- **Signs in as:** `temp-user`.",
+  ]);
+  assert.deepEqual(problemsOf(account), [
+    `line ${lineOf(account, "- **Signs in as:** `temp-user`")}: S2 signs in as \`temp-user.\`: a \`.\` is stuck to the value; ${fix("temp-user")}`,
+  ]);
+  // A Scenario account the scenario creates itself, or a later one creates, is no fix:
+  // without the mark it would still fail, so the problem is today's.
+  const neither = (word) =>
+    `S1 signs in as \`${word}\`, which is neither a role the Run brief's **Roles:** names nor a Scenario account an earlier scenario creates`;
+  const itself = broken(
+    "- **Signs in as:** `admin`\n",
+    "- **Signs in as:** `temp-user`.\n- **Creates:** `temp-user`\n",
+  );
+  assert.deepEqual(problemsOf(itself), [
+    `line ${lineOf(itself, "- **Signs in as:** `temp-user`")}: ${neither("temp-user.")}`,
+  ]);
+  const later = broken(
+    "- **Signs in as:** nobody\n",
+    "- **Signs in as:** nobody\n- **Creates:** `temp-user`\n",
+  ).replace("- **Signs in as:** `admin`", "- **Signs in as:** `temp-user`.");
+  assert.deepEqual(problemsOf(later), [
+    `line ${lineOf(later, "- **Signs in as:** `temp-user`")}: ${neither("temp-user.")}`,
+  ]);
+  // No valid word under the mark, or no mark: today's message.
+  for (const [from, to, problem] of [
+    [
+      "- **Surface:** `web`",
+      "- **Surface:** `browser`",
+      "**Surface:** expected one of: web, desktop, mobile, api",
+    ],
+    [
+      "- **Surface:** `web`",
+      "- **Surface:** `browser`.",
+      "**Surface:** expected one of: web, desktop, mobile, api",
+    ],
+    ["- **Target:** `stack`", "- **Target:** `stacks`", "**Target:** expected one of: stack, url"],
+    [
+      "- **Signs in as:** `admin`",
+      "- **Signs in as:** `owner`.",
+      "S1 signs in as `owner.`, which is neither a role the Run brief's **Roles:** names nor a Scenario account an earlier scenario creates",
+    ],
+    [
+      "- **Signs in as:** `admin`",
+      "- **Signs in as:** `admin`..",
+      "S1 signs in as `admin..`, which is neither a role the Run brief's **Roles:** names nor a Scenario account an earlier scenario creates",
+    ],
+  ]) {
+    const problems = problemsOf(broken(from, to));
+    assert.equal(problems.length, 1, `${to}: ${problems.join("\n")}`);
+    assert.ok(problems[0].endsWith(problem), `${to}: got ${problems[0]}`);
+  }
+  // A comma, semicolon, colon or parenthesis already ends the word (ANATOMY.md, rule 2),
+  // so nothing is stuck: these read cleanly, as before.
+  for (const to of [
+    "- **Target:** `stack`,",
+    "- **Target:** `stack,`",
+    "- **Target:** `stack`; on a laptop",
+    "- **Target:** `stack`)",
+  ])
+    assert.deepEqual(problemsOf(broken("- **Target:** `stack`", to)), [], to);
 });
 
 // ── Scenario accounts ───────────────────────────────────────────────────────
