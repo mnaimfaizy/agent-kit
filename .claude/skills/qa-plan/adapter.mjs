@@ -1470,8 +1470,9 @@ export function validatePlan(text) {
    * The shell command a line of Setup or Steps reads as (#199): `$ `, or the command word
    * that the line's text, or a backticked span on it, begins with before an argument
    * (`COPY_WORDS` before one that reads as a command's); `null` for a product action. A
-   * `continuation` (a line that is no list item, indented or after a non-blank line)
-   * carries on the prose above it, so only its spans and a `$ ` prompt are read. A lone word, such as a role id or a label, is no command.
+   * `continuation` (an indented line that is no list item) carries on the prose
+   * above it, so only its spans and a `$ ` prompt are read. A lone word, such as a
+   * role id or a label, is no command.
    */
   const commandIn = (text, continuation) => {
     const starts = (value) => {
@@ -1517,12 +1518,9 @@ export function validatePlan(text) {
         column ??= text.length - numbered[3].length;
         if (numbered[1].length < column) step = numbered[2];
       }
-      // A line that is no list item carries on the prose above it when it is indented,
-      // or when it follows a non-blank line (a lazy continuation, at any indent).
-      const continuation =
-        !numbered &&
-        !/^\s*[-*+]\s/.test(text) &&
-        (/^\s/.test(text) || (n > from && !fenced[n - from - 1] && lines[n - 1].trim() !== ""));
+      // An indented line that is no list item carries on the prose above it. A column-0
+      // line is read whole, even when it wraps prose: the check errs toward reporting.
+      const continuation = !numbered && !/^\s*[-*+]\s/.test(text) && /^\s/.test(text);
       const word = commandIn(text, continuation);
       if (word === null) continue;
       const what = !steps

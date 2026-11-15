@@ -481,20 +481,29 @@ test("an unclosed fence in one scenario's steps is named once, not again in a la
   assert.match(fences[0], /^line \d+: S1: /);
 });
 
-test("a line wrapped at column 0 carries on the prose above it; a `$ ` prompt there still fails", () => {
-  const wrapped = broken(
-    "1. Restore the `admin` account with `accounts.restore`.",
-    "1. Turn on **Invites** for the team that reads the\ncurl examples on the **Docs** page.\n\nThen open\nnode settings under **Admin**.",
+test("a column-0 line after prose is read as a whole line, so a bare command there fails", () => {
+  const setup = "1. Restore the `admin` account with `accounts.restore`.";
+  for (const [before, command] of [
+    ["1. Seed the database:", "npx prisma db seed"],
+    ["### Data", "docker compose up -d"],
+    // Accepted false positive: unindented wrapped prose that starts with a command word
+    // is reported; the author indents or re-wraps it. The check errs toward reporting.
+    ["1. Turn on **Invites** for the team that reads the", "curl examples on the **Docs** page."],
+  ]) {
+    const text = broken(setup, `${before}\n${command}`);
+    const problems = shellProblems(text);
+    assert.equal(problems.length, 1, `${command}\n${problems.join("\n")}`);
+    assert.match(problems[0], new RegExp(`^line ${lineHolding(text, command)}: Setup: a line`));
+  }
+  // Indented, the wrap carries on the prose, and only a `$ ` prompt there still counts.
+  assert.deepEqual(
+    shellProblems(
+      broken(setup, "1. Turn on **Invites** for the team that reads the\n   curl examples."),
+    ),
+    [],
   );
-  assert.deepEqual(shellProblems(wrapped), []);
-  const prompt = "$ redis-cli FLUSHALL";
-  const prompted = broken(
-    "1. Restore the `admin` account with `accounts.restore`.",
-    `1. Clear the cache:\n${prompt}`,
-  );
-  const problems = shellProblems(prompted);
-  assert.equal(problems.length, 1, problems.join("\n"));
-  assert.match(problems[0], new RegExp(`^line ${lineHolding(prompted, prompt)}: Setup: a line`));
+  const prompted = broken(setup, "1. Clear the cache:\n   $ redis-cli FLUSHALL");
+  assert.equal(shellProblems(prompted).length, 1, problemsOf(prompted).join("\n"));
 });
 
 test("a command outside Setup and Steps is not this check's to report", () => {
