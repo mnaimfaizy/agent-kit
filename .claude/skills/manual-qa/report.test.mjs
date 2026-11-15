@@ -152,6 +152,17 @@ test("an empty **Run deviations:** line is a problem: list each one, or leave it
   assert.match(readReport(empty).problems.join("\n"), /Run deviations:\*\* line is empty/);
 });
 
+test("a `## ` line inside a fenced block in the header does not end the header", () => {
+  const fenced = withDeviations(PASSED, ` ${DEVIATION}`).replace(
+    "- **Teardown:**",
+    "```text\n## not a heading\n```\n- **Teardown:**",
+  );
+  assert.ok(fenced.includes("## not a heading"));
+  const { report, problems } = readReport(fenced);
+  assert.deepEqual(problems, []);
+  assert.equal(report.deviations, DEVIATION);
+});
+
 test("a **Run deviations:** line under a later section is not the header's", () => {
   const prose = PASSED.replace("None.", `None.\n\n- **Run deviations:** ${DEVIATION}`);
   assert.notEqual(prose, PASSED);

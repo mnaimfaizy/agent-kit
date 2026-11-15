@@ -11,9 +11,10 @@
 //      per scenario, and says whether the run failed (a FAIL, or a run
 //      stopped on a blocking outcome). A PASS or FAIL row links its evidence
 //      in backticks, or says `none: <reason>`; a row left for a person may
-//      say a bare `none`. With `--plan`, it also checks the report against the plan it ran: the same anchors, one
-//      row per scenario, and each scenario that signs in as a Scenario
-//      account left for a person when the scenario creating it did not pass.
+//      say a bare `none`. With `--plan`, it also checks the report against
+//      the plan it ran: the same anchors, one row per scenario, and each
+//      scenario that signs in as a Scenario account left for a person when
+//      the scenario creating it did not pass.
 //   2. `find`: from a pull request's comments, the one QA Report comment to
 //      update (its body's first line is exactly `<!-- qa-report -->`, and the
 //      person posting wrote it), so a re-run edits it and never posts a second; and the tracker issue the
@@ -205,10 +206,14 @@ export function readReport(text) {
     if (!report.head) problems.push("the **Plan:** line names no full head `<sha>`");
   }
 
-  // A header line: one under a later section (Follow-ups, say) is that section's prose.
-  const firstSection = lines.findIndex((line) => line.startsWith("## "));
-  const header = firstSection === -1 ? lines : lines.slice(0, firstSection);
-  const deviationsLine = header.find((line) => line.startsWith(DEVIATIONS_LABEL));
+  const found = sections(lines);
+  // A header line: one under a later section (Follow-ups, say) is that section's
+  // prose. The header ends where `sections` finds the first heading, so a `## `
+  // line inside a fenced block does not end it.
+  const headerEnd = Math.min(lines.length, ...Object.values(found).map(({ start }) => start));
+  const deviationsLine = lines
+    .slice(0, headerEnd)
+    .find((line) => line.startsWith(DEVIATIONS_LABEL));
   if (deviationsLine !== undefined) {
     report.deviations = deviationsLine.slice(DEVIATIONS_LABEL.length).trim();
     if (!report.deviations)
@@ -218,7 +223,6 @@ export function readReport(text) {
       );
   }
 
-  const found = sections(lines);
   const results = found.Results;
   if (!results) problems.push("no `## Results` section");
   else {

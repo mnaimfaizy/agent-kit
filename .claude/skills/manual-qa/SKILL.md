@@ -273,7 +273,7 @@ With `working-copy`, skip this step. Otherwise pass `--link <file>=<url>` for ea
   gh issue edit <planIssue> --body-file "<tmp>/issue-new.md"
   ```
 
-  Each scenario's Sign-off box is ticked when it passed and cleared otherwise; a Setup box stays a person's to tick. The issue's Execution record becomes the report's. An issue whose plan is for another pull request or another head is refused: the plan was revised after this run.
+  Each scenario's Sign-off box is ticked when it passed and cleared otherwise; a Setup box stays a person's to tick. The issue's Execution record becomes the report's. The report's **Run deviations:** line is in its header, not its Execution record, so it does not reach the issue. An issue whose plan is for another pull request or another head is refused: the plan was revised after this run.
 
 Give the person the comment or issue URL, and each uploaded file's URL.
 
