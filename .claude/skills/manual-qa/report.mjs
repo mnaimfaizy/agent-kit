@@ -355,7 +355,8 @@ export function reportPlanProblems(report, planText) {
       `the plan is for subject #${plan.subject}, pull request #${plan.pr}, head ${plan.anchors.head}; ` +
         `the report is for subject #${report.subject}, pull request #${report.pr}, head ${report.head}`,
     ];
-  // An open box is a person's to read: one the report drops is never read.
+  // An open box is a person's to read: one the report drops is never read. Boxes are
+  // matched by text, so two open boxes with the same text are one read and need one line.
   const listed = new Set(report.reviews);
   const openBoxes = new Set(plan.reviews.filter(({ ticked }) => !ticked).map(({ text }) => text));
   const problems = [...openBoxes]

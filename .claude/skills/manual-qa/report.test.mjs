@@ -955,6 +955,17 @@ test("a report listing every open review box passes, and so does a plan with no 
   assert.deepEqual(reportPlanProblems(readReport(PASSED).report, PLAN), []);
 });
 
+test("two open review boxes with the same text need one Follow-ups line, and give one problem", () => {
+  const twice = REVIEW_ONLY.replace(REVIEW, `${REVIEW}\n${REVIEW}`);
+  assert.deepEqual(validatePlan(twice).problems, []);
+  assert.deepEqual(reportPlanProblems(readReport(REVIEWED).report, twice), []);
+  const missing = reportPlanProblems(
+    readReport(PASSED).report,
+    PLAN_WITH_REVIEW.replace(REVIEW, `${REVIEW}\n${REVIEW}`),
+  );
+  assert.equal(missing.length, 1);
+});
+
 test("a review box ticked in the plan needs no Follow-ups line", () => {
   const ticked = TWO_BOXES.replace(`- [ ] Review: ${SECOND_BOX}`, `- [x] Review: ${SECOND_BOX}`);
   assert.deepEqual(validatePlan(ticked).problems, []);
