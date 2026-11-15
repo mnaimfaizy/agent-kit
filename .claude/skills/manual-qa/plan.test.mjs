@@ -519,6 +519,26 @@ test("a column-0 line after prose is read as a whole line, so a bare command the
   assert.equal(shellProblems(prompted).length, 1, problemsOf(prompted).join("\n"));
 });
 
+test("each line of an indented block is read whole, not only its first", () => {
+  // A line read whole is no prose for the next indented line to carry on (#215 review).
+  const setup = "1. Restore the `admin` account with `accounts.restore`.";
+  const command = "        npx prisma db seed";
+  const text = broken(setup, `1. Seed the database:\n\n        cd backend\n${command}`);
+  const problems = shellProblems(text);
+  assert.ok(
+    problems.some((p) => p.startsWith(`line ${lineHolding(text, command)}: Setup: a line`)),
+    problems.join("\n"),
+  );
+  const step = "  1. Open **Members**.";
+  const inSteps = broken(step, `  1. Seed the database:\n\n       cd backend\n${command}`);
+  assert.ok(
+    shellProblems(inSteps).some((p) =>
+      p.startsWith(`line ${lineHolding(inSteps, command)}: S1: step 1`),
+    ),
+    shellProblems(inSteps).join("\n"),
+  );
+});
+
 test("an indented line after a blank line, or at the start of the range, is read whole", () => {
   // #215: only a line directly under non-blank, unfenced prose in the same range continues it.
   const setup = "1. Restore the `admin` account with `accounts.restore`.";

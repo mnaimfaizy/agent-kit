@@ -1542,12 +1542,16 @@ export function validatePlan(text) {
     const cite = `(ANATOMY.md, "${section}")`;
     let step = null;
     let column = null;
+    // Whether the line above was an indented line read whole: a code block's line, which
+    // the next indented line carries on as a block, not as prose.
+    let inBlock = false;
     // Fences as a list item nests them too (a step's fence sits four or more spaces in),
     // read within this range only: a fence ends with its section or field, as CommonMark
     // ends one with its container, so one left open elsewhere never hides this range.
     const fenced = fencedLines(lines.slice(from, to), true);
     for (let n = from; n < to; n += 1) {
       if (fenced[n - from]) {
+        inBlock = false;
         if (n === from || !fenced[n - from - 1])
           at(n, `${where}: a fenced code block; ${NO_CODE_BLOCK} ${cite}`);
         continue;
@@ -1559,17 +1563,15 @@ export function validatePlan(text) {
         if (numbered[1].length < column) step = numbered[2];
       }
       // An indented line that is no list item carries on the prose just above it, when that
-      // line is in this range, non-blank and not fenced (#215); line `from` is read as
-      // `first`, so a bare `- **Steps:**` label is no prose. Any other line, a column-0 one
-      // even when it wraps prose, is read whole: the check errs toward reporting.
+      // line is in this range, non-blank, not fenced and not itself an indented line read
+      // whole (#215); line `from` is read as `first`, so a bare `- **Steps:**` label is no
+      // prose. Any other line, a column-0 one even when it wraps prose, is read whole: the
+      // check errs toward reporting.
       const above = n - 1 === from && first !== undefined ? first : lines[n - 1];
+      const indented = !numbered && !/^\s*[-*+]\s/.test(text) && /^\s/.test(text);
       const continuation =
-        !numbered &&
-        !/^\s*[-*+]\s/.test(text) &&
-        /^\s/.test(text) &&
-        n > from &&
-        !fenced[n - from - 1] &&
-        /\S/.test(above);
+        indented && n > from && !fenced[n - from - 1] && !inBlock && /\S/.test(above);
+      inBlock = indented && !continuation && /\S/.test(text);
       const word = commandIn(text, continuation);
       if (word === null) continue;
       const what = !steps
