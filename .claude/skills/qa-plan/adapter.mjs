@@ -1121,7 +1121,9 @@ export const FORMATS = /** @type {const} */ ([1, 2]);
 export const FORMAT = FORMATS.at(-1);
 const RULE_OUT = "If this fails, first rule out";
 /** A Sign-off box for a promise only reading can check: `- [ ] Review: <what to read, and what it must say>`. */
-const REVIEW_BOX = /^\s*[-*]\s+\[([ xX])\]\s+Review:(.*)$/;
+const REVIEW_BOX = /^\s*[-*]\s+\[(?<tick>[ xX])\]\s+Review:(?<text>.*)$/;
+/** A box that looks meant as a `Review:` box but is not written as one: `review:`, `**Review:**`, `Review :`. */
+const NEAR_REVIEW_BOX = /^\s*[-*]\s+\[[ xX]\]\s+[*_]*review[*_]*\s*[*_]*:/i;
 /** A role id, and a Scenario account id: letters, digits, `_` and `-`. */
 const ACCOUNT_ID = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
 export const NOT_RUN = "_Not run yet._";
@@ -1666,14 +1668,24 @@ export function validatePlan(text) {
   }
 
   // Each `Review:` box: a promise only reading can check (ANATOMY.md, "Sign-off checklist").
+  // Read before Scenarios, whose empty-Residue check counts them.
   if (sections["Sign-off checklist"]) {
     const { from, to } = sections["Sign-off checklist"];
     for (let n = from; n < to; n += 1) {
       const box = !fenced[n] && REVIEW_BOX.exec(lines[n]);
-      if (!box) continue;
-      if (box[2].trim() === "")
+      if (!box) {
+        // Read as an ordinary box, it would reach no one's Follow-ups.
+        if (!fenced[n] && NEAR_REVIEW_BOX.test(lines[n]))
+          at(
+            n,
+            "a box that reads as a review box: write it `- [ ] Review: <what to read, and what it must say>`, with `Review:` exactly",
+          );
+        continue;
+      }
+      const { tick, text } = /** @type {Record<string, string>} */ (box.groups);
+      if (text.trim() === "")
         at(n, "a `Review:` box with nothing after it: say what to read, and what it must say");
-      else plan.reviews.push({ text: box[2].trim(), ticked: box[1] !== " " });
+      else plan.reviews.push({ text: text.trim(), ticked: tick !== " " });
     }
   }
 

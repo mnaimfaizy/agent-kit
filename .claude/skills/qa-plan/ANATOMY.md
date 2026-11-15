@@ -158,7 +158,7 @@ A **Session** is one signed-in identity, with cookies and storage no other sessi
 
 One unticked box per scenario (`- [ ] S1: <what is verified>`), plus one per Setup step a person must confirm, plus one `Review:` box per promise only reading can check. Ticked by whoever runs the plan, except a `Review:` box, which the person who reads it ticks.
 
-A promise only reading can check (the copy of a doc, a static file the app does not serve, a code comment) has no surface to drive, so it is not a scenario. It is a box: `- [ ] Review: <what to read, and what it must say>`, such as `- [ ] Review: docs/x.html says the token lasts 30 days`. The text after `Review:` is required.
+A promise only reading can check (the copy of a doc, a static file the app does not serve, a code comment) has no surface to drive, so it is not a scenario. It is a box: `- [ ] Review: <what to read, and what it must say>`, such as `- [ ] Review: docs/x.html says the token lasts 30 days`. The text after `Review:` is required, and `Review:` is written exactly: the plan check reports a box that reads as one but is not (`review:`, `**Review:**`), since as an ordinary box it would reach no one.
 
 - A `Review:` box is no scenario's box: each scenario still needs its own.
 - `manual-qa` runs nothing for one. It is never a Results row or a PASS: the QA Report's **Follow-ups** lists each open one for a person.

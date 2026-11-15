@@ -1441,6 +1441,21 @@ test("a `Review:` box says what to read, and what it must say", () => {
   assertProblem(withReview("- [ ] Review:   "), /a `Review:` box with nothing after it/);
 });
 
+test("a box that misspells `Review:` is reported, not read as an ordinary box", () => {
+  for (const box of [
+    "- [ ] review: docs/x.html says 30 days",
+    "- [ ] **Review:** docs/x.html says 30 days",
+    "- [ ] Review : docs/x.html says 30 days",
+    "- [x] _review_: docs/x.html says 30 days",
+  ])
+    assertProblem(
+      withReview(box),
+      /write it `- \[ \] Review: <what to read, and what it must say>`/,
+    );
+  // A box that only starts with the word, with no colon after it, is prose.
+  assert.deepEqual(problemsOf(withReview("- [ ] Reviewer notes are in the PR")), []);
+});
+
 test("a `Review:` box is no scenario's box, so a scenario without its own is still a problem", () => {
   const text = broken(
     "- [ ] S2: A signed-out visitor cannot open the members page",

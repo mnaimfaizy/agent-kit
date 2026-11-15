@@ -280,13 +280,13 @@ export function readReport(text) {
     }
     // `None.` in place of the table: a plan whose Residue is only `Review:` boxes has no
     // scenarios to run (#205). Against its plan, one row per scenario still decides.
-    const none =
+    const saysNone =
       lines
         .slice(results.start + 1, results.end)
         .filter((line) => line.trim() !== "")
         .join("\n")
         .trim() === "None.";
-    if (report.results.length === 0 && !none)
+    if (report.results.length === 0 && !saysNone)
       problems.push(
         "the Results table has no scenario rows: write `None.` in its place only when the plan has no scenarios",
       );
