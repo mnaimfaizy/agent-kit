@@ -16,13 +16,15 @@ import { dirname, join } from "node:path";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { CookieJar, checkSequence, main } from "./http.mjs";
+import { CookieJar, checkSequence, main, parseSetCookie, searchedCookie } from "./http.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SCRIPT = join(HERE, "http.mjs");
 const skill = readFileSync(join(HERE, "SKILL.md"), "utf8");
 const adapterDoc = readFileSync(join(HERE, "ADAPTER.md"), "utf8");
 
+/** A long, opaque-looking cookie value, built at run time so no secret scanner flags a literal. */
+const OPAQUE_TOKEN = "tok3n".repeat(8);
 const PASSWORD = "Corr3ct-Horse-Battery";
 const EMAIL = "admin@example.test";
 /** Each request the server saw: method, path, Cookie header, body. */
@@ -101,6 +103,44 @@ before(async () => {
           ],
         });
         return res.end("{}");
+      }
+      if (url.pathname === "/signout") {
+        // PHP's own sign-out line: the value is a placeholder, not a session.
+        res.writeHead(200, {
+          "content-type": "application/json",
+          "set-cookie": [
+            "PHPSESSID=deleted; expires=Thu, 01 Jan 1970 00:00:01 GMT; Max-Age=0; path=/; HttpOnly",
+          ],
+        });
+        return res.end('{"status": "deleted"}');
+      }
+      if (url.pathname === "/signout-sid") {
+        // Removes the session cookie the last sign-in set.
+        res.writeHead(200, {
+          "content-type": "text/plain",
+          "set-cookie": ["sid=deleted; Max-Age=0; Path=/; HttpOnly"],
+        });
+        return res.end("Account deleted");
+      }
+      if (url.pathname === "/signout-empty") {
+        res.writeHead(200, {
+          "content-type": "text/plain",
+          "set-cookie": ["sid=; Max-Age=0; Path=/; HttpOnly"],
+        });
+        return res.end("signed out, session deleted");
+      }
+      if (url.pathname === "/forget-me") {
+        // A server that removes a cookie by echoing its real, never-seen value.
+        res.writeHead(200, {
+          "content-type": "text/plain",
+          "set-cookie": [`remember_token=${OPAQUE_TOKEN}; Max-Age=0; Path=/; HttpOnly`],
+        });
+        return res.end(`forgot ${OPAQUE_TOKEN}`);
+      }
+      if (url.pathname === "/last-session") {
+        // A careless page that shows the session value it issued.
+        res.writeHead(200, { "content-type": "text/plain" });
+        return res.end(`last session: s3ss10n-value-${sid}-abcdef`);
       }
       if (url.pathname === "/profile") {
         res.writeHead(200, { "content-type": "application/json" });
@@ -306,6 +346,104 @@ test("a flag-like cookie's value stays readable in bodies; a secret or opaque on
     /"admin": true, "theme": "light", "id": 1042, "csrf": "\[redacted:cookie csrftoken\]", "t": "\[redacted:cookie tracker\]"/,
   );
   assert.doesNotMatch(log, /k9Qw7xZp|0123456789abcdefXYZ/);
+});
+
+test("a cookie its own Set-Cookie line removes is a placeholder: readable in bodies, redacted in its line", async () => {
+  const result = await run({
+    requests: [
+      { session: "A", method: "DELETE", path: "/signout" },
+      { session: "A", method: "GET", path: "/signout-sid" },
+    ],
+  });
+  assert.equal(result.code, 0);
+  const { log } = result;
+  assert.match(
+    log,
+    /set-cookie: PHPSESSID=\[redacted:cookie PHPSESSID\]; expires=Thu, 01 Jan 1970 00:00:01 GMT; Max-Age=0; path=\/; HttpOnly/,
+  );
+  assert.match(log, /set-cookie: sid=\[redacted:cookie sid\]; Max-Age=0; Path=\/; HttpOnly/);
+  assert.match(log, /\{"status": "deleted"\}/);
+  assert.match(log, /Account deleted/);
+});
+
+test("only a placeholder-shaped value on a removing line goes unsearched: empty or one short word", async () => {
+  const result = await run({
+    requests: [
+      { session: "A", method: "GET", path: "/signout-empty" },
+      { session: "A", method: "GET", path: "/forget-me" },
+    ],
+  });
+  assert.equal(result.code, 0);
+  const { log } = result;
+  assert.match(log, /set-cookie: sid=\[redacted:cookie sid\]; Max-Age=0; Path=\/; HttpOnly/);
+  assert.match(log, /signed out, session deleted/);
+  // A long opaque value is a credential even on a removing line, though never set before.
+  assert.match(log, /forgot \[redacted:cookie remember_token\]/);
+  assert.ok(!log.includes(OPAQUE_TOKEN));
+  const searched = (line) => searchedCookie(parseSetCookie(line));
+  assert.equal(searched("sid=x9k2Lq7z; Max-Age=0; HttpOnly"), true);
+  assert.equal(searched("session_token=deleted; Max-Age=0"), false);
+});
+
+test("Max-Age of 0 or less, in any case, or a past Expires removes a cookie; Max-Age outranks Expires", () => {
+  const searched = (line) => searchedCookie(parseSetCookie(line));
+  // Removed, with a placeholder value: never searched for, whatever the name or HttpOnly.
+  assert.equal(
+    searched(
+      "PHPSESSID=deleted; expires=Thu, 01 Jan 1970 00:00:01 GMT; Max-Age=0; path=/; HttpOnly",
+    ),
+    false,
+  );
+  assert.equal(searched("session=deleted; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly"), false);
+  assert.equal(searched("sid=removed; max-age=0; HttpOnly"), false);
+  assert.equal(searched("token=expired; MAX-AGE=-1"), false);
+  assert.equal(searched("sid=deleted; EXPIRES=Wed, 21 Oct 2015 07:28:00 GMT; HttpOnly"), false);
+  // Not removed: still searched.
+  assert.equal(searched("PHPSESSID=8f3k2j9d0a7b6c5e4f3g; path=/; HttpOnly"), true);
+  assert.equal(
+    searched("sid=8f3k2j9d0a7b; Max-Age=3600; Expires=Thu, 01 Jan 1970 00:00:01 GMT; HttpOnly"),
+    true,
+  );
+  assert.equal(searched("sid=8f3k2j9d0a7b; Expires=Fri, 01 Jan 2100 00:00:00 GMT; HttpOnly"), true);
+  assert.equal(searched("sid=8f3k2j9d0a7b; Expires=not a date; HttpOnly"), true);
+  assert.equal(searched("theme=light"), false);
+});
+
+test("an Expires-only removal is read against the response's Date, so clock skew cannot unredact a live cookie", () => {
+  const at = (ms) => new Date(ms).toUTCString();
+  const t = Date.parse("Sun, 15 Nov 2026 12:00:00 GMT");
+  const live = (expires) => ({
+    name: "csrf",
+    value: "pending",
+    attributes: [` Expires=${at(expires)}`, " HttpOnly"],
+  });
+  // A word-like HttpOnly value, live 30s more by the server's own clock: searched, whatever the runner's clock says.
+  assert.equal(searchedCookie(live(t + 30_000), Date.parse(at(t))), true);
+  // Already past by the server's clock: removed.
+  assert.equal(searchedCookie(live(t - 1_000), Date.parse(at(t))), false);
+  // With no Date header, only an Expires more than a day past counts: a runner a minute ahead still redacts.
+  assert.equal(searchedCookie(live(Date.now() - 60_000)), true);
+  assert.equal(searchedCookie(live(Date.now() - 2 * 86_400_000)), false);
+  // Max-Age needs no clock.
+  assert.equal(
+    searchedCookie({ ...live(t + 30_000), attributes: [" Max-Age=0", " HttpOnly"] }),
+    false,
+  );
+});
+
+test("a real session value stays redacted across the log after a later response removes its cookie", async () => {
+  const result = await run({
+    requests: [
+      signIn("A"),
+      { session: "A", method: "GET", path: "/signout-sid" },
+      { session: "A", method: "GET", path: "/last-session" },
+    ],
+  });
+  assert.equal(result.code, 0);
+  const { log } = result;
+  assert.doesNotMatch(log, /s3ss10n-value/);
+  assert.match(log, /last session: \[redacted:cookie sid\]/);
+  assert.match(log, /Account deleted/);
 });
 
 test("the log records method, path, status and the named headers, one entry per request", async () => {
