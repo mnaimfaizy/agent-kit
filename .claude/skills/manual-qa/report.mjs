@@ -85,6 +85,8 @@ function staleFor(body) {
 }
 /** The optional QA Report header line listing where the run departed from the plan or the rules. */
 const DEVIATIONS_LABEL = "- **Run deviations:**";
+/** A Follow-ups line for an open `Review:` box (SKILL.md, The QA Report). */
+const REVIEW_FOLLOW_UP = /^\s*[-*]\s+Review, for a person:\s*\S/;
 /** The first line of the PR comment `qa-plan` posts naming its tracker issue. */
 export const PLAN_LINK_MARKER = "<!-- qa-plan-link -->";
 export const RESULTS = /** @type {const} */ (["PASS", "FAIL", "left for a person"]);
@@ -170,7 +172,8 @@ const cells = (row) =>
     .map((cell) => cell.trim());
 
 /**
- * Read a QA Report file into what posting needs.
+ * Read a QA Report file into what posting needs. Its Results is a table of one
+ * row per scenario, or `None.` for a plan with no scenarios.
  *
  * @param {string} text
  * @returns {{report: {title: string | null, subject: number | null, pr: number | null,
@@ -277,7 +280,33 @@ export function readReport(text) {
         notes: notes.join("|").trim(),
       });
     }
-    if (report.results.length === 0) problems.push("the Results table has no scenario rows");
+    // `None.` in place of the table: a plan whose Residue is only `Review:` boxes has no
+    // scenarios to run (#205). Against its plan, one row per scenario still decides.
+    const saysNone =
+      lines
+        .slice(results.start + 1, results.end)
+        .filter((line) => line.trim() !== "")
+        .join("\n")
+        .trim() === "None.";
+    if (report.results.length === 0 && !saysNone)
+      problems.push(
+        "the Results table has no scenario rows: write `None.` in its place only when the plan has no scenarios",
+      );
+    // A plan with no scenarios has a review box, which Follow-ups lists: without one, `None.`
+    // could stand for a plan's scenarios in a command that reads no plan (`comment`).
+    else if (report.results.length === 0) {
+      const followUps = found["Follow-ups"];
+      const listed =
+        followUps &&
+        lines
+          .slice(followUps.start + 1, followUps.end)
+          .some((line, i) => !fenced[followUps.start + 1 + i] && REVIEW_FOLLOW_UP.test(line));
+      if (!listed)
+        problems.push(
+          "Results is `None.` but **Follow-ups** has no `- Review, for a person: …` line: " +
+            "`None.` is only for a plan with no scenarios, whose review boxes Follow-ups lists",
+        );
+    }
   }
   report.stopped = report.results.some((row) =>
     /(?<![A-Za-z])the run stopped at S\d+/i.test(row.notes),
@@ -502,7 +531,7 @@ export function reportComment(reportText, { links = {} } = {}) {
  * The tracker issue's new body: the plan it carries, with each scenario's
  * Sign-off box ticked for PASS and cleared otherwise, and its Execution record
  * replaced by the report's, evidence linked. Boxes that are not a scenario's
- * (a Setup step) are a person's to tick, and are left as they are.
+ * (a Setup step, a `Review:` box) are a person's to tick, and are left as they are.
  *
  * @param {string} issueBody the issue's current body
  * @param {string} reportText

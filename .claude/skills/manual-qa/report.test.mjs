@@ -812,6 +812,102 @@ test("the tracker's sections and boxes are read as validatePlan reads them", () 
   assert.match(trackerBody(loose, FAILED).body, /^- {2}\[ \]\tS1:/m);
 });
 
+// --- Review boxes: read by a person, never a result (#205) ---
+
+const REVIEW = "- [ ] Review: docs/x.html says the token lasts 30 days";
+/** The good plan with a `Review:` box in its Sign-off checklist. */
+const PLAN_WITH_REVIEW = PLAN.replace(
+  "- [ ] Setup 1: the `admin` account was restored",
+  `- [ ] Setup 1: the \`admin\` account was restored\n${REVIEW}`,
+);
+/** A plan whose Residue is only a review box: no scenarios, so no Setup box either. */
+const REVIEW_ONLY = PLAN.replace(
+  /(## Scenarios\n\n)[\s\S]*?(?=## Sign-off checklist)/,
+  "$1None.\n\n",
+).replace(/(## Sign-off checklist\n\n)[\s\S]*?(?=\n## Stop)/, `$1${REVIEW}\n`);
+/** The report for REVIEW_ONLY: nothing ran, and the box is a person's, under Follow-ups. */
+const REVIEWED = reportFor(
+  [],
+  "- No scenarios; one review box for a person.\n- Build: verified by `gh`",
+)
+  .replace(/(## Results\n\n)[\s\S]*?(?=\n## Follow-ups)/, "$1None.\n")
+  .replace(
+    "## Follow-ups\n\nNone.",
+    "## Follow-ups\n\n- Review, for a person: docs/x.html says the token lasts 30 days",
+  );
+
+test("a plan of review boxes only gets a report with Results `None.`, and the box under Follow-ups", () => {
+  assert.deepEqual(validatePlan(REVIEW_ONLY).problems, []);
+  const { report, problems } = readReport(REVIEWED);
+  assert.deepEqual(problems, []);
+  assert.deepEqual(report.results, []);
+  assert.equal(report.failed, false);
+  assert.deepEqual(reportPlanProblems(report, REVIEW_ONLY), []);
+  const out = main(["read", "reviewed.md", "--plan", "plan.md"], {
+    readFile: (path) => ({ "reviewed.md": REVIEWED, "plan.md": REVIEW_ONLY })[path] ?? null,
+  });
+  assert.equal(out.code, 0, out.out);
+});
+
+test("Results `None.` is only for a plan with no scenarios; an empty table is still a problem", () => {
+  const { report } = readReport(REVIEWED);
+  assert.match(
+    reportPlanProblems(report, PLAN).join("\n"),
+    /the plan's scenarios are S1 S2; the report's results are none/,
+  );
+  const empty = reportFor([]);
+  assert.match(readReport(empty).problems.join("\n"), /the Results table has no scenario rows/);
+});
+
+test("Results `None.` reads only with a review box under Follow-ups, so a report alone cannot hide its scenarios", () => {
+  // Without the plan (`report.mjs comment`), `None.` and no review box is refused.
+  const bare = REVIEWED.replace(/## Follow-ups\n\n[^\n]*/, "## Follow-ups\n\nNone.");
+  assert.match(
+    readReport(bare).problems.join("\n"),
+    /Results is `None\.` but \*\*Follow-ups\*\* has no `- Review, for a person: …` line/,
+  );
+  const comment = main(["comment", "bare.md"], { readFile: () => bare });
+  assert.equal(comment.code, 1);
+  assert.equal(main(["comment", "reviewed.md"], { readFile: () => REVIEWED }).code, 0);
+});
+
+test("a `Review:` box is never a Results row", () => {
+  const row = reportFor([
+    S1_ROW("PASS", "invite sent"),
+    "| S2: A signed-out visitor cannot open the members page | PASS | `qa-report-pr-57/s2.log` | redirected |",
+    "| Review: docs/x.html says the token lasts 30 days | PASS | none: read | says 30 days |",
+  ]);
+  assert.match(readReport(row).problems.join("\n"), /a result row names no scenario `S<n>`/);
+  const { report } = readReport(
+    REVIEWED.replace(
+      "## Results\n\nNone.",
+      [
+        "## Results",
+        "",
+        "| Scenario | Result | Evidence | Notes |",
+        "| -------- | ------ | -------- | ----- |",
+        "| Review: docs/x.html says the token lasts 30 days | PASS | none: read | ok |",
+      ].join("\n"),
+    ),
+  );
+  assert.deepEqual(report.results, []);
+});
+
+test("on the tracker issue a `Review:` box stays a person's to tick", () => {
+  const { body, problems } = trackerBody(PLAN_WITH_REVIEW, PASSED);
+  assert.deepEqual(problems, []);
+  assert.match(body, /^- \[x\] S1:/m);
+  assert.match(body, /^- \[ \] Review: docs\/x\.html says the token lasts 30 days$/m);
+  // A person's tick survives a re-run.
+  const ticked = PLAN_WITH_REVIEW.replace("- [ ] Review:", "- [x] Review:");
+  assert.match(trackerBody(ticked, FAILED).body, /^- \[x\] Review:/m);
+  // A plan of review boxes only: the record is posted, the box left as it is.
+  const only = trackerBody(REVIEW_ONLY, REVIEWED);
+  assert.deepEqual(only.problems, []);
+  assert.match(only.body, /^- \[ \] Review: docs\/x\.html/m);
+  assert.match(only.body, /## Execution record\n\n- No scenarios; one review box for a person\./);
+});
+
 // --- QA Artifacts ---
 
 test("a failed run's media is refused, whatever the person picks", () => {
