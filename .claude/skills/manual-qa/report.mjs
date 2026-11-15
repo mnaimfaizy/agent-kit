@@ -14,7 +14,8 @@
 //      say a bare `none`. With `--plan`, it also checks the report against
 //      the plan it ran: the same anchors, one row per scenario, and each
 //      scenario that signs in as a Scenario account left for a person when
-//      the scenario creating it did not pass.
+//      the scenario creating it did not pass; and each `Review:` box the plan
+//      leaves open listed under Follow-ups, with the box's text.
 //   2. `find`: from a pull request's comments, the one QA Report comment to
 //      update (its body's first line is exactly `<!-- qa-report -->`, and the
 //      person posting wrote it), so a re-run edits it and never posts a second; and the tracker issue the
@@ -85,8 +86,8 @@ function staleFor(body) {
 }
 /** The optional QA Report header line listing where the run departed from the plan or the rules. */
 const DEVIATIONS_LABEL = "- **Run deviations:**";
-/** A Follow-ups line for an open `Review:` box (SKILL.md, The QA Report). */
-const REVIEW_FOLLOW_UP = /^\s*[-*]\s+Review, for a person:\s*\S/;
+/** A Follow-ups line for an open `Review:` box (SKILL.md, The QA Report), its text captured. */
+const REVIEW_FOLLOW_UP = /^\s*[-*]\s+Review, for a person:\s*(\S.*?)\s*$/;
 /** The first line of the PR comment `qa-plan` posts naming its tracker issue. */
 export const PLAN_LINK_MARKER = "<!-- qa-plan-link -->";
 export const RESULTS = /** @type {const} */ (["PASS", "FAIL", "left for a person"]);
@@ -179,7 +180,8 @@ const cells = (row) =>
  * @returns {{report: {title: string | null, subject: number | null, pr: number | null,
  *   head: string | null, results: {id: string, scenario: string, result: string,
  *   evidence: string[], notes: string}[], failed: boolean, stopped: boolean,
- *   record: string | null, deviations: string | null}, problems: string[]}}
+ *   record: string | null, deviations: string | null, reviews: string[]},
+ *   problems: string[]}}
  */
 export function readReport(text) {
   const lines = lf(text).split("\n");
@@ -195,6 +197,8 @@ export function readReport(text) {
     record: null,
     // The **Run deviations:** line's text, or `null`: the line is left out when there were none.
     deviations: null,
+    // The text of each `- Review, for a person: <text>` line under Follow-ups, outside fences.
+    reviews: [],
   };
   const titleAt = lines.findIndex((line) => /^# QA Report: \S/.test(line));
   if (titleAt === -1) problems.push("no `# QA Report: <title>` line");
@@ -242,6 +246,14 @@ export function readReport(text) {
           "departure and what was done about it, or leave the line out",
       );
   }
+
+  const followUps = found["Follow-ups"];
+  if (followUps)
+    report.reviews = lines
+      .slice(followUps.start + 1, followUps.end)
+      .filter((line, i) => !fenced[followUps.start + 1 + i])
+      .map((line) => REVIEW_FOLLOW_UP.exec(line)?.[1])
+      .filter((text) => text !== undefined);
 
   const results = found.Results;
   if (!results) problems.push("no `## Results` section");
@@ -294,19 +306,11 @@ export function readReport(text) {
       );
     // A plan with no scenarios has a review box, which Follow-ups lists: without one, `None.`
     // could stand for a plan's scenarios in a command that reads no plan (`comment`).
-    else if (report.results.length === 0) {
-      const followUps = found["Follow-ups"];
-      const listed =
-        followUps &&
-        lines
-          .slice(followUps.start + 1, followUps.end)
-          .some((line, i) => !fenced[followUps.start + 1 + i] && REVIEW_FOLLOW_UP.test(line));
-      if (!listed)
-        problems.push(
-          "Results is `None.` but **Follow-ups** has no `- Review, for a person: …` line: " +
-            "`None.` is only for a plan with no scenarios, whose review boxes Follow-ups lists",
-        );
-    }
+    else if (report.results.length === 0 && !report.reviews.length)
+      problems.push(
+        "Results is `None.` but **Follow-ups** has no `- Review, for a person: …` line: " +
+          "`None.` is only for a plan with no scenarios, whose review boxes Follow-ups lists",
+      );
   }
   report.stopped = report.results.some((row) =>
     /(?<![A-Za-z])the run stopped at S\d+/i.test(row.notes),
@@ -331,7 +335,8 @@ export function readReport(text) {
  * that signs in as a Scenario account is left for a person, saying why, when the
  * scenario that creates the account did not pass. A dependent left for a person did not
  * pass either, so the rule carries down a chain. A run stopped on a blocking
- * outcome before a dependent may give it its stop note instead.
+ * outcome before a dependent may give it its stop note instead. Its Follow-ups
+ * lists each `Review:` box the plan leaves open, with the box's text (#222).
  *
  * @param {ReturnType<typeof readReport>["report"]} report
  * @param {string} planText
@@ -350,14 +355,24 @@ export function reportPlanProblems(report, planText) {
       `the plan is for subject #${plan.subject}, pull request #${plan.pr}, head ${plan.anchors.head}; ` +
         `the report is for subject #${report.subject}, pull request #${report.pr}, head ${report.head}`,
     ];
+  // An open box is a person's to read: one the report drops is never read.
+  const listed = new Set(report.reviews);
+  const unlisted = plan.reviews
+    .filter(({ text, ticked }) => !ticked && !listed.has(text))
+    .map(
+      ({ text }) =>
+        `the plan's open \`Review:\` box _${text}_ is not under **Follow-ups**, which must list it ` +
+        "as `- Review, for a person: <its text>`, its text as the plan gives it",
+    );
   const want = plan.scenarios.map((scenario) => scenario.id).join(" ");
   const got = report.results.map((row) => row.id).join(" ");
   if (want !== got)
     return [
       `the plan's scenarios are ${want}; the report's results are ${got || "none"}: ` +
         "the report needs exactly one row per scenario, in order",
+      ...unlisted,
     ];
-  const problems = [];
+  const problems = [...unlisted];
   const creatorOf = new Map(
     plan.scenarios.flatMap((scenario) => scenario.creates.map((id) => [id, scenario.id])),
   );
