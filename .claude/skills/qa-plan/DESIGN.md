@@ -16,6 +16,10 @@ These are word for word the definitions in Agent-kit's root glossary, where a co
 
 **Session**: One signed-in identity in a QA Plan's scenario, with cookies and storage no other session shares; a scenario has one or more.
 
+**Surface**: What a scenario drives (`web`, `desktop`, `mobile` or `api`). The Run brief gives the plan's default; a scenario may override it.
+
+**Driver**: The tool a run uses to drive a Surface. It can observe some things and not others.
+
 **QA Stack**: A local copy of the application a tester starts and stops with the repository's `up`, `migrate`, `seed` and `down` commands; teardown touches only what `up` started.
 
 **Hazard pack**: A repository-owned Markdown file naming one area where QA is easily fooled: `when:` globs, a _Rule out first_ list `qa-plan` copies into matching scenarios, and _Capture rules_ `manual-qa` obeys.

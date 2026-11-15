@@ -131,6 +131,8 @@ Each promise step 4 left for the Residue, including each one the person chose to
 
 A promise that only a command can observe (a setting, a cache entry, internal state) is either observable through the product surface, or it is not Residue: Setup and steps are product actions, and the plan check reports one that reads as a shell command ([ANATOMY.md](ANATOMY.md#setup)).
 
+Pick each scenario's surface from what its **Expected result:** must observe, not from the config ([ANATOMY.md](ANATOMY.md#scenarios)). Response headers, cookies (including `HttpOnly`), status codes and response bodies are seen on `api`. Rendered copy, flows and layout are seen on `web`. The app itself is seen on `desktop` or `mobile`. The Run brief's **Surface:** is the one most scenarios use; give a scenario its own **Surface:** only when it needs another, so a promise no driver on the plan's default could see is still planned where one can. `run.surface` in the config is only the starting default for the Run brief's.
+
 When a promise needs two people signed in at once, compose a multi-session scenario. For example, an `admin`'s action ends a `user`'s session elsewhere. Give it **Sessions:** (`A = user, B = admin`) in place of **Signs in as:**, and start every step `In session <name>,` ([ANATOMY.md](ANATOMY.md#sessions)). Never fold the second person into a step's prose: the run would sign in once and could not carry the scenario out.
 
 A promise step 4 left for the Residue because only doubles covered it becomes a scenario that runs against the real services, even when the in-memory suite is green. A plan has one target for every scenario, so set the Run brief's **Target:** to `stack` ([ANATOMY.md](ANATOMY.md#run-brief)), unless a hosted test environment that runs those services is the target; with neither, say so to the person, since no run can carry the scenario out. Its steps drive the path that reaches them, through the API when no screen calls it.
@@ -141,7 +143,7 @@ A promise step 4 left for the Residue because only doubles covered it becomes a 
 
 ### 7. Write the draft and show it
 
-Write the plan to `<working_dir>/qa-plan-pr-<n>.md`, in the shape [ANATOMY.md](ANATOMY.md) gives, with the _Execution record_ exactly `_Not run yet._`. Read it back against [ANATOMY.md](ANATOMY.md): nine sections in order, the marker on line 1, every claim tagged, no credentials. `node "<skill>/adapter.mjs" plan <file>` must exit 0: it is the check `manual-qa` runs before it accepts a plan. Show the person the draft and where it would be delivered (step 8), and ask them to confirm or correct it.
+Write the plan to `<working_dir>/qa-plan-pr-<n>.md`, in the shape [ANATOMY.md](ANATOMY.md) gives, with the _Execution record_ exactly `_Not run yet._`. Read it back against [ANATOMY.md](ANATOMY.md): nine sections in order, the marker on line 1 with `format=2`, every claim tagged, no credentials. `node "<skill>/adapter.mjs" plan <file>` must exit 0: it is the check `manual-qa` runs before it accepts a plan. Show the person the draft and where it would be delivered (step 8), and ask them to confirm or correct it.
 
 **Done when:** the person has confirmed the draft, as written or after the corrections they asked for.
 
@@ -154,14 +156,14 @@ node "<skill>/adapter.mjs" delivery --label <label> --label <label> …
 Pass each of the subject issue's labels. It prints `to`, and the rule that chose it:
 
 - **`working-copy`:** the file from step 7 is the plan. Give the person its path to hand on.
-- **`tracker-issue`:** one issue per subject. Find the one already there before creating one, in this order, and accept a candidate only when its body's first line starts with `<!-- qa-plan format=1 subject=#<n> `:
+- **`tracker-issue`:** one issue per subject. Find the one already there before creating one, in this order, and accept a candidate only when its body's first line starts with `<!-- qa-plan format=1 subject=#<n> ` or `<!-- qa-plan format=2 subject=#<n> ` (a plan written before format=2 is still the one to replace):
   1. the issue named in the pull request's link comment (the comment whose body starts with `<!-- qa-plan-link -->`);
   2. with a rule `label`, each issue carrying it: `gh issue list --state all --label <label> --limit 200 --json number,body`;
   3. otherwise a search, `gh issue list --state all --search "qa-plan subject=#<n> in:body" --json number,body`, which can lag behind an issue created minutes ago.
 
   Edit the issue found (`gh issue edit <m> --body-file <plan>`). Create one only when none is found (`gh issue create --title "QA Plan: #<n> <title>" --body-file <plan>`, with `--label <label>` when the rule names one), then post the link comment on the pull request: `<!-- qa-plan-link -->` on its first line, then `QA Plan: #<m>`.
 
-- **`pr-comment`:** one comment on the pull request. Find the comment whose body starts with the plan's marker and edit it; post a new one only when there is none.
+- **`pr-comment`:** one comment on the pull request. Find the comment whose body starts with the plan's marker, or the same marker with `format=1`, and edit it; post a new one only when there is none.
 
 A revision of the plan replaces the delivered one; it never adds a second. With `tracker: none`, the plan stays in the working copy whatever the rules say.
 

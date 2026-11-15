@@ -258,6 +258,25 @@ test("evidence is captured locally by default, without a question; only upload a
   assert.match(flat, /\| PASS \| none: api surface, the redacted response body is in the notes \|/);
 });
 
+test("a driver is found per scenario by its effective surface, and the Run line names each", () => {
+  const flat = skill.replace(/\s+/g, " ");
+  assert.match(flat, /Each scenario drives its effective surface, `plan\.scenarios\[\]\.surface`/);
+  assert.match(flat, /its own \*\*Surface:\*\* when it carries one, else the Run brief's/);
+  assert.match(
+    flat,
+    /the answer replaces it for every scenario whose effective surface is the Run brief's \(a \*\*Surface:\*\* that repeats the Run brief's changes nothing\); a scenario whose own \*\*Surface:\*\* names another keeps it/,
+  );
+  assert.match(flat, /find a tool this session has that can drive each surface the scenarios use/);
+  assert.match(
+    flat,
+    /every scenario on that surface is \*\*left for a person\*\* \(_no tool here can drive a `<surface>` surface_\)/,
+  );
+  assert.match(
+    flat,
+    /\*\*Run:\*\* `stack`, or `url` at `<host>`; each surface the scenarios used, with its driver \(`web` by <tool>; `api` by `http\.mjs`\)/,
+  );
+});
+
 test("finding a driver notes whether it can save images and record", () => {
   const flat = skill.replace(/\s+/g, " ");
   assert.match(flat, /whether it can \*\*save images\*\*.*and whether it can \*\*record\*\*/);

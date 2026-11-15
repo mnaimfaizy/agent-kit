@@ -128,6 +128,14 @@ _Avoid_: created account, temp user, run account
 One signed-in identity in a QA Plan's scenario, with cookies and storage no other session shares; a scenario has one or more.
 _Avoid_: profile, tab, browser context
 
+**Surface**:
+What a scenario drives (`web`, `desktop`, `mobile` or `api`). The Run brief gives the plan's default; a scenario may override it.
+_Avoid_: platform, channel
+
+**Driver**:
+The tool a run uses to drive a Surface. It can observe some things and not others.
+_Avoid_: runner, harness
+
 **QA Stack**:
 A local copy of the application a tester starts and stops with the repository's `up`, `migrate`, `seed` and `down` commands; teardown touches only what `up` started.
 _Avoid_: test environment, local env

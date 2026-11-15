@@ -88,7 +88,7 @@ For `stack`, the stack runs the checkout, so `git rev-parse HEAD` must also equa
 
 ### 4. Find a driver
 
-The Run brief's **Surface** says what the scenarios drive; find a tool this session has that can drive it:
+Each scenario drives its effective surface, `plan.scenarios[].surface` in the `plan` output: its own **Surface:** when it carries one, else the Run brief's ([ANATOMY.md](ANATOMY.md#scenarios)). When step 2 asked which surface this run uses and the answer differs from the Run brief's, the answer replaces it for every scenario whose effective surface is the Run brief's (a **Surface:** that repeats the Run brief's changes nothing); a scenario whose own **Surface:** names another keeps it. So one plan can drive more than one surface; find a tool this session has that can drive each surface the scenarios use:
 
 - `web`: a browser tool (the host's built-in browser, Claude in Chrome, a Playwright MCP server).
 - `desktop` or `mobile`: desktop control, with the app or its simulator on screen.
@@ -288,7 +288,7 @@ Give the person the comment or issue URL, and each uploaded file's URL.
 
 - **Plan:** `<plan file>`, subject #<n>, pull request #<n>, head `<full sha>`
 - **Build check:** verified by `gh` | verified by `<version endpoint>` | not verified
-- **Run:** `stack`, or `url` at `<host>`; `<surface>`, driven by `<tool>`, on <date and time>. For each multi-session scenario, the driver of each session (`S3: A by <tool>, B by <tool>`)
+- **Run:** `stack`, or `url` at `<host>`; each surface the scenarios used, with its driver (`web` by <tool>; `api` by `http.mjs`), on <date and time>. For each multi-session scenario, the driver of each session (`S3: A by <tool>, B by <tool>`)
 - **Accounts:** roles signed in as; each restore and why
 - **Scenario accounts:** each one this run created, by id and creating scenario (`temp-user`, by S1), or `none`. Ids only, never values: they are not cleaned up, so the owner of a hosted environment can remove them; on a `stack` run, `down` takes them with the stack.
 - **Teardown:** `down` run; processes stopped

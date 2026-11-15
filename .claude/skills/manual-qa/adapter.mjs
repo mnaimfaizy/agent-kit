@@ -1093,6 +1093,16 @@ export const SCENARIO_LABELS = /** @type {const} */ ([
 export const SESSIONS = "Sessions";
 /** The optional field naming each Scenario account a scenario creates; it follows **Signs in as:**. */
 export const CREATES = "Creates";
+/**
+ * The optional field (format=2) giving the one Surface a scenario drives, in place of the
+ * Run brief's default: after **Signs in as:** or **Sessions:** (and **Creates:**), before
+ * **Steps:**.
+ */
+export const SCENARIO_SURFACE = "Surface";
+/** The plan formats this copy reads. A format=1 plan carries no per-scenario field. */
+export const FORMATS = /** @type {const} */ ([1, 2]);
+/** The format the composer writes. */
+export const FORMAT = FORMATS.at(-1);
 const RULE_OUT = "If this fails, first rule out";
 /** A role id, and a Scenario account id: letters, digits, `_` and `-`. */
 const ACCOUNT_ID = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
@@ -1275,7 +1285,8 @@ export function credentialProblems(lines) {
  * its session), each Scenario account created once and signed in as only after
  * it, no shell command in Setup or Steps, and no credentials. Each parsed
  * scenario lists its `sessions` as `{name, id}`: one with `name: null` for
- * **Signs in as:**, else one per letter.
+ * **Signs in as:**, else one per letter, and its effective `surface`: its own
+ * **Surface:** (format=2), else the Run brief's.
  * `manual-qa` runs nothing from a plan with a problem.
  *
  * @param {string} text
@@ -1300,14 +1311,17 @@ export function validatePlan(text) {
   if (!marker) {
     at(
       0,
-      "expected the marker `<!-- qa-plan format=1 subject=#<n> pr=#<n> -->`: this is not a QA Plan",
+      `expected the marker \`<!-- qa-plan format=${FORMAT} subject=#<n> pr=#<n> -->\`: this is not a QA Plan`,
     );
     problems.push(...credentialProblems(lines));
     return { plan, problems };
   }
   [plan.format, plan.subject, plan.pr] = marker.slice(1).map(Number);
-  if (plan.format !== 1)
-    at(0, `format=${plan.format}: this copy of ANATOMY.md reads format=1 only`);
+  if (!FORMATS.includes(plan.format))
+    at(
+      0,
+      `format=${plan.format}: this copy of ANATOMY.md reads ${FORMATS.map((f) => `format=${f}`).join(" and ")} only`,
+    );
 
   const titleAt = lines.findIndex((line, n) => n > 0 && line.trim() !== "");
   const title = /^# QA Plan: (\S.*)$/.exec(lines[titleAt]?.trim() ?? "");
@@ -1660,16 +1674,40 @@ export function validatePlan(text) {
           named.n,
           `${id} has both **Signs in as:** and **Sessions:**: a scenario has one or the other`,
         );
-      const order = [
-        ...SCENARIO_LABELS.slice(0, 2),
-        SESSIONS,
-        CREATES,
-        ...SCENARIO_LABELS.slice(2),
-        RULE_OUT,
-      ];
-      const positions = order.map(position).filter((p) => p !== -1);
+      const before = [...SCENARIO_LABELS.slice(0, 2), SESSIONS, CREATES];
+      const after = [...SCENARIO_LABELS.slice(2), RULE_OUT];
+      const positions = [...before, ...after].map(position).filter((p) => p !== -1);
       if (positions.some((p, k) => k > 0 && p < positions[k - 1]))
         at(head.n, `${id}: its fields are out of order (ANATOMY.md, "Scenarios")`);
+      // A Surface per scenario (#203): checked on its own line, apart from the order above.
+      let surface = plan.brief.surface;
+      const surfaces = found.filter((entry) => entry.label === SCENARIO_SURFACE);
+      for (const extra of surfaces.slice(1))
+        at(extra.n, `${id}: a second **${SCENARIO_SURFACE}:**: a scenario has at most one`);
+      const own = surfaces[0];
+      if (own) {
+        const k = found.indexOf(own);
+        const misplaced =
+          found.slice(k + 1).some((entry) => before.includes(entry.label)) ||
+          found.slice(0, k).some((entry) => after.includes(entry.label));
+        const word = plainWord(own.inline);
+        const stuck = stuckMark(word, (candidate) => SURFACES.includes(candidate));
+        if (plan.format === 1)
+          at(
+            own.n,
+            `${id}: **${SCENARIO_SURFACE}:** is a format=2 field: mark the plan \`format=2\`, or leave the Run brief's **Surface:** to every scenario`,
+          );
+        else if (misplaced)
+          at(
+            own.n,
+            `${id}: **${SCENARIO_SURFACE}:** is out of position: it goes right after **${SCENARIO_LABELS[1]}:** or **${SESSIONS}:** (and **${CREATES}:**, when present), before **Steps:**`,
+          );
+        else if (own.text === "") at(own.n, `${id}: **${SCENARIO_SURFACE}:** is empty`);
+        else if (stuck) at(own.n, `${id}: **${SCENARIO_SURFACE}:** read ${stuck}`);
+        else if (!SURFACES.includes(word))
+          at(own.n, `${id}: **${SCENARIO_SURFACE}:** expected one of: ${SURFACES.join(", ")}`);
+        else surface = word;
+      }
       const steps = get("Steps");
       if (steps && steps.text !== "" && !/^\s*\d+\.\s+\S/m.test(steps.text))
         at(steps.n, `${id}: **Steps:** expected a numbered list`);
@@ -1730,6 +1768,7 @@ export function validatePlan(text) {
         signsInAs: named ? null : who || null,
         sessions,
         creates: [...new Set(made.filter((made) => made !== ""))],
+        surface,
       });
       accountLines.push({ signs: (named ?? signs)?.n, creates: creates?.n, made });
     });
