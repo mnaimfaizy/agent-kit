@@ -265,6 +265,10 @@ test("SKILL.md step 6 writes **Observes:** when not every driver of the surface 
     /`headers`, `cookies`, `httponly-cookies`, `status`, `body`, `screen`, `local-file`/,
   );
   assert.match(flat, /Use the same list to choose the surface/);
+  assert.match(
+    flat,
+    /`local-file` on the surface whose driver can open a `file:\/\/` address, in practice `desktop`/,
+  );
 });
 
 test("SKILL.md composes a multi-session scenario when a promise needs two people at once", () => {

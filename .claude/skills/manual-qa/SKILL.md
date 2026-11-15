@@ -102,7 +102,7 @@ Where a browser comes from depends on the harness:
 
 With none, every scenario on that surface is **left for a person** (_no tool here can drive a `<surface>` surface_); the rest of the run still goes ahead.
 
-A scenario that carries **Observes:** (`plan.scenarios[].observes`) needs a driver of its surface that observes every value it lists ([ANATOMY.md](ANATOMY.md#scenarios)); pick that one among the drivers above, using the table below. When none can, the scenario is **left for a person** before the stack starts (_no driver here observes `<value>`_, naming the first value no driver observes); the rest of the run still goes ahead.
+A scenario that carries **Observes:** (`plan.scenarios[].observes`) needs a driver of its surface that observes every value it lists ([ANATOMY.md](ANATOMY.md#scenarios)); pick that one among the drivers above, using the table below. One driver runs the whole scenario, so drivers that each see some of the values do not add up to one that sees them all. When none can, the scenario is **left for a person** before the stack starts (_no driver here observes `<value>`_, naming the first value no driver observes; or, when each value has a driver but none has them all, _no driver here observes `<value>` and `<value>` together_, naming the values listed, such as _no driver here observes `body` and `local-file` together_); the rest of the run still goes ahead.
 
 What each driver observes, as of 2026-11-15. A run that finds a row wrong (a driver sees more, or less, than its row says) names it in the report's **Follow-ups**, so someone can correct it in this table and its date.
 

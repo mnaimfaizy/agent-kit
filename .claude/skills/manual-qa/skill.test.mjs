@@ -285,8 +285,15 @@ test("a scenario's **Observes:** is checked against each driver before the run s
   );
   assert.match(
     flat,
-    /When none can, the scenario is \*\*left for a person\*\* before the stack starts \(_no driver here observes `<value>`_, naming the first value no driver observes\)/,
+    /When none can, the scenario is \*\*left for a person\*\* before the stack starts \(_no driver here observes `<value>`_, naming the first value no driver observes;/,
   );
+  // One driver runs the scenario: values split across drivers are named together.
+  assert.match(flat, /One driver runs the whole scenario/);
+  assert.match(
+    flat,
+    /when each value has a driver but none has them all, _no driver here observes `<value>` and `<value>` together_/,
+  );
+  assert.match(flat, /_no driver here observes `body` and `local-file` together_/);
   // The dated table of what each Driver observes, to be corrected by any run that finds it wrong.
   assert.match(flat, /What each driver observes, as of \d{4}-\d{2}-\d{2}/);
   assert.match(flat, /correct it in this table/);
