@@ -213,3 +213,70 @@ test("Setup and Steps carry product actions only, and say what to do with a comm
   assert.match(compose, promise);
   assert.match(compose, /the plan check reports one that reads as a shell command/);
 });
+
+test("step 4 asks whether a configured suite's test could prove each promise left for the Residue (#206)", () => {
+  const parts = skill.split(/^### /m);
+  const establish = parts.find((part) =>
+    part.startsWith("4. Establish what automation already proves"),
+  );
+  assert.ok(establish, "SKILL.md has no step 4, Establish what automation already proves");
+  assert.match(establish, /\*\*Could a test prove it\?\*\*/);
+  assert.match(
+    establish,
+    /for each promise left for the Residue, check whether a test in a configured suite could prove it; this check is yours, and the person is asked only where the answer is yes/,
+  );
+  assert.match(
+    establish,
+    /A suite whose `services` names the real services counts as real infrastructure/,
+  );
+  assert.match(
+    establish,
+    /a real deployment, real infrastructure no configured suite starts, or a real browser/,
+  );
+  assert.match(
+    establish,
+    /For a promise left for the Residue because only doubles covered it, only a suite whose `services` names each service its path reaches could prove it; with none, it stays for the Residue/,
+  );
+  assert.match(establish, /stop before step 6/);
+  assert.match(establish, /which suite, and what the test would assert/);
+  assert.match(establish, /\*\*Add the test\.\*\*/);
+  assert.match(establish, /\*\*Keep it as a scenario\.\*\*/);
+  assert.match(establish, /The head moves/);
+  assert.match(establish, /run step 4 again on the new head/);
+  assert.match(establish, /compute step 3's merge-base again/);
+  assert.match(establish, /Never write the test for them/);
+  assert.match(
+    establish,
+    /A promise the person already chose to keep as a scenario is not asked about again on the new head; their choice stands, unless the new run covers it, in which case it is a claim/,
+  );
+  const done = establish.split("**Done when:**")[1];
+  assert.ok(done, "step 4 has no **Done when:**");
+  assert.match(
+    done,
+    /every promise left for the Residue has been checked once for a test that could prove it/,
+  );
+  assert.match(done, /the person's choice/);
+  const compose = parts.find((part) => part.startsWith("6. Compose the Residue"));
+  assert.ok(compose, "SKILL.md has no step 6, Compose the Residue");
+  assert.match(
+    compose,
+    /Each promise step 4 left for the Residue, including each one the person chose to keep as a scenario, becomes a scenario/,
+  );
+  assert.match(compose, /The plan carries no test recommendations/);
+  assert.match(
+    compose,
+    /\*\*Done when:\*\* every promise step 4 left for the Residue is a scenario/,
+  );
+});
+
+test("Why only a human can prove it says why no configured suite could reach the promise (#206)", () => {
+  assert.match(
+    section("Scenarios"),
+    /- \*\*Why only a human can prove it:\*\* why no configured suite could reach the promise, not only that none covers it/,
+  );
+});
+
+test("DESIGN.md says why a test is asked for before a scenario (#206)", () => {
+  const design = readFileSync(join(HERE, "DESIGN.md"), "utf8");
+  assert.match(design, /a manual scenario costs a run every time; a test costs once/);
+});

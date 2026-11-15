@@ -106,7 +106,14 @@ Then, for each promise, find what proves it: the rows for the tests the diff add
 
 Optional, when a claim carries the plan: perturb the code it covers (comment out the guard, invert the condition) and run the suite. A green suite that stays green is not a proving suite; the promise moves to the Residue. Revert the change before going on.
 
-**Done when:** no regression is left, every `unknown` row has the person's answer, and every promise is either covered by a named claim, with a named live check when its path reaches a QA Stack service, or left for the Residue.
+**Could a test prove it?** Last, for each promise left for the Residue, check whether a test in a configured suite could prove it; this check is yours, and the person is asked only where the answer is yes. A suite whose `services` names the real services counts as real infrastructure, so a test there is a live check. For a promise left for the Residue because only doubles covered it, only a suite whose `services` names each service its path reaches could prove it; with none, it stays for the Residue. What a test cannot reach is a real deployment, real infrastructure no configured suite starts, or a real browser; a promise that needs one stays for the Residue, with nothing to ask the person. When a test could prove one or more promises, stop before step 6, and for each one tell the person which suite, and what the test would assert. They choose, promise by promise:
+
+- **Add the test.** They write it, commit it and push it. The head moves, so check step 1 again (the local `HEAD` must equal the pull request's new head), take the new head as step 3's head anchor and compute step 3's merge-base again (a rebase or a merge of the base ref moves it), and run step 4 again on the new head, from `two-point.mjs`. A promise the new test covers is then a claim like any other. A promise the person already chose to keep as a scenario is not asked about again on the new head; their choice stands, unless the new run covers it, in which case it is a claim and leaves the Residue.
+- **Keep it as a scenario.** The promise stays for the Residue, and step 6 composes it.
+
+Never write the test for them, and never carry the suggestion into the plan.
+
+**Done when:** no regression is left, every `unknown` row has the person's answer, every promise is either covered by a named claim, with a named live check when its path reaches a QA Stack service, or left for the Residue, and every promise left for the Residue has been checked once for a test that could prove it, with the person's choice for each one a test could prove.
 
 ### 5. Match the Hazard packs
 
@@ -120,7 +127,7 @@ Each pack it prints matched at least one changed path. Exit 1 means a pack in `h
 
 ### 6. Compose the Residue
 
-Each promise step 4 left uncovered becomes a scenario ([ANATOMY.md](ANATOMY.md#scenarios)). For each one, read the code and templates it exercises and quote their real labels in the steps. A scenario that touches a path a Hazard pack matched gets that pack's _Rule out first_ list; every matching pack's _Capture rules_ go into the Run brief.
+Each promise step 4 left for the Residue, including each one the person chose to keep as a scenario, becomes a scenario ([ANATOMY.md](ANATOMY.md#scenarios)). The plan carries no test recommendations: step 4's question was for the person, not the tester. For each one, read the code and templates it exercises and quote their real labels in the steps. A scenario that touches a path a Hazard pack matched gets that pack's _Rule out first_ list; every matching pack's _Capture rules_ go into the Run brief.
 
 A promise that only a command can observe (a setting, a cache entry, internal state) is either observable through the product surface, or it is not Residue: Setup and steps are product actions, and the plan check reports one that reads as a shell command ([ANATOMY.md](ANATOMY.md#setup)).
 
@@ -130,7 +137,7 @@ A promise step 4 left for the Residue because only doubles covered it becomes a 
 
 **An empty Residue is a valid outcome.** When every promise is covered, write no plan: tell the person the change is proved by automation, name the claims that prove it, and recommend merging without one. For a promise whose path reaches a QA Stack service, name its live check, the suite against the real services that covers it, and say the QA Stack is not started because that suite is the live check. Stop here.
 
-**Done when:** every uncovered promise is a scenario with every field [ANATOMY.md](ANATOMY.md#scenarios) requires, or the Residue is empty and the person has been told.
+**Done when:** every promise step 4 left for the Residue is a scenario with every field [ANATOMY.md](ANATOMY.md#scenarios) requires, or the Residue is empty and the person has been told.
 
 ### 7. Write the draft and show it
 
