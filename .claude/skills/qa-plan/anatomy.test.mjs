@@ -190,3 +190,26 @@ test("SKILL.md composes a multi-session scenario when a promise needs two people
   assert.match(skill, /\[ANATOMY\.md\]\(ANATOMY\.md#sessions\)/);
   assert.match(skill, /Never fold the second person into a step's prose/);
 });
+
+test("Setup and Steps carry product actions only, and say what to do with a command-only promise (#199)", () => {
+  const promise =
+    /A promise that only a command can observe \(a setting, a cache entry, internal state\) is either observable through the product surface, or it is not Residue/;
+  const setup = section("Setup");
+  assert.match(setup, /Each line is a product action, never a shell command/);
+  assert.match(setup, /`manual-qa` runs no command from a plan/);
+  assert.match(setup, /fenced code block/);
+  assert.match(setup, promise);
+  const scenarios = section("Scenarios");
+  assert.match(
+    scenarios,
+    /A step is a product action, never a shell command, and the plan check reports one as it does in \[Setup\]\(#setup\)/,
+  );
+  assert.match(
+    scenarios,
+    /a promise that only a command can observe is either observable through the product surface, or it is not Residue/,
+  );
+  const compose = skill.split(/^### /m).find((part) => part.startsWith("6. Compose the Residue"));
+  assert.ok(compose, "SKILL.md has no step 6, Compose the Residue");
+  assert.match(compose, promise);
+  assert.match(compose, /the plan check reports one that reads as a shell command/);
+});

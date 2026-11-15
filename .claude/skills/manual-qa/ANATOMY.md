@@ -84,6 +84,8 @@ Not even a public QA Account's values, which are fixtures anyone with the reposi
 
 What the tester does once before the first scenario, in order: data to put in place, flags to set, the account state to restore (`accounts.restore` for a role, when a scenario changes it). Steps only; the Run brief already says how to reach the build.
 
+Each line is a product action, never a shell command: `manual-qa` runs no command from a plan, so the plan check reports a fenced code block here, and a line or backticked span that starts with a `$ ` prompt or a command word (`docker`, `docker-compose`, `kubectl`, `redis-cli`, `psql`, `mysql`, `python`, `python3`, `node`, `npm`, `npx`, `curl`, `wget`, `env`, `export`, `bash`, `sh`). A promise that only a command can observe (a setting, a cache entry, internal state) is either observable through the product surface, or it is not Residue.
+
 ## Scenarios
 
 The **Residue**: only what a passing CI run does not establish. One `###` heading per scenario, numbered from `S1` with no gaps: `### S1: <what is verified>`. Each carries these labels, in this order:
@@ -92,7 +94,7 @@ The **Residue**: only what a passing CI run does not establish. One `###` headin
 - **Signs in as:** a [first-word value](#first-word-values): a role id the Run brief's **Roles:** names, or `nobody` (signed out), or the id of a [Scenario account](#scenario-accounts) an earlier scenario creates. Prose may follow the word. Write `` `admin`, after S1 creates the new user ``, not `the new user from S1, then admin` (first word `the`), and not `` `manager`. `` (first word `manager.`).
 - **Sessions:** in place of **Signs in as:**, only in a scenario that needs two or more people signed in at once: `A = <id>, B = <id>`, one per [Session](#sessions). A scenario carries **Signs in as:** or **Sessions:**, never both and never neither.
 - **Creates:** only in a scenario that creates an account during the run, so a later scenario can sign in as it. The id of each [Scenario account](#scenario-accounts) it creates, then prose.
-- **Steps:** a numbered list. Each step quotes the real label, button text or copy from the source (`Click **Save changes**`), never an imagined one.
+- **Steps:** a numbered list. Each step quotes the real label, button text or copy from the source (`Click **Save changes**`), never an imagined one. A step is a product action, never a shell command, and the plan check reports one as it does in [Setup](#setup): a promise that only a command can observe is either observable through the product surface, or it is not Residue.
 - **Expected result:** what the tester sees when it works, in the product's own words.
 - **A failure means:** what is broken if the expected result does not appear, so a failure is reported as a finding and not a symptom.
 - **If this fails, first rule out:** only in a scenario a Hazard pack matches. The pack's _Rule out first_ list, copied in under the pack's path.

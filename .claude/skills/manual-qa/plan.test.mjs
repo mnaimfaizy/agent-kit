@@ -14,6 +14,7 @@ import { fileURLToPath } from "node:url";
 import {
   BRIEF_LABELS,
   ANCHOR_LABELS,
+  COMMAND_WORDS,
   PLAN_SECTIONS,
   SCENARIO_LABELS,
   credentialProblems,
@@ -116,7 +117,11 @@ test("a filled execution record is read as a plan already run", () => {
 });
 
 test("a heading inside a fenced block is not a section", () => {
-  const text = broken("## Setup\n", "## Setup\n\n```text\n## Not a section\n```\n");
+  // Not under Setup or Steps, where a fence is a shell command (#199).
+  const text = broken(
+    "## Stop and do not merge if\n",
+    "## Stop and do not merge if\n\n```text\n## Not a section\n```\n",
+  );
   assert.deepEqual(problemsOf(text), []);
 });
 
@@ -266,6 +271,115 @@ test("steps are a numbered list", () => {
     broken("  1. Open `/members` while signed out.", "  - Open `/members` while signed out."),
     /S2: \*\*Steps:\*\* expected a numbered list/,
   );
+});
+
+// ── Shell commands in Setup and Steps (#199) ────────────────────────────────
+
+/** The 1-based number of the line of `text` that holds `needle`. */
+const lineHolding = (text, needle) =>
+  text.split("\n").findIndex((line) => line.includes(needle)) + 1;
+const SHELL = /a plan carries product actions only, and `manual-qa` will not run it/;
+/** The problems that report a shell command. */
+const shellProblems = (text) => problemsOf(text).filter((p) => SHELL.test(p));
+
+test("ANATOMY.md's Setup names every command word the check reads", () => {
+  const setup = anatomy.split(/^## /m).find((part) => part.startsWith("Setup\n"));
+  for (const word of COMMAND_WORDS)
+    assert.ok(setup.includes(`\`${word}\``), `ANATOMY.md's Setup does not name \`${word}\``);
+});
+
+test("a Setup line holding a backticked shell command fails, with its line number", () => {
+  const command = '1. Run `docker exec api python -c "print(settings.INVITES)"`.';
+  const text = broken("1. Restore the `admin` account with `accounts.restore`.", command);
+  const problems = shellProblems(text);
+  assert.equal(problems.length, 1, problems.join("\n"));
+  assert.match(problems[0], new RegExp(`^line ${lineHolding(text, command)}: Setup: `));
+  assert.match(problems[0], /`docker`/);
+});
+
+test("a Setup line that is itself a command, or a `$ ` prompt, fails", () => {
+  for (const line of [
+    "- env | grep -c INVITE",
+    "$ redis-cli FLUSHALL",
+    "1. curl -s localhost/version",
+  ]) {
+    const text = broken("1. Restore the `admin` account with `accounts.restore`.", line);
+    const problems = shellProblems(text);
+    assert.equal(problems.length, 1, `${line}\n${problems.join("\n")}`);
+    assert.match(problems[0], new RegExp(`^line ${lineHolding(text, line)}: Setup: `));
+  }
+});
+
+test("a scenario step running a command, in a span or after a `$ ` prompt, fails", () => {
+  const span = "  1. Run `redis-cli HGETALL session:1`.";
+  const text = broken("  1. Open **Members**.", span);
+  const problems = shellProblems(text);
+  assert.equal(problems.length, 1, problems.join("\n"));
+  assert.match(problems[0], new RegExp(`^line ${lineHolding(text, span)}: S1: step 1 `));
+  assert.match(problems[0], /`redis-cli`/);
+
+  for (const step of [
+    "  1. $ psql -c 'select 1'",
+    "  1. Type `$ kubectl get pods` into the shell.",
+  ]) {
+    const prompted = broken("  1. Open `/members` while signed out.", step);
+    const found = shellProblems(prompted);
+    assert.equal(found.length, 1, `${step}\n${found.join("\n")}`);
+    assert.match(found[0], new RegExp(`^line ${lineHolding(prompted, step)}: S2: step 1 `));
+  }
+});
+
+test("a fenced code block under Setup or Steps fails, once, at its opening fence", () => {
+  const setup = broken(
+    "1. Restore the `admin` account with `accounts.restore`.",
+    "1. Restore the `admin` account with `accounts.restore`.\n\n```\nmake seed\nmake flags\n```",
+  );
+  const atSetup = shellProblems(setup);
+  assert.equal(atSetup.length, 1, atSetup.join("\n"));
+  assert.match(
+    atSetup[0],
+    new RegExp(`^line ${lineHolding(setup, "```")}: Setup: a fenced code block`),
+  );
+
+  const steps = broken(
+    "  1. Open **Members**.",
+    "  1. Open **Members**.\n\n     ```sh\n     whoami\n     ```",
+  );
+  const atSteps = shellProblems(steps);
+  assert.equal(atSteps.length, 1, atSteps.join("\n"));
+  assert.match(
+    atSteps[0],
+    new RegExp(`^line ${lineHolding(steps, "```sh")}: S1: a fenced code block`),
+  );
+});
+
+test("product labels, copy, paths and role ids in Setup and Steps are not commands", () => {
+  assert.deepEqual(shellProblems(GOOD), []);
+  const text = broken(
+    "  1. Open **Members**.",
+    [
+      "  1. Click **Save changes**, then open `/version` and `/members/new`.",
+      "  2. Pick the role `admin`, then `member`, and type `node-1` into **Name**.",
+      "  3. Export the CSV from **Reports**, and check the **Env** badge reads `env: staging`.",
+      "     export is the menu's last item, after `Node` and `Python`.",
+    ].join("\n"),
+  );
+  assert.deepEqual(shellProblems(text), []);
+});
+
+test("a command outside Setup and Steps is not this check's to report", () => {
+  const text = broken(
+    "- **A failure means:** the dialog does not save an invitation.",
+    "- **A failure means:** the dialog does not save an invitation (`docker logs api` shows why).",
+  );
+  assert.deepEqual(shellProblems(text), []);
+});
+
+test("a plan with a shell command in a step exits 1 from `plan`", () => {
+  const text = broken("  1. Open **Members**.", "  1. Run `npx prisma db seed`.");
+  const result = main(["plan"], { read: () => null, stdin: () => text });
+  assert.equal(result.code, 1);
+  assert.ok(JSON.parse(result.out).problems.some((p) => SHELL.test(p)));
 });
 
 test("a scenario signs in only as a role the Run brief names, or nobody", () => {
