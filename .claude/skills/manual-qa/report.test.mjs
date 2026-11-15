@@ -152,6 +152,27 @@ test("an empty **Run deviations:** line is a problem: list each one, or leave it
   assert.match(readReport(empty).problems.join("\n"), /Run deviations:\*\* line is empty/);
 });
 
+test("the template's **Run deviations:** placeholder, copied as it stands, is a problem", () => {
+  for (const placeholder of [
+    " <each departure, and what was done about it> ← only when there was one (step 8)",
+    " <each departure, and what was done about it>",
+    " ran a command ← only when there was one (step 8)",
+  ]) {
+    const { problems } = readReport(withDeviations(PASSED, placeholder));
+    assert.match(problems.join("\n"), /still carries the template's placeholder/, placeholder);
+  }
+});
+
+test("more than one **Run deviations:** header line is a problem: one line holds them all", () => {
+  const twice = withDeviations(
+    withDeviations(PASSED, " skipped S2's second step"),
+    ` ${DEVIATION}`,
+  );
+  assert.equal(twice.split("- **Run deviations:**").length, 3);
+  assert.match(readReport(twice).problems.join("\n"), /header has 2 \*\*Run deviations:\*\* lines/);
+  assert.deepEqual(readReport(DEVIATED).problems, []);
+});
+
 test("a `## ` line inside a fenced block in the header does not end the header", () => {
   const fenced = withDeviations(PASSED, ` ${DEVIATION}`).replace(
     "- **Teardown:**",

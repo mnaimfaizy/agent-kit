@@ -211,15 +211,26 @@ export function readReport(text) {
   // prose. The header ends where `sections` finds the first heading, so a `## `
   // line inside a fenced block does not end it.
   const headerEnd = Math.min(lines.length, ...Object.values(found).map(({ start }) => start));
-  const deviationsLine = lines
+  const deviationsLines = lines
     .slice(0, headerEnd)
-    .find((line) => line.startsWith(DEVIATIONS_LABEL));
-  if (deviationsLine !== undefined) {
-    report.deviations = deviationsLine.slice(DEVIATIONS_LABEL.length).trim();
+    .filter((line) => line.startsWith(DEVIATIONS_LABEL));
+  if (deviationsLines.length > 1)
+    problems.push(
+      `the header has ${deviationsLines.length} **Run deviations:** lines: put every departure ` +
+        "on one line, separated by semicolons",
+    );
+  if (deviationsLines.length) {
+    report.deviations = deviationsLines[0].slice(DEVIATIONS_LABEL.length).trim();
     if (!report.deviations)
       problems.push(
         "the **Run deviations:** line is empty: list each departure and what was done about it, " +
           "or leave the line out",
+      );
+    // The template's placeholder, copied as it stands, says the run departed when it may not have.
+    else if (report.deviations.startsWith("<") || report.deviations.includes("←"))
+      problems.push(
+        "the **Run deviations:** line still carries the template's placeholder: write each " +
+          "departure and what was done about it, or leave the line out",
       );
   }
 

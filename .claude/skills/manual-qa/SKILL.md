@@ -206,7 +206,7 @@ Write `<working_dir>/qa-report-pr-<n>.md` in the shape below, and read it back: 
 node "<skill>/report.mjs" read "<report file>" --plan "<plan file>"
 ```
 
-Exit 1 names what is out of shape, or what the report owes the plan: one row per scenario, evidence or `none: <reason>` for each PASS and FAIL, a **Run deviations:** line that is not empty, and each scenario left for a person whose Scenario account's creator did not pass. Fix the report before anything is posted.
+Exit 1 names what is out of shape, or what the report owes the plan: one row per scenario, evidence or `none: <reason>` for each PASS and FAIL, a single **Run deviations:** line that is neither empty nor the template's placeholder, and each scenario left for a person whose Scenario account's creator did not pass. Fix the report before anything is posted.
 
 **Done when:** the report and its evidence folder are in `working_dir`, `report.mjs read` exits 0, and the person has the results and the path.
 
