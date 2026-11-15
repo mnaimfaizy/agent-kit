@@ -28,7 +28,7 @@ These are word for word the definitions in Agent-kit's root glossary, where a co
 
 ## Two skills, one format
 
-Composing a plan and running one are different people's jobs here: a developer composes against their own checkout, and a QA team somewhere else runs it, perhaps with no repository at all. So they are two skills, `qa-plan` and `manual-qa`, joined only by the plan file.
+Composing a plan and running one are different people's jobs here: a developer composes against their own checkout, and a QA team somewhere else runs it, perhaps with no repository at all. So they are two skills, `qa-plan` and `manual-qa`, joined by the plan file. One more join: after a revision, `qa-plan`'s step 8 reads the pull request's QA Report comment with `manual-qa/report.mjs`, the code that writes that comment, so there is one reader for it and the two skills cannot parse it differently. Without `manual-qa` beside it, `qa-plan` skips that check.
 
 The risk in splitting them is drift: the composer writes a section the runner no longer reads, or the runner insists on one the composer stopped writing. The plan format (`ANATOMY.md`) and the config reader (`adapter.mjs`) are therefore **byte-identical copies** in both skills, and a contract test fails when they differ. A third shared folder would avoid the copy, but a Portable skill must carry everything it uses, so a skill installed alone would break. A looser runner that parsed "something like a plan" would accept a plan the composer never meant, which is the drift the copy prevents.
 
