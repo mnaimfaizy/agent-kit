@@ -64,7 +64,7 @@ Exit 1: show each problem, with its line, delete the temporary file, and stop. A
 node "<skill>/adapter.mjs" check --for run --plan "<plan file>"
 ```
 
-A plan with no scenarios (`plan.scenarios` is empty) needs none of the run answers: no target, surface or roles, no stack commands or `accounts.print`, and no address for `url`, since it drives nothing and starts nothing (step 4). Its `readiness.needs` is empty, so nothing is asked; of its notes, only the build check's bears on it.
+A plan with no scenarios (`plan.scenarios` is empty) needs none of the run answers: no target, surface or roles, no stack commands or `accounts.print`, and no address for `url`, since it drives nothing and starts nothing (step 4). Its `readiness.needs` is empty, so nothing is asked; its notes are only the build check's and, with no config file, the one saying so.
 
 - Exit 1 with `problems`: show each one, with its line, and stop until the config is fixed.
 - `readiness.needs` not empty: list exactly what is missing, and ask for it in one message. The run goes on with the answers given in chat. Then offer to save them: put them in a JSON file in `working_dir` (a whole `stack` or `accounts` mapping each, since `run` merges key by key), run `node "<skill>/adapter.mjs" render < <answers.json>`, and show the person the result. Only on a yes, run it again with `--write` ([ADAPTER.md](ADAPTER.md#readiness-check)). If that exits 3, the file has YAML comments: tell the person which lines would be lost, and only if they agree, run it with `--write --drop-comments`.

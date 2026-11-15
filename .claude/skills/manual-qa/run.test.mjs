@@ -351,7 +351,7 @@ const reviewOnlyPlan = (text = REVIEW_ONLY) => {
   return plan;
 };
 
-test("a plan with no scenarios asks for nothing only driving scenarios needs", () => {
+test("a plan with no scenarios asks for nothing that only driving scenarios needs", () => {
   const plan = reviewOnlyPlan();
   const none = runReadiness(readQaConfig(reader({})), plan);
   assert.equal(none.ready, true);
@@ -416,7 +416,7 @@ test("a plan with no scenarios keeps the build-check note, and drops the notes a
     "no `run.version_endpoint`: without `gh` access the build cannot be checked against the plan's head",
   ]);
   const unconfigured = runReadiness(readQaConfig(reader({})), reviewOnlyPlan(unbuilt));
-  assert.deepEqual(unconfigured.notes.length, 2);
+  assert.equal(unconfigured.notes.length, 2);
   assert.match(unconfigured.notes[0], /^no qa\.config\.yml/);
   assert.match(unconfigured.notes[1], /^no `run\.version_endpoint`/);
   // The Build names a version endpoint: nothing is left to say.
