@@ -781,13 +781,46 @@ const STACK_NEEDS = {
   down: "the command that stops what `up` started, and nothing else",
 };
 
+/** `a`, `a and b`, `a, b and c`. */
+const listed = (items) =>
+  items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;
+
+/**
+ * The readiness need when the config's `run.surface` differs from the Run
+ * brief's (#223): the two surfaces in dispute, the scenarios each answer moves
+ * (those whose effective surface is the Run brief's, as step 4 applies it), and
+ * those that keep their own **Surface:** whatever the answer.
+ *
+ * @param {string} configured the config's surface
+ * @param {string} briefed the Run brief's surface
+ * @param {{id: string, surface: string | null}[]} scenarios
+ */
+function surfaceQuestion(configured, briefed, scenarios) {
+  const moving = scenarios.filter((s) => s.surface === briefed).map((s) => s.id);
+  const keeping = scenarios.filter((s) => s.surface !== briefed);
+  const one = moving.length === 1;
+  const moves = moving.length
+    ? `With \`${configured}\`, ${listed(moving)} ${one ? "drives" : "drive"} \`${configured}\`; ` +
+      `with \`${briefed}\`, ${one ? "it drives" : "they drive"} \`${briefed}\`, the surface the ` +
+      `plan's author chose from what ${one ? "that scenario" : "those scenarios"} must observe.`
+    : "No scenario drives the Run brief's surface, so neither answer moves one.";
+  const keeps = keeping.length
+    ? `${listed(keeping.map((s) => `${s.id} (\`${s.surface}\`)`))} ` +
+      `${keeping.length === 1 ? "keeps its" : "keep their"} own **Surface:** whatever the answer.`
+    : "No scenario keeps its own **Surface:** whatever the answer.";
+  return (
+    `run.surface: the config says \`${configured}\` but the plan's Run brief says \`${briefed}\`; ` +
+    `say which this run uses, \`${configured}\` or \`${briefed}\`. ${moves} ${keeps}`
+  );
+}
+
 /**
  * What `manual-qa` still needs before it runs a plan, from the config and,
  * when one is given, the plan's Run brief. `needs` are asked for; a `note` is
  * said, and the run goes on.
  *
  * @param {{path: string | null, config: Record<string, any>, runProblems?: string[]}} read
- * @param {{brief: {target: string | null, surface: string | null, roles: string[]}, scenarios?: {sessions?: {id: string}[], creates?: string[]}[]} | null} [plan]
+ * @param {{brief: {target: string | null, surface: string | null, roles: string[]}, scenarios?: {id: string, surface: string | null, sessions?: {id: string}[], creates?: string[]}[]} | null} [plan]
  *   a plan `validatePlan` read with no problems; every session id that is a role
  *   must be declared, and a Scenario account need not be. A plan with no
  *   scenarios needs nothing, and is told only `gh` can check its build
@@ -839,8 +872,10 @@ export function runReadiness({ path, config, runProblems: problems = [] }, plan 
     if (!effective[key]) needs.push(`run.${key}: ${what}`);
     else if (present(run[key]) && brief?.[key] && run[key] !== brief[key])
       needs.push(
-        `run.${key}: the config says \`${run[key]}\` but the plan's Run brief says \`${brief[key]}\`; ` +
-          `say which this run uses (${choices.join(" or ")})`,
+        key === "surface"
+          ? surfaceQuestion(run.surface, brief.surface, plan?.scenarios ?? [])
+          : `run.${key}: the config says \`${run[key]}\` but the plan's Run brief says \`${brief[key]}\`; ` +
+              `say which this run uses (${choices.join(" or ")})`,
       );
   }
 
