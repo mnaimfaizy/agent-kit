@@ -127,7 +127,7 @@ Each pack it prints matched at least one changed path. Exit 1 means a pack in `h
 
 ### 6. Compose the Residue
 
-Each promise step 4 left for the Residue, including each one the person chose to keep as a scenario, becomes a scenario ([ANATOMY.md](ANATOMY.md#scenarios)). The plan carries no test recommendations: step 4's question was for the person, not the tester. For each one, read the code and templates it exercises and quote their real labels in the steps. A scenario that touches a path a Hazard pack matched gets that pack's _Rule out first_ list; every matching pack's _Capture rules_ go into the Run brief.
+Each promise step 4 left for the Residue, including each one the person chose to keep as a scenario, becomes a scenario ([ANATOMY.md](ANATOMY.md#scenarios)). The plan carries no test recommendations: step 4's question was for the person, not the tester. For each one, read the code and templates it exercises and quote their real labels in the steps. Write each expected result as [ANATOMY.md](ANATOMY.md#scenarios) says. A scenario that touches a path a Hazard pack matched gets that pack's _Rule out first_ list; every matching pack's _Capture rules_ go into the Run brief.
 
 A promise that only a command can observe (a setting, a cache entry, internal state) is either observable through the product surface, or it is not Residue: Setup and steps are product actions, and the plan check reports one that reads as a shell command ([ANATOMY.md](ANATOMY.md#setup)).
 
