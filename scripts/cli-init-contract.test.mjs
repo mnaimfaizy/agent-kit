@@ -203,9 +203,11 @@ describe("init: both flows from flags", () => {
     const text = read(dir, ".github/workflows/agent-pipeline.yml");
     assert.match(text, /^name: agent-pipeline$/m);
     assert.doesNotMatch(text, /your-github-login|Provide Consumer verify|"main"/);
-    // Three allowlists, plus the commented trusted_spec_authors example.
-    assert.equal((text.match(/'\["alice","bob"\]'/g) ?? []).length, 4);
+    // Three allowlists, plus the commented trusted_spec_authors and
+    // response_allowlist_actors examples.
+    assert.equal((text.match(/'\["alice","bob"\]'/g) ?? []).length, 5);
     assert.match(text, /# trusted_spec_authors: '\["alice","bob"\]'/);
+    assert.match(text, /# response_allowlist_actors: '\["alice","bob"\]'/);
     assert.ok(findKitPins(text).every((p) => p.ref === TAG));
     assert.match(text, /default: "trunk"/);
     assert.match(text, /base_branch: "trunk"/);
@@ -272,7 +274,7 @@ describe("init: choices", () => {
     ]);
     assert.equal(res.code, 0, res.text);
     const text = read(dir, ".github/workflows/agent-pipeline.yml");
-    assert.equal((text.match(/'\["main"\]'/g) ?? []).length, 4);
+    assert.equal((text.match(/'\["main"\]'/g) ?? []).length, 5);
     assert.match(text, /base_branch: "develop"/);
   });
 

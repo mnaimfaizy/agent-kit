@@ -118,5 +118,14 @@ jobs:
       # Without a Verified plan, accept a maintainer's issue comment that starts
       # with <!-- agent-kit-brief --> as the spec. Logins only; empty turns it off.
       # trusted_spec_authors: '["your-github-login"]'
+      # Auto mode (CLAUDE_REVIEW_RESPONSE_MODE set to exactly `auto`) hands a
+      # finished review that left findings to your Review response Caller
+      # (docs/review-response.md). Keep the two lists equal to that Caller's
+      # allowlist_actors and reviewer_logins. Commented, they change nothing:
+      # manual mode, nothing handed off.
+      # response_mode: ${{ vars.CLAUDE_REVIEW_RESPONSE_MODE || 'manual' }}
+      # response_workflow: .github/workflows/agent-review-response.yml
+      # response_allowlist_actors: '["your-github-login"]'
+      # response_reviewer_logins: "[]"
     secrets:
       claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
