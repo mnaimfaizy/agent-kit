@@ -152,6 +152,7 @@ test("each scenario carries its fields, in order, numbered from S1", () => {
     "Signs in as:",
     "Creates:",
     "Surface:",
+    "Observes:",
     "Steps:",
     "Expected result:",
     "A failure means:",
@@ -167,6 +168,23 @@ test("each scenario carries its fields, in order, numbered from S1", () => {
   );
   assert.match(scenarios, /Hazard pack/);
   assert.match(scenarios, /Residue/);
+});
+
+test("a scenario's **Observes:** takes values from a fixed list, after its **Surface:**", () => {
+  const flat = section("Scenarios").replace(/\s+/g, " ");
+  assert.match(
+    flat,
+    /\*\*Observes:\*\* .*`headers`, `cookies`, `httponly-cookies`, `status`, `body`, `screen`, `local-file`/,
+  );
+  assert.match(
+    flat,
+    /Right after the scenario's \*\*Surface:\*\*, or after its sign-in field .* when it has none/,
+  );
+  assert.match(flat, /The plan check refuses any other value, naming it/);
+  assert.match(
+    flat,
+    /`manual-qa` leaves the scenario for a person when no driver here observes one of them/,
+  );
 });
 
 test("the execution record is empty after compose", () => {
@@ -229,6 +247,20 @@ test("SKILL.md step 6 picks each scenario's surface from what its expected resul
   assert.match(flat, /The Run brief's \*\*Surface:\*\* is the one most scenarios use/);
   assert.match(flat, /`run\.surface` in the config is only the starting default/);
   assert.match(flat, /\[ANATOMY\.md\]\(ANATOMY\.md#scenarios\)/);
+});
+
+test("SKILL.md step 6 writes **Observes:** when not every driver of the surface can see the result", () => {
+  const flat = skill.replace(/\s+/g, " ");
+  assert.match(
+    flat,
+    /Give a scenario \*\*Observes:\*\* whenever its \*\*Expected result:\*\* needs something not every driver of its surface can see/,
+  );
+  assert.match(flat, /in practice response headers, `HttpOnly` cookies or a local file/);
+  assert.match(
+    flat,
+    /`headers`, `cookies`, `httponly-cookies`, `status`, `body`, `screen`, `local-file`/,
+  );
+  assert.match(flat, /Use the same list to choose the surface/);
 });
 
 test("SKILL.md composes a multi-session scenario when a promise needs two people at once", () => {
