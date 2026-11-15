@@ -66,7 +66,7 @@ test("every label the validator requires is one ANATOMY.md names", () => {
 test("the good plan reads with no problems, and its parts are read out", () => {
   const { plan, problems } = validatePlan(GOOD);
   assert.deepEqual(problems, []);
-  assert.equal(plan.format, 1);
+  assert.equal(plan.format, 2);
   assert.equal(plan.subject, 42);
   assert.equal(plan.pr, 57);
   assert.equal(plan.title, "Members can be invited by email");
@@ -89,6 +89,7 @@ test("the good plan reads with no problems, and its parts are read out", () => {
       signsInAs: "admin",
       sessions: [{ name: null, id: "admin" }],
       creates: [],
+      surface: "web",
     },
     {
       id: "S2",
@@ -96,6 +97,7 @@ test("the good plan reads with no problems, and its parts are read out", () => {
       signsInAs: "nobody",
       sessions: [{ name: null, id: "nobody" }],
       creates: [],
+      surface: "web",
     },
   ]);
   assert.equal(plan.executed, false);
@@ -132,12 +134,21 @@ test("a heading inside a fenced block is not a section", () => {
 
 test("something that is not a plan stops at the marker", () => {
   assert.deepEqual(problemsOf("# Notes\n\nNothing here.\n"), [
-    "line 1: expected the marker `<!-- qa-plan format=1 subject=#<n> pr=#<n> -->`: this is not a QA Plan",
+    "line 1: expected the marker `<!-- qa-plan format=2 subject=#<n> pr=#<n> -->`: this is not a QA Plan",
   ]);
 });
 
-test("another format version is a problem", () => {
-  assertProblem(broken("format=1", "format=2"), /^line 1: format=2: this copy/);
+test("a format=1 plan with no per-scenario fields still reads; a format=3 plan is refused", () => {
+  const old = validatePlan(broken("format=2", "format=1"));
+  assert.deepEqual(old.problems, []);
+  assert.equal(old.plan.format, 1);
+  assert.deepEqual(
+    old.plan.scenarios.map((s) => s.surface),
+    ["web", "web"],
+  );
+  assert.deepEqual(problemsOf(broken("format=2", "format=3")), [
+    "line 1: format=3: this copy of ANATOMY.md reads format=1 and format=2 only",
+  ]);
 });
 
 test("a missing title is a problem", () => {
@@ -690,13 +701,13 @@ test("a mark stuck to a first-word value is named, with the fix (#201)", () => {
 // ── Scenario accounts ───────────────────────────────────────────────────────
 
 const S1_SIGNS = "- **Signs in as:** `admin`\n";
-const S2_SIGNS = "- **Signs in as:** nobody\n";
+const S2_SIGNS_IN = "- **Signs in as:** nobody\n";
 /** The good plan with S1 creating `temp-user` and S2 signing in as it, then any edits. */
 function withAccount(...edits) {
   let text = broken(
     S1_SIGNS,
     `${S1_SIGNS}- **Creates:** \`temp-user\` (its values chosen when S1 creates it)\n`,
-  ).replace(S2_SIGNS, "- **Signs in as:** `temp-user` (created in S1)\n");
+  ).replace(S2_SIGNS_IN, "- **Signs in as:** `temp-user` (created in S1)\n");
   for (const [from, to] of edits) {
     assert.ok(text.includes(from), `the plan has no ${JSON.stringify(from)}`);
     text = text.replace(from, to);
@@ -779,14 +790,17 @@ test("a sign-in as an account no scenario creates is a problem on its line", () 
 test("only a scenario after its creator may sign in as a Scenario account", () => {
   // S1 signs in as what S2 creates.
   const forward = broken(S1_SIGNS, "- **Signs in as:** `temp-user`\n").replace(
-    S2_SIGNS,
-    `${S2_SIGNS}- **Creates:** \`temp-user\`\n`,
+    S2_SIGNS_IN,
+    `${S2_SIGNS_IN}- **Creates:** \`temp-user\`\n`,
   );
   assert.deepEqual(problemsOf(forward), [
     `line ${lineOf(forward, "- **Signs in as:** `temp-user`")}: S1 signs in as \`temp-user\`, which S2 creates later: only a scenario after its creator may sign in as it`,
   ]);
   // A scenario signs in as what it creates itself.
-  const itself = broken(S2_SIGNS, "- **Signs in as:** `temp-user`\n- **Creates:** `temp-user`\n");
+  const itself = broken(
+    S2_SIGNS_IN,
+    "- **Signs in as:** `temp-user`\n- **Creates:** `temp-user`\n",
+  );
   assert.deepEqual(problemsOf(itself), [
     `line ${lineOf(itself, "- **Signs in as:** `temp-user`")}: S2 signs in as \`temp-user\`, which it creates itself: only a later scenario may sign in as it`,
   ]);
@@ -1176,6 +1190,103 @@ test("`plan` prints each scenario's sessions", () => {
     { name: "A", id: "member" },
     { name: "B", id: "admin" },
   ]);
+});
+
+// ── A Surface per scenario (format=2) ───────────────────────────────────────
+
+/** The 1-based number of the last line starting `start`: a scenario's, past the Run brief's. */
+const lastLineOf = (text, start) => text.split("\n").findLastIndex((l) => l.startsWith(start)) + 1;
+/** The good plan with S2's **Surface:** line, placed right after **Signs in as:**. */
+const withSurface = (line = "- **Surface:** `api`") =>
+  broken(S2_SIGNS_IN, `${S2_SIGNS_IN}${line}\n`);
+
+test("a scenario's **Surface:** overrides the Run brief's for that scenario only", () => {
+  const { plan, problems } = validatePlan(withSurface());
+  assert.deepEqual(problems, []);
+  assert.equal(plan.brief.surface, "web");
+  assert.deepEqual(
+    plan.scenarios.map((s) => [s.id, s.surface]),
+    [
+      ["S1", "web"],
+      ["S2", "api"],
+    ],
+  );
+  // A first-word value: prose may follow it, and `*`, `_` and backticks around it are dropped.
+  for (const line of ["- **Surface:** api, its headers are the promise", "- **Surface:** **api**"])
+    assert.deepEqual(validatePlan(withSurface(line)).plan.scenarios[1].surface, "api", line);
+});
+
+test("a **Surface:** after **Sessions:** or **Creates:** reads too", () => {
+  const sessions = withSessions().replace(
+    "(each in its own browser)\n",
+    "(each in its own browser)\n- **Surface:** `api`\n",
+  );
+  assert.deepEqual(problemsOf(sessions), []);
+  assert.equal(validatePlan(sessions).plan.scenarios[0].surface, "api");
+  const creates = broken(
+    "- **Signs in as:** `admin`\n",
+    "- **Signs in as:** `admin`\n- **Creates:** `temp-user` (chosen in S1)\n- **Surface:** `api`\n",
+  );
+  assert.deepEqual(problemsOf(creates), []);
+  assert.equal(validatePlan(creates).plan.scenarios[0].surface, "api");
+});
+
+test("a **Surface:** out of position is a problem naming its line", () => {
+  const late = broken(
+    "- **A failure means:** the members page is reachable without signing in.",
+    "- **A failure means:** the members page is reachable without signing in.\n- **Surface:** `api`",
+  );
+  assert.deepEqual(problemsOf(late), [
+    `line ${lastLineOf(late, "- **Surface:**")}: S2: **Surface:** is out of position: it goes right after **Signs in as:** or **Sessions:** (and **Creates:**, when present), before **Steps:**`,
+  ]);
+  const early = broken(
+    "- **Why only a human can prove it:** the redirect",
+    "- **Surface:** `api`\n- **Why only a human can prove it:** the redirect",
+  );
+  assert.deepEqual(problemsOf(early), [
+    `line ${lastLineOf(early, "- **Surface:**")}: S2: **Surface:** is out of position: it goes right after **Signs in as:** or **Sessions:** (and **Creates:**, when present), before **Steps:**`,
+  ]);
+  // Before **Creates:** is out of position too.
+  const beforeCreates = broken(
+    "- **Signs in as:** `admin`\n",
+    "- **Signs in as:** `admin`\n- **Surface:** `api`\n- **Creates:** `temp-user` (chosen in S1)\n",
+  );
+  assertProblem(beforeCreates, /S1: \*\*Surface:\*\* is out of position/);
+});
+
+test("a **Surface:** outside the four, empty, stuck to a mark or repeated is a problem on its line", () => {
+  const tv = withSurface("- **Surface:** `tv`");
+  assert.deepEqual(problemsOf(tv), [
+    `line ${lastLineOf(tv, "- **Surface:**")}: S2: **Surface:** expected one of: web, desktop, mobile, api`,
+  ]);
+  const empty = withSurface("- **Surface:**");
+  assert.deepEqual(problemsOf(empty), [
+    `line ${lastLineOf(empty, "- **Surface:**")}: S2: **Surface:** is empty`,
+  ]);
+  const stuck = withSurface("- **Surface:** `api`.");
+  assert.deepEqual(problemsOf(stuck), [
+    `line ${lastLineOf(stuck, "- **Surface:**")}: S2: **Surface:** read \`api.\`: a \`.\` is stuck to the value; write \`api\` followed by a space, comma or parenthesis`,
+  ]);
+  const twice = withSurface("- **Surface:** `api`\n- **Surface:** `web`");
+  assert.deepEqual(problemsOf(twice), [
+    `line ${lastLineOf(twice, "- **Surface:** `web`")}: S2: a second **Surface:**: a scenario has at most one`,
+  ]);
+});
+
+test("a format=1 plan carries no per-scenario **Surface:**", () => {
+  const text = withSurface().replace("format=2", "format=1");
+  assert.deepEqual(problemsOf(text), [
+    `line ${lastLineOf(text, "- **Surface:**")}: S2: **Surface:** is a format=2 field: mark the plan \`format=2\`, or leave the Run brief's **Surface:** to every scenario`,
+  ]);
+});
+
+test("`plan` prints each scenario's effective surface", () => {
+  const result = main(["plan"], { read: () => null, stdin: () => withSurface() });
+  assert.equal(result.code, 0);
+  assert.deepEqual(
+    JSON.parse(result.out).plan.scenarios.map((s) => s.surface),
+    ["web", "api"],
+  );
 });
 
 // ── CLI ─────────────────────────────────────────────────────────────────────

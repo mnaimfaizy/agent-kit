@@ -151,6 +151,7 @@ test("each scenario carries its fields, in order, numbered from S1", () => {
     "Why only a human can prove it:",
     "Signs in as:",
     "Creates:",
+    "Surface:",
     "Steps:",
     "Expected result:",
     "A failure means:",
@@ -173,13 +174,61 @@ test("the execution record is empty after compose", () => {
 });
 
 test("the marker line names the format, the subject and the pull request", () => {
-  assert.match(anatomy, /<!-- qa-plan format=1 subject=#\d+ pr=#\d+ -->/);
+  assert.match(anatomy, /<!-- qa-plan format=2 subject=#\d+ pr=#\d+ -->/);
+  assert.doesNotMatch(anatomy, /<!-- qa-plan format=1 subject=/);
+});
+
+test("ANATOMY.md says which formats a copy reads, and that format=1 has no per-scenario field", () => {
+  const shape = section("Shape");
+  assert.match(shape, /The composer writes `format=2`/);
+  assert.match(shape, /reads `format=1` and `format=2`/);
+  assert.match(shape, /A `format=1` plan carries no per-scenario field/);
+  assert.match(shape, /refuses any other `format`/);
+});
+
+test("a scenario may carry its own Surface, after its sign-in fields and before Steps", () => {
+  const scenarios = section("Scenarios");
+  const labels = [...scenarios.matchAll(/^- \*\*([^*]+):\*\*/gm)].map((m) => m[1]);
+  const at = (label) => labels.indexOf(label);
+  assert.ok(at("Surface") > at("Creates") && at("Surface") < at("Steps"), labels.join(" · "));
+  assert.match(
+    scenarios,
+    /\*\*Surface:\*\* only when this scenario drives another surface than the Run brief's \*\*Surface:\*\*/,
+  );
+  assert.match(scenarios, /\[first-word value\]\(#first-word-values\)/);
+  assert.match(scenarios, /`format=2` only/);
+  const brief = section("Run brief");
+  assert.match(brief, /the plan's default/);
+  assert.match(brief, /a scenario's own \*\*Surface:\*\* overrides it/);
+  assert.match(section("Shape"), /\*\*Surface:\*\* \(the Run brief's, and a scenario's\)/);
 });
 
 test("SKILL.md writes plans in this format and delivers by the same marker", () => {
   assert.match(skill, /\[ANATOMY\.md\]\(ANATOMY\.md\)/);
   assert.match(skill, /`_Not run yet\._`/);
-  assert.match(skill, /qa-plan format=1 subject=#<n>/);
+  assert.match(skill, /qa-plan format=2 subject=#<n>/);
+  // A revision still finds the plan it replaces when that plan was written as format=1.
+  assert.match(
+    skill,
+    /`<!-- qa-plan format=1 subject=#<n> ` or `<!-- qa-plan format=2 subject=#<n> `/,
+  );
+});
+
+test("SKILL.md step 6 picks each scenario's surface from what its expected result observes", () => {
+  const flat = skill.replace(/\s+/g, " ");
+  assert.match(
+    flat,
+    /Pick each scenario's surface from what its \*\*Expected result:\*\* must observe/,
+  );
+  assert.match(
+    flat,
+    /response headers, cookies \(including `HttpOnly`\), status codes and response bodies: `api`/,
+  );
+  assert.match(flat, /rendered copy, flows and layout: `web`/);
+  assert.match(flat, /the app itself: `desktop` or `mobile`/);
+  assert.match(flat, /The Run brief's \*\*Surface:\*\* is the one most scenarios use/);
+  assert.match(flat, /`run\.surface` in the config is only the starting default/);
+  assert.match(flat, /\[ANATOMY\.md\]\(ANATOMY\.md#scenarios\)/);
 });
 
 test("SKILL.md composes a multi-session scenario when a promise needs two people at once", () => {
