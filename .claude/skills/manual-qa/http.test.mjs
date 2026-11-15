@@ -373,6 +373,28 @@ test("Max-Age of 0 or less, in any case, or a past Expires removes a cookie; Max
   assert.equal(searched("theme=light"), false);
 });
 
+test("an Expires-only removal is read against the response's Date, so clock skew cannot unredact a live cookie", () => {
+  const at = (ms) => new Date(ms).toUTCString();
+  const t = Date.parse("Sun, 15 Nov 2026 12:00:00 GMT");
+  const live = (expires) => ({
+    name: "csrf",
+    value: "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
+    attributes: [` Expires=${at(expires)}`, " HttpOnly"],
+  });
+  // By the server's own clock the cookie lives 30s more: searched, whatever the runner's clock says.
+  assert.equal(searchedCookie(live(t + 30_000), Date.parse(at(t))), true);
+  // Already past by the server's clock: removed.
+  assert.equal(searchedCookie(live(t - 1_000), Date.parse(at(t))), false);
+  // With no Date header, only an Expires more than a day past counts: a runner a minute ahead still redacts.
+  assert.equal(searchedCookie(live(Date.now() - 60_000)), true);
+  assert.equal(searchedCookie(live(Date.now() - 2 * 86_400_000)), false);
+  // Max-Age needs no clock.
+  assert.equal(
+    searchedCookie({ ...live(t + 30_000), attributes: [" Max-Age=0", " HttpOnly"] }),
+    false,
+  );
+});
+
 test("a real session value stays redacted across the log after a later response removes its cookie", async () => {
   const result = await run({
     requests: [

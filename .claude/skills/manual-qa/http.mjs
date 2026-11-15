@@ -352,14 +352,19 @@ export function parseSetCookie(line) {
     : { name: pair.slice(0, eq).trim(), value: pair.slice(eq + 1).trim(), attributes };
 }
 
+/** How far past an `Expires` must be to count as removal when the response has no `Date`. */
+const NO_DATE_MARGIN_MS = 24 * 60 * 60 * 1000;
+
 /**
  * Whether a `Set-Cookie` line removes its own cookie: a `Max-Age` of 0 or
- * less, or, with no valid `Max-Age`, an `Expires` no later than now (just
- * after the response arrived). Attribute names match in any case. The same
- * rule as `CookieJar.store`, which drops such a cookie.
- * @param {string[]} attributes
+ * less, or, with no valid `Max-Age`, an `Expires` earlier than the response's
+ * `Date`. The server sets both by its own clock, so the runner's clock cannot
+ * skew the call. With no usable `Date`, only an `Expires` more than a day
+ * before the runner's clock counts. A wrong "removed" leaks a credential, so a
+ * doubtful `Expires` keeps the value searched. Attribute names match in any case.
+ * @param {string[]} attributes @param {number | null} [responseDate] the response's `Date`, in ms
  */
-function removesItself(attributes) {
+function removesItself(attributes, responseDate) {
   let maxAge = null;
   let expires = null;
   for (const attribute of attributes) {
@@ -369,7 +374,11 @@ function removesItself(attributes) {
     if (k === "max-age" && /^-?\d+$/.test(val)) maxAge = Number(val);
     else if (k === "expires" && !Number.isNaN(Date.parse(val))) expires = Date.parse(val);
   }
-  return maxAge !== null ? maxAge <= 0 : expires !== null && expires <= Date.now();
+  if (maxAge !== null) return maxAge <= 0;
+  if (expires === null) return false;
+  return Number.isFinite(responseDate)
+    ? expires < responseDate
+    : expires < Date.now() - NO_DATE_MARGIN_MS;
 }
 
 /**
@@ -382,10 +391,11 @@ function removesItself(attributes) {
  * placeholder, not a credential. A value another line in the run made searched
  * stays searched.
  * @param {{name: string, value: string, attributes: string[]}} cookie
+ * @param {number | null} [responseDate] the `Date` of the response that set it, in ms
  */
-export function searchedCookie({ name, value, attributes }) {
+export function searchedCookie({ name, value, attributes }, responseDate = null) {
   if (value.length < MIN_SECRET_LENGTH || /^(?:true|false|null)$/i.test(value)) return false;
-  if (removesItself(attributes)) return false;
+  if (removesItself(attributes, responseDate)) return false;
   const httpOnly = attributes.some((a) => a.trim().toLowerCase() === "httponly");
   return secretName(name) || httpOnly || value.length >= OPAQUE_COOKIE_LENGTH;
 }
@@ -631,8 +641,10 @@ export async function runSequence(sequence, { base, env, fetch: send = fetch }) 
       jar.store(setCookies, url.pathname);
       // Every cookie the jar takes in is redacted from here on, before it is
       // ever sent: in its Set-Cookie line always, elsewhere by `searchedCookie`.
+      const responseDate = Date.parse(response.headers.get("date") ?? "");
       for (const cookie of setCookies.map(parseSetCookie))
-        if (searchedCookie(cookie)) redact.add(cookie.value, `[redacted:cookie ${cookie.name}]`);
+        if (searchedCookie(cookie, responseDate))
+          redact.add(cookie.value, `[redacted:cookie ${cookie.name}]`);
       entry.status = response.status;
       entry.setCookies = setCookies;
       entry.headers = (request.capture ?? [])
