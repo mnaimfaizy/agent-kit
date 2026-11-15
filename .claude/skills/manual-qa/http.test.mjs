@@ -120,6 +120,23 @@ before(async () => {
         });
         return res.end("Account deleted");
       }
+      if (url.pathname === "/signout-empty") {
+        res.writeHead(200, {
+          "content-type": "text/plain",
+          "set-cookie": ["sid=; Max-Age=0; Path=/; HttpOnly"],
+        });
+        return res.end("signed out, session deleted");
+      }
+      if (url.pathname === "/forget-me") {
+        // A server that removes a cookie by echoing its real, never-seen value.
+        res.writeHead(200, {
+          "content-type": "text/plain",
+          "set-cookie": [
+            "remember_token=9f86d081884c7d659a2feaa0c55ad015a3bf4f1b; Max-Age=0; Path=/; HttpOnly",
+          ],
+        });
+        return res.end("forgot 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b");
+      }
       if (url.pathname === "/last-session") {
         // A careless page that shows the session value it issued.
         res.writeHead(200, { "content-type": "text/plain" });
@@ -349,6 +366,25 @@ test("a cookie its own Set-Cookie line removes is a placeholder: readable in bod
   assert.match(log, /Account deleted/);
 });
 
+test("only a placeholder-shaped value on a removing line goes unsearched: empty or one short word", async () => {
+  const result = await run({
+    requests: [
+      { session: "A", method: "GET", path: "/signout-empty" },
+      { session: "A", method: "GET", path: "/forget-me" },
+    ],
+  });
+  assert.equal(result.code, 0);
+  const { log } = result;
+  assert.match(log, /set-cookie: sid=\[redacted:cookie sid\]; Max-Age=0; Path=\/; HttpOnly/);
+  assert.match(log, /signed out, session deleted/);
+  // A long opaque value is a credential even on a removing line, though never set before.
+  assert.match(log, /forgot \[redacted:cookie remember_token\]/);
+  assert.doesNotMatch(log, /9f86d081884c7d659a2feaa0c55ad015a3bf4f1b/);
+  const searched = (line) => searchedCookie(parseSetCookie(line));
+  assert.equal(searched("sid=x9k2Lq7z; Max-Age=0; HttpOnly"), true);
+  assert.equal(searched("session_token=deleted; Max-Age=0"), false);
+});
+
 test("Max-Age of 0 or less, in any case, or a past Expires removes a cookie; Max-Age outranks Expires", () => {
   const searched = (line) => searchedCookie(parseSetCookie(line));
   // Removed: never searched for, whatever the name, length or HttpOnly.
@@ -359,8 +395,8 @@ test("Max-Age of 0 or less, in any case, or a past Expires removes a cookie; Max
     false,
   );
   assert.equal(searched("session=deleted; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly"), false);
-  assert.equal(searched("sid=removed-placeholder-value; max-age=0; HttpOnly"), false);
-  assert.equal(searched("token=gone-gone-gone-gone; MAX-AGE=-1"), false);
+  assert.equal(searched("sid=removed; max-age=0; HttpOnly"), false);
+  assert.equal(searched("token=expired; MAX-AGE=-1"), false);
   assert.equal(searched("sid=deleted; EXPIRES=Wed, 21 Oct 2015 07:28:00 GMT; HttpOnly"), false);
   // Not removed: still searched.
   assert.equal(searched("PHPSESSID=8f3k2j9d0a7b6c5e4f3g; path=/; HttpOnly"), true);
@@ -378,10 +414,10 @@ test("an Expires-only removal is read against the response's Date, so clock skew
   const t = Date.parse("Sun, 15 Nov 2026 12:00:00 GMT");
   const live = (expires) => ({
     name: "csrf",
-    value: "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
+    value: "pending",
     attributes: [` Expires=${at(expires)}`, " HttpOnly"],
   });
-  // By the server's own clock the cookie lives 30s more: searched, whatever the runner's clock says.
+  // A word-like HttpOnly value, live 30s more by the server's own clock: searched, whatever the runner's clock says.
   assert.equal(searchedCookie(live(t + 30_000), Date.parse(at(t))), true);
   // Already past by the server's clock: removed.
   assert.equal(searchedCookie(live(t - 1_000), Date.parse(at(t))), false);

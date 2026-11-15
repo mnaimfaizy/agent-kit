@@ -352,6 +352,12 @@ export function parseSetCookie(line) {
     : { name: pair.slice(0, eq).trim(), value: pair.slice(eq + 1).trim(), attributes };
 }
 
+/**
+ * A removing line's value that is a placeholder, not a credential: one word of
+ * letters, shorter than an opaque token (`deleted`, `removed`, `expired`).
+ */
+const PLACEHOLDER_VALUE = /^[A-Za-z]{0,15}$/;
+
 /** How far past an `Expires` must be to count as removal when the response has no `Date`. */
 const NO_DATE_MARGIN_MS = 24 * 60 * 60 * 1000;
 
@@ -387,15 +393,15 @@ function removesItself(attributes, responseDate) {
  * its name, is `HttpOnly`, or holds an opaque value of 16 characters or more.
  * A flag-like cookie (`logged_in=true`, `theme=light`, `user_id=1042`) is not
  * searched for, so the same text in a body stays readable evidence. Nor is a
- * cookie its own line removes (`PHPSESSID=deleted; Max-Age=0`): its value is a
- * placeholder, not a credential. A value another line in the run made searched
- * stays searched.
+ * placeholder on a line that removes its cookie (`PHPSESSID=deleted; Max-Age=0`).
+ * Any other value on a removing line goes through the rules above, and a value
+ * another line in the run made searched stays searched.
  * @param {{name: string, value: string, attributes: string[]}} cookie
  * @param {number | null} [responseDate] the `Date` of the response that set it, in ms
  */
 export function searchedCookie({ name, value, attributes }, responseDate = null) {
   if (value.length < MIN_SECRET_LENGTH || /^(?:true|false|null)$/i.test(value)) return false;
-  if (removesItself(attributes, responseDate)) return false;
+  if (PLACEHOLDER_VALUE.test(value) && removesItself(attributes, responseDate)) return false;
   const httpOnly = attributes.some((a) => a.trim().toLowerCase() === "httponly");
   return secretName(name) || httpOnly || value.length >= OPAQUE_COOKIE_LENGTH;
 }
