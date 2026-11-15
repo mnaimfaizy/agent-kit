@@ -219,7 +219,7 @@ export function readReport(text) {
   const headerEnd = firstHeading === -1 ? lines.length : firstHeading;
   const deviationsLines = lines
     .slice(0, headerEnd)
-    .filter((line) => line.startsWith(DEVIATIONS_LABEL));
+    .filter((line, n) => !fenced[n] && line.startsWith(DEVIATIONS_LABEL));
   if (deviationsLines.length > 1)
     problems.push(
       `the header has ${deviationsLines.length} **Run deviations:** lines: put every departure ` +

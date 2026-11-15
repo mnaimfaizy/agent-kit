@@ -184,6 +184,21 @@ test("a `## ` line inside a fenced block in the header does not end the header",
   assert.equal(report.deviations, DEVIATION);
 });
 
+test("a **Run deviations:** line inside a fenced block in the header is not the header's", () => {
+  const quoted = PASSED.replace(
+    "- **Teardown:**",
+    `\`\`\`text\n- **Run deviations:** ${DEVIATION}\n\`\`\`\n- **Teardown:**`,
+  );
+  assert.ok(quoted.includes(`- **Run deviations:** ${DEVIATION}`));
+  const { report, problems } = readReport(quoted);
+  assert.deepEqual(problems, []);
+  assert.equal(report.deviations, null);
+  // Beside a real line, the fenced one is not a second.
+  const both = withDeviations(quoted, ` ${DEVIATION}`);
+  assert.deepEqual(readReport(both).problems, []);
+  assert.equal(readReport(both).report.deviations, DEVIATION);
+});
+
 test("a repeated first heading does not move the header's end past the first section", () => {
   const repeated = PASSED.replace(
     "## Results\n",
