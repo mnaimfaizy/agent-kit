@@ -233,6 +233,10 @@ test("step 4 asks whether a configured suite's test could prove each promise lef
     establish,
     /a real deployment, real infrastructure no configured suite starts, or a real browser/,
   );
+  assert.match(
+    establish,
+    /For a promise left for the Residue because only doubles covered it, only a suite whose `services` names each service its path reaches could prove it; with none, it stays for the Residue/,
+  );
   assert.match(establish, /stop before step 6/);
   assert.match(establish, /which suite, and what the test would assert/);
   assert.match(establish, /\*\*Add the test\.\*\*/);
