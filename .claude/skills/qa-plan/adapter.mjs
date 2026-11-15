@@ -918,23 +918,29 @@ const SECTIONS = /** @type {const} */ ([
  * inside one (a shell comment, say) is not a heading.
  *
  * @param {string[]} lines
- * @param {boolean} [nested] also read a fence indented four or more spaces, as
- *   one inside a list item is
+ * @param {boolean} [nested] also open a fence indented four or more spaces, as
+ *   one inside a list item is. A fence then closes only on a line indented no
+ *   deeper than its opening one (or 3 spaces), so an indented fence line inside an
+ *   ordinary block is its content, as it is without `nested`.
  * @returns {boolean[]}
  */
 function fencedLines(lines, nested = false) {
   const fenced = [];
   let fence = null;
-  const opens = nested ? /^\s*(`{3,}|~{3,})/ : /^\s{0,3}(`{3,}|~{3,})/;
+  let indent = 0;
+  const opens = nested ? /^(\s*)(`{3,}|~{3,})/ : /^(\s{0,3})(`{3,}|~{3,})/;
   for (const line of lines) {
-    const marker = opens.exec(line)?.[1];
+    const found = opens.exec(line);
+    const marker = found?.[2];
     if (fence === null && marker) {
       fence = marker;
+      indent = found[1].length;
       fenced.push(true);
     } else if (fence !== null) {
       fenced.push(true);
       if (
         marker &&
+        found[1].length <= Math.max(indent, 3) &&
         marker[0] === fence[0] &&
         marker.length >= fence.length &&
         line.trim() === marker
@@ -1094,8 +1100,9 @@ export const NOT_RUN = "_Not run yet._";
 
 /**
  * The words a shell command starts with (#199). A Setup line or a step that begins with
- * one, or holds a backticked span that does, reads as a command, not a product action.
- * Matched in lower case only, and only as a whole word, so `Export the CSV` is prose.
+ * one followed by an argument, or holds a backticked span that does, reads as a command,
+ * not a product action. Matched in lower case only, and only as a whole word followed by
+ * an argument, so `Export the CSV` and a lone `docker` label are prose.
  */
 export const COMMAND_WORDS = /** @type {const} */ ([
   "docker",
@@ -1116,10 +1123,21 @@ export const COMMAND_WORDS = /** @type {const} */ ([
   "bash",
   "sh",
 ]);
-const COMMAND_START = new RegExp(`^(?:\\$\\s|(${COMMAND_WORDS.join("|")})(?=\\s|$))`);
+/**
+ * Command words that also name things in a product (a toolbar's `export`, a `python`
+ * language, an `env staging` badge). These read as a command only before an argument
+ * that reads as one; the others before any argument. A word alone is never a command.
+ */
+export const COPY_WORDS = /** @type {const} */ (["export", "node", "env", "python", "sh"]);
+/** An argument as a command takes one: a flag, a path, a file name, or `=`, `|`, `$`, `;`, `&`, `<`, `>`. */
+const COMMAND_ARGUMENT = /(?:^|\s)-|[/=|$<>;&]|[A-Za-z_]\w*\.[a-z]{1,4}(?=\s|$)/;
+const COMMAND_START = new RegExp(`^(?:\\$\\s|(${COMMAND_WORDS.join("|")})\\s+(\\S.*))`);
 const NOT_RUN_HERE =
   "a plan carries product actions only, and `manual-qa` will not run it: " +
   "write the product action that shows the same thing, or leave the promise out of the Residue";
+const NO_CODE_BLOCK =
+  "a plan gives product actions, and any data to enter, as prose, never as a code block, " +
+  "and `manual-qa` runs nothing from one: quote data to type or paste in a backticked span";
 
 const MARKER = /^<!-- qa-plan format=(\d+) subject=#(\d+) pr=#(\d+) -->$/;
 const FULL_SHA = /\b[0-9a-f]{40}(?:[0-9a-f]{24})?\b/;
@@ -1436,18 +1454,20 @@ export function validatePlan(text) {
   /** Fences as a list item nests them too: a step's fence sits four or more spaces in. */
   const blockFenced = fencedLines(lines, true);
   /**
-   * The shell command a line of Setup or Steps reads as (#199): `$ ` or the command word
-   * that the line's text, or a backticked span on it, begins with; `null` for a product
-   * action. A `continuation` (an indented line that is no list item) carries on the prose
-   * above it, so only its spans are read. A span that is just a Run brief role is the role.
+   * The shell command a line of Setup or Steps reads as (#199): `$ `, or the command word
+   * that the line's text, or a backticked span on it, begins with before an argument
+   * (`COPY_WORDS` before one that reads as a command's); `null` for a product action. A
+   * `continuation` (an indented line that is no list item) carries on the prose above it,
+   * so only its spans are read. A lone word, such as a role id or a label, is no command.
    */
   const commandIn = (text, continuation) => {
     const starts = (value) => {
       const match = COMMAND_START.exec(value);
-      return match ? (match[1] ?? "$ ") : null;
+      if (!match) return null;
+      if (match[1] === undefined) return "$ ";
+      return COPY_WORDS.includes(match[1]) && !COMMAND_ARGUMENT.test(match[2]) ? null : match[1];
     };
     for (const [, span] of text.matchAll(/`([^`]+)`/g)) {
-      if (plan.brief.roles.includes(span.trim())) continue;
       const word = starts(span.trim());
       if (word) return word;
     }
@@ -1468,8 +1488,9 @@ export function validatePlan(text) {
     let column = null;
     for (let n = from; n < to; n += 1) {
       if (blockFenced[n]) {
-        if (n === from || !blockFenced[n - 1])
-          at(n, `${where}: a fenced code block reads as a shell command; ${NOT_RUN_HERE} ${cite}`);
+        // Named at its opening fence only, so a fence left open is not named again later.
+        if (n === 0 || !blockFenced[n - 1])
+          at(n, `${where}: a fenced code block; ${NO_CODE_BLOCK} ${cite}`);
         continue;
       }
       const text = n === from && first !== undefined ? first : lines[n];
