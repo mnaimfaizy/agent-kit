@@ -114,6 +114,108 @@ test("the head is the full SHA: a short one is a problem, SHA-256 reads", () => 
   assert.equal(readReport(PASSED.replace(HEAD, long)).report.head, long);
 });
 
+const DEVIATION = "ran `env | grep` from Setup before noticing; its output was not used";
+/** A report with a **Run deviations:** line after **Teardown:**, as the template places it. */
+const withDeviations = (text, deviations) => {
+  const teardown = "- **Teardown:** `down` run; nothing else started\n";
+  return text.replace(teardown, `${teardown}- **Run deviations:**${deviations}\n`);
+};
+const DEVIATED = withDeviations(PASSED, ` ${DEVIATION}`);
+
+test("a **Run deviations:** line reads with no problem, its text kept", () => {
+  assert.notEqual(DEVIATED, PASSED);
+  const { report, problems } = readReport(DEVIATED);
+  assert.deepEqual(problems, []);
+  assert.equal(report.deviations, DEVIATION);
+  // The line changes nothing else the reader returns.
+  assert.deepEqual({ ...report, deviations: null }, readReport(PASSED).report);
+  const cli = main(["read", "report.md", "--plan", "plan.md"], {
+    readFile: (path) => (path === "plan.md" ? PLAN : DEVIATED),
+  });
+  assert.equal(cli.code, 0);
+  assert.equal(JSON.parse(cli.out).report.deviations, DEVIATION);
+});
+
+test("a report without the **Run deviations:** line reads as before, deviations null", () => {
+  const { report, problems } = readReport(PASSED);
+  assert.deepEqual(problems, []);
+  assert.equal(report.deviations, null);
+  const cli = main(["read", "report.md", "--plan", "plan.md"], {
+    readFile: (path) => (path === "plan.md" ? PLAN : PASSED),
+  });
+  assert.equal(cli.code, 0);
+  assert.equal(JSON.parse(cli.out).report.deviations, null);
+});
+
+test("an empty **Run deviations:** line is a problem: list each one, or leave it out", () => {
+  const empty = withDeviations(PASSED, "   ");
+  assert.match(readReport(empty).problems.join("\n"), /Run deviations:\*\* line is empty/);
+});
+
+test("the template's **Run deviations:** placeholder, copied as it stands, is a problem", () => {
+  for (const placeholder of [
+    " <each departure, and what was done about it> ← only when there was one (step 8)",
+    " <each departure, and what was done about it>",
+    " ran a command ← only when there was one (step 8)",
+  ]) {
+    const { problems } = readReport(withDeviations(PASSED, placeholder));
+    assert.match(problems.join("\n"), /still carries the template's placeholder/, placeholder);
+  }
+});
+
+test("more than one **Run deviations:** header line is a problem: one line holds them all", () => {
+  const twice = withDeviations(
+    withDeviations(PASSED, " skipped S2's second step"),
+    ` ${DEVIATION}`,
+  );
+  assert.equal(twice.split("- **Run deviations:**").length, 3);
+  assert.match(readReport(twice).problems.join("\n"), /header has 2 \*\*Run deviations:\*\* lines/);
+  assert.deepEqual(readReport(DEVIATED).problems, []);
+});
+
+test("a `## ` line inside a fenced block in the header does not end the header", () => {
+  const fenced = withDeviations(PASSED, ` ${DEVIATION}`).replace(
+    "- **Teardown:**",
+    "```text\n## not a heading\n```\n- **Teardown:**",
+  );
+  assert.ok(fenced.includes("## not a heading"));
+  const { report, problems } = readReport(fenced);
+  assert.deepEqual(problems, []);
+  assert.equal(report.deviations, DEVIATION);
+});
+
+test("a **Run deviations:** line inside a fenced block in the header is not the header's", () => {
+  const quoted = PASSED.replace(
+    "- **Teardown:**",
+    `\`\`\`text\n- **Run deviations:** ${DEVIATION}\n\`\`\`\n- **Teardown:**`,
+  );
+  assert.ok(quoted.includes(`- **Run deviations:** ${DEVIATION}`));
+  const { report, problems } = readReport(quoted);
+  assert.deepEqual(problems, []);
+  assert.equal(report.deviations, null);
+  // Beside a real line, the fenced one is not a second.
+  const both = withDeviations(quoted, ` ${DEVIATION}`);
+  assert.deepEqual(readReport(both).problems, []);
+  assert.equal(readReport(both).report.deviations, DEVIATION);
+});
+
+test("a repeated first heading does not move the header's end past the first section", () => {
+  const repeated = PASSED.replace(
+    "## Results\n",
+    `## Results\n\n- **Run deviations:** ${DEVIATION}\n\n## Results\n`,
+  );
+  assert.equal(repeated.split("## Results").length, 3);
+  assert.equal(readReport(repeated).report.deviations, null);
+});
+
+test("a **Run deviations:** line under a later section is not the header's", () => {
+  const prose = PASSED.replace("None.", `None.\n\n- **Run deviations:** ${DEVIATION}`);
+  assert.notEqual(prose, PASSED);
+  const { report, problems } = readReport(prose);
+  assert.deepEqual(problems, []);
+  assert.equal(report.deviations, null);
+});
+
 test("a result other than the three is a problem", () => {
   const { problems } = readReport(reportFor(["| S1: x | passed-ish | none | |"]));
   assert.match(problems[0], /S1's result is `passed-ish`/);
@@ -442,6 +544,19 @@ test("the comment starts with the marker and carries the report", () => {
   assert.deepEqual(problems, []);
   assert.equal(body.split("\n")[0], REPORT_MARKER);
   assert.ok(body.includes("# QA Report: Members can be invited by email"));
+});
+
+test("the comment keeps a **Run deviations:** line word for word, and adds none without it", () => {
+  const line = `- **Run deviations:** ${DEVIATION}`;
+  const kept = reportComment(DEVIATED);
+  assert.deepEqual(kept.problems, []);
+  assert.ok(kept.body.split("\n").includes(line));
+  const cli = main(["comment", "report.md"], { readFile: () => DEVIATED });
+  assert.equal(cli.code, 0);
+  assert.ok(cli.out.split("\n").includes(line));
+  const without = reportComment(PASSED);
+  assert.deepEqual(without.problems, []);
+  assert.ok(!without.body.includes("Run deviations"));
 });
 
 const ME = "qa-person";

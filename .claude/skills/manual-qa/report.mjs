@@ -7,13 +7,14 @@
 //   results and said yes, and hands this file what `gh` printed.
 //
 //   1. `read`: reads a QA Report file (SKILL.md "The QA Report") into its
-//      anchors and one result per scenario, and says whether the run failed
-//      (a FAIL, or a run stopped on a blocking outcome). A PASS or FAIL row
-//      links its evidence in backticks, or says `none: <reason>`; a row left
-//      for a person may say a bare `none`. With `--plan`, it
-//      also checks the report against the plan it ran: the same anchors, one
-//      row per scenario, and each scenario that signs in as a Scenario
-//      account left for a person when the scenario creating it did not pass.
+//      anchors, its optional **Run deviations:** header line, and one result
+//      per scenario, and says whether the run failed (a FAIL, or a run
+//      stopped on a blocking outcome). A PASS or FAIL row links its evidence
+//      in backticks, or says `none: <reason>`; a row left for a person may
+//      say a bare `none`. With `--plan`, it also checks the report against
+//      the plan it ran: the same anchors, one row per scenario, and each
+//      scenario that signs in as a Scenario account left for a person when
+//      the scenario creating it did not pass.
 //   2. `find`: from a pull request's comments, the one QA Report comment to
 //      update (its body's first line is exactly `<!-- qa-report -->`, and the
 //      person posting wrote it), so a re-run edits it and never posts a second; and the tracker issue the
@@ -82,6 +83,8 @@ function staleFor(body) {
     : null;
   return named && FULL_HEAD.test(named) ? named : null;
 }
+/** The optional QA Report header line listing where the run departed from the plan or the rules. */
+const DEVIATIONS_LABEL = "- **Run deviations:**";
 /** The first line of the PR comment `qa-plan` posts naming its tracker issue. */
 export const PLAN_LINK_MARKER = "<!-- qa-plan-link -->";
 export const RESULTS = /** @type {const} */ (["PASS", "FAIL", "left for a person"]);
@@ -136,6 +139,9 @@ function fencedLines(lines) {
   return fenced;
 }
 
+/** A `## <name>` heading, its closing `#`s dropped. */
+const HEADING = /^## (.+?)\s*#*\s*$/;
+
 /**
  * `## <name>` section bodies, keyed by name, each with its line range,
  * headings read as `validatePlan` reads them: outside fences, closing `#`s
@@ -146,7 +152,7 @@ function sections(lines) {
   const fenced = fencedLines(lines);
   let current = null;
   lines.forEach((line, n) => {
-    const heading = !fenced[n] && /^## (.+?)\s*#*\s*$/.exec(line);
+    const heading = !fenced[n] && HEADING.exec(line);
     if (heading) {
       if (current) current.end = n;
       current = { start: n, end: lines.length };
@@ -170,7 +176,7 @@ const cells = (row) =>
  * @returns {{report: {title: string | null, subject: number | null, pr: number | null,
  *   head: string | null, results: {id: string, scenario: string, result: string,
  *   evidence: string[], notes: string}[], failed: boolean, stopped: boolean,
- *   record: string | null}, problems: string[]}}
+ *   record: string | null, deviations: string | null}, problems: string[]}}
  */
 export function readReport(text) {
   const lines = lf(text).split("\n");
@@ -184,6 +190,8 @@ export function readReport(text) {
     failed: false,
     stopped: false,
     record: null,
+    // The **Run deviations:** line's text, or `null`: the line is left out when there were none.
+    deviations: null,
   };
   const titleAt = lines.findIndex((line) => /^# QA Report: \S/.test(line));
   if (titleAt === -1) problems.push("no `# QA Report: <title>` line");
@@ -202,6 +210,36 @@ export function readReport(text) {
   }
 
   const found = sections(lines);
+  // A header line: one under a later section (Follow-ups, say) is that section's
+  // prose. The header ends at the first heading read as `sections` reads one:
+  // outside fences, so a `## ` line in a fenced block does not end it. Scanned
+  // here, not taken from `found`, which keeps only the last of a repeated name.
+  const fenced = fencedLines(lines);
+  const firstHeading = lines.findIndex((line, n) => !fenced[n] && HEADING.test(line));
+  const headerEnd = firstHeading === -1 ? lines.length : firstHeading;
+  const deviationsLines = lines
+    .slice(0, headerEnd)
+    .filter((line, n) => !fenced[n] && line.startsWith(DEVIATIONS_LABEL));
+  if (deviationsLines.length > 1)
+    problems.push(
+      `the header has ${deviationsLines.length} **Run deviations:** lines: put every departure ` +
+        "on one line, separated by semicolons",
+    );
+  if (deviationsLines.length) {
+    report.deviations = deviationsLines[0].slice(DEVIATIONS_LABEL.length).trim();
+    if (!report.deviations)
+      problems.push(
+        "the **Run deviations:** line is empty: list each departure and what was done about it, " +
+          "or leave the line out",
+      );
+    // The template's placeholder, copied as it stands, says the run departed when it may not have.
+    else if (report.deviations.startsWith("<") || report.deviations.includes("←"))
+      problems.push(
+        "the **Run deviations:** line still carries the template's placeholder: write each " +
+          "departure and what was done about it, or leave the line out",
+      );
+  }
+
   const results = found.Results;
   if (!results) problems.push("no `## Results` section");
   else {

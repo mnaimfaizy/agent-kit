@@ -200,13 +200,13 @@ Only when this run ran `up` (step 5): run `down`, then stop each process in `sta
 
 ### 8. Write the QA Report
 
-Write `<working_dir>/qa-report-pr-<n>.md` in the shape below, and read it back: one row per scenario, no sign-in value anywhere in it or in the evidence folder. When the plan file is in `working_dir`, replace its Execution record with the report's short record. Show the person the results and the report's path. Nothing is posted in this step.
+Write `<working_dir>/qa-report-pr-<n>.md` in the shape below, and read it back: one row per scenario, no sign-in value anywhere in it or in the evidence folder. When the run departed from the plan as written or from the Rules above in any way the person reading the report must know about to trust its results (one of the plan's commands run before you noticed the rule against running it; a step carried out of order), add the **Run deviations:** line: each departure, and what was done about it, on one line, separated by semicolons. With none, leave the line out. When the plan file is in `working_dir`, replace its Execution record with the report's short record. Show the person the results and the report's path. Nothing is posted in this step.
 
 ```bash
 node "<skill>/report.mjs" read "<report file>" --plan "<plan file>"
 ```
 
-Exit 1 names what is out of shape, or what the report owes the plan: one row per scenario, evidence or `none: <reason>` for each PASS and FAIL, and each scenario left for a person whose Scenario account's creator did not pass. Fix the report before anything is posted.
+Exit 1 names what is out of shape, or what the report owes the plan: one row per scenario, evidence or `none: <reason>` for each PASS and FAIL, a single **Run deviations:** line that is neither empty nor the template's placeholder, and each scenario left for a person whose Scenario account's creator did not pass. Fix the report before anything is posted.
 
 **Done when:** the report and its evidence folder are in `working_dir`, `report.mjs read` exits 0, and the person has the results and the path.
 
@@ -273,7 +273,7 @@ With `working-copy`, skip this step. Otherwise pass `--link <file>=<url>` for ea
   gh issue edit <planIssue> --body-file "<tmp>/issue-new.md"
   ```
 
-  Each scenario's Sign-off box is ticked when it passed and cleared otherwise; a Setup box stays a person's to tick. The issue's Execution record becomes the report's. An issue whose plan is for another pull request or another head is refused: the plan was revised after this run.
+  Each scenario's Sign-off box is ticked when it passed and cleared otherwise; a Setup box stays a person's to tick. The issue's Execution record becomes the report's. The report's **Run deviations:** line is in its header, not its Execution record, so it does not reach the issue. An issue whose plan is for another pull request or another head is refused: the plan was revised after this run.
 
 Give the person the comment or issue URL, and each uploaded file's URL.
 
@@ -292,6 +292,7 @@ Give the person the comment or issue URL, and each uploaded file's URL.
 - **Accounts:** roles signed in as; each restore and why
 - **Scenario accounts:** each one this run created, by id and creating scenario (`temp-user`, by S1), or `none`. Ids only, never values: they are not cleaned up, so the owner of a hosted environment can remove them; on a `stack` run, `down` takes them with the stack.
 - **Teardown:** `down` run; processes stopped
+- **Run deviations:** <each departure, and what was done about it> ← only when there was one (step 8)
 
 ## Results
 
