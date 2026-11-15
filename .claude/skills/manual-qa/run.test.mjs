@@ -309,6 +309,58 @@ test("a config that disagrees with the plan's Run brief is asked about", () => {
   );
 });
 
+// ── The surface question (#223) ───────────────────────────────────────────────
+
+/** The good plan with its Run brief on `api`: both scenarios drive `api`. */
+const API_PLAN = GOOD_PLAN.replace("- **Surface:** `web`", "- **Surface:** `api`");
+const surfaceNeed = (text, config = STACK_RUN.join("\n")) => {
+  const { plan, problems } = validatePlan(text);
+  assert.deepEqual(problems, []);
+  const readiness = runReadiness(readQaConfig(reader({ "qa.config.yml": config })), plan);
+  return readiness.needs.filter((n) => n.startsWith("run.surface:"));
+};
+
+test("the surface question offers the two surfaces in dispute and names the scenarios that move", () => {
+  assert.deepEqual(surfaceNeed(API_PLAN), [
+    "run.surface: the config says `web` but the plan's Run brief says `api`; say which this run " +
+      "uses, `web` or `api`. With `web`, S1 and S2 drive `web`; with `api`, they drive `api`, " +
+      "the surface the plan's author chose from what those scenarios must observe. " +
+      "No scenario keeps its own **Surface:** whatever the answer.",
+  ]);
+});
+
+test("the surface question names a scenario that keeps its own Surface", () => {
+  // S2 carries its own `desktop`; S1 repeats the Run brief's `api`, which moves it all the same.
+  const mixed = API_PLAN.replace(
+    "- **Signs in as:** `admin`\n",
+    "- **Signs in as:** `admin`\n- **Surface:** `api`\n",
+  ).replace("- **Signs in as:** nobody\n", "- **Signs in as:** nobody\n- **Surface:** `desktop`\n");
+  assert.deepEqual(surfaceNeed(mixed), [
+    "run.surface: the config says `web` but the plan's Run brief says `api`; say which this run " +
+      "uses, `web` or `api`. With `web`, S1 drives `web`; with `api`, it drives `api`, " +
+      "the surface the plan's author chose from what that scenario must observe. " +
+      "S2 (`desktop`) keeps its own **Surface:** whatever the answer.",
+  ]);
+  // When every scenario carries another surface, neither answer moves one.
+  const allOwn = mixed.replace(
+    "- **Signs in as:** `admin`\n- **Surface:** `api`\n",
+    "- **Signs in as:** `admin`\n- **Surface:** `mobile`\n",
+  );
+  assert.deepEqual(surfaceNeed(allOwn), [
+    "run.surface: the config says `web` but the plan's Run brief says `api`; say which this run " +
+      "uses, `web` or `api`. No scenario drives the Run brief's surface, so neither answer moves " +
+      "one. S1 (`mobile`) and S2 (`desktop`) keep their own **Surface:** whatever the answer.",
+  ]);
+});
+
+test("no surface question when the config agrees with the plan or gives no surface", () => {
+  assert.deepEqual(surfaceNeed(GOOD_PLAN), []);
+  const api = STACK_RUN.join("\n").replace("surface: web", "surface: api");
+  assert.deepEqual(surfaceNeed(API_PLAN, api), []);
+  const none = STACK_RUN.filter((l) => !/surface:/.test(l)).join("\n");
+  assert.deepEqual(surfaceNeed(API_PLAN, none), []);
+});
+
 test("a malformed role entry is a problem, not a crash", () => {
   for (const roles of [["    roles:", "      -"], ["    roles: [admin]"]]) {
     const files = { "qa.config.yml": ["run:", "  accounts:", ...roles].join("\n") };
