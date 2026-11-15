@@ -315,6 +315,11 @@ test("a `Review:` box runs nothing, is never a result, and is listed for a perso
     flat,
     /A plan with no scenarios \(`plan\.scenarios` is empty: its Residue is only `Review:` boxes\) needs no driver and starts no stack: skip to step 8/,
   );
+  // Skipping step 5 skips the version endpoint: without `gh`, the build is not verified.
+  assert.match(
+    flat,
+    /Skipping step 5 skips step 3's version endpoint, so unless `gh` verified the build, the report's \*\*Build check:\*\* is `not verified` and it opens with \*\*build not verified against plan\*\*/,
+  );
   assert.match(
     flat,
     /A `Review:` box in the Sign-off checklist \(`plan\.reviews`\) is not a scenario: run nothing for it, and give it no result/,

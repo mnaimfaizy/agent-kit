@@ -88,7 +88,7 @@ For `stack`, the stack runs the checkout, so `git rev-parse HEAD` must also equa
 
 ### 4. Find a driver
 
-A plan with no scenarios (`plan.scenarios` is empty: its Residue is only `Review:` boxes) needs no driver and starts no stack: skip to step 8.
+A plan with no scenarios (`plan.scenarios` is empty: its Residue is only `Review:` boxes) needs no driver and starts no stack: skip to step 8. Skipping step 5 skips step 3's version endpoint, so unless `gh` verified the build, the report's **Build check:** is `not verified` and it opens with **build not verified against plan**.
 
 Each scenario drives its effective surface, `plan.scenarios[].surface` in the `plan` output: its own **Surface:** when it carries one, else the Run brief's ([ANATOMY.md](ANATOMY.md#scenarios)). When step 2 asked which surface this run uses and the answer differs from the Run brief's, the answer replaces it for every scenario whose effective surface is the Run brief's (a **Surface:** that repeats the Run brief's changes nothing); a scenario whose own **Surface:** names another keeps it. So one plan can drive more than one surface; find a tool this session has that can drive each surface the scenarios use:
 
