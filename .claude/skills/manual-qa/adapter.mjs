@@ -1526,6 +1526,7 @@ export function validatePlan(text) {
     }
     // A `$ ` prompt is never prose, so it counts on a continuation too.
     if (continuation) return /^\s*\$\s/.test(text) ? "$ " : null;
+    // Read whole: the indent goes too, as an indented line that continues nothing reaches here.
     return starts(text.replace(/^\s*(?:[-*+]\s+|\d+[.)]\s+)?/, ""));
   };
   /**
@@ -1558,15 +1559,17 @@ export function validatePlan(text) {
         if (numbered[1].length < column) step = numbered[2];
       }
       // An indented line that is no list item carries on the prose just above it, when that
-      // line is in this range, non-blank and not fenced (#215). Any other line, a column-0
-      // one even when it wraps prose, is read whole: the check errs toward reporting.
+      // line is in this range, non-blank and not fenced (#215); line `from` is read as
+      // `first`, so a bare `- **Steps:**` label is no prose. Any other line, a column-0 one
+      // even when it wraps prose, is read whole: the check errs toward reporting.
+      const above = n - 1 === from && first !== undefined ? first : lines[n - 1];
       const continuation =
         !numbered &&
         !/^\s*[-*+]\s/.test(text) &&
         /^\s/.test(text) &&
         n > from &&
         !fenced[n - from - 1] &&
-        /\S/.test(lines[n - 1]);
+        /\S/.test(above);
       const word = commandIn(text, continuation);
       if (word === null) continue;
       const what = !steps

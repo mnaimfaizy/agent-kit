@@ -519,7 +519,7 @@ test("a column-0 line after prose is read as a whole line, so a bare command the
   assert.equal(shellProblems(prompted).length, 1, problemsOf(prompted).join("\n"));
 });
 
-test("an indented line after a blank line carries on no prose, so a bare command there fails", () => {
+test("an indented line after a blank line, or at the start of the range, is read whole", () => {
   // #215: only a line directly under non-blank, unfenced prose in the same range continues it.
   const setup = "1. Restore the `admin` account with `accounts.restore`.";
   for (const [before, command] of [
@@ -543,10 +543,28 @@ test("an indented line after a blank line carries on no prose, so a bare command
     problems[0],
     new RegExp(`^line ${lineHolding(text, command)}: S1: step 1 reads as a shell command`),
   );
-  // Indented prose after a blank line is still prose; only a command there is reported.
+  // Read whole, indented prose that starts with no command word passes.
   assert.deepEqual(
     shellProblems(broken(step, "  1. Open **Members**:\n\n     the list of the team's members.")),
     [],
+  );
+  // At the start of the range, nothing above it is prose to carry on: under the Setup
+  // heading, and under a bare **Steps:** label.
+  const atSetup = broken("## Setup\n\n", "## Setup\n    docker compose up -d\n\n");
+  const [first, ...more] = shellProblems(atSetup);
+  assert.deepEqual(more, []);
+  assert.match(
+    first,
+    new RegExp(`^line ${lineHolding(atSetup, "    docker compose up -d")}: Setup: a line`),
+  );
+  const underLabel = broken("- **Steps:**\n", "- **Steps:**\n    npx prisma db seed\n");
+  const problems2 = shellProblems(underLabel);
+  assert.equal(problems2.length, 1, problems2.join("\n"));
+  assert.match(
+    problems2[0],
+    new RegExp(
+      `^line ${lineHolding(underLabel, "npx prisma db seed")}: S1: \\*\\*Steps:\\*\\* reads`,
+    ),
   );
 });
 
