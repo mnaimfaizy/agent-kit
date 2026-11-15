@@ -2,7 +2,7 @@
 
 A Portable skill must carry its own vocabulary (it links nothing outside its
 folder), so the `DESIGN.md` of `qa-plan` and of `manual-qa` each repeat the
-twelve terms the root glossary defines under "Manual QA". Two copies drift unless something
+thirteen terms the root glossary defines under "Manual QA". Two copies drift unless something
 compares them, so this test does: same terms, same definitions, word for word.
 """
 
@@ -15,6 +15,7 @@ DESIGNS = [ROOT / ".claude" / "skills" / skill / "DESIGN.md" for skill in ("qa-p
 TERMS = [
     "QA Plan",
     "Residue",
+    "Review box",
     "QA Account",
     "Scenario account",
     "Session",

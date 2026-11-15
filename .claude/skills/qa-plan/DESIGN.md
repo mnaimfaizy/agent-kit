@@ -8,7 +8,9 @@ These are word for word the definitions in Agent-kit's root glossary, where a co
 
 **QA Plan**: The Markdown file `qa-plan` writes for one pull request at one head, in the format its `ANATOMY.md` gives, carrying only the Residue and runnable from the plan alone.
 
-**Residue**: The manual verification a passing CI run would not establish; the only thing a QA Plan's scenarios cover.
+**Residue**: The manual verification a passing CI run would not establish; the only thing a QA Plan's scenarios and its Review boxes cover.
+
+**Review box**: A box in a QA Plan's Sign-off checklist for a promise only reading can check, such as a doc's copy or a static file the app does not serve, naming what to read and what it must say. Never a scenario and never a PASS: a person reads it and ticks it.
 
 **QA Account**: A role's sign-in on a test system, with fixed public values derived from tracked source and a reserved-domain email (`*.test`), created by an idempotent seeder that refuses any non-local database. Never copied into a QA Plan.
 
