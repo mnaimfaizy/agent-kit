@@ -1509,8 +1509,8 @@ export function validatePlan(text) {
    * The shell command a line of Setup or Steps reads as (#199): `$ `, or the command word
    * that the line's text, or a backticked span on it, begins with before an argument
    * (`COPY_WORDS` before one that reads as a command's); `null` for a product action. A
-   * `continuation` (an indented line that is no list item) carries on the prose
-   * above it, so only its spans and a `$ ` prompt are read. A lone word, such as a
+   * `continuation` (an indented line, no list item, right under prose) carries on that
+   * prose, so only its spans and a `$ ` prompt are read. A lone word, such as a
    * role id or a label, is no command.
    */
   const commandIn = (text, continuation) => {
@@ -1526,7 +1526,8 @@ export function validatePlan(text) {
     }
     // A `$ ` prompt is never prose, so it counts on a continuation too.
     if (continuation) return /^\s*\$\s/.test(text) ? "$ " : null;
-    return starts(text.replace(/^\s*(?:[-*+]\s+|\d+[.)]\s+)/, ""));
+    // Read whole: the indent goes too, as an indented line that continues nothing reaches here.
+    return starts(text.replace(/^\s*(?:[-*+]\s+|\d+[.)]\s+)?/, ""));
   };
   /**
    * Each line in `from`–`to` that reads as a shell command, and each fenced block there
@@ -1541,12 +1542,16 @@ export function validatePlan(text) {
     const cite = `(ANATOMY.md, "${section}")`;
     let step = null;
     let column = null;
+    // Whether the line above was an indented line read whole: a code block's line, which
+    // the next indented line carries on as a block, not as prose.
+    let inBlock = false;
     // Fences as a list item nests them too (a step's fence sits four or more spaces in),
     // read within this range only: a fence ends with its section or field, as CommonMark
     // ends one with its container, so one left open elsewhere never hides this range.
     const fenced = fencedLines(lines.slice(from, to), true);
     for (let n = from; n < to; n += 1) {
       if (fenced[n - from]) {
+        inBlock = false;
         if (n === from || !fenced[n - from - 1])
           at(n, `${where}: a fenced code block; ${NO_CODE_BLOCK} ${cite}`);
         continue;
@@ -1557,9 +1562,16 @@ export function validatePlan(text) {
         column ??= text.length - numbered[3].length;
         if (numbered[1].length < column) step = numbered[2];
       }
-      // An indented line that is no list item carries on the prose above it. A column-0
-      // line is read whole, even when it wraps prose: the check errs toward reporting.
-      const continuation = !numbered && !/^\s*[-*+]\s/.test(text) && /^\s/.test(text);
+      // An indented line that is no list item carries on the prose just above it, when that
+      // line is in this range, non-blank, not fenced and not itself an indented line read
+      // whole (#215); line `from` is read as `first`, so a bare `- **Steps:**` label is no
+      // prose. Any other line, a column-0 one even when it wraps prose, is read whole: the
+      // check errs toward reporting.
+      const above = n - 1 === from && first !== undefined ? first : lines[n - 1];
+      const indented = !numbered && !/^\s*[-*+]\s/.test(text) && /^\s/.test(text);
+      const continuation =
+        indented && n > from && !fenced[n - from - 1] && !inBlock && /\S/.test(above);
+      inBlock = indented && !continuation && /\S/.test(text);
       const word = commandIn(text, continuation);
       if (word === null) continue;
       const what = !steps
