@@ -403,27 +403,28 @@ test("a plan with no scenarios raises no target or surface conflict, and still r
 });
 
 test("a plan with no scenarios keeps the build-check note, and drops the notes about driving", () => {
+  // It reads no version endpoint (step 4 skips step 5), so only `gh` can check its build,
+  // whether or not the Build or the config names an endpoint.
+  const BUILD_NOTE =
+    "a plan with no scenarios reads no version endpoint: without `gh` access the build cannot be " +
+    "checked against the plan's head, and the report opens with **build not verified against plan**";
   const unbuilt = REVIEW_ONLY.replace(
     /- \*\*Build:\*\*.*\n/,
     "- **Build:** 2222222222222222222222222222222222222222\n",
   );
   const url = "run:\n  target: url\n  surface: web\n";
-  const readiness = runReadiness(
-    readQaConfig(reader({ "qa.config.yml": url })),
-    reviewOnlyPlan(unbuilt),
-  );
-  assert.deepEqual(readiness.notes, [
-    "no `run.version_endpoint`: without `gh` access the build cannot be checked against the plan's head",
-  ]);
-  const unconfigured = runReadiness(readQaConfig(reader({})), reviewOnlyPlan(unbuilt));
-  assert.equal(unconfigured.notes.length, 2);
-  assert.match(unconfigured.notes[0], /^no qa\.config\.yml/);
-  assert.match(unconfigured.notes[1], /^no `run\.version_endpoint`/);
-  // The Build names a version endpoint: nothing is left to say.
+  const notesOf = (text, plan) => runReadiness(readQaConfig(reader(text)), plan).notes;
+  assert.deepEqual(notesOf({ "qa.config.yml": url }, reviewOnlyPlan(unbuilt)), [BUILD_NOTE]);
+  // The Build names a version endpoint, and so does the config: the note stays.
+  assert.deepEqual(notesOf({ "qa.config.yml": url }, reviewOnlyPlan()), [BUILD_NOTE]);
   assert.deepEqual(
-    runReadiness(readQaConfig(reader({ "qa.config.yml": url })), reviewOnlyPlan()).notes,
-    [],
+    notesOf({ "qa.config.yml": `${url}  version_endpoint: /version\n` }, reviewOnlyPlan(unbuilt)),
+    [BUILD_NOTE],
   );
+  const unconfigured = notesOf({}, reviewOnlyPlan(unbuilt));
+  assert.equal(unconfigured.length, 2);
+  assert.match(unconfigured[0], /^no qa\.config\.yml/);
+  assert.equal(unconfigured[1], BUILD_NOTE);
 });
 
 test("a plan with no scenarios still gets each `run:` config problem", () => {

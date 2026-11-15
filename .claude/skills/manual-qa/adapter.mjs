@@ -790,7 +790,7 @@ const STACK_NEEDS = {
  * @param {{brief: {target: string | null, surface: string | null, roles: string[]}, scenarios?: {sessions?: {id: string}[], creates?: string[]}[]} | null} [plan]
  *   a plan `validatePlan` read with no problems; every session id that is a role
  *   must be declared, and a Scenario account need not be. A plan with no
- *   scenarios needs nothing: only the build-check note bears on its run
+ *   scenarios needs nothing, and is told only `gh` can check its build
  * @returns {{ready: boolean, needs: string[], notes: string[], run: {target: string | null, surface: string | null, roles: string[]}}}
  */
 export function runReadiness({ path, config, runProblems: problems = [] }, plan = null) {
@@ -817,16 +817,14 @@ export function runReadiness({ path, config, runProblems: problems = [] }, plan 
   const needs = [];
   const notes = [];
   if (path === null) notes.push(`no ${CONFIG_FILES.join(" / ")} at the repository root`);
-  const buildNote = () => {
-    if (!present(run.version_endpoint) && !brief?.versionEndpoint)
-      notes.push(
-        "no `run.version_endpoint`: without `gh` access the build cannot be checked against the plan's head",
-      );
-  };
   // A plan with no scenarios drives nothing and starts nothing: it needs no target,
-  // surface, roles or stack, and only the build check still bears on it.
+  // surface, roles or stack. Its run never reaches the address, so it reads no version
+  // endpoint either, and only `gh` can check its build.
   if (Array.isArray(plan?.scenarios) && plan.scenarios.length === 0) {
-    buildNote();
+    notes.push(
+      "a plan with no scenarios reads no version endpoint: without `gh` access the build cannot be " +
+        "checked against the plan's head, and the report opens with **build not verified against plan**",
+    );
     return { ready: true, needs, notes, run: effective };
   }
 
@@ -884,7 +882,10 @@ export function runReadiness({ path, config, runProblems: problems = [] }, plan 
     notes.push(
       "no `run.accounts.restore`: a scenario that needs a role's account restored is left for a person",
     );
-  buildNote();
+  if (!present(run.version_endpoint) && !brief?.versionEndpoint)
+    notes.push(
+      "no `run.version_endpoint`: without `gh` access the build cannot be checked against the plan's head",
+    );
   return { ready: needs.length === 0, needs, notes, run: effective };
 }
 
