@@ -789,7 +789,8 @@ const STACK_NEEDS = {
  * @param {{path: string | null, config: Record<string, any>, runProblems?: string[]}} read
  * @param {{brief: {target: string | null, surface: string | null, roles: string[]}, scenarios?: {sessions?: {id: string}[], creates?: string[]}[]} | null} [plan]
  *   a plan `validatePlan` read with no problems; every session id that is a role
- *   must be declared, and a Scenario account need not be
+ *   must be declared, and a Scenario account need not be. A plan with no
+ *   scenarios needs nothing, and is told only `gh` can check its build
  * @returns {{ready: boolean, needs: string[], notes: string[], run: {target: string | null, surface: string | null, roles: string[]}}}
  */
 export function runReadiness({ path, config, runProblems: problems = [] }, plan = null) {
@@ -816,6 +817,16 @@ export function runReadiness({ path, config, runProblems: problems = [] }, plan 
   const needs = [];
   const notes = [];
   if (path === null) notes.push(`no ${CONFIG_FILES.join(" / ")} at the repository root`);
+  // A plan with no scenarios drives nothing and starts nothing: it needs no target,
+  // surface, roles or stack. Its run never reaches the address, so it reads no version
+  // endpoint either, and only `gh` can check its build.
+  if (Array.isArray(plan?.scenarios) && plan.scenarios.length === 0) {
+    notes.push(
+      "a plan with no scenarios reads no version endpoint: without `gh` access the build cannot be " +
+        "checked against the plan's head, and the report opens with **build not verified against plan**",
+    );
+    return { ready: true, needs, notes, run: effective };
+  }
 
   for (const [key, choices, what] of [
     [
