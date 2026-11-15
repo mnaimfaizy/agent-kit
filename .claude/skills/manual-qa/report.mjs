@@ -85,6 +85,8 @@ function staleFor(body) {
 }
 /** The optional QA Report header line listing where the run departed from the plan or the rules. */
 const DEVIATIONS_LABEL = "- **Run deviations:**";
+/** A Follow-ups line for an open `Review:` box (SKILL.md, The QA Report). */
+const REVIEW_FOLLOW_UP = /^\s*[-*]\s+Review, for a person:\s*\S/;
 /** The first line of the PR comment `qa-plan` posts naming its tracker issue. */
 export const PLAN_LINK_MARKER = "<!-- qa-plan-link -->";
 export const RESULTS = /** @type {const} */ (["PASS", "FAIL", "left for a person"]);
@@ -290,6 +292,21 @@ export function readReport(text) {
       problems.push(
         "the Results table has no scenario rows: write `None.` in its place only when the plan has no scenarios",
       );
+    // A plan with no scenarios has a review box, which Follow-ups lists: without one, `None.`
+    // could stand for a plan's scenarios in a command that reads no plan (`comment`).
+    else if (report.results.length === 0) {
+      const followUps = found["Follow-ups"];
+      const listed =
+        followUps &&
+        lines
+          .slice(followUps.start + 1, followUps.end)
+          .some((line, i) => !fenced[followUps.start + 1 + i] && REVIEW_FOLLOW_UP.test(line));
+      if (!listed)
+        problems.push(
+          "Results is `None.` but **Follow-ups** has no `- Review, for a person: …` line: " +
+            "`None.` is only for a plan with no scenarios, whose review boxes Follow-ups lists",
+        );
+    }
   }
   report.stopped = report.results.some((row) =>
     /(?<![A-Za-z])the run stopped at S\d+/i.test(row.notes),

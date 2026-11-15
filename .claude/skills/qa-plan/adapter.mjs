@@ -1120,9 +1120,9 @@ export const FORMATS = /** @type {const} */ ([1, 2]);
 /** The format the composer writes. */
 export const FORMAT = FORMATS.at(-1);
 const RULE_OUT = "If this fails, first rule out";
-/** A Sign-off box for a promise only reading can check: `- [ ] Review: <what to read, and what it must say>`. */
-const REVIEW_BOX = /^\s*[-*]\s+\[(?<tick>[ xX])\]\s+Review:(?<text>.*)$/;
-/** A box that looks meant as a `Review:` box but is not written as one: `review:`, `**Review:**`, `Review :`. */
+/** A Sign-off box for a promise only reading can check: `- [ ] Review: <what to read, and what it must say>`, a space after the colon. */
+const REVIEW_BOX = /^\s*[-*]\s+\[(?<tick>[ xX])\]\s+Review:(?<text>(?:\s.*)?)$/;
+/** A box that looks meant as a `Review:` box but is not written as one: `review:`, `**Review:**`, `Review :`, `Review:docs`. */
 const NEAR_REVIEW_BOX = /^\s*[-*]\s+\[[ xX]\]\s+[*_]*review[*_]*\s*[*_]*:/i;
 /** A role id, and a Scenario account id: letters, digits, `_` and `-`. */
 const ACCOUNT_ID = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
@@ -1678,7 +1678,7 @@ export function validatePlan(text) {
         if (!fenced[n] && NEAR_REVIEW_BOX.test(lines[n]))
           at(
             n,
-            "a box that reads as a review box: write it `- [ ] Review: <what to read, and what it must say>`, with `Review:` exactly",
+            "a box that reads as a review box: write it `- [ ] Review: <what to read, and what it must say>`, with `Review:` exactly and a space after it",
           );
         continue;
       }
@@ -1699,14 +1699,17 @@ export function validatePlan(text) {
       if (match) heads.push({ text: match[1].trim(), n: i });
     }
     // A Residue of review boxes only is still a plan; its Scenarios says `None.`.
+    const scenariosText = textOf("Scenarios");
     if (
       !heads.length &&
-      textOf("Scenarios") !== "" &&
-      !(textOf("Scenarios") === "None." && plan.reviews.length)
+      scenariosText !== "" &&
+      !(scenariosText === "None." && plan.reviews.length)
     )
       at(
         n,
-        "no `### S1: …` scenario and no `Review:` box: a plan with neither is not written (empty Residue)",
+        plan.reviews.length
+          ? "no `### S1: …` scenario: with only `Review:` boxes, `## Scenarios` says exactly `None.`"
+          : "no `### S1: …` scenario and no `Review:` box: a plan with neither is not written (empty Residue)",
       );
     heads.forEach((head, i) => {
       const match = /^S(\d+):\s*(\S.*)$/.exec(head.text);

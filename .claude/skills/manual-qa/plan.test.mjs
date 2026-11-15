@@ -1447,6 +1447,7 @@ test("a box that misspells `Review:` is reported, not read as an ordinary box", 
     "- [ ] **Review:** docs/x.html says 30 days",
     "- [ ] Review : docs/x.html says 30 days",
     "- [x] _review_: docs/x.html says 30 days",
+    "- [ ] Review:docs/x.html says 30 days",
   ])
     assertProblem(
       withReview(box),
@@ -1480,6 +1481,12 @@ test("a plan whose Residue is only review boxes is still a plan", () => {
     reviewOnly("- [ ] Setup 1: the `admin` account was restored"),
     /no `### S1: …` scenario and no `Review:` box/,
   );
+  // With a review box, a Scenarios that is not exactly `None.` is named as such.
+  for (const none of ["None", "_None._"])
+    assertProblem(
+      reviewOnly(REVIEW).replace("## Scenarios\n\nNone.", `## Scenarios\n\n${none}`),
+      /with only `Review:` boxes, `## Scenarios` says exactly `None\.`/,
+    );
   // Prose in Scenarios is not `None.`: a scenario that lost its heading is still caught.
   assertProblem(
     reviewOnly(REVIEW).replace("## Scenarios\n\nNone.", "## Scenarios\n\nThe invite dialog."),

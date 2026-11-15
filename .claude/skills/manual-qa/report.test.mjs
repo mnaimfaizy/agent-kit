@@ -859,6 +859,18 @@ test("Results `None.` is only for a plan with no scenarios; an empty table is st
   assert.match(readReport(empty).problems.join("\n"), /the Results table has no scenario rows/);
 });
 
+test("Results `None.` reads only with a review box under Follow-ups, so a report alone cannot hide its scenarios", () => {
+  // Without the plan (`report.mjs comment`), `None.` and no review box is refused.
+  const bare = REVIEWED.replace(/## Follow-ups\n\n[^\n]*/, "## Follow-ups\n\nNone.");
+  assert.match(
+    readReport(bare).problems.join("\n"),
+    /Results is `None\.` but \*\*Follow-ups\*\* has no `- Review, for a person: …` line/,
+  );
+  const comment = main(["comment", "bare.md"], { readFile: () => bare });
+  assert.equal(comment.code, 1);
+  assert.equal(main(["comment", "reviewed.md"], { readFile: () => REVIEWED }).code, 0);
+});
+
 test("a `Review:` box is never a Results row", () => {
   const row = reportFor([
     S1_ROW("PASS", "invite sent"),
