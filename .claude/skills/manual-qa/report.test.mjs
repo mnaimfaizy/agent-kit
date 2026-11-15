@@ -184,6 +184,15 @@ test("a `## ` line inside a fenced block in the header does not end the header",
   assert.equal(report.deviations, DEVIATION);
 });
 
+test("a repeated first heading does not move the header's end past the first section", () => {
+  const repeated = PASSED.replace(
+    "## Results\n",
+    `## Results\n\n- **Run deviations:** ${DEVIATION}\n\n## Results\n`,
+  );
+  assert.equal(repeated.split("## Results").length, 3);
+  assert.equal(readReport(repeated).report.deviations, null);
+});
+
 test("a **Run deviations:** line under a later section is not the header's", () => {
   const prose = PASSED.replace("None.", `None.\n\n- **Run deviations:** ${DEVIATION}`);
   assert.notEqual(prose, PASSED);

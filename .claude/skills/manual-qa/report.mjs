@@ -139,6 +139,9 @@ function fencedLines(lines) {
   return fenced;
 }
 
+/** A `## <name>` heading, its closing `#`s dropped. */
+const HEADING = /^## (.+?)\s*#*\s*$/;
+
 /**
  * `## <name>` section bodies, keyed by name, each with its line range,
  * headings read as `validatePlan` reads them: outside fences, closing `#`s
@@ -149,7 +152,7 @@ function sections(lines) {
   const fenced = fencedLines(lines);
   let current = null;
   lines.forEach((line, n) => {
-    const heading = !fenced[n] && /^## (.+?)\s*#*\s*$/.exec(line);
+    const heading = !fenced[n] && HEADING.exec(line);
     if (heading) {
       if (current) current.end = n;
       current = { start: n, end: lines.length };
@@ -208,9 +211,12 @@ export function readReport(text) {
 
   const found = sections(lines);
   // A header line: one under a later section (Follow-ups, say) is that section's
-  // prose. The header ends where `sections` finds the first heading, so a `## `
-  // line inside a fenced block does not end it.
-  const headerEnd = Math.min(lines.length, ...Object.values(found).map(({ start }) => start));
+  // prose. The header ends at the first heading read as `sections` reads one:
+  // outside fences, so a `## ` line in a fenced block does not end it. Scanned
+  // here, not taken from `found`, which keeps only the last of a repeated name.
+  const fenced = fencedLines(lines);
+  const firstHeading = lines.findIndex((line, n) => !fenced[n] && HEADING.test(line));
+  const headerEnd = firstHeading === -1 ? lines.length : firstHeading;
   const deviationsLines = lines
     .slice(0, headerEnd)
     .filter((line) => line.startsWith(DEVIATIONS_LABEL));
