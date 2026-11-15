@@ -519,6 +519,75 @@ test("a column-0 line after prose is read as a whole line, so a bare command the
   assert.equal(shellProblems(prompted).length, 1, problemsOf(prompted).join("\n"));
 });
 
+test("each line of an indented block is read whole, not only its first", () => {
+  // A line read whole is no prose for the next indented line to carry on (#215 review).
+  const setup = "1. Restore the `admin` account with `accounts.restore`.";
+  const command = "        npx prisma db seed";
+  const text = broken(setup, `1. Seed the database:\n\n        cd backend\n${command}`);
+  const problems = shellProblems(text);
+  assert.ok(
+    problems.some((p) => p.startsWith(`line ${lineHolding(text, command)}: Setup: a line`)),
+    problems.join("\n"),
+  );
+  const step = "  1. Open **Members**.";
+  const inSteps = broken(step, `  1. Seed the database:\n\n       cd backend\n${command}`);
+  assert.ok(
+    shellProblems(inSteps).some((p) =>
+      p.startsWith(`line ${lineHolding(inSteps, command)}: S1: step 1`),
+    ),
+    shellProblems(inSteps).join("\n"),
+  );
+});
+
+test("an indented line after a blank line, or at the start of the range, is read whole", () => {
+  // #215: only a line directly under non-blank, unfenced prose in the same range continues it.
+  const setup = "1. Restore the `admin` account with `accounts.restore`.";
+  for (const [before, command] of [
+    ["1. Seed the database:", "        npx prisma db seed"],
+    ["Bring the stack up before the first scenario.", "    docker compose up -d"],
+  ]) {
+    const text = broken(setup, `${before}\n\n${command}`);
+    const problems = shellProblems(text);
+    assert.equal(problems.length, 1, `${command}\n${problems.join("\n")}`);
+    assert.match(
+      problems[0],
+      new RegExp(`^line ${lineHolding(text, command)}: Setup: a line reads as a shell command`),
+    );
+  }
+  const step = "  1. Open **Members**.";
+  const command = "     npx prisma db seed";
+  const text = broken(step, `  1. Seed the database:\n\n${command}`);
+  const problems = shellProblems(text);
+  assert.equal(problems.length, 1, problems.join("\n"));
+  assert.match(
+    problems[0],
+    new RegExp(`^line ${lineHolding(text, command)}: S1: step 1 reads as a shell command`),
+  );
+  // Read whole, indented prose that starts with no command word passes.
+  assert.deepEqual(
+    shellProblems(broken(step, "  1. Open **Members**:\n\n     the list of the team's members.")),
+    [],
+  );
+  // At the start of the range, nothing above it is prose to carry on: under the Setup
+  // heading, and under a bare **Steps:** label.
+  const atSetup = broken("## Setup\n\n", "## Setup\n    docker compose up -d\n\n");
+  const [first, ...more] = shellProblems(atSetup);
+  assert.deepEqual(more, []);
+  assert.match(
+    first,
+    new RegExp(`^line ${lineHolding(atSetup, "    docker compose up -d")}: Setup: a line`),
+  );
+  const underLabel = broken("- **Steps:**\n", "- **Steps:**\n    npx prisma db seed\n");
+  const problems2 = shellProblems(underLabel);
+  assert.equal(problems2.length, 1, problems2.join("\n"));
+  assert.match(
+    problems2[0],
+    new RegExp(
+      `^line ${lineHolding(underLabel, "npx prisma db seed")}: S1: \\*\\*Steps:\\*\\* reads`,
+    ),
+  );
+});
+
 test("a command outside Setup and Steps is not this check's to report", () => {
   const text = broken(
     "- **A failure means:** the dialog does not save an invitation.",
