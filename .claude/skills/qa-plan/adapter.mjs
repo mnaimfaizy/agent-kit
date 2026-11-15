@@ -791,16 +791,16 @@ const listed = (items) =>
  * (those whose effective surface is the Run brief's, as step 4 applies it), and
  * those that keep their own **Surface:** whatever the answer.
  *
- * @param {string} config the config's surface
+ * @param {string} configured the config's surface
  * @param {string} briefed the Run brief's surface
  * @param {{id: string, surface: string | null}[]} scenarios
  */
-function surfaceQuestion(config, briefed, scenarios) {
+function surfaceQuestion(configured, briefed, scenarios) {
   const moving = scenarios.filter((s) => s.surface === briefed).map((s) => s.id);
   const keeping = scenarios.filter((s) => s.surface !== briefed);
   const one = moving.length === 1;
   const moves = moving.length
-    ? `With \`${config}\`, ${listed(moving)} ${one ? "drives" : "drive"} \`${config}\`; ` +
+    ? `With \`${configured}\`, ${listed(moving)} ${one ? "drives" : "drive"} \`${configured}\`; ` +
       `with \`${briefed}\`, ${one ? "it drives" : "they drive"} \`${briefed}\`, the surface the ` +
       `plan's author chose from what ${one ? "that scenario" : "those scenarios"} must observe.`
     : "No scenario drives the Run brief's surface, so neither answer moves one.";
@@ -809,8 +809,8 @@ function surfaceQuestion(config, briefed, scenarios) {
       `${keeping.length === 1 ? "keeps its" : "keep their"} own **Surface:** whatever the answer.`
     : "No scenario keeps its own **Surface:** whatever the answer.";
   return (
-    `run.surface: the config says \`${config}\` but the plan's Run brief says \`${briefed}\`; ` +
-    `say which this run uses, \`${config}\` or \`${briefed}\`. ${moves} ${keeps}`
+    `run.surface: the config says \`${configured}\` but the plan's Run brief says \`${briefed}\`; ` +
+    `say which this run uses, \`${configured}\` or \`${briefed}\`. ${moves} ${keeps}`
   );
 }
 
