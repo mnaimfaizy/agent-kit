@@ -264,7 +264,7 @@ test("a driver is found per scenario by its effective surface, and the Run line 
   assert.match(flat, /its own \*\*Surface:\*\* when it carries one, else the Run brief's/);
   assert.match(
     flat,
-    /the answer replaces the Run brief's for every scenario with no \*\*Surface:\*\* of its own; a scenario's own \*\*Surface:\*\* stays/,
+    /the answer replaces it for every scenario whose effective surface is the Run brief's \(a \*\*Surface:\*\* that repeats the Run brief's changes nothing\); a scenario whose own \*\*Surface:\*\* names another keeps it/,
   );
   assert.match(flat, /find a tool this session has that can drive each surface the scenarios use/);
   assert.match(
