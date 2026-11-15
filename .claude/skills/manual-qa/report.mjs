@@ -306,7 +306,7 @@ export function readReport(text) {
       );
     // A plan with no scenarios has a review box, which Follow-ups lists: without one, `None.`
     // could stand for a plan's scenarios in a command that reads no plan (`comment`).
-    else if (report.results.length === 0 && !report.reviews.length)
+    else if (report.results.length === 0 && report.reviews.length === 0)
       problems.push(
         "Results is `None.` but **Follow-ups** has no `- Review, for a person: …` line: " +
           "`None.` is only for a plan with no scenarios, whose review boxes Follow-ups lists",
@@ -357,10 +357,11 @@ export function reportPlanProblems(report, planText) {
     ];
   // An open box is a person's to read: one the report drops is never read.
   const listed = new Set(report.reviews);
-  const unlisted = plan.reviews
-    .filter(({ text, ticked }) => !ticked && !listed.has(text))
+  const openBoxes = new Set(plan.reviews.filter(({ ticked }) => !ticked).map(({ text }) => text));
+  const problems = [...openBoxes]
+    .filter((text) => !listed.has(text))
     .map(
-      ({ text }) =>
+      (text) =>
         `the plan's open \`Review:\` box _${text}_ is not under **Follow-ups**, which must list it ` +
         "as `- Review, for a person: <its text>`, its text as the plan gives it",
     );
@@ -370,9 +371,8 @@ export function reportPlanProblems(report, planText) {
     return [
       `the plan's scenarios are ${want}; the report's results are ${got || "none"}: ` +
         "the report needs exactly one row per scenario, in order",
-      ...unlisted,
+      ...problems,
     ];
-  const problems = [...unlisted];
   const creatorOf = new Map(
     plan.scenarios.flatMap((scenario) => scenario.creates.map((id) => [id, scenario.id])),
   );

@@ -910,16 +910,17 @@ test("on the tracker issue a `Review:` box stays a person's to tick", () => {
 
 // --- Each open review box is under Follow-ups (#222) ---
 
-const SECOND = "README.md names the new flag";
+/** The text of REVIEW's box, and of a second open box. */
+const BOX_TEXT = REVIEW.slice("- [ ] Review: ".length);
+const SECOND_BOX = "README.md names the new flag";
 /** REVIEW_ONLY with a second open box. */
-const TWO_BOXES = REVIEW_ONLY.replace(REVIEW, `${REVIEW}\n- [ ] Review: ${SECOND}`);
-/** Follow-ups listing `texts`, one review line each. */
-const followUps = (report, texts) =>
+const TWO_BOXES = REVIEW_ONLY.replace(REVIEW, `${REVIEW}\n- [ ] Review: ${SECOND_BOX}`);
+/** `report` with its Follow-ups listing `texts`, one review line each. */
+const withReviewLines = (report, texts) =>
   report.replace(
     /## Follow-ups\n\n[\s\S]*?(?=\n## Execution record)/,
     `## Follow-ups\n\n${texts.map((text) => `- Review, for a person: ${text}`).join("\n")}\n`,
   );
-const FIRST = "docs/x.html says the token lasts 30 days";
 const readAgainst = (report, plan) =>
   main(["read", "report.md", "--plan", "plan.md"], {
     readFile: (path) => ({ "report.md": report, "plan.md": plan })[path] ?? null,
@@ -929,7 +930,7 @@ test("a report that drops an open review box from Follow-ups fails `read --plan`
   assert.deepEqual(validatePlan(TWO_BOXES).problems, []);
   const { report, problems } = readReport(REVIEWED);
   assert.deepEqual(problems, []);
-  assert.deepEqual(report.reviews, [FIRST]);
+  assert.deepEqual(report.reviews, [BOX_TEXT]);
   const found = reportPlanProblems(report, TWO_BOXES);
   assert.equal(found.length, 1);
   assert.match(found[0], /README\.md names the new flag/);
@@ -941,11 +942,11 @@ test("a report that drops an open review box from Follow-ups fails `read --plan`
 });
 
 test("a report listing every open review box passes, and so does a plan with no review boxes", () => {
-  const both = followUps(REVIEWED, [FIRST, SECOND]);
-  assert.deepEqual(readReport(both).report.reviews, [FIRST, SECOND]);
+  const both = withReviewLines(REVIEWED, [BOX_TEXT, SECOND_BOX]);
+  assert.deepEqual(readReport(both).report.reviews, [BOX_TEXT, SECOND_BOX]);
   assert.equal(readAgainst(both, TWO_BOXES).code, 0);
   // Order, and a `*` list marker, do not matter.
-  const reordered = followUps(REVIEWED, [SECOND, FIRST]).replace(
+  const reordered = withReviewLines(REVIEWED, [SECOND_BOX, BOX_TEXT]).replace(
     "- Review, for a person: docs/",
     "* Review, for a person: docs/",
   );
@@ -955,7 +956,7 @@ test("a report listing every open review box passes, and so does a plan with no 
 });
 
 test("a review box ticked in the plan needs no Follow-ups line", () => {
-  const ticked = TWO_BOXES.replace(`- [ ] Review: ${SECOND}`, `- [x] Review: ${SECOND}`);
+  const ticked = TWO_BOXES.replace(`- [ ] Review: ${SECOND_BOX}`, `- [x] Review: ${SECOND_BOX}`);
   assert.deepEqual(validatePlan(ticked).problems, []);
   assert.deepEqual(reportPlanProblems(readReport(REVIEWED).report, ticked), []);
 });
@@ -966,17 +967,17 @@ test("a plan with scenarios and an open review box is checked the same way", () 
     /docs\/x\.html says the token lasts 30 days/,
   );
   assert.equal(readAgainst(PASSED, PLAN_WITH_REVIEW).code, 1);
-  assert.equal(readAgainst(followUps(PASSED, [FIRST]), PLAN_WITH_REVIEW).code, 0);
+  assert.equal(readAgainst(withReviewLines(PASSED, [BOX_TEXT]), PLAN_WITH_REVIEW).code, 0);
 });
 
 test("a review line in a fenced block, or with other text, does not list the box", () => {
   const fenced = PASSED.replace(
     "## Follow-ups\n\nNone.",
-    `## Follow-ups\n\n\`\`\`\n- Review, for a person: ${FIRST}\n\`\`\``,
+    `## Follow-ups\n\n\`\`\`\n- Review, for a person: ${BOX_TEXT}\n\`\`\``,
   );
   assert.deepEqual(readReport(fenced).report.reviews, []);
   assert.equal(readAgainst(fenced, PLAN_WITH_REVIEW).code, 1);
-  const other = followUps(PASSED, ["docs/x.html says the token lasts 31 days"]);
+  const other = withReviewLines(PASSED, ["docs/x.html says the token lasts 31 days"]);
   assert.equal(readAgainst(other, PLAN_WITH_REVIEW).code, 1);
 });
 
