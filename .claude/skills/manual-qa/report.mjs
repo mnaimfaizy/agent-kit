@@ -7,8 +7,9 @@
 //   results and said yes, and hands this file what `gh` printed.
 //
 //   1. `read`: reads a QA Report file (SKILL.md "The QA Report") into its
-//      anchors and one result per scenario, and says whether the run failed
-//      (a FAIL, or a run stopped on a blocking outcome). A PASS or FAIL row
+//      anchors, its optional **Run deviations:** line, and one result per
+//      scenario, and says whether the run failed (a FAIL, or a run stopped
+//      on a blocking outcome). A PASS or FAIL row
 //      links its evidence in backticks, or says `none: <reason>`; a row left
 //      for a person may say a bare `none`. With `--plan`, it
 //      also checks the report against the plan it ran: the same anchors, one
@@ -170,7 +171,7 @@ const cells = (row) =>
  * @returns {{report: {title: string | null, subject: number | null, pr: number | null,
  *   head: string | null, results: {id: string, scenario: string, result: string,
  *   evidence: string[], notes: string}[], failed: boolean, stopped: boolean,
- *   record: string | null}, problems: string[]}}
+ *   record: string | null, deviations: string | null}, problems: string[]}}
  */
 export function readReport(text) {
   const lines = lf(text).split("\n");
@@ -184,6 +185,8 @@ export function readReport(text) {
     failed: false,
     stopped: false,
     record: null,
+    // The **Run deviations:** line's text, or `null`: the line is left out when there were none.
+    deviations: null,
   };
   const titleAt = lines.findIndex((line) => /^# QA Report: \S/.test(line));
   if (titleAt === -1) problems.push("no `# QA Report: <title>` line");
@@ -199,6 +202,16 @@ export function readReport(text) {
     if (!report.subject) problems.push("the **Plan:** line names no `subject #<n>`");
     if (!report.pr) problems.push("the **Plan:** line names no `pull request #<n>`");
     if (!report.head) problems.push("the **Plan:** line names no full head `<sha>`");
+  }
+
+  const deviationsLine = lines.find((line) => /^- \*\*Run deviations:\*\*/.test(line));
+  if (deviationsLine !== undefined) {
+    report.deviations = deviationsLine.slice("- **Run deviations:**".length).trim();
+    if (!report.deviations)
+      problems.push(
+        "the **Run deviations:** line is empty: list each departure and what was done about it, " +
+          "or leave the line out",
+      );
   }
 
   const found = sections(lines);

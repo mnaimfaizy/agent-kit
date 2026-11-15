@@ -114,6 +114,45 @@ test("the head is the full SHA: a short one is a problem, SHA-256 reads", () => 
   assert.equal(readReport(PASSED.replace(HEAD, long)).report.head, long);
 });
 
+const DEVIATION = "ran `env | grep` from Setup before noticing; its output was not used";
+const DEVIATED = PASSED.replace(
+  "- **Teardown:** `down` run; nothing else started\n",
+  `- **Teardown:** \`down\` run; nothing else started\n- **Run deviations:** ${DEVIATION}\n`,
+);
+
+test("a **Run deviations:** line reads with no problem, its text kept", () => {
+  assert.notEqual(DEVIATED, PASSED);
+  const { report, problems } = readReport(DEVIATED);
+  assert.deepEqual(problems, []);
+  assert.equal(report.deviations, DEVIATION);
+  // The line changes nothing else the reader returns.
+  assert.deepEqual({ ...report, deviations: null }, readReport(PASSED).report);
+  const cli = main(["read", "report.md", "--plan", "plan.md"], {
+    readFile: (path) => (path === "plan.md" ? PLAN : DEVIATED),
+  });
+  assert.equal(cli.code, 0);
+  assert.equal(JSON.parse(cli.out).report.deviations, DEVIATION);
+});
+
+test("a report without the **Run deviations:** line reads as before, deviations null", () => {
+  const { report, problems } = readReport(PASSED);
+  assert.deepEqual(problems, []);
+  assert.equal(report.deviations, null);
+  const cli = main(["read", "report.md", "--plan", "plan.md"], {
+    readFile: (path) => (path === "plan.md" ? PLAN : PASSED),
+  });
+  assert.equal(cli.code, 0);
+  assert.equal(JSON.parse(cli.out).report.deviations, null);
+});
+
+test("an empty **Run deviations:** line is a problem: list each one, or leave it out", () => {
+  const empty = PASSED.replace(
+    "- **Teardown:** `down` run; nothing else started\n",
+    "- **Teardown:** `down` run; nothing else started\n- **Run deviations:**   \n",
+  );
+  assert.match(readReport(empty).problems.join("\n"), /Run deviations:\*\* line is empty/);
+});
+
 test("a result other than the three is a problem", () => {
   const { problems } = readReport(reportFor(["| S1: x | passed-ish | none | |"]));
   assert.match(problems[0], /S1's result is `passed-ish`/);
@@ -442,6 +481,19 @@ test("the comment starts with the marker and carries the report", () => {
   assert.deepEqual(problems, []);
   assert.equal(body.split("\n")[0], REPORT_MARKER);
   assert.ok(body.includes("# QA Report: Members can be invited by email"));
+});
+
+test("the comment keeps a **Run deviations:** line word for word, and adds none without it", () => {
+  const line = `- **Run deviations:** ${DEVIATION}`;
+  const kept = reportComment(DEVIATED);
+  assert.deepEqual(kept.problems, []);
+  assert.ok(kept.body.split("\n").includes(line));
+  const cli = main(["comment", "report.md"], { readFile: () => DEVIATED });
+  assert.equal(cli.code, 0);
+  assert.ok(cli.out.split("\n").includes(line));
+  const without = reportComment(PASSED);
+  assert.deepEqual(without.problems, []);
+  assert.ok(!without.body.includes("Run deviations"));
 });
 
 const ME = "qa-person";
