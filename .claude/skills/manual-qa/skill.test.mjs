@@ -331,6 +331,11 @@ test("a `Review:` box runs nothing, is never a result, and is listed for a perso
   );
   assert.match(flat, /`None\.` in place of the Results table when the plan has no scenarios/);
   assert.match(flat, /- Review, for a person: <its text>/);
+  // `report.mjs read --plan` checks each open box is listed (#222).
+  assert.match(
+    flat,
+    /and a `- Review, for a person: <its text>` line under \*\*Follow-ups\*\* for each open `Review:` box in the plan, its text as the plan gives it\. Fix the report/,
+  );
   assert.match(flat, /a Setup box and a `Review:` box stay a person's to tick/);
 });
 
