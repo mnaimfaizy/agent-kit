@@ -1419,7 +1419,8 @@ export function validatePlan(text) {
     return `\`${word}\`: a \`${mark}\` is stuck to the value; write \`${bare}\` followed by a space, comma or parenthesis`;
   };
   /**
-   * The ids a **Creates:** line names (ANATOMY.md, "Scenario accounts"): first-word values
+   * The ids a **Creates:** line names (ANATOMY.md, "Scenario accounts"), and the values an
+   * **Observes:** line names, read the same way: first-word values
    * joined by commas, with any spaces around each comma. Any other space, a semicolon, a
    * colon or a parenthesis ends the list; the rest is prose. An empty id after a comma is
    * kept as `""`, so the checker names it on this line.
@@ -1731,30 +1732,32 @@ export function validatePlan(text) {
       const observing = found.filter((entry) => entry.label === SCENARIO_OBSERVES);
       for (const extra of observing.slice(1))
         at(extra.n, `${id}: a second **${SCENARIO_OBSERVES}:**: a scenario has at most one`);
-      const looks = observing[0];
-      if (looks) {
-        const k = found.indexOf(looks);
+      const listed = observing[0];
+      if (listed) {
+        const k = found.indexOf(listed);
         const misplaced =
           found.slice(k + 1).some((entry) => [...before, SCENARIO_SURFACE].includes(entry.label)) ||
           found.slice(0, k).some((entry) => after.includes(entry.label));
         const what = `${id}: **${SCENARIO_OBSERVES}:**`;
         if (plan.format === 1)
-          at(looks.n, `${what} is a format=2 field: mark the plan \`format=2\`, or leave it out`);
+          at(listed.n, `${what} is a format=2 field: mark the plan \`format=2\`, or leave it out`);
         else if (misplaced)
           at(
-            looks.n,
+            listed.n,
             `${what} is out of position: it goes right after the scenario's **${SCENARIO_SURFACE}:**, or after **${SCENARIO_LABELS[1]}:** or **${SESSIONS}:** (and **${CREATES}:**, when present) when it has none, before **Steps:**`,
           );
-        else if (looks.text === "") at(looks.n, `${what} is empty`);
+        else if (listed.text === "") at(listed.n, `${what} is empty`);
+        else if (!idList(listed.inline).length)
+          at(listed.n, `${what} expected one or more of: ${OBSERVES.join(", ")}`);
         else
-          for (const value of idList(looks.inline)) {
+          for (const value of idList(listed.inline)) {
             const stuck = stuckMark(value, (candidate) => OBSERVES.includes(candidate));
             if (value === "")
-              at(looks.n, `${what} has an empty value: a comma with nothing after it`);
-            else if (stuck) at(looks.n, `${what} read ${stuck}`);
+              at(listed.n, `${what} has an empty value: a comma with nothing after it`);
+            else if (stuck) at(listed.n, `${what} read ${stuck}`);
             else if (!OBSERVES.includes(value))
-              at(looks.n, `${what} \`${value}\` is not one of: ${OBSERVES.join(", ")}`);
-            else if (observes.includes(value)) at(looks.n, `${what} \`${value}\` is named twice`);
+              at(listed.n, `${what} \`${value}\`: expected one of: ${OBSERVES.join(", ")}`);
+            else if (observes.includes(value)) at(listed.n, `${what} \`${value}\` is named twice`);
             else observes.push(value);
           }
       }

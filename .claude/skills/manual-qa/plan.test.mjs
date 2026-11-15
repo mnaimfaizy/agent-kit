@@ -1320,7 +1320,7 @@ test("**Observes:** reads into the scenario's list; a scenario without one obser
 test("**Observes:** with a value outside the list is a problem naming it, on its line", () => {
   const html = withObserves("- **Observes:** headers, html");
   assert.deepEqual(problemsOf(html), [
-    `line ${lastLineOf(html, "- **Observes:**")}: S2: **Observes:** \`html\` is not one of: headers, cookies, httponly-cookies, status, body, screen, local-file`,
+    `line ${lastLineOf(html, "- **Observes:**")}: S2: **Observes:** \`html\`: expected one of: headers, cookies, httponly-cookies, status, body, screen, local-file`,
   ]);
   const stuck = withObserves("- **Observes:** headers.");
   assert.deepEqual(problemsOf(stuck), [
@@ -1337,6 +1337,10 @@ test("**Observes:** with a value outside the list is a problem naming it, on its
   const empty = withObserves("- **Observes:**");
   assert.deepEqual(problemsOf(empty), [
     `line ${lastLineOf(empty, "- **Observes:**")}: S2: **Observes:** is empty`,
+  ]);
+  const prose = withObserves("- **Observes:** (the header)");
+  assert.deepEqual(problemsOf(prose), [
+    `line ${lastLineOf(prose, "- **Observes:**")}: S2: **Observes:** expected one or more of: headers, cookies, httponly-cookies, status, body, screen, local-file`,
   ]);
   const again = withObserves("- **Observes:** headers\n- **Observes:** body");
   assert.deepEqual(problemsOf(again), [
