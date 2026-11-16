@@ -375,6 +375,47 @@ test("a username is looked for only as written", () => {
   assert.deepEqual(checkSequence({ actions: signIn }, env), []);
 });
 
+test("a secret or email word in a username's name keeps it any-case", () => {
+  const env = { QA_A_LOGIN_PASSWORD: "Hunter2!x", QA_A_USER_EMAIL: "Ada@Example.test" };
+  assert.match(
+    ok([{ step: "type hunter2!x then submit" }], env).join("\n"),
+    /value of QA_A_LOGIN_PASSWORD inline/,
+  );
+  assert.match(
+    ok([{ fill: { label: "Note" }, value: "pw: Hunter2!x" }], env).join("\n"),
+    /value of QA_A_LOGIN_PASSWORD inline/,
+  );
+  assert.match(
+    ok([{ step: "ADA@EXAMPLE.TEST is shown" }], env).join("\n"),
+    /value of QA_A_USER_EMAIL inline/,
+  );
+});
+
+test(
+  "a filled value named both a username and a secret or email is withheld in any case",
+  { skip: NEEDS_CHROMIUM },
+  async () => {
+    shownValue = "ada@example.test";
+    const { code, steps, stdout } = await drive(
+      [
+        { session: "A", goto: "/sign-in" },
+        { session: "A", fill: { label: "Note" }, value: "{{env:QA_A_USER_EMAIL}}" },
+        { session: "A", fill: { label: "Email" }, value: "{{env:QA_A_LOGIN_PASSWORD}}" },
+        { session: "A", step: "Filled" },
+        { session: "A", goto: "/shout" },
+        { session: "A", step: "Shouted" },
+      ],
+      { env: { QA_A_USER_EMAIL: "ada@example.test", QA_A_LOGIN_PASSWORD: "Hunter2!x" } },
+    );
+    shownValue = "";
+    assert.equal(code, 0, stdout);
+    const [filled, shouted] = steps.steps;
+    assert.match(filled.withheld, /a field holds a sign-in value/);
+    assert.equal(shouted.still, null);
+    assert.match(shouted.withheld, /sign-in value is on the screen/);
+  },
+);
+
 test(
   "a filled username does not withhold a still where the page shows it in another case",
   { skip: NEEDS_CHROMIUM },

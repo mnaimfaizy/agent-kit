@@ -88,8 +88,13 @@ const ENV_NAME = /^QA_[A-Z0-9_]+$/;
 /** A `QA_*` variable whose name says it holds a secret or an email: looked for in any case. */
 const SECRET_VARIABLE =
   /(?:^|_)(?:PASSWORD|PASSWD|PASSPHRASE|SECRET|TOKEN|API_?KEY|CREDENTIALS?|OTP|PIN|RECOVERY|MFA|EMAIL)(?:_|$)/;
-/** A `QA_*` variable whose name says it holds a username: looked for only as written. */
+/** A `QA_*` variable whose name says it holds a username. */
 const USER_VARIABLE = /(?:^|_)(?:USER(?:NAME)?|LOGIN)(?:_|$)/;
+/**
+ * Whether a variable holds only a username, looked for only as written: its name has
+ * a username word and no secret or email word (`QA_A_LOGIN_PASSWORD` is a secret).
+ */
+const usernameOnly = (name) => USER_VARIABLE.test(name) && !SECRET_VARIABLE.test(name);
 /** A field's label or name that names a secret: its fill takes only placeholders. */
 const SECRET_FIELD =
   /pass(?:word|wd|phrase|code)?\b|secret|token|api.?key|credential|\botp\b|one.?time|\bpin\b|recovery|mfa|2fa|verification|security code/i;
@@ -260,8 +265,9 @@ export function checkSequence(sequence, env) {
   // A sign-in value written in, in place of its placeholder: in any case, a value
   // this sequence fills and any `QA_*` value whose name says it is a secret or an
   // email; as written and as a whole string or query value, one whose name says it
-  // is a username, filled or not, since a username such as `admin` is often a common word a label
-  // or caption uses ("Admin", "the admin page"). Any other variable is not looked for.
+  // is only a username, filled or not, since a username such as `admin` is often a
+  // common word a label or caption uses ("Admin", "the admin page"). Any other
+  // variable is not looked for.
   const written = [...strings(sequence, "")].flatMap(([, text]) => [
     text,
     decode(text),
@@ -279,8 +285,9 @@ export function checkSequence(sequence, env) {
   for (const name of Object.keys(env)) {
     const value = ENV_NAME.test(name) ? envValue(env, name) : undefined;
     if (!value || value.length < MIN_SECRET_LENGTH) continue;
-    const anyCase = !USER_VARIABLE.test(name) && (named.has(name) || SECRET_VARIABLE.test(name));
-    if (!anyCase && !USER_VARIABLE.test(name)) continue;
+    const user = usernameOnly(name);
+    const anyCase = !user && (named.has(name) || SECRET_VARIABLE.test(name));
+    if (!anyCase && !user) continue;
     const found = anyCase
       ? encodedForms(value).some((form) =>
           lowered.some((text) => text.includes(form.toLowerCase())),
@@ -443,7 +450,7 @@ export async function runSequence(
         redact.add(value, `[redacted:${name}]`);
         if (value) labelled.push([value, `[redacted:${name}]`]);
         if (value && !values.some((held) => held.value === value))
-          values.push({ value, exact: USER_VARIABLE.test(name) });
+          values.push({ value, exact: usernameOnly(name) });
       }
 
   const start = clock();
