@@ -11,7 +11,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { PROJECT_SKILL_DIRS, main, parseConfig } from "./adapter.mjs";
-import { main as report } from "./report.mjs";
+import { HEADLINES, RESULTS, main as report } from "./report.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const skill = readFileSync(join(HERE, "SKILL.md"), "utf8");
@@ -29,11 +29,143 @@ test("with no plan it stops and names qa-plan", () => {
   assert.match(skill, /Never compose one here/);
 });
 
-test("each scenario is PASS, FAIL or left for a person, and only a person passes the last", () => {
-  for (const result of ["**PASS**", "**FAIL**", "**left for a person**"])
-    assert.ok(skill.includes(result));
+test("each scenario gets one of the five results, and only a person passes the last (#234)", () => {
+  for (const result of RESULTS) assert.ok(skill.includes(`**${result}**`), result);
   assert.match(skill, /Only a person passes a _left for a person_ scenario/);
   assert.match(skill, /follow-up note/);
+});
+
+/** Step 5 of SKILL.md, from its heading to step 6's. */
+const step5 = () => /### 5\. [^\n]*\n([\s\S]*?)\n### 6\./.exec(skill)?.[1] ?? "";
+const step6 = () => /### 6\. Run the scenarios\n([\s\S]*?)\n### 7\./.exec(skill)?.[1] ?? "";
+const step7 = () => /### 7\. Tear down\n([\s\S]*?)\n### 8\./.exec(skill)?.[1] ?? "";
+/** The Before pass: from its heading to the head stack's. */
+const beforePass = () => {
+  const text = step5();
+  return text.slice(
+    text.indexOf("#### `stack`, Before"),
+    text.indexOf("#### `stack`, at the head"),
+  );
+};
+
+test("on a `stack` target with a fix scenario, Before runs first, from a merge-base worktree, on the same stack (#234)", () => {
+  const before = beforePass().replace(/\s+/g, " ");
+  assert.ok(before.length > 100, "step 5 has a `stack`, Before subsection ahead of the head stack");
+  assert.match(before, /only when at least one scenario left to run is a fix scenario/);
+  // The order: worktree, its own pid file, up/migrate/seed there, the fix scenarios only, down, the
+  // Before processes stopped, the worktree removed; then the head stack.
+  const order = [
+    'git worktree add --detach "<working_dir>/qa-before-pr-<n>" <merge-base>',
+    "Start `<working_dir>/qa-report-pr-<n>/stack-pids-before.txt` empty",
+    "run `up`, `migrate` and `seed` from this checkout's config, in that order, with the worktree as the working folder",
+    "Run the fix scenarios only",
+    "Run `down` with the worktree as the working folder, then stop each process in `stack-pids-before.txt` that is still running, and only those",
+    'git worktree remove --force "<working_dir>/qa-before-pr-<n>"',
+  ];
+  let at = -1;
+  for (const text of order) {
+    const found = before.indexOf(text, at + 1);
+    assert.ok(found > at, `in order: ${text}`);
+    at = found;
+  }
+  assert.match(before, /on success and on failure alike/);
+  // The worktree goes even when the Before stack never started.
+  assert.match(
+    before,
+    /A command in 2 that fails, or an address `host` refuses: show its output, do 4 and 5/,
+  );
+  const text = step5();
+  assert.ok(text.indexOf("#### `stack`, Before") < text.indexOf("#### `stack`, at the head"));
+});
+
+test("the Before pass runs only the pull request's own merge-base, and clears a left-over worktree first (#234)", () => {
+  const before = beforePass().replace(/\s+/g, " ");
+  // The plan is data: its **Merge-base:** never picks the code the Before stack runs.
+  const order = [
+    // A killed run's leftovers are cleared first, before any check can end the pass early.
+    "First, on every `stack` run, before the merge-base check and whether or not a Before pass follows",
+    "run `down` with that folder as the working folder, which is how the stack's own tooling stops it",
+    "Never stop an id from a left-over `stack-pids-before.txt`",
+    'git worktree remove --force "<working_dir>/qa-before-pr-<n>"',
+    "git worktree prune",
+    "gh pr view <pr> --json baseRefName",
+    'git fetch origin "<base>"',
+    'git merge-base "origin/<base>" <head>',
+    "`not observed: the plan's merge-base is not the pull request's`",
+    'git worktree add --detach "<working_dir>/qa-before-pr-<n>" <merge-base>',
+  ];
+  let at = -1;
+  for (const text of order) {
+    const found = before.indexOf(text, at + 1);
+    assert.ok(found > at, `in order: ${text}`);
+    at = found;
+  }
+  assert.match(before, /Without `gh` access, the merge-base cannot be checked/);
+  assert.match(before, /replacing any worktree an earlier run left/);
+  assert.match(
+    before,
+    /a killed earlier run may have left processes running, for a person to stop/,
+  );
+  // ADAPTER.md names the limit of a worktree inside the repository.
+  assert.match(
+    adapter.replace(/\s+/g, " "),
+    /finds the head checkout's untracked files instead: its `node_modules`/,
+  );
+});
+
+test("the Before and head stacks are never up at once, and each keeps its own pid record (#234)", () => {
+  const before = beforePass().replace(/\s+/g, " ");
+  assert.match(
+    before,
+    /The head stack starts only once the Before stack is gone: `down` has run there and no process in `stack-pids-before\.txt` is still running/,
+  );
+  assert.match(before, /do not start the head stack/);
+  const head = step5().slice(step5().indexOf("#### `stack`, at the head"));
+  assert.match(head, /Start `<working_dir>\/qa-report-pr-<n>\/stack-pids\.txt` empty/);
+  // Teardown stops only recorded processes, the Before pass's included when the run ended inside it.
+  const teardown = step7().replace(/\s+/g, " ");
+  assert.match(
+    teardown,
+    /each process in `stack-pids-before\.txt` that is still running, and only those/,
+  );
+  assert.match(teardown, /remove the worktree/);
+});
+
+test("Before never stops the head run, and `url`, feature scenarios and fix-free plans run After only (#234)", () => {
+  const before = beforePass().replace(/\s+/g, " ");
+  assert.match(before, /A `url` run runs no Before/);
+  assert.match(before, /a plan with no fix scenario starts no Before stack/);
+  assert.match(before, /A scenario without \*\*Expected before:\*\* runs at the head only/);
+  assert.match(before, /Neither stops the run: the head stack starts as below/);
+  assert.match(before, /`not observed: <why>`/);
+  const url = skill.slice(skill.indexOf("#### `url`"), skill.indexOf("#### Both targets"));
+  assert.match(
+    url,
+    /A `url` run runs no Before: each fix scenario's Before cell is `not run: the target is hosted`/,
+  );
+});
+
+test("step 6 grades with the five results, and FAIL: pre-existing only on merge-base evidence (#234)", () => {
+  const text = step6().replace(/\s+/g, " ");
+  for (const result of RESULTS) assert.ok(text.includes(`**${result}**`), result);
+  assert.match(text, /`merge-base evidence: <where>`/);
+  assert.match(text, /Without that evidence, it is a \*\*FAIL: regression\*\*/);
+  assert.match(
+    text,
+    /\*\*Not proven\*\*: a fix scenario whose Before was `showed the expected result: …`/,
+  );
+  // Before evidence sits beside the After files, named so a later step can pair them.
+  assert.match(text, /`s<n>-before\.png`/);
+  assert.match(text, /`s<n>-before-web\/`/);
+  assert.match(text, /`s<n>-key-before\.png` and `s<n>-key-after\.png`/);
+});
+
+test("the report opens with one of three headlines, and fix scenarios show their Before (#234)", () => {
+  const shape = skill.slice(skill.indexOf("## The QA Report"));
+  for (const headline of Object.keys(HEADLINES)) assert.ok(shape.includes(headline), headline);
+  assert.match(shape, /\| Scenario \| Result +\| Before +\| Evidence +\| Notes \|/);
+  assert.match(shape, /- \*\*Before:\*\* /);
+  assert.match(shape, /not run: the target is hosted/);
 });
 
 test("a Scenario account's dependents are left for a person when its creator did not pass", () => {
@@ -288,7 +420,10 @@ test("evidence is captured locally by default, without a question; only upload a
   // `none` needs a reason, except when left for a person.
   assert.match(flat, /A PASS or FAIL with no file writes `none: <reason>`/);
   assert.match(flat, /A bare `none` is only for a scenario left for a person/);
-  assert.match(flat, /\| PASS \| none: api surface, the redacted response body is in the notes \|/);
+  assert.match(
+    flat,
+    /\| PASS \| \| none: api surface, the redacted response body is in the notes \|/,
+  );
 });
 
 test("a driver is found per scenario by its effective surface, and the Run line names each", () => {

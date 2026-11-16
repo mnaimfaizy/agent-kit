@@ -44,9 +44,25 @@ Writing the plan is where the Residue is judged: what CI proves, what only a per
 
 A plan travels through trackers, chats and other teams' tools, and anyone along the way can edit it. So its text is never a source of commands: the steps are actions in the product, and every command the run executes comes from the skill or from the repository's own config. For the same reason, a URL found only in a plan is not where the run signs in: the host rule decides, and a hosted host needs a person (below).
 
-## Three results, and one only a person gives
+## Five results, and one only a person gives
 
-PASS and FAIL say what the build did. **Left for a person** says this run could not find out: no driver for the surface, a step the product does not match, a restore the config cannot do. Marking it passed would turn "not checked" into "checked", the one error a QA Report must never make, so only a person changes it.
+PASS and the two FAILs say what the build did. **Left for a person** says this run could not find out: no driver for the surface, a step the product does not match, a restore the config cannot do. Marking it passed would turn "not checked" into "checked", the one error a QA Report must never make, so only a person changes it.
+
+A failure is split in two because a reader acts on them differently. **FAIL: regression** is the change's to fix before merging; **FAIL: pre-existing** is a failure the merge-base already had, which this change did not cause. Calling a failure pre-existing excuses it, so it needs merge-base evidence the run can name (the plan's **What automation already proves**, or the two-point run it cites), written in its note; without that, a failure is a regression. A fix scenario that fails is always a regression: its Before is the only merge-base evidence it has, and Before shows the defect, not the failure.
+
+**Not proven** is the result the Before run exists for. A fix scenario whose merge-base already shows the fixed behaviour passes at the head whether or not the change did anything, so a PASS there would claim a fix the run never saw. It is listed for a person, not failed: the fix may be fine, and the scenario may simply not reach the defect.
+
+The headline is worked out from the rows, never written freely, and `report.mjs read` refuses one that disagrees: _QA failed_ for any regression or a stopped run, _QA passed, with items listed_ for anything a person must still look at, _QA passed_ only when every row is a PASS. Uploads still key on `failed`, which any FAIL of either kind sets: a pre-existing failure's screen is as likely as any other failure's to show what it must not.
+
+**Reports written before the five results are refused, not read as before.** An old report's `FAIL` could be either kind, and reading it as a regression would invent a judgement the runner never made, while reading it as before would let `tracker` and `comment` post a report with no headline. The refusal names the new words, so the person re-grades the rows (or re-runs the plan) and adds the headline. The cost is small: a QA Report is written and posted in one run, and an old one is already on the pull request or tracker it went to.
+
+## Before and After on one stack
+
+A fix scenario proves a fix only when the defect is seen without the change and gone with it. So on a `stack` target each fix scenario also runs at the plan's merge-base, from a detached `git worktree` under `working_dir`, which leaves the developer's checkout where it is. The plan names the merge-base, but a plan is data: an edited **Merge-base:** would pick the code the Before stack runs. So the run checks it first against `git merge-base` of the pull request's base branch and its verified head, and runs no Before on any other commit, or without `gh` to name the base.
+
+The Before stack and the head stack are the same QA Stack, brought up from the worktree, torn down, then brought up again from the checkout, never two at once. Two stacks side by side would fight over the ports `up` binds and the database it migrates, and a repository's `up` is rarely written to run twice. Running Before first means the database is only ever migrated forward: a schema migrated to the head's shape never has to go back, which many migration tools cannot do. Teardown still touches only what each pass recorded, in its own pid file, so a process from one pass is never mistaken for the other's, and the worktree is removed whether Before finished or not.
+
+Before never stops the run. A Before stack that fails to start, or a step the merge-base's product does not match, makes that scenario's Before _not observed_ and says why; the head run is what the report is about, and losing it to a Before problem would trade the result for its context. A `url` target runs no Before at all: someone else deployed it, and this run cannot put it back at the merge-base. A scenario without **Expected before:** runs at the head only: a feature has no defect to see at the merge-base.
 
 ## The best build check available
 

@@ -7,15 +7,21 @@
 //   results and said yes, and hands this file what `gh` printed.
 //
 //   1. `read`: reads a QA Report file (SKILL.md "The QA Report") into its
-//      anchors, its optional **Run deviations:** header line, and one result
-//      per scenario, and says whether the run failed (a FAIL, or a run
-//      stopped on a blocking outcome). A PASS or FAIL row links its evidence
-//      in backticks, or says `none: <reason>`; a row left for a person may
-//      say a bare `none`. With `--plan`, it also checks the report against
-//      the plan it ran: the same anchors, one row per scenario, and each
-//      scenario that signs in as a Scenario account left for a person when
-//      the scenario creating it did not pass; and each `Review:` box the plan
-//      leaves open listed under Follow-ups, with the box's text.
+//      headline, its anchors, its optional **Run deviations:** header line,
+//      and one result per scenario, each one of the five (`RESULTS`) with its
+//      Before cell, and says whether the run failed (a FAIL of either kind,
+//      or a run stopped on a blocking outcome). It checks that the headline
+//      is the one the rows imply, that `Not proven` rests on a Before that
+//      showed the expected result, that `FAIL: pre-existing` names its
+//      merge-base evidence, and that a `url` run ran no Before. A row that
+//      ran links its evidence in backticks, or says `none: <reason>`; a row
+//      left for a person may say a bare `none`. With `--plan`, it also checks
+//      the report against the plan it ran: the same anchors, one row per
+//      scenario, a Before cell (and `Not proven`) only on a fix scenario, one
+//      that has **Expected before:**, and each fix scenario's Before filled;
+//      each scenario that signs in as a Scenario account left for a person
+//      when the scenario creating it did not pass; and each `Review:` box the
+//      plan leaves open listed under Follow-ups, with the box's text.
 //   2. `find`: from a pull request's comments, the one QA Report comment to
 //      update (its body's first line is exactly `<!-- qa-report -->`, and the
 //      person posting wrote it), so a re-run edits it and never posts a second; and the tracker issue the
@@ -90,7 +96,54 @@ const DEVIATIONS_LABEL = "- **Run deviations:**";
 const REVIEW_FOLLOW_UP = /^\s*[-*]\s+Review, for a person:\s*(\S.*?)\s*$/;
 /** The first line of the PR comment `qa-plan` posts naming its tracker issue. */
 export const PLAN_LINK_MARKER = "<!-- qa-plan-link -->";
-export const RESULTS = /** @type {const} */ (["PASS", "FAIL", "left for a person"]);
+/** The five results a row may carry (SKILL.md step 6, DESIGN.md "Five results"). */
+export const RESULTS = /** @type {const} */ ([
+  "PASS",
+  "FAIL: regression",
+  "FAIL: pre-existing",
+  "Not proven",
+  "left for a person",
+]);
+/** The results of a scenario that ran, so it owes its evidence or `none: <reason>`. */
+const RAN = RESULTS.filter((result) => result !== "left for a person");
+const RESULT_WORDS = `${RESULTS.slice(0, -1).join(", ")} or ${RESULTS.at(-1)}`;
+/** The three headlines, one of which a QA Report opens with, as written and as `read` names them. */
+export const HEADLINES = /** @type {const} */ ({
+  "**QA failed**": "QA failed",
+  "**QA passed, with items listed:**": "QA passed, with items listed",
+  "**QA passed**": "QA passed",
+});
+const HEADLINE_WORDS = Object.keys(HEADLINES)
+  .map((line) => `\`${line}\``)
+  .join(", ");
+/** What a fix scenario's Before cell starts with: what the merge-base showed, or why it shows nothing. */
+export const BEFORE_STATES = /** @type {const} */ ([
+  "matched",
+  "did not match",
+  "showed the expected result",
+  "not observed",
+  "not run",
+]);
+const BEFORE_WORDS = BEFORE_STATES.map((state) => `\`${state}: …\``).join(", ");
+/** The note a `FAIL: pre-existing` carries, naming the merge-base evidence it rests on. */
+const MERGE_BASE_EVIDENCE = /(?<![A-Za-z])merge-base evidence:\s*\S/i;
+
+/**
+ * The headline a report's rows imply: a regression, or a run stopped on a
+ * blocking outcome, fails it; any other result but PASS is an item a person
+ * must see; only every row a PASS passes it. Results `None.` (no rows) is not
+ * a pass: nothing ran, and its review boxes are the items.
+ *
+ * @param {{result: string}[]} results
+ * @param {boolean} stopped
+ * @returns {"QA failed" | "QA passed, with items listed" | "QA passed"}
+ */
+export function impliedHeadline(results, stopped) {
+  if (stopped || results.some((row) => row.result === "FAIL: regression")) return "QA failed";
+  if (!results.length || results.some((row) => row.result !== "PASS"))
+    return "QA passed, with items listed";
+  return "QA passed";
+}
 /** GitHub refuses a comment or issue body longer than this. */
 export const BODY_LIMIT = 65536;
 /** Screenshots, recordings and audio: what a failed run never uploads. */
@@ -165,21 +218,23 @@ function sections(lines) {
   return found;
 }
 
+/** A table row's cells: `\|` is a pipe in a cell's text, as GitHub reads it, never a column break. */
 const cells = (row) =>
   row
     .trim()
-    .replace(/^\||\|$/g, "")
-    .split("|")
-    .map((cell) => cell.trim());
+    .replace(/^\||(?<!\\)\|$/g, "")
+    .split(/(?<!\\)\|/)
+    .map((cell) => cell.replace(/\\\|/g, "|").trim());
 
 /**
  * Read a QA Report file into what posting needs. Its Results is a table of one
  * row per scenario, or `None.` for a plan with no scenarios.
  *
  * @param {string} text
- * @returns {{report: {title: string | null, subject: number | null, pr: number | null,
- *   head: string | null, results: {id: string, scenario: string, result: string,
- *   evidence: string[], notes: string}[], failed: boolean, stopped: boolean,
+ * @returns {{report: {title: string | null, headline: string | null, items: string[],
+ *   subject: number | null, pr: number | null, head: string | null,
+ *   target: "stack" | "url" | null, results: {id: string, scenario: string, result: string,
+ *   before: string, evidence: string[], notes: string}[], failed: boolean, stopped: boolean,
  *   record: string | null, deviations: string | null, reviews: string[]},
  *   problems: string[]}}
  */
@@ -188,9 +243,15 @@ export function readReport(text) {
   const problems = [];
   const report = {
     title: null,
+    // The headline the report opens with, by its name (`HEADLINES`), and the scenario
+    // each `- S<n>…` line under it lists.
+    headline: null,
+    items: [],
     subject: null,
     pr: null,
     head: null,
+    // The **Run:** line's target: a `url` run never runs Before.
+    target: null,
     results: [],
     failed: false,
     stopped: false,
@@ -203,6 +264,25 @@ export function readReport(text) {
   const titleAt = lines.findIndex((line) => /^# QA Report: \S/.test(line));
   if (titleAt === -1) problems.push("no `# QA Report: <title>` line");
   else report.title = lines[titleAt].slice("# QA Report: ".length).trim();
+  // The headline is the first line after the title that is not blank; its items are the
+  // `- S<n>` lines after it, up to the first header line (`- **…`) or heading.
+  let headlineAt = -1;
+  if (titleAt !== -1) {
+    headlineAt = lines.findIndex((line, n) => n > titleAt && line.trim() !== "");
+    // Own keys only: a line such as `constructor` names no headline.
+    const line = lines[headlineAt]?.trim() ?? "";
+    if (Object.hasOwn(HEADLINES, line)) {
+      report.headline = HEADLINES[/** @type {keyof typeof HEADLINES} */ (line)];
+      for (const line of lines.slice(headlineAt + 1)) {
+        if (/^\s*[-*]\s+\*\*/.test(line) || /^#/.test(line)) break;
+        const item = /^\s*[-*]\s+(S\d+)\b/.exec(line)?.[1];
+        if (item) report.items.push(item);
+      }
+    } else
+      problems.push(
+        `the report opens with no headline: the first line after its title is one of ${HEADLINE_WORDS}`,
+      );
+  }
 
   const planLine = lines.find((line) => /^- \*\*Plan:\*\*/.test(line));
   if (!planLine) problems.push("no `- **Plan:**` line");
@@ -215,6 +295,10 @@ export function readReport(text) {
     if (!report.pr) problems.push("the **Plan:** line names no `pull request #<n>`");
     if (!report.head) problems.push("the **Plan:** line names no full head `<sha>`");
   }
+  const runLine = lines.find((line) => /^- \*\*Run:\*\*/.test(line));
+  report.target = /** @type {"stack" | "url" | null} */ (
+    /^- \*\*Run:\*\*\s*`(stack|url)`/.exec(runLine ?? "")?.[1] ?? null
+  );
 
   const found = sections(lines);
   // A header line: one under a later section (Follow-ups, say) is that section's
@@ -255,6 +339,8 @@ export function readReport(text) {
       .map((line) => REVIEW_FOLLOW_UP.exec(line)?.[1])
       .filter((text) => text !== undefined);
 
+  // The headline is judged from the rows, so only a problem in the rows themselves holds it back.
+  const beforeRows = problems.length;
   const results = found.Results;
   if (!results) problems.push("no `## Results` section");
   else {
@@ -262,34 +348,85 @@ export function readReport(text) {
       .slice(results.start + 1, results.end)
       .map((line, i) => ({ line, n: results.start + 1 + i }))
       .filter(({ line }) => /^\s*\|.*\|\s*$/.test(line));
-    // The first row is the header, the second its separator.
+    // The first row is the header, the second its separator. A `Before` column, when
+    // there is one, comes right after Result; a table without it reads every Before empty.
+    const beforeAt = rows.length ? cells(rows[0].line).indexOf("Before") : -1;
+    if (beforeAt !== -1 && beforeAt !== 2)
+      problems.push(
+        `line ${rows[0].n + 1}: the Results columns are Scenario, Result, Before, Evidence and Notes, in that order`,
+      );
     for (const { line, n } of rows.slice(2)) {
-      const [scenario = "", result = "", evidence = "", ...notes] = cells(line);
+      const row = cells(line);
+      const [scenario = "", result = ""] = row;
+      const before = beforeAt === 2 ? (row[2] ?? "") : "";
+      const [evidence = "", ...notes] = row.slice(beforeAt === 2 ? 3 : 2);
       const id = /^S(\d+)\b/.exec(scenario)?.[0];
       if (!id) {
         problems.push(`line ${n + 1}: a result row names no scenario \`S<n>\``);
         continue;
       }
-      if (!RESULTS.includes(/** @type {any} */ (result)))
+      const note = notes.join("|").trim();
+      const at = `line ${n + 1}: ${id}`;
+      if (result === "FAIL")
+        // A report written before the five results: its FAIL could be either kind.
         problems.push(
-          `line ${n + 1}: ${id}'s result is \`${result}\`; expected PASS, FAIL or left for a person`,
+          `${at}'s result is \`FAIL\`, a word QA Reports no longer use: write \`FAIL: regression\`, ` +
+            "or `FAIL: pre-existing` with its merge-base evidence; the five results are " +
+            RESULT_WORDS,
+        );
+      else if (!RESULTS.includes(/** @type {any} */ (result)))
+        problems.push(`${at}'s result is \`${result}\`; expected ${RESULT_WORDS}`);
+      // A fix scenario's Before: what the merge-base showed, or why it shows nothing.
+      const state = BEFORE_STATES.find((word) =>
+        new RegExp(`^${word}:\\s*\\S`).test(before.replace(/^_(.*)_$/, "$1")),
+      );
+      if (before && !state)
+        problems.push(
+          `${at}'s Before is \`${before}\`: it starts with one of ${BEFORE_WORDS}, or the cell is empty`,
+        );
+      if (result === "Not proven" && state !== "showed the expected result")
+        problems.push(
+          `${at} is Not proven, which is only for a fix scenario whose Before showed the expected ` +
+            "result: its Before cell starts `showed the expected result: …`",
+        );
+      if (result === "PASS" && state === "showed the expected result")
+        problems.push(
+          `${at}'s Before already showed the expected result, so the run does not show the fix ` +
+            "doing anything: its result is Not proven",
+        );
+      if (result === "FAIL: pre-existing" && before)
+        problems.push(
+          `${at} is a FAIL: pre-existing with a Before cell: a fix scenario whose After fails is a ` +
+            "FAIL: regression",
+        );
+      if (result === "FAIL: pre-existing" && !MERGE_BASE_EVIDENCE.test(note))
+        problems.push(
+          `${at} is a FAIL: pre-existing with no merge-base evidence: its note says ` +
+            "`merge-base evidence: <where>` (What automation already proves, or the two-point run), " +
+            "or it is a FAIL: regression",
+        );
+      if (report.target === "url" && state && state !== "not run")
+        problems.push(
+          `${at}'s Before says \`${state}\` on a \`url\` run: Before runs only on a \`stack\` target, ` +
+            "so it is `not run: the target is hosted`",
         );
       // `none: <reason>`, bare or wrapped whole in backticks, links no file, even
       // when its reason quotes an endpoint or a role in backticks.
       const reason = NO_EVIDENCE.test(evidence.replace(/^`([^`]*)`$/, "$1"));
       const paths = reason ? [] : [...evidence.matchAll(/`([^`]+)`/g)].map((m) => m[1]);
       // A scenario that ran is captured by default: no path needs a stated reason.
-      if ((result === "PASS" || result === "FAIL") && !paths.length && !reason)
+      if (RAN.includes(result) && !paths.length && !reason)
         problems.push(
-          `line ${n + 1}: ${id} is a ${result} with no evidence path: link its QA Artifact ` +
+          `line ${n + 1}: ${id} is ${result}, with no evidence path: link its QA Artifact ` +
             "in backticks, or write `none: <reason>`",
         );
       report.results.push({
         id,
         scenario,
         result,
+        before,
         evidence: paths,
-        notes: notes.join("|").trim(),
+        notes: note,
       });
     }
     // `None.` in place of the table: a plan whose Residue is only `Review:` boxes has no
@@ -315,7 +452,24 @@ export function readReport(text) {
   report.stopped = report.results.some((row) =>
     /(?<![A-Za-z])the run stopped at S\d+/i.test(row.notes),
   );
-  report.failed = report.stopped || report.results.some((row) => row.result === "FAIL");
+  // Any FAIL, of either kind, fails the run for uploads, whatever the headline.
+  report.failed = report.stopped || report.results.some((row) => row.result.startsWith("FAIL"));
+  if (report.headline && results && problems.length === beforeRows) {
+    const implied = impliedHeadline(report.results, report.stopped);
+    if (report.headline !== implied)
+      problems.push(
+        `the headline is _${report.headline}_, but the rows make it _${implied}_: a FAIL: ` +
+          "regression or a stopped run fails it; any other result but PASS lists it as an item; " +
+          "only every row a PASS passes it",
+      );
+    else if (implied === "QA passed, with items listed")
+      for (const row of report.results.filter((row) => row.result !== "PASS"))
+        if (!report.items.includes(row.id))
+          problems.push(
+            `${row.id} is ${row.result} but is not listed under the headline: add \`- ${row.id}: ` +
+              `${row.result}, <why>\``,
+          );
+  }
 
   const record = found["Execution record"];
   if (!record) problems.push("no `## Execution record` section");
@@ -378,6 +532,33 @@ export function reportPlanProblems(report, planText) {
     plan.scenarios.flatMap((scenario) => scenario.creates.map((id) => [id, scenario.id])),
   );
   const results = new Map(report.results.map((row) => [row.id, row]));
+  // Before runs only for a fix scenario: the plan, not the report, says which one is.
+  for (const { id, expectedBefore } of plan.scenarios) {
+    const row = results.get(id);
+    if (expectedBefore === null) {
+      if (row.result === "Not proven")
+        problems.push(
+          `${id} is Not proven, but the plan gives it no **Expected before:**: Not proven is only ` +
+            "for a fix scenario whose Before showed the expected result",
+        );
+      else if (row.before)
+        problems.push(
+          `${id} has a Before cell, but the plan gives it no **Expected before:**: only a fix ` +
+            "scenario runs at the merge-base, so its Before cell is empty",
+        );
+    } else {
+      if (!row.before)
+        problems.push(
+          `${id} is a fix scenario (the plan gives it **Expected before:**), but its Before cell is ` +
+            "empty: say what the merge-base showed, or `not observed: <why>`, or `not run: <why>`",
+        );
+      if (row.result === "FAIL: pre-existing")
+        problems.push(
+          `${id} is a fix scenario, so a failure at the head is a FAIL: regression: ` +
+            "FAIL: pre-existing is only for a scenario with no **Expected before:**",
+        );
+    }
+  }
   for (const { id, sessions } of plan.scenarios) {
     // Every session whose Scenario account's creator did not pass: a note naming any one is the reason.
     const blocked = sessions.filter((session) => {
