@@ -553,6 +553,50 @@ test("step 6 names `web.mjs`'s evidence folder and runs it on a sequence the run
   );
 });
 
+test("step 6 builds a Storyboard for each PASS or FAIL `web.mjs` recorded, after the privacy check (#235)", () => {
+  const flat = skill.replace(/\s+/g, " ");
+  assert.match(
+    flat,
+    /\*\*For a PASS or FAIL whose steps `web\.mjs` recorded,\*\* with `Capture:` `screenshot` or `video`, its \*\*Storyboard\*\* too: `s<n>-storyboard\.png`/,
+  );
+  assert.match(flat, /It is the row's main evidence, linked first, before the stills/);
+  assert.match(
+    flat,
+    /node "<skill>\/storyboard\.mjs" render "<working_dir>\/qa-report-pr-<n>\/s<n>-storyboard\.json"/,
+  );
+  // The privacy check: the field named, never the value, and the value never written back.
+  assert.match(flat, /The caption privacy check runs first/);
+  assert.match(flat, /Each refusal names the field, never the value/);
+  assert.match(flat, /Never write the value back/);
+  // Without Chromium: plain stills, the reason in the note, nothing fails.
+  assert.match(
+    flat,
+    /Exit 2 means no Storyboard can be made here \(no Playwright with Chromium\): the row keeps its plain stills, its note carries the `reason`.*nothing fails/,
+  );
+  assert.match(
+    flat,
+    /A withheld still shows in the Storyboard as a labelled empty frame with its caption/,
+  );
+  assert.match(
+    flat,
+    /builds a Storyboard again later from the saved files, without running the scenario/,
+  );
+});
+
+test("the report shape links a row's Storyboard first, and `read` accepts the example (#235)", () => {
+  assert.ok(
+    skill.includes(
+      "| `qa-report-pr-<n>/s4-storyboard.png` `qa-report-pr-<n>/s4-web/step-02-a.png` |",
+    ),
+  );
+  assert.match(
+    skill.replace(/\s+/g, " "),
+    /A row's Storyboard, `s<n>-storyboard\.png`, is its main evidence, linked first in its Evidence cell/,
+  );
+  assert.match(adapter, /## The Storyboard/);
+  assert.match(adapter, /`web\.mjs` withholds a still whenever a sign-in value is on the screen/);
+});
+
 test("finding a driver notes whether it can save images and record", () => {
   const flat = skill.replace(/\s+/g, " ");
   assert.match(flat, /whether it can \*\*save images\*\*.*and whether it can \*\*record\*\*/);

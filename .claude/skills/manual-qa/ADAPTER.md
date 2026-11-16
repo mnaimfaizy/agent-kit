@@ -284,6 +284,88 @@ Stdout is a JSON summary: `out`, the step file's path, `completed`, how many act
 | 1    | The sequence was refused (`problems`; nothing run, nothing written), or an action did not complete (`completed: false`; the step file holds every step up to it). |
 | 2    | Usage, or no Playwright with Chromium in this repository.                                                                                                         |
 
+## The Storyboard
+
+`storyboard.mjs` builds a scenario's **Storyboard**, `s<n>-storyboard.png`: one PNG that stands alone, linked first in its row's Evidence cell (SKILL.md step 6; its reasons are in DESIGN.md, "One file that stands alone"). It is made for every PASS or FAIL (of either kind) whose steps `web.mjs` recorded, when its `Capture:` is `screenshot` or `video`. It is built from saved files alone, the scenario file and the step files, so the same command builds it again at any time without running the scenario:
+
+```bash
+node "<skill>/storyboard.mjs" render <s<n>-storyboard.json> [--out <file.png>]
+```
+
+Give it the same `QA_*` variables the drivers were given, as that one command's own: they are what the privacy check looks for. Without `--out`, it writes `s<n>-storyboard.png` beside the scenario file.
+
+**Playwright is the repository's own,** loaded as `web.mjs` loads it, and never installed. Without Playwright and its Chromium, no Storyboard is made: the command exits 2 with a `reason` (`no Storyboard: no Playwright with Chromium in this repository; …`), the row keeps its plain stills, and its note carries that reason. Nothing fails.
+
+### The scenario file
+
+The runner writes `<working_dir>/qa-report-pr-<n>/s<n>-storyboard.json` once the scenario is graded. Paths are relative to it.
+
+```json
+{
+  "scenario": "S1",
+  "title": "Saving a profile lists the new name once",
+  "result": "PASS",
+  "after": {
+    "steps": "s1-web/steps.json",
+    "expected": "The members list shows Ada once",
+    "observed": "The members list showed Ada once",
+    "judged": "expected"
+  },
+  "before": {
+    "steps": "s1-before-web/steps.json",
+    "state": "matched",
+    "expected": "The members list shows Ada twice",
+    "observed": "The members list showed Ada twice",
+    "judged": "expected"
+  },
+  "commits": { "base": "<merge-base sha>", "head": "<head sha>" },
+  "context": { "accounts": ["admin"], "sessions": [{ "session": "A", "account": "admin" }] },
+  "proves": { "session": "A", "index": 2 },
+  "variables": ["QA_A_EMAIL", "QA_A_PASSWORD"]
+}
+```
+
+| Key         | Meaning                                                                                                                                                                                                                                                                                                                |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `scenario`  | The scenario's id, `S<n>`.                                                                                                                                                                                                                                                                                             |
+| `title`     | Its title, as the plan gives it.                                                                                                                                                                                                                                                                                       |
+| `result`    | `PASS`, `FAIL: regression` or `FAIL: pre-existing`. Any other result gets no Storyboard.                                                                                                                                                                                                                               |
+| `after`     | The head run: its step file, **Expected result:**, what appeared, and how it was judged: `expected`, `not expected` or `not judged`.                                                                                                                                                                                   |
+| `before`    | A fix scenario's Before: its step file, its Before cell's state (`matched`, `did not match`, `showed the expected result`, `not observed` or `not run`), **Expected before:**, what appeared, or for `not observed` and `not run` why, and how it was judged; an optional short `note`. `null` for a feature scenario. |
+| `commits`   | The merge-base and head shas; the band shows each in short form.                                                                                                                                                                                                                                                       |
+| `context`   | The role or Scenario account ids signed in as, and each Session's id. Ids only, never a sign-in value.                                                                                                                                                                                                                 |
+| `proves`    | The After step that proves the result, by Session and index; the last After step when missing.                                                                                                                                                                                                                         |
+| `variables` | The names of the `QA_*` variables the run used. Each must be given to the command, so the privacy check knows every value the run knew.                                                                                                                                                                                |
+
+### What it shows
+
+- **The band**, across the top: the scenario's id and title; the result; for each side, its expected and observed text, marked ✓ (as expected), ✗ (not as expected) or – (not judged); the merge-base and head commits, short; and the run context, ids only.
+- **Numbered steps** below, Before's still beside After's, paired by step index and Session. A step one side has and the other lacks keeps its row, the other side an empty frame saying so.
+- **One column** when Before was not run or not observed, or when Before's expected text equals After's and both sides showed it. Each row then carries a short Before note: why Before was not run or not observed, that Before showed the same, or, for a feature scenario, that it runs After only.
+- **Each still** is cropped around its step's subject, with padding, at the 16:9 viewport's aspect and at least 480 pixels of the still wide. An outline is drawn just outside the subject, never over it. A step with no subject, or a subject wholly off screen, shows the full frame, unoutlined.
+- **A withheld still** is a labelled empty frame (`Still withheld: <why>`) above its caption. `web.mjs` withholds a still whenever a sign-in value is on the screen, so an app that shows the QA Account's email in its header has most signed-in stills withheld: their rows show the caption and the empty frame, and the band still carries the result.
+- **The step that proves the result** is highlighted.
+
+It is HTML rendered to PNG in Chromium with JavaScript off and every request refused, in a fixed, neutral palette the skill carries: the repository configures nothing.
+
+### The caption privacy check
+
+Before any Storyboard is written, `privacyCheck(fields, knownSecrets)` reads everything it would show: the title, each side's expected and observed text and note, every caption, every withheld label, and the run context. It looks for:
+
+- every sign-in value the run knew: each `QA_*` variable given to the command, in any case and in its URL, JSON and HTML forms; a username (`USER`, `USERNAME` or `LOGIN` in its variable's name, and no secret or email word) as written, as a whole word;
+- every value marked secret: a variable whose name says so (`PASSWORD`, `SECRET`, `TOKEN`, `API_KEY`, `OTP`, `PIN` and the like);
+- token-shaped text: a JWT, a bearer or basic credential, a GitHub token, an API key.
+
+On any match, no Storyboard is written (an earlier one at that path is removed), the command exits 1, and `refused` names each field and why, never the value: `{"field": "After step 2 (A): caption", "why": "holds a sign-in value (QA_A_EMAIL)"}`. That field's text is kept as `[withheld]` in the file it came from, the step file or the scenario file, so a later run builds the Storyboard without it. A value shorter than four characters is not looked for. A still's pixels are not read: `web.mjs`'s capture rules cover them.
+
+Stdout is a JSON summary: `written`, and the `storyboard` path, its `columns` and `rows`; or `refused`, `problems` or `reason`.
+
+| Exit | Meaning                                                                                                                                                 |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0    | The Storyboard was written.                                                                                                                             |
+| 1    | Refused: the privacy check (`refused`), or a problem in the scenario or step files, or a result that is not PASS or FAIL (`problems`). Nothing written. |
+| 2    | Usage, or no Playwright with Chromium in this repository, or Chromium did not render it (`reason`). Nothing written; the row keeps its plain stills.    |
+
 ## QA Artifacts and posting
 
 The QA Report file in `working_dir` is always written, and is the whole result until the person says to post it. Posting needs `gh` access and the person's yes, after they have seen the results. It goes where the plan went, by `plan.publish` (`adapter.mjs delivery`, the rules `qa-plan` delivered with):
