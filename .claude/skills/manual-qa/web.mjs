@@ -74,14 +74,20 @@ export const DEFAULT_WAIT_MS = 5_000;
 /** A subject's visible text longer than this is cut in its record. */
 export const TEXT_LIMIT = 2_000;
 const LEFT = "a page left the checked address; the run stopped there";
-const POPUP =
-  "the action opened a tab or window, which the driver closed without following; " +
-  "drive this step with a browser tool";
+/** Why the run stopped for a tab or window, named by the last action that ran. */
+const popupWhy = (n) =>
+  `a tab or window was opened during or after action ${n}, and the driver closed it ` +
+  "without following; drive that step with a browser tool";
+/** How long the driver waits after the last action for a late tab or window. */
+export const SETTLE_MS = 500;
 const VIEWPORT = { width: 1280, height: 720 };
 const MIN_SECRET_LENGTH = 4;
 
 const PLACEHOLDER = /\{\{(\w+):([^}]*)\}\}/g;
 const ENV_NAME = /^QA_[A-Z0-9_]+$/;
+/** A `QA_*` variable whose name says it holds a sign-in value or a secret. */
+const SIGN_IN_VARIABLE =
+  /PASSWORD|PASSWD|PASSPHRASE|SECRET|TOKEN|API_?KEY|CREDENTIAL|OTP|PIN|RECOVERY|MFA|EMAIL|USER|LOGIN/;
 /** A field's label or name that names a secret: its fill takes only placeholders. */
 const SECRET_FIELD =
   /pass(?:word|wd|phrase|code)?\b|secret|token|api.?key|credential|\botp\b|one.?time|\bpin\b|recovery|mfa|2fa|verification|security code/i;
@@ -250,17 +256,27 @@ export function checkSequence(sequence, env) {
     else if (/[\r\n]/.test(value)) problems.push(`${name} holds a line break`);
   }
   // A sign-in value written in, in place of its placeholder, in any form.
-  // Compared in lower case: a value written in another case is still the value.
-  const written = [...strings(sequence, "")].flatMap(([, text]) =>
-    [text, decode(text), decode(text.replace(/\+/g, " "))].map((t) => t.toLowerCase()),
-  );
+  // A sign-in value written in, in place of its placeholder. A value this sequence
+  // fills is looked for in any case; any other `QA_*` value only when its name says
+  // it is a sign-in value or a secret, and only as written, so a common word such
+  // as `admin` in an unrelated variable never refuses a label like "Admin".
+  const written = [...strings(sequence, "")].flatMap(([, text]) => [
+    text,
+    decode(text),
+    decode(text.replace(/\+/g, " ")),
+  ]);
+  const lowered = written.map((text) => text.toLowerCase());
   for (const name of Object.keys(env)) {
     const value = ENV_NAME.test(name) ? envValue(env, name) : undefined;
-    if (
-      value &&
-      value.length >= MIN_SECRET_LENGTH &&
-      encodedForms(value).some((form) => written.some((text) => text.includes(form.toLowerCase())))
-    )
+    if (!value || value.length < MIN_SECRET_LENGTH) continue;
+    const filled = named.has(name);
+    if (!filled && !SIGN_IN_VARIABLE.test(name)) continue;
+    const found = encodedForms(value).some((form) =>
+      filled
+        ? lowered.some((text) => text.includes(form.toLowerCase()))
+        : written.some((text) => text.includes(form)),
+    );
+    if (found)
       problems.push(
         `the sequence holds the value of ${name} inline; write {{env:${name}}} instead`,
       );
@@ -305,7 +321,11 @@ async function mask(page, values) {
         "input:not([type=password]), textarea",
         (elements, [held, style]) => {
           for (const e of elements)
-            if (held.some((v) => /** @type {HTMLInputElement} */ (e).value.includes(v)))
+            if (
+              held.some((v) =>
+                /** @type {HTMLInputElement} */ (e).value.toLowerCase().includes(v.toLowerCase()),
+              )
+            )
               /** @type {HTMLElement} */ (e).style.setProperty(style, "disc", "important");
         },
         [values, "-webkit-text-security"],
@@ -391,7 +411,7 @@ export async function runSequence(
   const shoot = screenshot ?? ((page, path) => page.screenshot({ path }));
   const origin = new URL(base).origin;
   const redact = new Redactor();
-  /** Each sign-in value a fill names, longest first, for the withhold check. */
+  /** Each sign-in value a fill names, in the order filled, for the withhold check. */
   const values = [];
   /** @type {[string, string][]} each sign-in value and its label */
   const labelled = [];
@@ -509,6 +529,8 @@ export async function runSequence(
   const fill = (text) => text.replace(PLACEHOLDER, (_, __, name) => envValue(env, name) ?? "");
 
   let done = 0;
+  /** Whether any Session's context has opened a tab or window. */
+  const opened = () => [...sessions.values()].some(({ state }) => state.popup);
   let lastAt = -1;
   const videos = [];
   try {
@@ -586,7 +608,9 @@ export async function runSequence(
           writeSteps();
         }
         if (state.left || !onAddress(page.url(), origin)) throw new Error(LEFT);
-        if (state.popup) throw new Error(POPUP);
+        // A popup may come from a callback after its action returned: any Session's
+        // counts, and is named by the last action that ran, not blamed on it.
+        if (opened()) throw new Error(popupWhy(i + 1));
         await mask(page, values);
         done += 1;
       } catch (failure) {
@@ -598,6 +622,17 @@ export async function runSequence(
           why: left ? LEFT : redact.text(why(failure)),
         };
         break;
+      }
+    }
+    // A last action may still open a tab or window: wait briefly, and check once more.
+    if (!error && sessions.size) {
+      await new Promise((resolve) => setTimeout(resolve, SETTLE_MS));
+      const n = sequence.actions.length;
+      if (opened()) {
+        const last = sequence.actions[n - 1];
+        const verb = Object.keys(ACTIONS).find((v) => v in last);
+        error = { action: n, session: last.session, verb, why: popupWhy(n) };
+        done -= 1;
       }
     }
   } finally {

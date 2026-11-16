@@ -118,7 +118,7 @@ before(async () => {
           page(
             '<label>Nick <input id="n"></label><script>' +
               "document.getElementById('n').addEventListener('input', (e) => {" +
-              "  const fresh = document.createElement('input'); fresh.id = 'n'; fresh.value = e.target.value;" +
+              "  const fresh = document.createElement('input'); fresh.id = 'n'; fresh.value = location.search === '?lower' ? e.target.value.toLowerCase() : e.target.value;" +
               "  e.target.replaceWith(fresh);" +
               "  setTimeout(() => { const p = document.createElement('p'); p.setAttribute('role', 'status');" +
               "    p.textContent = getComputedStyle(document.getElementById('n')).webkitTextSecurity;" +
@@ -150,6 +150,10 @@ before(async () => {
         );
       if (url.pathname === "/framed")
         return html(`<h1>Framed</h1><iframe src="${otherBase}/embedded"></iframe>`);
+      if (url.pathname === "/late")
+        return html(
+          `<button onclick="setTimeout(() => window.open('${otherBase}/late-popup'), 50)">Later</button>`,
+        );
       if (url.pathname === "/post-form")
         return html(
           '<form method="post" action="/login307">' +
@@ -276,8 +280,15 @@ test("a sign-in value written inline is refused, and the problem never names the
     ...ok([{ fill: { label: "Email" }, value: EMAIL }]),
     ...ok([{ step: `typed ${PASSWORD}` }]),
     ...ok([{ fill: { label: "Note" }, value: encodeURIComponent(PASSWORD) }]),
-    ...ok([{ step: `Signed in as ${EMAIL.toUpperCase()}` }]),
-    ...ok([{ fill: { label: "Note" }, value: PASSWORD.toLowerCase() }]),
+    // A value the sequence fills is refused in any case.
+    ...ok([
+      { fill: { label: "Email" }, value: "{{env:QA_A_EMAIL}}" },
+      { step: `Signed in as ${EMAIL.toUpperCase()}` },
+    ]),
+    ...ok([
+      { fill: { label: "Password" }, value: "{{env:QA_A_PASSWORD}}" },
+      { fill: { label: "Note" }, value: PASSWORD.toLowerCase() },
+    ]),
   ];
   assert.equal(problems.length >= 6, true, problems.join("\n"));
   for (const problem of problems.slice(-2)) assert.match(problem, /holds the value of QA_A_/);
@@ -295,6 +306,35 @@ test("a sign-in value written inline is refused, and the problem never names the
   );
   // A secret-named query parameter in a path.
   assert.match(ok([{ goto: "/reset?token=abc123" }]).join("\n"), /names a secret/);
+});
+
+test("a common word in an unrelated QA_ variable never refuses a label or caption", () => {
+  const env = { ...ENV, QA_X: "admin", QA_B_NAME: "Alice" };
+  assert.deepEqual(
+    ok(
+      [
+        { goto: "/" },
+        { click: { role: "link", name: "Admin" } },
+        { step: "Alice sees the order" },
+        { step: "the admin page" },
+      ],
+      env,
+    ),
+    [],
+  );
+  // A sign-in variable's value is still refused as written, filled or not.
+  assert.match(
+    ok([{ step: `typed ${PASSWORD}` }], { QA_B_PASSWORD: PASSWORD }).join("\n"),
+    /holds the value of QA_B_PASSWORD inline/,
+  );
+  // A value the sequence fills is refused in any case.
+  assert.match(
+    ok(
+      [{ fill: { label: "Name" }, value: "{{env:QA_B_NAME}}" }, { step: "ALICE signed in" }],
+      env,
+    ).join("\n"),
+    /holds the value of QA_B_NAME inline/,
+  );
 });
 
 test("a placeholder must name a set QA_ variable, and goes only in a fill's value", () => {
@@ -585,7 +625,7 @@ test(
     assert.equal(posted.code, 1, posted.stdout);
     assert.equal(posted.summary.completed, false);
     assert.equal(posted.summary.error.action, 4);
-    assert.match(posted.summary.error.why, /opened a tab or window/);
+    assert.match(posted.summary.error.why, /a tab or window was opened during or after action \d+/);
     assert.deepEqual(posted.steps.error, posted.summary.error, "the step file says why too");
     assert.deepEqual(
       posted.steps.steps.map((s) => s.caption),
@@ -596,8 +636,26 @@ test(
       { session: "A", click: { role: "link", name: "New tab" } },
     ]);
     assert.equal(linked.code, 1);
-    assert.match(linked.summary.error.why, /opened a tab or window/);
+    assert.match(linked.summary.error.why, /a tab or window was opened during or after action \d+/);
     assert.deepEqual(otherSeen, [], "the other host never saw a request");
+  },
+);
+
+test(
+  "a tab opened after the last action returned still stops the run, named by that action",
+  { skip: NEEDS_CHROMIUM },
+  async () => {
+    otherSeen.length = 0;
+    const { code, summary, steps } = await drive([
+      { session: "A", goto: "/late" },
+      { session: "A", click: { role: "button", name: "Later" } },
+    ]);
+    assert.equal(code, 1);
+    assert.equal(summary.completed, false);
+    assert.equal(summary.error.action, 2);
+    assert.match(summary.error.why, /a tab or window was opened during or after action 2/);
+    assert.deepEqual(steps.error, summary.error);
+    assert.deepEqual(otherSeen, []);
   },
 );
 
@@ -640,6 +698,23 @@ test(
     assert.match(shouted.withheld, /sign-in value is on the screen/);
     assert.match(shouted.text, /^CONTACT: \[redacted:QA_A_EMAIL\]$/);
     assert.ok(!allText(out).toLowerCase().includes(EMAIL));
+  },
+);
+
+test(
+  "a field the page lower-cases and re-renders stays masked",
+  { skip: NEEDS_CHROMIUM },
+  async () => {
+    const { code, steps, stdout } = await drive(
+      [
+        { session: "A", goto: "/mask?lower" },
+        { session: "A", fill: { label: "Nick" }, value: "{{env:QA_A_NICK}}" },
+        { session: "A", step: "Masked", subject: { role: "status" }, timeoutMs: 3000 },
+      ],
+      { env: { ...ENV, QA_A_NICK: "Mixed-Case-Nick" } },
+    );
+    assert.equal(code, 0, stdout);
+    assert.equal(steps.steps[0].text, "disc");
   },
 );
 
