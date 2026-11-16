@@ -150,9 +150,13 @@ export function impliedHeadline(results, stopped) {
 }
 /** GitHub refuses a comment or issue body longer than this. */
 export const BODY_LIMIT = 65536;
+/** Still images: the only media, besides a Storyboard and an MP4, that may be uploaded. */
+const STILL_TYPES = "png|jpe?g|webp|bmp|tiff?|avif|heic|svg";
+/** Recordings and audio: never uploaded but as a scenario's MP4. */
+const RECORDING_TYPES = "gif|mp4|m4v|mov|webm|mkv|avi|wmv|mp3|wav|ogg|m4a";
+const STILL = new RegExp(`\\.(?:${STILL_TYPES})$`, "i");
 /** Screenshots, recordings and audio: what a failed run never uploads. */
-export const MEDIA =
-  /\.(?:png|jpe?g|gif|webp|bmp|tiff?|avif|heic|svg|mp4|m4v|mov|webm|mkv|avi|wmv|mp3|wav|ogg|m4a)$/i;
+export const MEDIA = new RegExp(`\\.(?:${STILL_TYPES}|${RECORDING_TYPES})$`, "i");
 /** Plain-text evidence: the only kind whose contents are scanned for sign-in values. */
 export const TEXT = /\.(?:log|txt|har|json|jsonl|ndjson|md|csv|tsv|xml|html?|ya?ml)$/i;
 /** The Evidence cell of a PASS or FAIL row that links no QA Artifact: `none: <reason>`. */
@@ -163,8 +167,6 @@ const STORYBOARD = /(?:^|\/)s(\d+)-storyboard\.png$/;
 const MP4 = /(?:^|\/)s(\d+)\.mp4$/;
 /** A raw recording `web.mjs --video` keeps in its folder: never a row's evidence. */
 const RAW_RECORDING = /(?:^|\/)s\d+(?:-before)?-web\/video-[a-z]\.webm$/;
-/** A still: the only media, besides a Storyboard and an MP4, that may be uploaded. */
-const STILL = /\.(?:png|jpe?g|webp|bmp|tiff?|avif|heic|svg)$/i;
 /** Before evidence, `s<n>-before…`, a file or a folder: never uploaded on its own. */
 const BEFORE = /(?:^|\/)s\d+-before(?:[-./]|$)/;
 
@@ -178,8 +180,8 @@ const BEFORE_UPLOAD =
   "a lone Before still is never uploaded: the Storyboard shows Before beside After; " +
   "keep it local";
 const behindBoard = (board) =>
-  `a still behind a Storyboard is never uploaded: upload \`${board}\`, which shows it ` +
-  "with its captions; keep the still local";
+  `a still behind a Storyboard is never uploaded: a row with a Storyboard uploads ` +
+  `\`${board}\`, its main evidence, which shows its steps captioned; keep the still local`;
 const NOT_CHECKABLE =
   "only media and plain-text evidence is uploaded: an archive, a PDF or a trace can carry " +
   "screenshots and sign-in values no check here can see; keep it local";
@@ -924,19 +926,17 @@ export function evidenceUpload({
   // Of the media, only a finished file goes: a Storyboard or MP4, or the plain
   // stills of a row with no Storyboard. A Before still, a still the Storyboard
   // was built from, and a raw recording never do.
-  const finished = (file) => {
-    const row = listed.get(file);
-    const own = STORYBOARD.exec(file) ?? MP4.exec(file);
-    return Boolean(own && row && `S${own[1]}` === row.id);
-  };
-  const unfinished = (path, row) => {
-    if (!STILL.test(path) || MP4.test(path)) return RAW_UPLOAD;
+  // `read` has already refused another scenario's Storyboard or MP4 in a row.
+  const unfinishedWhy = (path, row) => {
+    const own = STORYBOARD.exec(path) ?? MP4.exec(path);
+    if (own && `S${own[1]}` === row.id) return null;
+    if (!STILL.test(path)) return RAW_UPLOAD;
     if (BEFORE.test(path)) return BEFORE_UPLOAD;
-    const board = row.evidence.find((p) => STORYBOARD.test(p));
+    const board = row.evidence.find((p) => STORYBOARD.test(p.replace(/\\/g, "/")));
     return board ? behindBoard(board) : null;
   };
   let leak;
-  let why;
+  let unfinished;
   for (const file of picks) {
     const refuse = (why) => out.refused.push({ file, why });
     const normal = posix.normalize(file.replace(/\\/g, "/"));
@@ -946,7 +946,7 @@ export function evidenceUpload({
       refuse(`evidence is uploaded only from \`${folder}\` in \`working_dir\``);
     else if (!media && !TEXT.test(normal)) refuse(NOT_CHECKABLE);
     else if (report.failed && media) refuse(NO_UPLOAD_FROM_FAILED);
-    else if (media && !finished(file) && (why = unfinished(normal, listed.get(file)))) refuse(why);
+    else if (media && (unfinished = unfinishedWhy(normal, listed.get(file)))) refuse(unfinished);
     else if (!exists(normal)) refuse("no such file in `working_dir`");
     else if (!media && (leak = leakIn(normal))) refuse(leak);
     else {

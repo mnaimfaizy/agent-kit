@@ -118,7 +118,7 @@ const upload = (report, picks, more = {}) =>
 // S1 has a Storyboard, an MP4, the step still it was built from and a Before still;
 // S2 has none (no Chromium): its plain stills, a Before still, a recording and a log.
 const BOARD_ROWS = [
-  "| S1: An admin invites a new member | PASS | `qa-report-pr-57/s1-storyboard.png` `qa-report-pr-57/s1.mp4` `qa-report-pr-57/s1-web/step-02-a.png` `qa-report-pr-57/s1-before-web/step-02-a.png` | invite sent |",
+  "| S1: An admin invites a new member | PASS | `qa-report-pr-57/s1-storyboard.png` `qa-report-pr-57/s1.mp4` `qa-report-pr-57/s1-web/step-02-a.png` `qa-report-pr-57/s1-key-after.png` `qa-report-pr-57/s1-before-web/step-02-a.png` | invite sent |",
   "| S2: A signed-out visitor cannot open the members page | PASS | `qa-report-pr-57/s2-web/step-03-a.png` `qa-report-pr-57/s2-fail.png` `qa-report-pr-57/s2-before.png` `qa-report-pr-57/s2.webm` `qa-report-pr-57/s2.gif` `qa-report-pr-57/s2-http.log` | redirected; no Storyboard: no Playwright with Chromium in this repository |",
 ];
 const BOARDS = reportFor(BOARD_ROWS);
@@ -1485,6 +1485,7 @@ test("a Before still, a step still behind a Storyboard, or a recording is refuse
     p57("s1-before-web/step-02-a.png"),
     p57("s2-before.png"),
     p57("s1-web/step-02-a.png"),
+    p57("s1-key-after.png"),
     p57("s2.webm"),
     p57("s2.gif"),
   ]);
@@ -1494,8 +1495,10 @@ test("a Before still, a step still behind a Storyboard, or a recording is refuse
   assert.match(why[p57("s2-before.png")], /^a lone Before still is never uploaded/);
   assert.match(
     why[p57("s1-web/step-02-a.png")],
-    /^a still behind a Storyboard is never uploaded: upload `qa-report-pr-57\/s1-storyboard\.png`/,
+    /^a still behind a Storyboard is never uploaded: a row with a Storyboard uploads `qa-report-pr-57\/s1-storyboard\.png`/,
   );
+  // A still beside the step stills is refused too: the row's Storyboard is its main evidence.
+  assert.match(why[p57("s1-key-after.png")], /^a still behind a Storyboard is never uploaded/);
   for (const raw of ["s2.webm", "s2.gif"])
     assert.match(why[p57(raw)], /^a raw recording is never uploaded: only a scenario's MP4/, raw);
   // A web.mjs recording never reads as evidence (#236); even handed in, it is refused.
@@ -1510,6 +1513,15 @@ test("a Before still, a step still behind a Storyboard, or a recording is refuse
     visibility: "PRIVATE",
   });
   assert.match(raw.refused[0].why, /^a raw recording is never uploaded/);
+  // A Storyboard written with backslashes still puts its step stills behind it.
+  const slashed = reportFor([
+    "| S1: An admin invites a new member | PASS | `qa-report-pr-57\\s1-storyboard.png` `qa-report-pr-57\\s1-web\\step-02-a.png` | invite sent |",
+    BOARD_ROWS[1],
+  ]);
+  assert.match(
+    upload(slashed, ["qa-report-pr-57\\s1-web\\step-02-a.png"]).refused[0].why,
+    /^a still behind a Storyboard is never uploaded/,
+  );
   // A step's key-before still is no Before still.
   const key = PASSED.replace("`qa-report-pr-57/s1.png`", "`qa-report-pr-57/s1-key-before.png`");
   assert.deepEqual(upload(key, [p57("s1-key-before.png")]).refused, []);

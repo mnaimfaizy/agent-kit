@@ -403,7 +403,7 @@ test("step 10 offers only finished files: a Storyboard, an MP4, a log, or stills
   assert.match(step10, /plain stills only when it has no Storyboard/);
   assert.match(
     step10,
-    /Never offer a Before still \(`s<n>-before…`\), a still a Storyboard was built from, or a raw recording/,
+    /Never offer a Before still \(`s<n>-before…`\), a still a Storyboard was built from \(or any other still in that row\), or a raw recording/,
   );
   // Step 11 posts what step 10 uploaded: a Storyboard inline, an MP4 linked.
   assert.match(skill, /shows an uploaded Storyboard as an image and links an MP4/);
