@@ -372,6 +372,52 @@ test("a `Review:` box runs nothing, is never a result, and is listed for a perso
   assert.match(flat, /a Setup box and a `Review:` box stay a person's to tick/);
 });
 
+test("step 4 prefers `web.mjs` for `web` when readiness found Chromium, else the harness's browsers (#232)", () => {
+  const flat = skill.replace(/\s+/g, " ");
+  assert.match(
+    flat,
+    /- `web`: `web\.mjs`, this skill's Playwright driver \(\[ADAPTER\.md\]\(ADAPTER\.md#the-web-driver\)\), when step 2's note says Playwright with Chromium is installed in this repository\. Otherwise, or when it exits 2, a browser tool/,
+  );
+  assert.match(
+    flat,
+    /\| `web\.mjs` \| `screen` \| Its stills, and each step's subject and visible text\. \|/,
+  );
+  assert.match(flat, /`web\.mjs` saves images \(a still at each step\) and records with `--video`/);
+  assert.match(flat, /such as `web\.mjs`, which opens one per session/);
+  // Step 2 says the two notes and asks for neither.
+  assert.match(
+    flat,
+    /two of them say whether Playwright with Chromium is installed in this repository, which `web\.mjs` needs \(step 4\), and whether `ffmpeg` is on `PATH`.*Neither is asked for, and nothing is installed/,
+  );
+});
+
+test("step 6 names `web.mjs`'s evidence folder and runs it on a sequence the runner writes (#232)", () => {
+  const flat = skill.replace(/\s+/g, " ");
+  assert.match(
+    flat,
+    /\*\*For a `web` scenario driven by `web\.mjs`,\*\* its folder `s<n>-web\/` .*`steps\.json`, a still per step, `step-<NN>-<session>\.png` .*`video-<session>\.webm`/,
+  );
+  assert.match(
+    flat,
+    /node "<skill>\/web\.mjs" run "<working_dir>\/qa-report-pr-<n>\/s<n>-web\.json" --base "<address>" --out "<working_dir>\/qa-report-pr-<n>\/s<n>-web"/,
+  );
+  assert.match(flat, /the sequence is never committed/);
+  // A video cannot withhold a moment: no `--video` when the Capture rules add anything.
+  assert.match(
+    flat,
+    /Add `--video` for a multi-session or timing-dependent scenario, unless the Run brief's \*\*Capture rules\*\* add anything beyond the baseline/,
+  );
+  assert.match(flat, /Its stills are the full viewport, so their framing is the page's/);
+  assert.match(
+    flat,
+    /Its exit status says whether every action completed, not whether the scenario passed/,
+  );
+  assert.match(
+    flat,
+    /Exit 2 means no Playwright with Chromium here: drive the scenario with a browser tool instead/,
+  );
+});
+
 test("finding a driver notes whether it can save images and record", () => {
   const flat = skill.replace(/\s+/g, " ");
   assert.match(flat, /whether it can \*\*save images\*\*.*and whether it can \*\*record\*\*/);

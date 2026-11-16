@@ -9,14 +9,18 @@
  */
 
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import {
+  WEB_NOTES,
+  findPlaywright,
   hostVerdict,
   main,
+  onPath,
   parseConfig,
   readQaConfig,
   runReadiness,
@@ -216,6 +220,72 @@ test("no version-endpoint note when the plan's Build names one", () => {
   const read = readQaConfig(reader({ "qa.config.yml": text }));
   assert.equal(runReadiness(read).notes.length, 1);
   assert.deepEqual(runReadiness(read, validatePlan(GOOD_PLAN).plan).notes, []);
+});
+
+// ── The `web` driver's tools (#232) ─────────────────────────────────────────
+
+const tools = (chromium, ffmpeg) => () => ({ chromium, ffmpeg });
+const STACK_READ = () => readQaConfig(reader({ "qa.config.yml": STACK_RUN.join("\n") }));
+
+test("a `web` run notes whether Playwright with Chromium and ffmpeg are there, and needs neither", () => {
+  const plan = validatePlan(GOOD_PLAN).plan;
+  const without = runReadiness(STACK_READ(), plan, tools(false, false));
+  assert.equal(without.ready, true);
+  assert.deepEqual(without.needs, []);
+  assert.deepEqual(without.notes, [WEB_NOTES.noChromium, WEB_NOTES.noFfmpeg]);
+  assert.deepEqual(runReadiness(STACK_READ(), plan, tools(true, true)).notes, [
+    WEB_NOTES.chromium,
+    WEB_NOTES.ffmpeg,
+  ]);
+  // Each note says what the run loses without the tool.
+  assert.match(WEB_NOTES.noChromium, /harness's browsers/);
+  assert.match(WEB_NOTES.noChromium, /`web\.mjs`/);
+  assert.match(WEB_NOTES.noFfmpeg, /this run does not need it/);
+  // No note names a feature that has not shipped.
+  for (const note of Object.values(WEB_NOTES)) assert.doesNotMatch(note, /Storyboard|MP4/);
+});
+
+test("the tool notes come only when a scenario drives `web`", () => {
+  const apiOnly = GOOD_PLAN.replace("- **Surface:** `web`", "- **Surface:** `api`");
+  const api = STACK_RUN.map((l) => l.replace("surface: web", "surface: api")).join("\n");
+  const plan = validatePlan(apiOnly).plan;
+  assert.ok(plan.scenarios.every((s) => s.surface === "api"));
+  let asked = false;
+  const read = readQaConfig(reader({ "qa.config.yml": api }));
+  const readiness = runReadiness(read, plan, () => {
+    asked = true;
+    return { chromium: false, ffmpeg: false };
+  });
+  assert.deepEqual(readiness.notes, []);
+  assert.equal(asked, false, "no detection when nothing drives `web`");
+  // No plan: the effective surface decides.
+  assert.equal(runReadiness(STACK_READ(), null, tools(false, true)).notes.length, 2);
+});
+
+test("check --for run reports the tool notes it detects", () => {
+  const io = {
+    read: reader({ "qa.config.yml": STACK_RUN.join("\n") }),
+    readFile: (p) => (p === "plan.md" ? GOOD_PLAN : null),
+    tools: tools(false, true),
+  };
+  const out = JSON.parse(main(["check", "--for", "run", "--plan", "plan.md"], io).out);
+  assert.deepEqual(out.readiness.notes, [WEB_NOTES.noChromium, WEB_NOTES.ffmpeg]);
+});
+
+test("onPath finds a program by PATH and PATHEXT, and findPlaywright finds none in an empty folder", () => {
+  const bin = mkdtempSync(join(tmpdir(), "onpath-"));
+  try {
+    writeFileSync(join(bin, "ffmpeg"), "");
+    writeFileSync(join(bin, "ffmpeg.EXE"), "");
+    assert.equal(onPath("ffmpeg", { PATH: bin }, "linux"), true);
+    assert.equal(onPath("ffmpeg", { PATH: "" }, "linux"), false);
+    assert.equal(onPath("ffmpeg", { Path: `C:\\nope;${bin}`, PATHEXT: ".EXE" }, "win32"), true);
+    mkdirSync(join(bin, "ffprobe"));
+    assert.equal(onPath("ffprobe", { PATH: bin }, "linux"), false, "a folder is not a program");
+    assert.deepEqual(findPlaywright(bin), { package: null, module: null, chromium: false });
+  } finally {
+    rmSync(bin, { recursive: true, force: true });
+  }
 });
 
 test("the plan's Run brief fills target and surface; its roles must be declared", () => {
