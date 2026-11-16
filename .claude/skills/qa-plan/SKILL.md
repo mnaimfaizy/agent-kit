@@ -137,6 +137,10 @@ Pick each scenario's surface from what its **Expected result:** must observe, no
 
 Give a scenario **Observes:** whenever its **Expected result:** needs something not every driver of its surface can see: in practice response headers, `HttpOnly` cookies or a local file. List each such value from `headers`, `cookies`, `httponly-cookies`, `status`, `body`, `screen`, `local-file`, right after the scenario's **Surface:**, or after its sign-in field when it has none ([ANATOMY.md](ANATOMY.md#scenarios)), so `manual-qa` checks its driver before the run starts instead of finding out mid-scenario. Use the same list to choose the surface: `headers`, `cookies`, `httponly-cookies` and `status` are seen on `api`; `body` on `api`, and by some `web` drivers; `screen` on `web`, `desktop` or `mobile`; `local-file` on a surface whose driver can open a `file://` address, as `manual-qa`'s step 4 table gives it.
 
+Give a scenario **Expected before:** when it proves a defect is fixed: the subject issue or a child issue is a bug, or the promise reads as a fix. Write what the tester sees at the merge-base, drawn from the issue's reproduction or the merge-base's behaviour, never invented, in the product's own words as **Expected result:** is, right after **Expected result:** ([ANATOMY.md](ANATOMY.md#fix-scenarios)). It makes the scenario a fix scenario; a scenario that adds behaviour has none.
+
+Give each scenario the **Capture:** its result needs, after its **Observes:** or wherever **Observes:** would sit ([ANATOMY.md](ANATOMY.md#scenarios)): `video` for a multi-session or timing-dependent scenario with a screen, `transcript` on `api`, `none` where an image would show nothing the written result does not, and otherwise `screenshot`, or leave it out, since a missing **Capture:** means `screenshot` on a screen surface.
+
 When a promise needs two people signed in at once, compose a multi-session scenario. For example, an `admin`'s action ends a `user`'s session elsewhere. Give it **Sessions:** (`A = user, B = admin`) in place of **Signs in as:**, and start every step `In session <name>,` ([ANATOMY.md](ANATOMY.md#sessions)). Never fold the second person into a step's prose: the run would sign in once and could not carry the scenario out.
 
 A promise step 4 left for the Residue because only doubles covered it becomes a scenario that runs against the real services, even when the in-memory suite is green. A plan has one target for every scenario, so set the Run brief's **Target:** to `stack` ([ANATOMY.md](ANATOMY.md#run-brief)), unless a hosted test environment that runs those services is the target; with neither, say so to the person, since no run can carry the scenario out. Its steps drive the path that reaches them, through the API when no screen calls it.
@@ -147,7 +151,7 @@ A promise step 4 left for the Residue because only doubles covered it becomes a 
 
 ### 7. Write the draft and show it
 
-Write the plan to `<working_dir>/qa-plan-pr-<n>.md`, in the shape [ANATOMY.md](ANATOMY.md) gives, with the _Execution record_ exactly `_Not run yet._`. Read it back against [ANATOMY.md](ANATOMY.md): nine sections in order, the marker on line 1 with `format=2`, every claim tagged, no credentials. `node "<skill>/adapter.mjs" plan <file>` must exit 0: it is the check `manual-qa` runs before it accepts a plan. Show the person the draft and where it would be delivered (step 8). Then name each `Review:` box to the person, what to read and what it must say, since no run checks it and only a person ticks it. Ask them to confirm or correct the draft.
+Write the plan to `<working_dir>/qa-plan-pr-<n>.md`, in the shape [ANATOMY.md](ANATOMY.md) gives, with the _Execution record_ exactly `_Not run yet._`. Read it back against [ANATOMY.md](ANATOMY.md): nine sections in order, the marker on line 1 with `format=3`, every claim tagged, no credentials. `node "<skill>/adapter.mjs" plan <file>` must exit 0: it is the check `manual-qa` runs before it accepts a plan. Show the person the draft and where it would be delivered (step 8). Then name each `Review:` box to the person, what to read and what it must say, since no run checks it and only a person ticks it. Ask them to confirm or correct the draft.
 
 **Done when:** the person has confirmed the draft, as written or after the corrections they asked for.
 
@@ -160,14 +164,14 @@ node "<skill>/adapter.mjs" delivery --label <label> --label <label> …
 Pass each of the subject issue's labels. It prints `to`, and the rule that chose it:
 
 - **`working-copy`:** the file from step 7 is the plan. Give the person its path to hand on.
-- **`tracker-issue`:** one issue per subject. Find the one already there before creating one, in this order, and accept a candidate only when its body's first line starts with `<!-- qa-plan format=1 subject=#<n> ` or `<!-- qa-plan format=2 subject=#<n> ` (a plan written before format=2 is still the one to replace):
+- **`tracker-issue`:** one issue per subject. Find the one already there before creating one, in this order, and accept a candidate only when its body's first line starts with `<!-- qa-plan format=1 subject=#<n> `, `<!-- qa-plan format=2 subject=#<n> ` or `<!-- qa-plan format=3 subject=#<n> ` (a plan written in an older format is still the one to replace):
   1. the issue named in the pull request's link comment (the comment whose body starts with `<!-- qa-plan-link -->`);
   2. with a rule `label`, each issue carrying it: `gh issue list --state all --label <label> --limit 200 --json number,body`;
   3. otherwise a search, `gh issue list --state all --search "qa-plan subject=#<n> in:body" --json number,body`, which can lag behind an issue created minutes ago.
 
   Edit the issue found (`gh issue edit <m> --body-file <plan>`). Create one only when none is found (`gh issue create --title "QA Plan: #<n> <title>" --body-file <plan>`, with `--label <label>` when the rule names one), then post the link comment on the pull request: `<!-- qa-plan-link -->` on its first line, then `QA Plan: #<m>`.
 
-- **`pr-comment`:** one comment on the pull request. Find the comment whose body starts with the plan's marker, or the same marker with `format=1`, and edit it; post a new one only when there is none.
+- **`pr-comment`:** one comment on the pull request. Find the comment whose body starts with the plan's marker, or the same marker with `format=1` or `format=2`, and edit it; post a new one only when there is none.
 
 A revision of the plan replaces the delivered one; it never adds a second. With `tracker: none`, the plan stays in the working copy whatever the rules say.
 

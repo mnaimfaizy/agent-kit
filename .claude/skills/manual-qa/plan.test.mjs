@@ -28,6 +28,7 @@ import {
 const HERE = dirname(fileURLToPath(import.meta.url));
 const fixture = (name) => readFileSync(join(HERE, "fixtures", "plans", name), "utf8");
 const GOOD = fixture("good.md");
+const GOOD3 = fixture("good-format-3.md");
 const anatomy = readFileSync(join(HERE, "ANATOMY.md"), "utf8");
 
 /** The good plan with one replacement; the replacement must apply. */
@@ -91,6 +92,9 @@ test("the good plan reads with no problems, and its parts are read out", () => {
       creates: [],
       surface: "web",
       observes: [],
+      capture: "screenshot",
+      captureGiven: false,
+      expectedBefore: null,
     },
     {
       id: "S2",
@@ -100,6 +104,9 @@ test("the good plan reads with no problems, and its parts are read out", () => {
       creates: [],
       surface: "web",
       observes: [],
+      capture: "screenshot",
+      captureGiven: false,
+      expectedBefore: null,
     },
   ]);
   assert.equal(plan.executed, false);
@@ -136,11 +143,11 @@ test("a heading inside a fenced block is not a section", () => {
 
 test("something that is not a plan stops at the marker", () => {
   assert.deepEqual(problemsOf("# Notes\n\nNothing here.\n"), [
-    "line 1: expected the marker `<!-- qa-plan format=2 subject=#<n> pr=#<n> -->`: this is not a QA Plan",
+    "line 1: expected the marker `<!-- qa-plan format=3 subject=#<n> pr=#<n> -->`: this is not a QA Plan",
   ]);
 });
 
-test("a format=1 plan with no per-scenario fields still reads; a format=3 plan is refused", () => {
+test("a format=1 plan with no per-scenario fields still reads; a format=4 plan is refused", () => {
   const old = validatePlan(broken("format=2", "format=1"));
   assert.deepEqual(old.problems, []);
   assert.equal(old.plan.format, 1);
@@ -148,8 +155,8 @@ test("a format=1 plan with no per-scenario fields still reads; a format=3 plan i
     old.plan.scenarios.map((s) => s.surface),
     ["web", "web"],
   );
-  assert.deepEqual(problemsOf(broken("format=2", "format=3")), [
-    "line 1: format=3: this copy of ANATOMY.md reads format=1 and format=2 only",
+  assert.deepEqual(problemsOf(broken("format=2", "format=4")), [
+    "line 1: format=4: this copy of ANATOMY.md reads format=1, format=2 and format=3 only",
   ]);
 });
 
@@ -1475,6 +1482,234 @@ test("`plan` prints each scenario's **Observes:** list", () => {
   assert.deepEqual(
     JSON.parse(result.out).plan.scenarios.map((s) => s.observes),
     [[], ["headers", "httponly-cookies"]],
+  );
+});
+
+// ── What a run captures, and what the merge-base shows (format=3) ───────────
+
+/** The format 3 example plan with one replacement; the replacement must apply. */
+function broken3(from, to) {
+  assert.ok(GOOD3.includes(from), `good-format-3.md has no ${JSON.stringify(from)}`);
+  return GOOD3.replace(from, to);
+}
+const S1_CAPTURE = "- **Capture:** `screenshot`, of the list after the invite is sent\n";
+const S1_BEFORE =
+  "- **Expected before:** the dialog closes, and the list does not show `new@example.test`.\n";
+const S3_CAPTURE = "- **Capture:** transcript\n";
+const CAPTURE_POSITION =
+  "**Capture:** is out of position: it goes right after the scenario's **Observes:** or **Surface:**, or after **Signs in as:** or **Sessions:** (and **Creates:**, when present) when it has neither, before **Steps:**";
+const BEFORE_POSITION =
+  "**Expected before:** is out of position: it goes right after **Expected result:**";
+
+test("a freshly written format 3 plan reads, with each scenario's capture and expected before", () => {
+  const { plan, problems } = validatePlan(GOOD3);
+  assert.deepEqual(problems, []);
+  assert.equal(plan.format, 3);
+  assert.deepEqual(
+    plan.scenarios.map((s) => [s.id, s.surface, s.capture, s.captureGiven, s.expectedBefore]),
+    [
+      [
+        "S1",
+        "web",
+        "screenshot",
+        true,
+        "the dialog closes, and the list does not show `new@example.test`.",
+      ],
+      ["S2", "web", "screenshot", false, null],
+      ["S3", "api", "transcript", true, null],
+    ],
+  );
+  // `capture` reflects the value written: each one its surface allows.
+  for (const [value, from, to, at] of [
+    ["video", S1_CAPTURE, "- **Capture:** video (two tabs race)\n", 0],
+    ["none", S1_CAPTURE, "- **Capture:** **none**\n", 0],
+    ["none", S3_CAPTURE, "- **Capture:** `none`\n", 2],
+  ]) {
+    const text = broken3(from, to);
+    assert.deepEqual(problemsOf(text), [], to);
+    assert.equal(validatePlan(text).plan.scenarios[at].capture, value, to);
+  }
+  // Expected before runs on to the next field, as Expected result does.
+  const long = broken3(S1_BEFORE, `${S1_BEFORE}  The badge **Invited** is missing.\n`);
+  assert.match(validatePlan(long).plan.scenarios[0].expectedBefore, /\n {2}The badge/);
+});
+
+test("format 1 and 2 plans read as before: capture defaults by surface, expectedBefore is null", () => {
+  for (const format of ["format=1", "format=2"]) {
+    const { plan, problems } = validatePlan(broken("format=2", format));
+    assert.deepEqual(problems, [], format);
+    for (const s of plan.scenarios) {
+      assert.equal(s.capture, "screenshot", `${format} ${s.id}`);
+      assert.equal(s.captureGiven, false, `${format} ${s.id}`);
+      assert.equal(s.expectedBefore, null, `${format} ${s.id}`);
+    }
+  }
+  // On `api`, a missing **Capture:** means `transcript`.
+  assert.deepEqual(
+    validatePlan(withSurface()).plan.scenarios.map((s) => [s.id, s.capture, s.captureGiven]),
+    [
+      ["S1", "screenshot", false],
+      ["S2", "transcript", false],
+    ],
+  );
+  const api = validatePlan(broken("- **Surface:** `web`", "- **Surface:** `api`"));
+  assert.deepEqual(
+    api.plan.scenarios.map((s) => s.capture),
+    ["transcript", "transcript"],
+  );
+});
+
+test("**Capture:** or **Expected before:** in a format=1 or format=2 plan is a problem naming the field and format=3", () => {
+  for (const format of ["format=1", "format=2"]) {
+    const capture = broken(S2_SIGNS, `${S2_SIGNS}- **Capture:** screenshot\n`).replace(
+      "format=2",
+      format,
+    );
+    assert.deepEqual(problemsOf(capture), [
+      `line ${lastLineOf(capture, "- **Capture:**")}: S2: **Capture:** is a format=3 field: mark the plan \`format=3\`, or leave it out`,
+    ]);
+    const before = broken(
+      "- **Expected result:** the sign-in page, with the heading **Sign in to continue**.\n",
+      "- **Expected result:** the sign-in page, with the heading **Sign in to continue**.\n- **Expected before:** the members page opens.\n",
+    ).replace("format=2", format);
+    assert.deepEqual(problemsOf(before), [
+      `line ${lastLineOf(before, "- **Expected before:**")}: S2: **Expected before:** is a format=3 field: mark the plan \`format=3\`, or leave it out`,
+    ]);
+  }
+});
+
+test("**Capture:** that the scenario's surface does not take, or outside the four, is a problem naming the scenario", () => {
+  const transcriptOnWeb = broken3(S1_CAPTURE, "- **Capture:** transcript\n");
+  assert.deepEqual(problemsOf(transcriptOnWeb), [
+    `line ${lineOf(transcriptOnWeb, "- **Capture:** transcript")}: S1: **Capture:** \`transcript\` is for an \`api\` scenario, and this one drives \`web\`: use \`screenshot\`, \`video\` or \`none\``,
+  ]);
+  for (const value of ["video", "screenshot"]) {
+    const onApi = broken3(S3_CAPTURE, `- **Capture:** ${value}\n`);
+    assert.deepEqual(problemsOf(onApi), [
+      `line ${lastLineOf(onApi, `- **Capture:** ${value}`)}: S3: **Capture:** \`${value}\` is for a scenario with a screen, and this one drives \`api\`: use \`transcript\` or \`none\``,
+    ]);
+  }
+  // The effective surface decides: S3's own `api`, not the Run brief's `web`.
+  const own = broken3("- **Surface:** `api`\n", "");
+  assert.deepEqual(problemsOf(own), [
+    `line ${lastLineOf(own, "- **Capture:** transcript")}: S3: **Capture:** \`transcript\` is for an \`api\` scenario, and this one drives \`web\`: use \`screenshot\`, \`video\` or \`none\``,
+  ]);
+  const gif = broken3(S1_CAPTURE, "- **Capture:** gif\n");
+  assert.deepEqual(problemsOf(gif), [
+    `line ${lineOf(gif, "- **Capture:**")}: S1: **Capture:** \`gif\`: expected one of: screenshot, video, transcript, none`,
+  ]);
+  const stuck = broken3(S1_CAPTURE, "- **Capture:** video.\n");
+  assert.deepEqual(problemsOf(stuck), [
+    `line ${lineOf(stuck, "- **Capture:**")}: S1: **Capture:** read \`video.\`: a \`.\` is stuck to the value; write \`video\` followed by a space, comma or parenthesis`,
+  ]);
+  const empty = broken3(S1_CAPTURE, "- **Capture:**\n");
+  assert.deepEqual(problemsOf(empty), [
+    `line ${lineOf(empty, "- **Capture:**")}: S1: **Capture:** is empty`,
+  ]);
+});
+
+test("**Capture:** is not judged against a surface whose own **Surface:** was refused", () => {
+  // The writer meant `api`: only the stuck mark is reported, not the Capture too.
+  const stuck = broken3("- **Surface:** `api`\n", "- **Surface:** api.\n");
+  assert.deepEqual(problemsOf(stuck), [
+    `line ${lastLineOf(stuck, "- **Surface:**")}: S3: **Surface:** read \`api.\`: a \`.\` is stuck to the value; write \`api\` followed by a space, comma or parenthesis`,
+  ]);
+  const unknown = broken3("- **Surface:** `api`\n", "- **Surface:** tv\n");
+  assert.deepEqual(problemsOf(unknown), [
+    `line ${lastLineOf(unknown, "- **Surface:**")}: S3: **Surface:** expected one of: web, desktop, mobile, api`,
+  ]);
+});
+
+test("**Capture:** with its value on the next line names the set, not an empty value", () => {
+  const next = broken3(S1_CAPTURE, "- **Capture:**\n  screenshot\n");
+  assert.deepEqual(problemsOf(next), [
+    `line ${lineOf(next, "- **Capture:**")}: S1: **Capture:** expected one of: screenshot, video, transcript, none, first on its line`,
+  ]);
+});
+
+test("a repeated **Capture:** or **Expected before:** is a problem naming the scenario", () => {
+  const capture = broken3(S1_CAPTURE, `${S1_CAPTURE}- **Capture:** none\n`);
+  assert.deepEqual(problemsOf(capture), [
+    `line ${lineOf(capture, "- **Capture:** none")}: S1: a second **Capture:**: a scenario has at most one`,
+  ]);
+  const before = broken3(S1_BEFORE, `${S1_BEFORE}- **Expected before:** nothing happens.\n`);
+  assert.deepEqual(problemsOf(before), [
+    `line ${lineOf(before, "- **Expected before:** nothing")}: S1: a second **Expected before:**: a scenario has at most one`,
+  ]);
+});
+
+test("**Capture:** out of position is a problem naming the scenario", () => {
+  const beforeObserves = broken3(
+    "- **Observes:** status, body\n- **Capture:** transcript\n",
+    "- **Capture:** transcript\n- **Observes:** status, body\n",
+  );
+  assert.deepEqual(problemsOf(beforeObserves), [
+    `line ${lastLineOf(beforeObserves, "- **Capture:** transcript")}: S3: ${CAPTURE_POSITION}`,
+  ]);
+  const beforeSurface = broken3(
+    "- **Surface:** `api`\n- **Observes:** status, body\n- **Capture:** transcript\n",
+    "- **Capture:** transcript\n- **Surface:** `api`\n- **Observes:** status, body\n",
+  );
+  assertProblem(beforeSurface, /S3: \*\*Capture:\*\* is out of position/);
+  const beforeSignIn = broken3(
+    "- **Signs in as:** `admin`\n- **Capture:**",
+    "- **Capture:**",
+  ).replace(S1_CAPTURE, `${S1_CAPTURE}- **Signs in as:** \`admin\`\n`);
+  assertProblem(beforeSignIn, /S1: \*\*Capture:\*\* is out of position/);
+  const late = broken3(S1_CAPTURE, "").replace(S1_BEFORE, `${S1_BEFORE}${S1_CAPTURE}`);
+  assert.deepEqual(problemsOf(late), [
+    `line ${lineOf(late, "- **Capture:**")}: S1: ${CAPTURE_POSITION}`,
+  ]);
+  // With no **Observes:** or **Surface:**, right after the sign-in field reads.
+  const signs = broken(S2_SIGNS, `${S2_SIGNS}- **Capture:** none\n`).replace(
+    "format=2",
+    "format=3",
+  );
+  assert.deepEqual(problemsOf(signs), []);
+  assert.equal(validatePlan(signs).plan.scenarios[1].capture, "none");
+  const sessions = withSessions()
+    .replace("format=2", "format=3")
+    .replace("(each in its own browser)\n", "(each in its own browser)\n- **Capture:** video\n");
+  assert.deepEqual(problemsOf(sessions), []);
+  assert.equal(validatePlan(sessions).plan.scenarios[0].capture, "video");
+});
+
+test("**Expected before:** that follows anything other than **Expected result:** is a problem", () => {
+  const afterFailure = broken3(S1_BEFORE, "").replace(
+    "- **A failure means:** the dialog does not save an invitation.\n",
+    `- **A failure means:** the dialog does not save an invitation.\n${S1_BEFORE}`,
+  );
+  assert.deepEqual(problemsOf(afterFailure), [
+    `line ${lineOf(afterFailure, "- **Expected before:**")}: S1: ${BEFORE_POSITION}`,
+  ]);
+  const beforeResult = broken3(S1_BEFORE, "").replace(
+    "- **Expected result:** the list shows",
+    `${S1_BEFORE}- **Expected result:** the list shows`,
+  );
+  assert.deepEqual(problemsOf(beforeResult), [
+    `line ${lineOf(beforeResult, "- **Expected before:**")}: S1: ${BEFORE_POSITION}`,
+  ]);
+  const afterRuleOut = broken3(S1_BEFORE, "").replace(
+    "  - `docs/agents/qa-hazards/auth.md`: a session cookie left over from an earlier run.\n",
+    `  - \`docs/agents/qa-hazards/auth.md\`: a session cookie left over from an earlier run.\n${S1_BEFORE}`,
+  );
+  assertProblem(afterRuleOut, /S1: \*\*Expected before:\*\* is out of position/);
+  const empty = broken3(S1_BEFORE, "- **Expected before:**\n");
+  assert.deepEqual(problemsOf(empty), [
+    `line ${lineOf(empty, "- **Expected before:**")}: S1: **Expected before:** is empty`,
+  ]);
+});
+
+test("`plan` prints each scenario's capture, whether the plan gave it, and expected before", () => {
+  const result = main(["plan"], { read: () => null, stdin: () => GOOD3 });
+  assert.equal(result.code, 0);
+  assert.deepEqual(
+    JSON.parse(result.out).plan.scenarios.map((s) => [s.capture, s.captureGiven, s.expectedBefore]),
+    [
+      ["screenshot", true, "the dialog closes, and the list does not show `new@example.test`."],
+      ["screenshot", false, null],
+      ["transcript", true, null],
+    ],
   );
 });
 

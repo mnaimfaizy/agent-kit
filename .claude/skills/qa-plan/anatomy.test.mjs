@@ -196,15 +196,17 @@ test("the execution record is empty after compose", () => {
 });
 
 test("the marker line names the format, the subject and the pull request", () => {
-  assert.match(anatomy, /<!-- qa-plan format=2 subject=#\d+ pr=#\d+ -->/);
-  assert.doesNotMatch(anatomy, /<!-- qa-plan format=1 subject=/);
+  assert.match(anatomy, /<!-- qa-plan format=3 subject=#\d+ pr=#\d+ -->/);
+  assert.doesNotMatch(anatomy, /<!-- qa-plan format=[12] subject=/);
 });
 
-test("ANATOMY.md says which formats a copy reads, and that format=1 has no per-scenario field", () => {
+test("ANATOMY.md says which formats a copy reads, and which fields each format carries", () => {
   const shape = section("Shape");
-  assert.match(shape, /The composer writes `format=2`/);
-  assert.match(shape, /reads `format=1` and `format=2`/);
+  assert.match(shape, /The composer writes `format=3`/);
+  assert.match(shape, /reads `format=1`, `format=2` and `format=3`/);
   assert.match(shape, /A `format=1` plan carries no per-scenario field/);
+  assert.match(shape, /A `format=2` plan carries no \*\*Capture:\*\* or \*\*Expected before:\*\*/);
+  assert.match(shape, /naming the field and the format it needs/);
   assert.match(shape, /refuses any other `format`/);
 });
 
@@ -218,7 +220,7 @@ test("a scenario may carry its own Surface, after its sign-in fields and before 
     /\*\*Surface:\*\* when this scenario drives another surface than the Run brief's \*\*Surface:\*\* \(one that repeats the Run brief's is accepted and changes nothing\)/,
   );
   assert.match(scenarios, /\[first-word value\]\(#first-word-values\)/);
-  assert.match(scenarios, /`format=2` only/);
+  assert.match(scenarios, /`format=2` or later/);
   const brief = section("Run brief");
   assert.match(brief, /the plan's default/);
   assert.match(brief, /a scenario's own \*\*Surface:\*\* overrides it/);
@@ -228,12 +230,13 @@ test("a scenario may carry its own Surface, after its sign-in fields and before 
 test("SKILL.md writes plans in this format and delivers by the same marker", () => {
   assert.match(skill, /\[ANATOMY\.md\]\(ANATOMY\.md\)/);
   assert.match(skill, /`_Not run yet\._`/);
-  assert.match(skill, /qa-plan format=2 subject=#<n>/);
-  // A revision still finds the plan it replaces when that plan was written as format=1.
+  assert.match(skill, /the marker on line 1 with `format=3`/);
+  // A revision still finds the plan it replaces when that plan was written in an older format.
   assert.match(
     skill,
-    /`<!-- qa-plan format=1 subject=#<n> ` or `<!-- qa-plan format=2 subject=#<n> `/,
+    /`<!-- qa-plan format=1 subject=#<n> `, `<!-- qa-plan format=2 subject=#<n> ` or `<!-- qa-plan format=3 subject=#<n> `/,
   );
+  assert.match(skill, /the same marker with `format=1` or `format=2`/);
 });
 
 test("SKILL.md step 6 picks each scenario's surface from what its expected result observes", () => {
@@ -429,4 +432,74 @@ test("a promise only reading can check is a `Review:` box, never a scenario (#20
   assert.match(compose, /never dropped/);
   const draft = step(7).replace(/\s+/g, " ");
   assert.match(draft, /name each `Review:` box to the person/);
+});
+
+test("a scenario may say what its run captures, after Observes and before Steps (format=3)", () => {
+  const scenarios = section("Scenarios");
+  const labels = [...scenarios.matchAll(/^- \*\*([^*]+):\*\*/gm)].map((m) => m[1]);
+  const at = (label) => labels.indexOf(label);
+  assert.ok(at("Capture") > at("Observes") && at("Capture") < at("Steps"), labels.join(" · "));
+  const capture = scenarios.split("\n").find((line) => line.startsWith("- **Capture:**"));
+  assert.match(capture, /`screenshot`, `video`, `transcript` or `none`/);
+  assert.match(capture, /`transcript` is for a scenario whose surface .* is `api`/);
+  assert.match(capture, /`screenshot` and `video` are for one with a screen, never `api`/);
+  assert.match(
+    capture,
+    /Missing, it means `screenshot` on a screen surface and `transcript` on `api`/,
+  );
+  assert.match(capture, /wherever \*\*Observes:\*\* would sit/);
+  assert.match(capture, /once at most/);
+  assert.match(capture, /`format=3` or later/);
+  assert.match(section("Shape"), /\*\*Capture:\*\* and \*\*Signs in as:\*\*/);
+});
+
+test("a fix scenario carries Expected before, right after Expected result (format=3)", () => {
+  const scenarios = section("Scenarios");
+  const labels = [...scenarios.matchAll(/^- \*\*([^*]+):\*\*/gm)].map((m) => m[1]);
+  assert.equal(
+    labels[labels.indexOf("Expected result") + 1],
+    "Expected before",
+    labels.join(" · "),
+  );
+  const before = scenarios.split("\n").find((line) => line.startsWith("- **Expected before:**"));
+  assert.match(before, /what the tester sees at the merge-base, where the change is not yet made/);
+  assert.match(before, /under the same rules as \*\*Expected result:\*\*/);
+  assert.match(before, /Right after \*\*Expected result:\*\*, once at most/);
+  assert.match(before, /`format=3` or later/);
+  assert.match(scenarios, /^### Fix scenarios$/m);
+  assert.match(scenarios, /It is the scenario that carries \*\*Expected before:\*\*/);
+  assert.match(scenarios, /A scenario without one runs at the head only/);
+  assert.match(
+    scenarios,
+    /from the issue's reproduction, or from what the merge-base does, never invented/,
+  );
+  // The example shows both fields, in their places.
+  const example = /### Fix scenarios[\s\S]*?```markdown\n([\s\S]*?)```/.exec(scenarios)[1];
+  const shown = [...example.matchAll(/^- \*\*([^*]+):\*\*/gm)].map((m) => m[1]);
+  assert.deepEqual(shown, [
+    "Why only a human can prove it",
+    "Signs in as",
+    "Capture",
+    "Steps",
+    "Expected result",
+    "Expected before",
+    "A failure means",
+  ]);
+});
+
+test("SKILL.md step 6 writes **Expected before:** for a fix and **Capture:** by what the result needs", () => {
+  const flat = skill.replace(/\s+/g, " ");
+  assert.match(
+    flat,
+    /Give a scenario \*\*Expected before:\*\* when it proves a defect is fixed: the subject issue or a child issue is a bug, or the promise reads as a fix/,
+  );
+  assert.match(
+    flat,
+    /drawn from the issue's reproduction or the merge-base's behaviour, never invented/,
+  );
+  assert.match(
+    flat,
+    /`video` for a multi-session or timing-dependent scenario with a screen, `transcript` on `api`, `none` where an image would show nothing the written result does not, and otherwise `screenshot`, or leave it out/,
+  );
+  assert.match(flat, /\[ANATOMY\.md\]\(ANATOMY\.md#fix-scenarios\)/);
 });
