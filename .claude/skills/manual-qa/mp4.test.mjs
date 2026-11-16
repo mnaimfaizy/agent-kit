@@ -17,7 +17,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import { after, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
@@ -56,16 +56,24 @@ const NEEDS_BOTH =
     ? false
     : "Playwright with Chromium is not installed in this repository");
 
+/**
+ * A folder with empty `ffmpeg` and `ffprobe` files: `mp4.mjs` looks only for the files on
+ * `PATH`, so the refusals are tested where ffmpeg is not installed. ffmpeg itself runs from
+ * the real `PATH`.
+ */
+const STAND_IN_BIN = mkdtempSync(join(tmpdir(), "mp4-bin-"));
+writeFileSync(join(STAND_IN_BIN, "ffmpeg"), "");
+writeFileSync(join(STAND_IN_BIN, "ffprobe"), "");
 /** The variables the run used, and `PATH`, where `mp4.mjs` finds ffmpeg and ffprobe. */
 const ENV = {
   QA_A_EMAIL: "admin@example.test",
   QA_A_PASSWORD: "Corr3ct-Horse-Battery",
-  PATH: process.env.PATH,
+  PATH: [STAND_IN_BIN, process.env.PATH].join(delimiter),
 };
 /** A made-up JWT, joined at run time so no token-shaped literal sits in the file. */
 const JWT = ["eyJhbGciOiJIUzI1NiJ9", "eyJzdWIiOiIxIn0", "c2lnbmF0dXJl"].join(".");
 
-const dirs = [];
+const dirs = [STAND_IN_BIN];
 after(() => dirs.forEach((dir) => rmSync(dir, { recursive: true, force: true })));
 
 /** A copy of the fixture run folder; with ffmpeg, a 4-second recording beside each step file. */
@@ -162,32 +170,40 @@ test("the timing line gives the wall clock in the run's zone, the time since the
   const startedAt = "2026-11-16T10:04:12.000+11:00";
   assert.equal(
     timingLine({ side: "After", startedAt, atMs: 2500, beforeAtMs: 2800 }),
-    "10:04:14.5 UTC+11:00 · 2.5 s since After started · After -0.3 s",
+    "10:04:14 UTC+11:00 · 2.5 s since After started · After -0.3 s",
   );
   assert.equal(
     timingLine({ side: "After", startedAt, atMs: 3200, beforeAtMs: 1900 }),
-    "10:04:15.2 UTC+11:00 · 3.2 s since After started · After +1.3 s",
+    "10:04:15 UTC+11:00 · 3.2 s since After started · After +1.3 s",
   );
   // Before has no difference; nor has After without a paired Before step.
   assert.equal(
     timingLine({ side: "Before", startedAt: "2026-11-16T10:01:30.000+11:00", atMs: 2800 }),
-    "10:01:32.8 UTC+11:00 · 2.8 s since Before started",
+    "10:01:32 UTC+11:00 · 2.8 s since Before started",
   );
   assert.equal(
     timingLine({ side: "After", startedAt, atMs: 2500, beforeAtMs: null }),
-    "10:04:14.5 UTC+11:00 · 2.5 s since After started",
+    "10:04:14 UTC+11:00 · 2.5 s since After started",
   );
-  // An equal time is +0.0, never -0.0.
+  // A lead and a lag of the same size read the same; an equal time is +0.0, never -0.0.
+  assert.match(
+    timingLine({ side: "After", startedAt, atMs: 1250, beforeAtMs: 0 }),
+    /After \+1\.3 s$/,
+  );
+  assert.match(
+    timingLine({ side: "After", startedAt, atMs: 0, beforeAtMs: 1250 }),
+    /After -1\.3 s$/,
+  );
   assert.match(
     timingLine({ side: "After", startedAt, atMs: 1000, beforeAtMs: 1040 }),
     /After \+0\.0 s$/,
   );
 });
 
-test("the wall clock is the start time's own zone, rolls over midnight, and never the machine's", () => {
-  assert.equal(wallClock("2026-11-16T23:59:59.900Z", 100), "00:00:00.0 UTC");
-  assert.equal(wallClock("2026-11-16T10:00:00-05:30", 61_240), "10:01:01.2 UTC-05:30");
-  assert.equal(wallClock("2026-11-16T10:00:00+00:00", 0), "10:00:00.0 UTC");
+test("the wall clock is whole seconds in the start time's own zone, rolls over midnight, and never the machine's", () => {
+  assert.equal(wallClock("2026-11-16T23:59:59.900Z", 100), "00:00:00 UTC");
+  assert.equal(wallClock("2026-11-16T10:00:00-05:30", 61_240), "10:01:01 UTC-05:30");
+  assert.equal(wallClock("2026-11-16T10:00:00+00:00", 0), "10:00:00 UTC");
   assert.throws(() => wallClock("2026-11-16 10:00:00", 0), /not a start time/);
 });
 
@@ -234,10 +250,15 @@ test("a fix scenario plays two sides, each step held and the stretch between ste
   assert.deepEqual(
     held.map((o) => o.timing),
     [
-      "10:04:13.5 UTC+11:00 · 1.5 s since After started · After +0.2 s",
-      "10:04:14.5 UTC+11:00 · 2.5 s since After started · After -0.3 s",
-      "10:04:15.2 UTC+11:00 · 3.2 s since After started · After +0.2 s",
+      "10:04:13 UTC+11:00 · 1.5 s since After started · After +0.2 s",
+      "10:04:14 UTC+11:00 · 2.5 s since After started · After -0.3 s",
+      "10:04:15 UTC+11:00 · 3.2 s since After started · After +0.2 s",
     ],
+  );
+  // Between steps, the line gives the stretch's ends on that side.
+  assert.equal(
+    laid.sides[1].overlays[1].timing,
+    "played at 0.5× speed from step 1 (1.5 s) to step 2 (2.5 s since After started)",
   );
   // One overlay per piece on each side, in the pieces' order.
   for (const side of laid.sides) assert.equal(side.overlays.length, laid.pieces.length);
@@ -251,7 +272,7 @@ test("a feature scenario plays After alone, and says why Before is not beside it
   );
   assert.equal(laid.beforeNote, "Before: not run, a feature scenario runs After only");
   assert.equal(laid.seconds, 2 * HOLD_SECONDS + 1.5 / BETWEEN_SPEED);
-  assert.equal(laid.sides[0].overlays[0].timing, "10:06:00.8 UTC · 0.8 s since After started");
+  assert.equal(laid.sides[0].overlays[0].timing, "10:06:00 UTC · 0.8 s since After started");
 });
 
 test("a Before not run, or with no recording of the Session, leaves After alone", () => {
@@ -343,7 +364,7 @@ test("the band and every caption are pages in the Storyboard's style, one per pi
   assert.match(pages[1].html, /Before · step 1 of 3, Session A/);
   assert.match(
     pages.at(-1).html,
-    /10:04:15\.2 UTC\+11:00 · 3\.2 s since After started · After \+0\.2 s/,
+    /10:04:15 UTC\+11:00 · 3\.2 s since After started · After \+0\.2 s/,
   );
   // Self-contained: no script and nothing fetched.
   for (const { html } of pages) assert.doesNotMatch(html, /<script|src="http|url\(/);
@@ -465,7 +486,10 @@ test("a missing or zoneless start time, or a variable not given, is a problem an
   const { metaPath } = runFolder({ scenario: "s2", videos: false });
   result = await main(["build", metaPath], { env: { PATH: "" }, renderer: standIn });
   assert.equal(result.code, 2);
-  result = await main(["build", noZone.metaPath], { env: {}, renderer: standIn });
+  result = await main(["build", noZone.metaPath], {
+    env: { PATH: ENV.PATH },
+    renderer: standIn,
+  });
   assert.match(JSON.parse(result.out).problems[0], /QA_A_EMAIL is not set/);
 });
 
@@ -478,6 +502,14 @@ test("without ffmpeg no MP4 is made, the Storyboard is kept, the reason is given
   });
   assert.equal(code, 2, out);
   assert.deepEqual(JSON.parse(out), { written: false, reason: NO_FFMPEG });
+  // ffmpeg is looked for first: a file problem without it is the same reason, not a refusal.
+  const zoneless = runFolder({
+    videos: false,
+    edit: (m) => ({ ...m, after: { ...m.after, startedAt: "10:04" } }),
+  });
+  const first = await main(["build", zoneless.metaPath], { env: { ...ENV, PATH: "" } });
+  assert.equal(first.code, 2);
+  assert.equal(JSON.parse(first.out).reason, NO_FFMPEG);
   assert.equal(readFileSync(join(dir, "s1-storyboard.png"), "utf8"), "the Storyboard");
   assert.equal(existsSync(join(dir, "s1.mp4")), false);
   // The row keeps its Storyboard, its note says why, and `report.mjs read` accepts it.

@@ -490,7 +490,6 @@ export function bandHtml(band) {
  */
 export function pageHtml(body, { pageWidth, cellWidth, failed }) {
   const p = PALETTE;
-  const width = cellWidth;
   return `<!doctype html><html><head><meta charset="utf-8"><style>
 *{box-sizing:border-box}
 body{margin:0;width:${pageWidth}px;background:${p.page};color:${p.ink};font:15px/1.4 -apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif}
@@ -505,7 +504,7 @@ body{margin:0;width:${pageWidth}px;background:${p.page};color:${p.ink};font:15px
 .meta{margin-top:12px;color:${p.muted};font-size:13px}
 .heads{display:flex;gap:16px;padding:12px 24px 0;color:${p.muted};font-weight:600}
 .heads span:first-child{width:56px}
-.heads span{width:${width}px}
+.heads span{width:${cellWidth}px}
 .row{display:flex;gap:16px;align-items:flex-start;padding:12px 24px;border-bottom:1px solid ${p.line}}
 .row.proves{background:#eef4ff;box-shadow:inset 4px 0 0 ${p.proves}}
 .number{width:56px;font-size:22px;font-weight:700}
@@ -515,7 +514,7 @@ body{margin:0;width:${pageWidth}px;background:${p.page};color:${p.ink};font:15px
 .frame img{position:absolute;max-width:none}
 .frame.empty{display:flex;align-items:center;justify-content:center;color:${p.muted};font-weight:600;padding:16px;text-align:center}
 .outline{position:absolute;outline:3px solid ${p.outline};outline-offset:0}
-.caption{margin-top:4px;width:${width}px;font-size:13px}
+.caption{margin-top:4px;width:${cellWidth}px;font-size:13px}
 .note{flex:1;padding-top:4px;color:${p.muted};font-size:13px}
 </style></head><body>
 ${body}

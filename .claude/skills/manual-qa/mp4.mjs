@@ -16,8 +16,8 @@
 //     shorter waits on its step's frame, so both sides reach each step together.
 //   - Overlaid: the Storyboard's band across the top, and under each side the
 //     step's caption with a timing line beneath it (the wall-clock time with its
-//     zone, the time since the side started, and on After its difference from
-//     Before). The band and captions are images from the Storyboard's renderer;
+//     zone, in whole seconds, the time since the side started, and on After its
+//     difference from Before). The band and captions are images from the Storyboard's renderer;
 //     ffmpeg only scales, pads, stacks and joins them.
 //   - The caption privacy check runs first, over everything the Storyboard
 //     shows and every text the MP4 adds: on a refusal nothing is written, each
@@ -69,10 +69,8 @@ export const FPS = 25;
 export const SIDE = Object.freeze({ width: 960, height: 540 });
 
 export const NO_FFMPEG = "no MP4: no ffmpeg with ffprobe on PATH; the row keeps its Storyboard";
-export const NO_CHROMIUM_MP4 = NO_CHROMIUM.replace(/^no Storyboard/, "no MP4").replace(
-  /the row keeps its plain stills$/,
-  "no band or captions to overlay",
-);
+export const NO_CHROMIUM_MP4 =
+  "no MP4: no Playwright with Chromium in this repository, so no band or captions to overlay";
 
 const SCENARIO = /^S\d+$/;
 /** The recording names `web.mjs` writes: a plain file name, so nothing outside its folder is read. */
@@ -90,8 +88,12 @@ const tenths = (ms) => (ms / 1000).toFixed(1);
 // ── The timing line ─────────────────────────────────────────────────────────
 
 /**
- * A wall-clock time in a start time's own zone, to the tenth of a second:
- * `10:04:14.5 UTC+11:00`. The machine's zone plays no part.
+ * A wall-clock time in a start time's own zone, to the second: `10:04:15 UTC+11:00`.
+ * Whole seconds only: `startedAt` is the runner's note of when it started
+ * `web.mjs`, which counts `atMs` from its own start a moment later, so the
+ * wall clock is as close as that start-up and no closer. The time since the
+ * side started and the difference from Before are exact. The machine's zone
+ * plays no part.
  * @param {string} startedAt ISO 8601 with `Z` or an offset
  * @param {number} atMs milliseconds after it
  */
@@ -99,10 +101,10 @@ export function wallClock(startedAt, atMs) {
   const zone = /(?:Z|([+-])(\d{2}):(\d{2}))$/.exec(startedAt);
   if (!zone || !STARTED_AT.test(startedAt)) throw new Error(`not a start time: ${startedAt}`);
   const offsetMin = zone[1] ? (zone[1] === "-" ? -1 : 1) * (+zone[2] * 60 + +zone[3]) : 0;
-  const local = Math.round((Date.parse(startedAt) + atMs + offsetMin * 60_000) / 100) * 100;
+  const local = Math.floor((Date.parse(startedAt) + atMs + offsetMin * 60_000) / 1000) * 1000;
   const d = new Date(local);
   const two = (n) => String(n).padStart(2, "0");
-  const clock = `${two(d.getUTCHours())}:${two(d.getUTCMinutes())}:${two(d.getUTCSeconds())}.${Math.floor(d.getUTCMilliseconds() / 100)}`;
+  const clock = `${two(d.getUTCHours())}:${two(d.getUTCMinutes())}:${two(d.getUTCSeconds())}`;
   return `${clock} ${offsetMin === 0 ? "UTC" : `UTC${zone[1]}${zone[2]}:${zone[3]}`}`;
 }
 
@@ -115,8 +117,10 @@ export function wallClock(startedAt, atMs) {
 export function timingLine({ side, startedAt, atMs, beforeAtMs = null }) {
   const parts = [wallClock(startedAt, atMs), `${tenths(atMs)} s since ${side} started`];
   if (side === "After" && Number.isFinite(beforeAtMs)) {
-    const diff = Math.round((atMs - /** @type {number} */ (beforeAtMs)) / 100);
-    parts.push(`After ${diff < 0 ? "-" : "+"}${(Math.abs(diff) / 10).toFixed(1)} s`);
+    const ms = atMs - /** @type {number} */ (beforeAtMs);
+    // Rounded half away from zero, so a lead and a lag of the same size read the same.
+    const diff = Math.round(Math.abs(ms) / 100);
+    parts.push(`After ${ms < 0 && diff ? "-" : "+"}${(diff / 10).toFixed(1)} s`);
   }
   return parts.join(" · ");
 }
@@ -124,19 +128,23 @@ export function timingLine({ side, startedAt, atMs, beforeAtMs = null }) {
 // ── The timeline ────────────────────────────────────────────────────────────
 
 /** The Session the MP4 follows: the one `proves` names, or the first After step's. */
-export const sessionOf = (records, meta) => meta.proves?.session ?? records.after[0]?.session;
+const sessionOf = (records, meta) => meta.proves?.session ?? records.after[0]?.session;
 
 /**
  * Why Before does not play beside After, or null when it does: Before ran and
  * has a recording of the Session.
  */
-export function beforeNoteFor(meta, raw, session) {
+/** A side's recording of the Session, by the name `web.mjs` gives it, or null. */
+function videoOf(file, session) {
+  const name = file?.sessions?.[session]?.video;
+  return typeof name === "string" && VIDEO_NAME.test(name) ? name : null;
+}
+
+function beforeNoteFor(meta, raw, session) {
   const before = isObject(meta.before) ? meta.before : null;
   if (!before) return "Before: not run, a feature scenario runs After only";
   if (BEFORE_UNSEEN.includes(before.state)) return `Before ${before.state}: ${before.observed}`;
-  const name = raw.before?.sessions?.[session]?.video;
-  if (!(typeof name === "string" && VIDEO_NAME.test(name)))
-    return `Before: no recording of Session ${session}`;
+  if (!videoOf(raw.before, session)) return `Before: no recording of Session ${session}`;
   return null;
 }
 
@@ -165,10 +173,6 @@ export function timeline(records, meta, raw) {
   const session = sessionOf(records, meta);
   const afterSteps = records.after.filter((r) => r.session === session);
   if (!afterSteps.length) throw new Error("After has no steps to show");
-  const video = (file) => {
-    const name = file?.sessions?.[session]?.video;
-    return typeof name === "string" && VIDEO_NAME.test(name) ? name : null;
-  };
   const startOf = (file) => {
     const ms = file?.sessions?.[session]?.startedAtMs;
     return Number.isFinite(ms) ? ms : 0;
@@ -209,7 +213,11 @@ export function timeline(records, meta, raw) {
           field: `${where}: MP4 lead-in`,
           heading: `${name} · on to step ${s.index} of ${n}, Session ${session}`,
           caption: s.caption,
-          timing: `played at ${BETWEEN_SPEED}× speed from step ${steps[k - 1].index}`,
+          timing:
+            `played at ${BETWEEN_SPEED}× speed from step ${steps[k - 1].index}` +
+            (s.atMs !== null && steps[k - 1].atMs !== null
+              ? ` (${tenths(steps[k - 1].atMs)} s) to step ${s.index} (${tenths(s.atMs)} s since ${name} started)`
+              : ""),
         });
       const paired = beforeBy.get(s.index);
       overlays.push({
@@ -227,7 +235,7 @@ export function timeline(records, meta, raw) {
               }),
       });
     });
-    return { side: name, video: video(file), startedAt, steps, overlays };
+    return { side: name, video: videoOf(file, session), startedAt, steps, overlays };
   };
 
   const sides = [
@@ -302,7 +310,7 @@ export function overlayPages(laid, meta, records) {
 }
 
 /** A PNG's width and height, from its IHDR chunk. @param {Buffer} png */
-export function pngSize(png) {
+function pngSize(png) {
   if (png.subarray(1, 4).toString() !== "PNG") throw new Error("an overlay is not a PNG");
   return { width: png.readUInt32BE(16), height: png.readUInt32BE(20) };
 }
@@ -427,7 +435,7 @@ const spawn = (command, args) => {
 // ── The scenario file's start times ─────────────────────────────────────────
 
 /** Problems with the start times the timing line reads, each naming its field. */
-export function checkStartTimes(meta, two) {
+function checkStartTimes(meta, two) {
   const problems = [];
   const check = (value, where) => {
     if (typeof value !== "string" || !STARTED_AT.test(value) || Number.isNaN(Date.parse(value)))
@@ -448,7 +456,7 @@ const USAGE = "usage: node mp4.mjs build <s<n>-storyboard.json> [--out <file.mp4
 /**
  * @param {string[]} argv the arguments after the script
  * @param {{env?: Record<string, string | undefined>, cwd?: string,
- *   renderer?: (pages: {html: string, width: number}[]) => Promise<Buffer[]>,
+ *   renderer?: (pages: {html: string, width: number, height?: number}[]) => Promise<Buffer[]>,
  *   run?: (command: string, args: string[]) => {status: number | null, stdout: string, stderr: string}}} [io]
  *   `renderer` turns overlay pages into PNG bytes (a seam for tests; Chromium's by default);
  *   `run` runs ffmpeg and ffprobe (found on `env.PATH`)
@@ -481,6 +489,8 @@ export async function main(argv, io = {}) {
     if (mp4) rmSync(mp4, { force: true });
     return { code, out: json({ written: false, ...body }) };
   };
+  // Without ffmpeg there is no MP4 to check or refuse: the row keeps its Storyboard.
+  if (!onPath("ffmpeg", env) || !onPath("ffprobe", env)) return none(2, { reason: NO_FFMPEG });
   if (loaded.problems.length) return none(1, { problems: loaded.problems });
   const unset = (meta.variables ?? []).filter((name) => !env[name]);
   if (unset.length)
@@ -512,7 +522,6 @@ export async function main(argv, io = {}) {
     return none(1, { refused });
   }
 
-  if (!onPath("ffmpeg", env) || !onPath("ffprobe", env)) return none(2, { reason: NO_FFMPEG });
   const dirs = { Before: loaded.records.beforeDir, After: loaded.records.afterDir };
   const videos = laid.sides.map((s) => (s.video ? join(dirs[s.side], s.video) : null));
   const lacking = laid.sides.find((s, i) => !videos[i] || !existsSync(videos[i]));
@@ -557,8 +566,9 @@ export async function main(argv, io = {}) {
     const [band, ...rest] = files;
     const per = laid.pieces.length;
     const captions = laid.sides.map((_, i) => rest.slice(i * per, (i + 1) * per));
-    const encoders = run("ffmpeg", ["-hide_banner", "-encoders"]).stdout;
-    const encoder = /\blibx264\b/.test(encoders) ? "libx264" : "mpeg4";
+    const encoders = run("ffmpeg", ["-hide_banner", "-encoders"]);
+    if (encoders.status !== 0) return failed(`ffmpeg did not run (${firstLine(encoders.stderr)})`);
+    const encoder = /\blibx264\b/.test(encoders.stdout) ? "libx264" : "mpeg4";
     const built = run(
       "ffmpeg",
       ffmpegArgs(laid, {
