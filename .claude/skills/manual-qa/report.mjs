@@ -755,7 +755,11 @@ function linkEvidence(text, links) {
   for (const [path, url] of Object.entries(links))
     out = out
       .split(`\`${path}\``)
-      .join(STORYBOARD.test(path) ? `[![${path}](${url})](${url})` : `[\`${path}\`](${url})`);
+      .join(
+        STORYBOARD.test(path.replace(/\\/g, "/"))
+          ? `[![${path}](${url})](${url})`
+          : `[\`${path}\`](${url})`,
+      );
   return out;
 }
 

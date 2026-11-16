@@ -1188,6 +1188,13 @@ test("an uploaded Storyboard shows as an image, and an uploaded MP4 as a link (#
   assert.ok(body.includes(`[\`${p57("s1.mp4")}\`](${video})`));
   // A still that was not uploaded stays a local path.
   assert.ok(body.includes(`\`${p57("s1-web/step-02-a.png")}\` `));
+  // A Storyboard written with backslashes shows as an image too.
+  const slashedBoard = "qa-report-pr-57\\s1-storyboard.png";
+  const slashed = reportComment(BOARDS.replace(p57("s1-storyboard.png"), slashedBoard), {
+    links: { [slashedBoard]: board },
+  });
+  assert.deepEqual(slashed.problems, []);
+  assert.ok(slashed.body.includes(`[![${slashedBoard}](${board})](${board})`), slashed.body);
 });
 
 test("a report that carries a sign-in value is not posted", () => {
