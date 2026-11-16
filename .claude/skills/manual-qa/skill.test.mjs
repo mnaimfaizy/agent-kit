@@ -87,7 +87,8 @@ test("the Before pass runs only the pull request's own merge-base, and clears a 
     'git merge-base "origin/<base>" <head>',
     "`not observed: the plan's merge-base is not the pull request's`",
     // A killed run's Before stack is torn down from its own worktree before that is removed.
-    "run `down` with that folder as the working folder, and stop each process still running in a left-over `stack-pids-before.txt`, and only those",
+    "run `down` with that folder as the working folder, which is how the stack's own tooling stops it",
+    "Never stop an id from a left-over `stack-pids-before.txt`",
     'git worktree remove --force "<working_dir>/qa-before-pr-<n>"',
     "git worktree prune",
     'git worktree add --detach "<working_dir>/qa-before-pr-<n>" <merge-base>',
@@ -100,6 +101,10 @@ test("the Before pass runs only the pull request's own merge-base, and clears a 
   }
   assert.match(before, /Without `gh` access, the merge-base cannot be checked/);
   assert.match(before, /replacing any worktree an earlier run left/);
+  assert.match(
+    before,
+    /a killed earlier run may have left processes running, for a person to stop/,
+  );
   // ADAPTER.md names the limit of a worktree inside the repository.
   assert.match(
     adapter.replace(/\s+/g, " "),
