@@ -1608,6 +1608,25 @@ test("**Capture:** that the scenario's surface does not take, or outside the fou
   ]);
 });
 
+test("**Capture:** is not judged against a surface whose own **Surface:** was refused", () => {
+  // The writer meant `api`: only the stuck mark is reported, not the Capture too.
+  const stuck = broken3("- **Surface:** `api`\n", "- **Surface:** api.\n");
+  assert.deepEqual(problemsOf(stuck), [
+    `line ${lastLineOf(stuck, "- **Surface:**")}: S3: **Surface:** read \`api.\`: a \`.\` is stuck to the value; write \`api\` followed by a space, comma or parenthesis`,
+  ]);
+  const unknown = broken3("- **Surface:** `api`\n", "- **Surface:** tv\n");
+  assert.deepEqual(problemsOf(unknown), [
+    `line ${lastLineOf(unknown, "- **Surface:**")}: S3: **Surface:** expected one of: web, desktop, mobile, api`,
+  ]);
+});
+
+test("**Capture:** with its value on the next line names the set, not an empty value", () => {
+  const next = broken3(S1_CAPTURE, "- **Capture:**\n  screenshot\n");
+  assert.deepEqual(problemsOf(next), [
+    `line ${lineOf(next, "- **Capture:**")}: S1: **Capture:** expected one of: screenshot, video, transcript, none, first on its line`,
+  ]);
+});
+
 test("a repeated **Capture:** or **Expected before:** is a problem naming the scenario", () => {
   const capture = broken3(S1_CAPTURE, `${S1_CAPTURE}- **Capture:** none\n`);
   assert.deepEqual(problemsOf(capture), [

@@ -1819,6 +1819,8 @@ export function validatePlan(text) {
         at(head.n, `${id}: its fields are out of order (ANATOMY.md, "Scenarios")`);
       // A Surface per scenario (#203): checked on its own line, apart from the order above.
       let surface = plan.brief.surface;
+      /** False when the scenario's own **Surface:** was refused: its surface is then unknown. */
+      let surfaceKnown = true;
       const surfaces = found.filter((entry) => entry.label === SCENARIO_SURFACE);
       for (const extra of surfaces.slice(1))
         at(extra.n, `${id}: a second **${SCENARIO_SURFACE}:**: a scenario has at most one`);
@@ -1845,6 +1847,7 @@ export function validatePlan(text) {
         else if (!SURFACES.includes(word))
           at(own.n, `${id}: **${SCENARIO_SURFACE}:** expected one of: ${SURFACES.join(", ")}`);
         else surface = word;
+        if (surface !== word) surfaceKnown = false;
       }
       // What the scenario observes (#204): after its Surface, else after its sign-in field.
       /** @type {string[]} */
@@ -1911,8 +1914,12 @@ export function validatePlan(text) {
           );
         else if (ownCapture.text === "") at(ownCapture.n, `${what} is empty`);
         else if (stuck) at(ownCapture.n, `${what} read ${stuck}`);
+        else if (word === "")
+          at(ownCapture.n, `${what} expected one of: ${CAPTURES.join(", ")}, first on its line`);
         else if (!CAPTURES.includes(word))
           at(ownCapture.n, `${what} \`${word}\`: expected one of: ${CAPTURES.join(", ")}`);
+        // A refused own **Surface:** is reported on its line; the Capture is not judged against a guess.
+        else if (!surfaceKnown) capture = word;
         else if (word === "transcript" && surface && surface !== "api")
           at(
             ownCapture.n,

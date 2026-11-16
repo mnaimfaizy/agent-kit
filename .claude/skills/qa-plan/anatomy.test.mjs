@@ -499,7 +499,7 @@ test("SKILL.md step 6 writes **Expected before:** for a fix and **Capture:** by 
   );
   assert.match(
     flat,
-    /`video` for a multi-session or timing-dependent scenario, `transcript` on `api`, `none` where an image would show nothing the written result does not, and otherwise `screenshot`, or leave it out/,
+    /`video` for a multi-session or timing-dependent scenario with a screen, `transcript` on `api`, `none` where an image would show nothing the written result does not, and otherwise `screenshot`, or leave it out/,
   );
   assert.match(flat, /\[ANATOMY\.md\]\(ANATOMY\.md#fix-scenarios\)/);
 });
