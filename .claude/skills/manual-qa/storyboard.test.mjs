@@ -446,6 +446,32 @@ test("a still name that is not the driver's own is refused, so no file outside t
   assert.match(out, /still/);
 });
 
+test("a scenario file without `variables`, or with a step file outside the run, is refused (#235 review)", async () => {
+  for (const [edit, why] of [
+    [
+      (meta) => {
+        delete meta.variables;
+        return meta;
+      },
+      /variables is not a list/,
+    ],
+    [
+      (meta) => ({ ...meta, after: { ...meta.after, steps: "../elsewhere/steps.json" } }),
+      /after\.steps is not a step file beside the scenario file/,
+    ],
+  ]) {
+    const { dir, metaPath } = runFolder(edit);
+    const { code, out } = await main(["render", metaPath], {
+      env: ENV,
+      cwd: ROOT,
+      renderer: stubRenderer([]),
+    });
+    assert.equal(code, 1);
+    assert.match(out, why);
+    assert.ok(!existsSync(join(dir, "s1-storyboard.png")));
+  }
+});
+
 test("usage errors exit 2", async () => {
   for (const argv of [[], ["draw", "x.json"], ["render"], ["render", "x.json", "--out"]])
     assert.equal((await main(argv, { env: ENV })).code, 2, argv.join(" "));

@@ -34,8 +34,10 @@
 //   node storyboard.mjs render <s<n>-storyboard.json> [--out <file.png>]
 //
 //   Exit 0: the Storyboard was written. Exit 1: refused (the privacy check, a
-//   problem in the files, a result that is not PASS or FAIL); nothing written.
-//   Exit 2: usage, or no Playwright with Chromium here: the row keeps its plain
+//   problem in the files, a variable not given, a result that is not PASS or
+//   FAIL); no Storyboard written.
+//   Exit 2: usage, no Playwright with Chromium here, or Chromium did not render
+//   it: the row keeps its plain
 //   stills, and `reason` is what its note says. Stdout is a JSON summary.
 
 import { readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -46,7 +48,10 @@ import { findPlaywright } from "./adapter.mjs";
 import { encodedForms } from "./http.mjs";
 import { BEFORE_STATES } from "./report.mjs";
 
-/** The `web` driver's viewport: every still is this size, and every subject box is in it. */
+/**
+ * The `web` driver's viewport (web.mjs's `VIEWPORT`, which it does not export): every
+ * still is this size, and every subject box is in it. Change the two together.
+ */
 export const VIEWPORT = Object.freeze({ width: 1280, height: 720 });
 /** Space kept around a subject's outline inside its crop, in still pixels. */
 export const CROP_PADDING = 48;
@@ -85,7 +90,11 @@ const TOKEN_SHAPES = [
   ["an API key", /\b(?:sk-[A-Za-z0-9_-]{16,}|AKIA[0-9A-Z]{16}|xox[abpr]-[A-Za-z0-9-]{10,})/],
 ];
 const ENV_NAME = /^QA_[A-Z0-9_]+$/;
-/** A `QA_*` variable whose name marks its value secret, not only a sign-in value. */
+/**
+ * A `QA_*` variable whose name marks its value secret, not only a sign-in value: web.mjs's
+ * secret words without EMAIL, which here is a sign-in value. Every `QA_*` value given is
+ * looked for either way; the name only says which kind a refusal names.
+ */
 const SECRET_VARIABLE =
   /(?:^|_)(?:PASSWORD|PASSWD|PASSPHRASE|SECRET|TOKEN|API_?KEY|CREDENTIALS?|OTP|PIN|RECOVERY|MFA)(?:_|$)/;
 /** A `QA_*` variable that holds only a username: looked for as written, as a whole word. */
@@ -94,6 +103,11 @@ const EMAIL_VARIABLE = /(?:^|_)EMAIL(?:_|$)/;
 /** The still names `web.mjs` writes: a plain file name, so no path leaves the step file's folder. */
 const STILL_NAME = /^step-\d+-[a-z]\.png$/;
 const SCENARIO = /^S\d+$/;
+const SESSION = /^[A-Z]$/;
+/** A step file's path in the scenario file: `web.mjs`'s own folder beside it, so nothing outside is read or written. */
+const STEP_FILE = /^s\d+(?:-before)?-web\/steps\.json$/;
+/** The Before states with no step records to show. */
+const BEFORE_UNSEEN = ["not run", "not observed"];
 const COMMIT = /^[0-9a-f]{7,40}$/;
 
 const isObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
@@ -292,7 +306,7 @@ export function layout(records, meta) {
   // One column when there is no Before to show, or nothing it would add.
   let beforeNote = null;
   if (!before) beforeNote = "Before: not run, a feature scenario runs After only";
-  else if (before.state === "not run" || before.state === "not observed")
+  else if (BEFORE_UNSEEN.includes(before.state))
     beforeNote = `Before ${before.state}: ${before.observed}`;
   else if (
     before.expected === after.expected &&
@@ -540,7 +554,7 @@ function recordProblems(steps, where) {
   steps.forEach((r, i) => {
     const at = `${where}: step record ${i + 1}`;
     if (!isObject(r)) return problems.push(`${at} is not an object`);
-    if (typeof r.session !== "string" || !/^[A-Z]$/.test(r.session))
+    if (typeof r.session !== "string" || !SESSION.test(r.session))
       problems.push(`${at}: session is not a capital letter`);
     if (!Number.isInteger(r.index) || r.index < 1) problems.push(`${at}: index is not 1 or more`);
     if (typeof r.caption !== "string") problems.push(`${at}: caption is not text`);
@@ -581,13 +595,19 @@ export function checkScenario(meta) {
       `result is ${JSON.stringify(m.result)}: a Storyboard is made for a PASS or FAIL only ` +
         `(${STORYBOARD_RESULTS.join(", ")})`,
     );
+  const stepFile = (value, where) => {
+    if (typeof value !== "string" || !STEP_FILE.test(value))
+      problems.push(
+        `${where} is not a step file beside the scenario file (s<n>-web/steps.json, s<n>-before-web/steps.json)`,
+      );
+  };
   const judged = (value, where) => {
     if (!Object.hasOwn(MARKS, value))
       problems.push(`${where} is not one of ${Object.keys(MARKS).join(", ")}`);
   };
   if (!isObject(m.after)) problems.push("after is not an object");
   else {
-    text(m.after.steps, "after.steps");
+    stepFile(m.after.steps, "after.steps");
     text(m.after.expected, "after.expected");
     text(m.after.observed, "after.observed");
     judged(m.after.judged, "after.judged");
@@ -597,10 +617,9 @@ export function checkScenario(meta) {
     else {
       if (!BEFORE_STATES.includes(m.before.state))
         problems.push(`before.state is not one of ${BEFORE_STATES.join(", ")}`);
-      const ran = !["not run", "not observed"].includes(m.before.state);
-      if (ran) text(m.before.steps, "before.steps");
-      else if (m.before.steps !== null && m.before.steps !== undefined)
-        text(m.before.steps, "before.steps");
+      // Required when Before ran; a Before not run or not observed may name none.
+      if (!BEFORE_UNSEEN.includes(m.before.state) || (m.before.steps ?? null) !== null)
+        stepFile(m.before.steps, "before.steps");
       text(m.before.expected, "before.expected");
       text(m.before.observed, "before.observed");
       judged(m.before.judged, "before.judged");
@@ -623,7 +642,7 @@ export function checkScenario(meta) {
         !(
           Array.isArray(c.sessions) &&
           c.sessions.every(
-            (s) => isObject(s) && /^[A-Z]$/.test(s.session ?? "") && typeof s.account === "string",
+            (s) => isObject(s) && SESSION.test(s.session ?? "") && typeof s.account === "string",
           )
         ))
     )
@@ -633,16 +652,14 @@ export function checkScenario(meta) {
     m.proves !== undefined &&
     !(
       isObject(m.proves) &&
-      /^[A-Z]$/.test(m.proves.session ?? "") &&
+      SESSION.test(m.proves.session ?? "") &&
       Number.isInteger(m.proves.index)
     )
   )
     problems.push('proves is not {"session", "index"}');
-  if (
-    m.variables !== undefined &&
-    !(Array.isArray(m.variables) && m.variables.every((name) => ENV_NAME.test(name)))
-  )
-    problems.push("variables is not a list of QA_ variable names");
+  // Required, so the check always knows which values the run used; an empty list says none.
+  if (!(Array.isArray(m.variables) && m.variables.every((name) => ENV_NAME.test(name))))
+    problems.push("variables is not a list of the QA_ variable names the run used ([] for none)");
   return problems;
 }
 

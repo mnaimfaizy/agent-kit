@@ -298,7 +298,7 @@ Give it the same `QA_*` variables the drivers were given, as that one command's 
 
 ### The scenario file
 
-The runner writes `<working_dir>/qa-report-pr-<n>/s<n>-storyboard.json` once the scenario is graded. Paths are relative to it.
+The runner writes `<working_dir>/qa-report-pr-<n>/s<n>-storyboard.json` once the scenario is graded. Paths are relative to it, and each step file is `web.mjs`'s folder beside it: `s<n>-web/steps.json`, or `s<n>-before-web/steps.json`.
 
 ```json
 {
@@ -335,7 +335,7 @@ The runner writes `<working_dir>/qa-report-pr-<n>/s<n>-storyboard.json` once the
 | `commits`   | The merge-base and head shas; the band shows each in short form.                                                                                                                                                                                                                                                       |
 | `context`   | The role or Scenario account ids signed in as, and each Session's id. Ids only, never a sign-in value.                                                                                                                                                                                                                 |
 | `proves`    | The After step that proves the result, by Session and index; the last After step when missing.                                                                                                                                                                                                                         |
-| `variables` | The names of the `QA_*` variables the run used. Each must be given to the command, so the privacy check knows every value the run knew.                                                                                                                                                                                |
+| `variables` | Required: the names of the `QA_*` variables the run used, `[]` for none. Each must be given to the command, so the privacy check knows every value the run knew.                                                                                                                                                       |
 
 ### What it shows
 
@@ -350,7 +350,7 @@ It is HTML rendered to PNG in Chromium with JavaScript off and every request ref
 
 ### The caption privacy check
 
-Before any Storyboard is written, `privacyCheck(fields, knownSecrets)` reads everything it would show: the title, each side's expected and observed text and note, every caption, every withheld label, and the run context. It looks for:
+Before any Storyboard is written, `privacyCheck(fields, knownSecrets)` reads everything it would show: the title, each side's expected and observed text and note, every caption, every withheld label, and the run context. Before's captions are read even when one column leaves them out, since the same records can build a two-column Storyboard later. Every `QA_*` variable given to the command is looked for, not only those `variables` names. It looks for:
 
 - every sign-in value the run knew: each `QA_*` variable given to the command, in any case and in its URL, JSON and HTML forms; a username (`USER`, `USERNAME` or `LOGIN` in its variable's name, and no secret or email word) as written, as a whole word;
 - every value marked secret: a variable whose name says so (`PASSWORD`, `SECRET`, `TOKEN`, `API_KEY`, `OTP`, `PIN` and the like);
@@ -360,11 +360,11 @@ On any match, no Storyboard is written (an earlier one at that path is removed),
 
 Stdout is a JSON summary: `written`, and the `storyboard` path, its `columns` and `rows`; or `refused`, `problems` or `reason`.
 
-| Exit | Meaning                                                                                                                                                 |
-| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0    | The Storyboard was written.                                                                                                                             |
-| 1    | Refused: the privacy check (`refused`), or a problem in the scenario or step files, or a result that is not PASS or FAIL (`problems`). Nothing written. |
-| 2    | Usage, or no Playwright with Chromium in this repository, or Chromium did not render it (`reason`). Nothing written; the row keeps its plain stills.    |
+| Exit | Meaning                                                                                                                                                                                                                                                |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 0    | The Storyboard was written.                                                                                                                                                                                                                            |
+| 1    | Refused: the privacy check (`refused`; each refused field is now `[withheld]` in its file), or a problem in the scenario or step files, a variable in `variables` not given, or a result that is not PASS or FAIL (`problems`). No Storyboard written. |
+| 2    | Usage, or no Playwright with Chromium in this repository, or Chromium did not render it (`reason`). Nothing written; the row keeps its plain stills.                                                                                                   |
 
 ## QA Artifacts and posting
 
