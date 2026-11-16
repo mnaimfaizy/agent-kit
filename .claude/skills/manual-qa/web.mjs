@@ -39,7 +39,7 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { findPlaywright } from "./adapter.mjs";
-import { encodedForms } from "./http.mjs";
+import { Redactor, encodedForms } from "./http.mjs";
 
 /** The actions a sequence can hold, each with the other keys it may carry. */
 export const ACTIONS = /** @type {const} */ ({
@@ -176,9 +176,9 @@ export function checkSequence(sequence, env) {
     for (const key of Object.keys(action))
       if (key !== "session" && key !== verb && !ACTIONS[verb].includes(key))
         flag(`unknown key "${key}"`);
-    const { session = "A" } = action;
+    const { session } = action;
     if (typeof session !== "string" || !/^[A-Z]$/.test(session))
-      flag("session must be a single capital letter (A, B, …)");
+      flag("session must name the action's Session: a single capital letter (A, B, …)");
     const value = action[verb];
 
     if (verb === "goto") {
@@ -266,27 +266,6 @@ export function checkSequence(sequence, env) {
 }
 
 // ── Running ─────────────────────────────────────────────────────────────────
-
-/** Replaces each sign-in value, in every form, with its variable's name. */
-class Redactor {
-  constructor() {
-    /** @type {{text: string, label: string}[]} */
-    this.secrets = [];
-  }
-
-  add(value, label) {
-    if (!value) return;
-    for (const form of encodedForms(value))
-      if (!this.secrets.some((s) => s.text === form)) this.secrets.push({ text: form, label });
-    this.secrets.sort((a, b) => b.text.length - a.text.length);
-  }
-
-  text(text) {
-    let out = String(text);
-    for (const { text: secret, label } of this.secrets) out = out.split(secret).join(label);
-    return out;
-  }
-}
 
 /** A Playwright locator for a checked target. */
 function locate(page, target) {
@@ -421,7 +400,7 @@ export async function runSequence(sequence, { base, env, out, video, playwright,
   const videos = [];
   try {
     for (const [i, action] of sequence.actions.entries()) {
-      const session = action.session ?? "A";
+      const { session } = action;
       const [verb] = Object.keys(ACTIONS).filter((v) => v in action);
       try {
         const { page, state } = await open(session);
@@ -438,6 +417,12 @@ export async function runSequence(sequence, { base, env, out, video, playwright,
           const type = await field.evaluate((e) => (e instanceof HTMLInputElement ? e.type : ""));
           if (type === "password" && action.value !== "" && !onlyPlaceholders(action.value))
             throw new Error("a literal value into a password field; give it as {{env:QA_…}}");
+          // A field filled from a sign-in value shows dots, as a password field does,
+          // so no still or video frame shows the value as typed.
+          if (action.value.match(PLACEHOLDER))
+            await field.evaluate((e) =>
+              /** @type {HTMLElement} */ (e).style.setProperty("-webkit-text-security", "disc"),
+            );
           await field.fill(fill(action.value));
         } else {
           let subject = null;

@@ -82,7 +82,7 @@ It keeps the same lines. The runner writes the step sequence from the plan's ste
 
 At each step it saves a still, the element the step is about, that element's visible text, the Session and the time, so a later reader (a Storyboard, an annotated recording) can show what the runner saw without the runner's say-so. It asserts nothing: the runner judges those records against **Expected result:**, as on every other surface, since a driver with assertions would be a test framework. Its exit status says only whether every action completed.
 
-The baseline capture rules are the driver's own, not the runner's care: a still is withheld while a password field holds a value, or while a sign-in value is in a field or on the screen, and its record says so. A video cannot withhold a moment, so it records the Session as it was, and stays local like every QA Artifact.
+The baseline capture rules are the driver's own, not the runner's care: a still is withheld while a password field holds a value, or while a sign-in value is in a field or on the screen, and its record says so. A field filled from a sign-in value shows dots, so the value as typed reaches no still or frame. A video cannot withhold a moment, so a value the page itself shows stays in it, and the video stays local like every QA Artifact.
 
 Playwright is optional. Agent-kit takes no runtime dependency, so the driver loads Playwright from the repository under test and never installs it, and readiness says, as a note, whether Chromium and `ffmpeg` are there and what the run loses without each. Without Chromium the run falls back to the harness's browsers, exactly as before, so a repository that has not installed Playwright loses nothing it had.
 

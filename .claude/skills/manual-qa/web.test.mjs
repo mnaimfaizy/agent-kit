@@ -114,7 +114,7 @@ async function drive(actions, { env = ENV, video = false, cwd = ROOT, extra = []
   runs += 1;
   const file = join(dir, `seq-${runs}.json`);
   const out = join(dir, `out-${runs}`);
-  writeFileSync(file, JSON.stringify(Array.isArray(actions) ? { actions } : actions));
+  writeFileSync(file, JSON.stringify(Array.isArray(actions) ? { actions: inA(actions) } : actions));
   const argv = ["run", file, "--base", base, "--out", out, ...(video ? ["--video"] : []), ...extra];
   const { code, out: stdout } = await main(argv, { env, cwd });
   let summary = null;
@@ -146,7 +146,18 @@ const allText = (out) =>
 
 // ── The sequence is checked before anything runs ───────────────────────────
 
-const ok = (actions, env = ENV) => checkSequence({ actions }, env);
+/** Gives each action Session A unless it names one: the tests below are about other fields. */
+const inA = (actions) =>
+  actions.map((a) => (isObject(a) && !("session" in a) ? { session: "A", ...a } : a));
+const isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+const ok = (actions, env = ENV) => checkSequence({ actions: inA(actions) }, env);
+
+test("every action names its Session", () => {
+  assert.match(
+    checkSequence({ actions: [{ goto: "/" }] }, {}).join("\n"),
+    /action 1: session must name the action's Session/,
+  );
+});
 
 test("a well-formed sequence of every action reads with no problems", () => {
   assert.deepEqual(
@@ -167,7 +178,7 @@ test("a well-formed sequence of every action reads with no problems", () => {
 
 test("an unknown key in the file or an action is refused, as http.mjs refuses one", () => {
   assert.match(
-    checkSequence({ actions: [{ goto: "/" }], extra: 1 }, {}).join("\n"),
+    checkSequence({ actions: [{ session: "A", goto: "/" }], extra: 1 }, {}).join("\n"),
     /unknown key "extra"/,
   );
   assert.match(ok([{ goto: "/", wait: { text: "x" } }]).join("\n"), /exactly one action/);
@@ -436,6 +447,7 @@ test(
     assert.ok(signedIn.still);
     assert.equal(signedIn.withheld, null);
     assert.equal(existsSync(join(out, "step-02-a.png")), false);
+    assert.equal(email.subject === null, false, "the subject is still recorded");
     const text = allText(out) + stdout;
     assert.ok(!text.includes(PASSWORD));
     assert.ok(!text.includes(EMAIL));

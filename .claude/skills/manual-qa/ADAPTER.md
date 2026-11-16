@@ -227,7 +227,7 @@ The runner writes one sequence per scenario, from the scenario's steps, as a JSO
 }
 ```
 
-The file holds one key, `actions`, a list of 1 to 200 actions carried out in order. Each action has an optional `session` (one capital letter, default `A`) and exactly one of:
+The file holds one key, `actions`, a list of 1 to 200 actions carried out in order. Each action names its `session` (one capital letter: `A`, `B`, …) and holds exactly one of:
 
 | Action  | With                   | What it does                                                                                                                                                  |
 | ------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -270,7 +270,7 @@ At run time, a literal value filled into a password field does not complete eith
 
 **The capture rules bind every still.** No still is taken while a password field on the page holds a value, while any field holds a sign-in value the sequence filled, or while such a value is on the screen. The record says why in `withheld`, and keeps its caption, subject and text. The value of a filled sign-in field never appears in the step file, the summary or a caption: a subject's text or an error that would show it gets `[redacted:<VARIABLE>]` in its place.
 
-With `--video`, each Session's video is `<out>/video-<session>.webm`, Playwright's own recording of that Session's context from its first action. Without it, there is none. A video cannot withhold a moment: it shows a sign-in screen as it was, a password field as dots and an email as typed. It stays in `working_dir` with every other QA Artifact.
+With `--video`, each Session's video is `<out>/video-<session>.webm`, Playwright's own recording of that Session's context from its first action. Without it, there is none. A field filled from a `{{env:QA_…}}` placeholder shows dots, as a password field does, so neither a still nor a video frame shows the value as typed. A video cannot withhold a moment, though: a sign-in value the page itself shows (an account's email in a header) is in it. It stays in `working_dir` with every other QA Artifact.
 
 Stdout is a JSON summary: `out`, the step file's path, `completed`, how many actions completed, how many stills were taken and withheld, the `videos` kept, and for an action that did not complete, `error` with its number, Session, action and why; or, for a refused sequence, `problems`.
 

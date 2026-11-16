@@ -1004,10 +1004,15 @@ export function runReadiness(
       "no `run.version_endpoint`: without `gh` access the build cannot be checked against the plan's head",
     );
   // The `web` driver's tools are optional: each note says what the run loses without one.
+  // With a plan, the scenarios' surfaces, and the config's when the surface question
+  // could move scenarios onto it; with none, the effective surface.
   const surfaces = plan?.scenarios?.length
-    ? plan.scenarios.map((scenario) => scenario.surface)
+    ? [
+        ...plan.scenarios.map((scenario) => scenario.surface),
+        ...(brief?.surface && run.surface !== brief.surface ? [run.surface] : []),
+      ]
     : [effective.surface];
-  if (tools && [...surfaces, run.surface].includes("web")) {
+  if (tools && surfaces.includes("web")) {
     const found = tools();
     notes.push(
       found.chromium ? WEB_NOTES.chromium : WEB_NOTES.noChromium,
