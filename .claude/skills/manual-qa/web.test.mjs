@@ -276,8 +276,11 @@ test("a sign-in value written inline is refused, and the problem never names the
     ...ok([{ fill: { label: "Email" }, value: EMAIL }]),
     ...ok([{ step: `typed ${PASSWORD}` }]),
     ...ok([{ fill: { label: "Note" }, value: encodeURIComponent(PASSWORD) }]),
+    ...ok([{ step: `Signed in as ${EMAIL.toUpperCase()}` }]),
+    ...ok([{ fill: { label: "Note" }, value: PASSWORD.toLowerCase() }]),
   ];
-  assert.equal(problems.length >= 4, true, problems.join("\n"));
+  assert.equal(problems.length >= 6, true, problems.join("\n"));
+  for (const problem of problems.slice(-2)) assert.match(problem, /holds the value of QA_A_/);
   assert.ok(!problems.join("\n").includes(PASSWORD));
   assert.ok(!problems.join("\n").includes(EMAIL));
   // A field named like a secret needs a placeholder, whatever the literal.
@@ -567,19 +570,36 @@ test(
   },
 );
 
-test("a tab a click opens never sends its first request", { skip: NEEDS_CHROMIUM }, async () => {
-  otherSeen.length = 0;
-  const posted = await drive([
-    { session: "A", goto: "/popup-form" },
-    { session: "A", fill: { label: "Password" }, value: "{{env:QA_A_PASSWORD}}" },
-    { session: "A", click: { role: "button", name: "Open" } },
-    { session: "A", click: { role: "link", name: "New tab" } },
-    { session: "A", fill: { label: "Password" }, value: "" },
-    { session: "A", step: "Still on the form" },
-  ]);
-  assert.equal(posted.code, 0, posted.stdout);
-  assert.deepEqual(otherSeen, [], "the other host never saw a request");
-});
+test(
+  "a tab a click opens never sends its first request, and the action does not complete",
+  { skip: NEEDS_CHROMIUM },
+  async () => {
+    otherSeen.length = 0;
+    const posted = await drive([
+      { session: "A", goto: "/popup-form" },
+      { session: "A", step: "The form" },
+      { session: "A", fill: { label: "Password" }, value: "{{env:QA_A_PASSWORD}}" },
+      { session: "A", click: { role: "button", name: "Open" } },
+      { session: "A", step: "Never reached" },
+    ]);
+    assert.equal(posted.code, 1, posted.stdout);
+    assert.equal(posted.summary.completed, false);
+    assert.equal(posted.summary.error.action, 4);
+    assert.match(posted.summary.error.why, /opened a tab or window/);
+    assert.deepEqual(posted.steps.error, posted.summary.error, "the step file says why too");
+    assert.deepEqual(
+      posted.steps.steps.map((s) => s.caption),
+      ["The form"],
+    );
+    const linked = await drive([
+      { session: "A", goto: "/popup-form" },
+      { session: "A", click: { role: "link", name: "New tab" } },
+    ]);
+    assert.equal(linked.code, 1);
+    assert.match(linked.summary.error.why, /opened a tab or window/);
+    assert.deepEqual(otherSeen, [], "the other host never saw a request");
+  },
+);
 
 test(
   "a frame on another host still loads: only a page's own address is guarded",
@@ -695,6 +715,12 @@ test(
     assert.equal(plain.steps.sessions.B.video, null);
   },
 );
+
+test("the driver adds no Chromium switch, so Playwright's own `--disable-features` list stands", () => {
+  const source = readFileSync(join(HERE, "web.mjs"), "utf8");
+  assert.match(source, /chromium\.launch\(\{ headless: true \}\)/);
+  assert.doesNotMatch(source, /--disable-features|--enable-features/);
+});
 
 // ── The docs ────────────────────────────────────────────────────────────────
 

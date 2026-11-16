@@ -242,11 +242,11 @@ The file holds one key, `actions`, a list of 1 to 200 actions carried out in ord
 
 An element is found as a tester finds it: `{"role": "button", "name": "Save"}` (an ARIA role, and optionally its accessible name), `{"label": "Email"}` (a field's label) or `{"text": "Saved"}` (visible text), each with an optional `"exact": true`. One that matches more than one element does not complete. Any other key, in an action, an element or the file, is a problem.
 
-Each Session gets its own browser context, with its own cookies and storage, opened at its first action. A page that tries to leave the checked address (a link, a script, or a redirect at any hop) is stopped before the request is sent, so a `307` after a sign-in form never resends it elsewhere, and that action does not complete. A tab or window a click opens is closed, not followed, and its first request is never sent. A click or fill waits up to 10 seconds for its element, and a page up to 30 seconds to load.
+Each Session gets its own browser context, with its own cookies and storage, opened at its first action. A page that tries to leave the checked address (a link, a script, or a redirect at any hop) is stopped before the request is sent, so a `307` after a sign-in form never resends it elsewhere, and that action does not complete. A tab or window a click opens is closed, not followed, and its first request is never sent; the action that opened it does not complete, so the runner knows to drive that step with a browser tool. A click or fill waits up to 10 seconds for its element, and a page up to 30 seconds to load.
 
 **A sequence that carries a sign-in value inline is refused**, and nothing runs: no browser starts and nothing is written. `web.mjs` names the action and the field, never the value. It refuses:
 
-- the text of any `QA_*` variable's value, of four characters or more, written anywhere in the file, raw or encoded;
+- the text of any `QA_*` variable's value, of four characters or more, written anywhere in the file, in any case, raw or encoded;
 - a `fill` whose element names a secret (a label or name with `password`, `passcode`, `secret`, `token`, `API key`, `credential`, `OTP`, `one-time`, `PIN`, `recovery`, `MFA`, `2FA` or `verification`) holding anything but placeholders;
 - a placeholder anywhere but a fill's `value`, one naming a variable outside `QA_`, or one that is not set;
 - a value shaped like a secret anywhere: a JWT, a `Bearer` or `Basic` credential, a GitHub, OpenAI-style, AWS or Slack token;
@@ -257,7 +257,7 @@ At run time, a literal value filled into a password field does not complete eith
 
 ### The step file
 
-`<out>/steps.json` holds `steps`, one record per step in order, and `sessions`, each Session's `startedAtMs` and `video`. It is written when the run starts and again after every step, so when an action does not complete, it holds every step up to it.
+`<out>/steps.json` holds `steps`, one record per step in order, `sessions`, each Session's `startedAtMs` and `video`, and `error`: `null`, or the action that did not complete and why, as in the summary. It is written when the run starts and again after every step, so when an action does not complete, it holds every step up to it.
 
 | Key        | Meaning                                                                                                                                     |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------- |

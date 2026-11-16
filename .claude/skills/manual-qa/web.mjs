@@ -74,6 +74,9 @@ export const DEFAULT_WAIT_MS = 5_000;
 /** A subject's visible text longer than this is cut in its record. */
 export const TEXT_LIMIT = 2_000;
 const LEFT = "a page left the checked address; the run stopped there";
+const POPUP =
+  "the action opened a tab or window, which the driver closed without following; " +
+  "drive this step with a browser tool";
 const VIEWPORT = { width: 1280, height: 720 };
 const MIN_SECRET_LENGTH = 4;
 
@@ -247,17 +250,16 @@ export function checkSequence(sequence, env) {
     else if (/[\r\n]/.test(value)) problems.push(`${name} holds a line break`);
   }
   // A sign-in value written in, in place of its placeholder, in any form.
-  const written = [...strings(sequence, "")].flatMap(([, text]) => [
-    text,
-    decode(text),
-    decode(text.replace(/\+/g, " ")),
-  ]);
+  // Compared in lower case: a value written in another case is still the value.
+  const written = [...strings(sequence, "")].flatMap(([, text]) =>
+    [text, decode(text), decode(text.replace(/\+/g, " "))].map((t) => t.toLowerCase()),
+  );
   for (const name of Object.keys(env)) {
     const value = ENV_NAME.test(name) ? envValue(env, name) : undefined;
     if (
       value &&
       value.length >= MIN_SECRET_LENGTH &&
-      encodedForms(value).some((form) => written.some((text) => text.includes(form)))
+      encodedForms(value).some((form) => written.some((text) => text.includes(form.toLowerCase())))
     )
       problems.push(
         `the sequence holds the value of ${name} inline; write {{env:${name}}} instead`,
@@ -406,18 +408,19 @@ export async function runSequence(
   const steps = [];
   /** @type {Record<string, {startedAtMs: number, video: string | null}>} */
   const sessionInfo = {};
+  /** The action that did not complete, once one has not; also in the step file. */
+  let error = null;
   const writeSteps = () =>
     writeFileSync(
       join(out, "steps.json"),
-      `${JSON.stringify({ steps, sessions: sessionInfo }, null, 2)}\n`,
+      `${JSON.stringify({ steps, sessions: sessionInfo, error }, null, 2)}\n`,
     );
   writeSteps();
 
-  // No prerendering: a prerendered page would load outside the guard below.
-  const browser = await playwright.chromium.launch({
-    headless: true,
-    args: ["--disable-features=Prerender2"],
-  });
+  // No extra Chromium switches: a second disable-features switch would replace
+  // Playwright's own list. An activated prerender is guarded by the main-frame
+  // rule below, which decides per request.
+  const browser = await playwright.chromium.launch({ headless: true });
   /** @type {Map<string, {context: any, page: any, state: {left: boolean}}>} */
   const sessions = new Map();
   const open = async (session) => {
@@ -430,7 +433,7 @@ export async function runSequence(
     });
     context.setDefaultTimeout(ACTION_TIMEOUT_MS);
     context.setDefaultNavigationTimeout(NAVIGATION_TIMEOUT_MS);
-    const state = { left: false };
+    const state = { left: false, popup: false };
     const page = await context.newPage();
     // A page that tries to leave the checked address is stopped before the request
     // is sent: a link, a script, or a redirect at any hop, since a 307 after a
@@ -482,10 +485,14 @@ export async function runSequence(
       } catch {
         // no frame yet
       }
-      return ours ? route.continue() : route.abort("blockedbyclient");
+      if (ours) return route.continue();
+      state.popup = true;
+      return route.abort("blockedbyclient");
     });
     context.on("page", (opened) => {
-      if (opened !== page) opened.close().catch(() => {});
+      if (opened === page) return;
+      state.popup = true;
+      opened.close().catch(() => {});
     });
     sessionInfo[session] = { startedAtMs: Math.round(clock() - start), video: null };
     const opened = { context, page, state };
@@ -502,7 +509,6 @@ export async function runSequence(
   const fill = (text) => text.replace(PLACEHOLDER, (_, __, name) => envValue(env, name) ?? "");
 
   let done = 0;
-  let error = null;
   let lastAt = -1;
   const videos = [];
   try {
@@ -570,7 +576,7 @@ export async function runSequence(
           steps.push({
             session,
             index,
-            caption: redact.text(action.step),
+            caption: redactAnyCase(redact.text(action.step)),
             still,
             subject,
             text,
@@ -580,6 +586,7 @@ export async function runSequence(
           writeSteps();
         }
         if (state.left || !onAddress(page.url(), origin)) throw new Error(LEFT);
+        if (state.popup) throw new Error(POPUP);
         await mask(page, values);
         done += 1;
       } catch (failure) {
