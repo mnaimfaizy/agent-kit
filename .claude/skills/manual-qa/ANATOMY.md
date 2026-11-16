@@ -72,7 +72,7 @@ Failures the tester will see that are not caused by this change, so they are not
 Everything a run needs to start, from the plan alone. A bullet each, with these labels:
 
 - **Target:** `stack` (a local QA Stack the tester starts) or `url` (a hosted test environment someone else deployed). For `url`, also the expected test-environment label in its hostname (`staging`, `qa`, `preview`, …), never a full production-looking address. `stack` or `url` is a [first-word value](#first-word-values).
-- **Surface:** exactly one of `web`, `desktop`, `mobile` or `api`, as a [first-word value](#first-word-values). It is the plan's default: the surface most scenarios drive. In a `format=2` plan, a scenario's own **Surface:** overrides it for that scenario ([Scenarios](#scenarios)).
+- **Surface:** exactly one of `web`, `desktop`, `mobile` or `api`, as a [first-word value](#first-word-values). It is the plan's default: the surface most scenarios drive. In a `format=2` or later plan, a scenario's own **Surface:** overrides it for that scenario ([Scenarios](#scenarios)).
 - **Build:** the head SHA, and the version endpoint (`/version`) when the app has one, so the tester can check they are testing the build this plan is about.
 - **Roles:** each role the scenarios sign in as, by id and purpose (`admin`: manages members). At most a role's email beside it; never a password or token.
 - **Credentials:** where the role values come from. With the repository: the config's `accounts.print` command. Without it: ask the developer, and paste them into chat, never into the plan.
