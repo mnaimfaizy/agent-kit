@@ -246,7 +246,7 @@ Each Session gets its own browser context, with its own cookies and storage, ope
 
 **A sequence that carries a sign-in value inline is refused**, and nothing runs: no browser starts and nothing is written. `web.mjs` names the action and the field, never the value. It refuses:
 
-- a `QA_*` value of four characters or more written anywhere in the file, raw or encoded: a value the sequence fills, in any case; any other variable's only when its name says it holds a sign-in value or a secret (`PASSWORD`, `TOKEN`, `SECRET`, `API_KEY`, `EMAIL`, `USER`, `LOGIN` and the like), and only as written, so a common word such as `admin` in an unrelated variable never refuses a label like "Admin";
+- a `QA_*` value of four characters or more written anywhere in the file, in any case, raw or encoded: a value the sequence fills, or any variable's whose name has a whole `_`-separated word saying it holds a sign-in value or a secret (`PASSWORD`, `TOKEN`, `SECRET`, `API_KEY`, `OTP`, `PIN`, `EMAIL`, `USER`, `USERNAME`, `LOGIN` and the like; `QA_SHIPPING_CITY` is not one). Any other variable is not looked for, so a common word such as `admin` in an unrelated variable never refuses a label like "Admin";
 - a `fill` whose element names a secret (a label or name with `password`, `passcode`, `secret`, `token`, `API key`, `credential`, `OTP`, `one-time`, `PIN`, `recovery`, `MFA`, `2FA` or `verification`) holding anything but placeholders;
 - a placeholder anywhere but a fill's `value`, one naming a variable outside `QA_`, or one that is not set;
 - a value shaped like a secret anywhere: a JWT, a `Bearer` or `Basic` credential, a GitHub, OpenAI-style, AWS or Slack token;

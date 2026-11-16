@@ -87,7 +87,7 @@ const PLACEHOLDER = /\{\{(\w+):([^}]*)\}\}/g;
 const ENV_NAME = /^QA_[A-Z0-9_]+$/;
 /** A `QA_*` variable whose name says it holds a sign-in value or a secret. */
 const SIGN_IN_VARIABLE =
-  /PASSWORD|PASSWD|PASSPHRASE|SECRET|TOKEN|API_?KEY|CREDENTIAL|OTP|PIN|RECOVERY|MFA|EMAIL|USER|LOGIN/;
+  /(?:^|_)(?:PASSWORD|PASSWD|PASSPHRASE|SECRET|TOKEN|API_?KEY|CREDENTIALS?|OTP|PIN|RECOVERY|MFA|EMAIL|USER(?:NAME)?|LOGIN)(?:_|$)/;
 /** A field's label or name that names a secret: its fill takes only placeholders. */
 const SECRET_FIELD =
   /pass(?:word|wd|phrase|code)?\b|secret|token|api.?key|credential|\botp\b|one.?time|\bpin\b|recovery|mfa|2fa|verification|security code/i;
@@ -255,11 +255,10 @@ export function checkSequence(sequence, env) {
     if (value === undefined || value === "") problems.push(`${name} is not set`);
     else if (/[\r\n]/.test(value)) problems.push(`${name} holds a line break`);
   }
-  // A sign-in value written in, in place of its placeholder, in any form.
-  // A sign-in value written in, in place of its placeholder. A value this sequence
-  // fills is looked for in any case; any other `QA_*` value only when its name says
-  // it is a sign-in value or a secret, and only as written, so a common word such
-  // as `admin` in an unrelated variable never refuses a label like "Admin".
+  // A sign-in value written in, in place of its placeholder, in any case: a value
+  // this sequence fills, and any `QA_*` value whose name says it is a sign-in value
+  // or a secret. Any other variable is not looked for, so a common word such as
+  // `admin` in an unrelated variable never refuses a label like "Admin".
   const written = [...strings(sequence, "")].flatMap(([, text]) => [
     text,
     decode(text),
@@ -269,12 +268,9 @@ export function checkSequence(sequence, env) {
   for (const name of Object.keys(env)) {
     const value = ENV_NAME.test(name) ? envValue(env, name) : undefined;
     if (!value || value.length < MIN_SECRET_LENGTH) continue;
-    const filled = named.has(name);
-    if (!filled && !SIGN_IN_VARIABLE.test(name)) continue;
+    if (!named.has(name) && !SIGN_IN_VARIABLE.test(name)) continue;
     const found = encodedForms(value).some((form) =>
-      filled
-        ? lowered.some((text) => text.includes(form.toLowerCase()))
-        : written.some((text) => text.includes(form)),
+      lowered.some((text) => text.includes(form.toLowerCase())),
     );
     if (found)
       problems.push(

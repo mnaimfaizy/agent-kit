@@ -337,6 +337,21 @@ test("a common word in an unrelated QA_ variable never refuses a label or captio
   );
 });
 
+test("a sign-in value written in place of its placeholder is refused in any case", () => {
+  // No placeholder names QA_A_EMAIL, so nothing would mask or withhold it at run time.
+  assert.match(
+    ok([{ fill: { label: "Email" }, value: "ada@example.test" }], {
+      QA_A_EMAIL: "Ada@Example.test",
+    }).join("\n"),
+    /holds the value of QA_A_EMAIL inline/,
+  );
+});
+
+test("a variable is a sign-in one only by a whole word of its name", () => {
+  const env = { QA_SHIPPING_CITY: "London", QA_FOOTPRINT: "Small-Footprint" };
+  assert.deepEqual(ok([{ step: "London is shown" }, { step: "small-footprint chosen" }], env), []);
+});
+
 test("a placeholder must name a set QA_ variable, and goes only in a fill's value", () => {
   assert.match(
     ok([{ fill: { label: "x" }, value: "{{env:HOME}}" }]).join("\n"),
