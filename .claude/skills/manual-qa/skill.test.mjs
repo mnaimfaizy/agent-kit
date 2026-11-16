@@ -540,7 +540,7 @@ test("step 6 names `web.mjs`'s evidence folder and runs it on a sequence the run
   // A video cannot withhold a moment: no `--video` when the Capture rules add anything.
   assert.match(
     flat,
-    /Add `--video` for a multi-session or timing-dependent scenario, unless the Run brief's \*\*Capture rules\*\* add anything beyond the baseline/,
+    /Add `--video` for a multi-session or timing-dependent scenario, and for one whose `Capture:` is `video` \(at Before too, so its MP4 has both sides\), unless the Run brief's \*\*Capture rules\*\* add anything beyond the baseline/,
   );
   assert.match(flat, /Its stills are the full viewport, so their framing is the page's/);
   assert.match(
@@ -586,7 +586,7 @@ test("step 6 builds a Storyboard for each PASS or FAIL `web.mjs` recorded, after
 test("the report shape links a row's Storyboard first, and `read` accepts the example (#235)", () => {
   assert.ok(
     skill.includes(
-      "| `qa-report-pr-<n>/s4-storyboard.png` `qa-report-pr-<n>/s4-web/step-02-a.png` |",
+      "| `qa-report-pr-<n>/s4-storyboard.png` `qa-report-pr-<n>/s4.mp4` `qa-report-pr-<n>/s4-web/step-02-a.png` |",
     ),
   );
   assert.match(
@@ -595,6 +595,35 @@ test("the report shape links a row's Storyboard first, and `read` accepts the ex
   );
   assert.match(adapter, /## The Storyboard/);
   assert.match(adapter, /`web\.mjs` withholds a still whenever a sign-in value is on the screen/);
+});
+
+test("step 6 builds an MP4 for each `Capture: video` scenario after its Storyboard, and the report links it next (#236)", () => {
+  const flat = skill.replace(/\s+/g, " ");
+  assert.match(
+    flat,
+    /\*\*For a PASS or FAIL with `Capture: video` whose recordings `web\.mjs` kept,\*\* its \*\*MP4\*\* too: `s<n>\.mp4`/,
+  );
+  assert.match(flat, /It is linked right after the Storyboard/);
+  assert.match(
+    flat,
+    /The raw recordings, `video-<session>\.webm`, stay in `working_dir` and are never the row's evidence/,
+  );
+  assert.match(
+    flat,
+    /node "<skill>\/mp4\.mjs" build "<working_dir>\/qa-report-pr-<n>\/s<n>-storyboard\.json"/,
+  );
+  assert.match(flat, /write it into the scenario file as that side's `startedAt`/);
+  assert.match(
+    flat,
+    /The caption privacy check runs first here too, over everything the Storyboard shows and every text the MP4 adds/,
+  );
+  // Without ffmpeg: the Storyboard stays, the reason in the note, nothing fails.
+  assert.match(
+    flat,
+    /Exit 2 means no MP4 can be made here \(no `ffmpeg` with `ffprobe` on `PATH`.*the row keeps its Storyboard, its note carries the `reason`.*nothing fails/,
+  );
+  assert.match(flat, /A row's MP4, `s<n>\.mp4`, is linked right after its Storyboard/);
+  assert.match(adapter, /## The MP4/);
 });
 
 test("finding a driver notes whether it can save images and record", () => {

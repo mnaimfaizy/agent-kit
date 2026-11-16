@@ -15,7 +15,8 @@
 //      showed the expected result, that `FAIL: pre-existing` names its
 //      merge-base evidence, and that a `url` run ran no Before. A row that
 //      ran links its evidence in backticks, its own Storyboard first when it has
-//      one, or says `none: <reason>`; a row left for a person may say a bare
+//      one and its own MP4 right after it, never a raw `web.mjs` recording, or
+//      says `none: <reason>`; a row left for a person may say a bare
 //      `none`. With `--plan`, it also checks the report against the plan it
 //      ran: the same anchors, one row per scenario, a Before cell (and
 //      `Not proven`) only on a fix scenario, one that has **Expected
@@ -156,6 +157,10 @@ export const TEXT = /\.(?:log|txt|har|json|jsonl|ndjson|md|csv|tsv|xml|html?|ya?
 export const NO_EVIDENCE = /^none:\s*\S/;
 /** A scenario's Storyboard, `s<n>-storyboard.png`: its number is the scenario's. */
 const STORYBOARD = /(?:^|\/)s(\d+)-storyboard\.png$/;
+/** A scenario's annotated MP4, `s<n>.mp4`: its number is the scenario's. */
+const MP4 = /(?:^|\/)s(\d+)\.mp4$/;
+/** A raw recording `web.mjs --video` keeps in its folder: never a row's evidence. */
+const RAW_RECORDING = /(?:^|\/)s\d+(?:-before)?-web\/video-[a-z]\.webm$/;
 
 const NO_UPLOAD_FROM_FAILED =
   "media from a failed run is never uploaded: its screen is the one most likely to show " +
@@ -424,7 +429,21 @@ export function readReport(text) {
             "in backticks, or write `none: <reason>`",
         );
       // A Storyboard (`s<n>-storyboard.png`) is its row's main evidence: its own, and first.
+      // Its MP4 (`s<n>.mp4`) is its own too, and comes right after it.
+      const hasBoard = paths.some((path) => STORYBOARD.test(path));
       paths.forEach((path, i) => {
+        if (RAW_RECORDING.test(path))
+          problems.push(
+            `${at} links \`${path}\`, a raw recording of web.mjs: it is never evidence; ` +
+              "link the scenario's MP4 or its stills",
+          );
+        const video = MP4.exec(path);
+        if (video && `S${video[1]}` !== id)
+          problems.push(`${at} links \`${path}\`, another scenario's MP4`);
+        else if (video && hasBoard && !(i === 1 && STORYBOARD.test(paths[0])))
+          problems.push(
+            `${at}'s MP4 sits beside its Storyboard: link it right after the Storyboard`,
+          );
         const board = STORYBOARD.exec(path);
         if (!board) return;
         if (`S${board[1]}` !== id)

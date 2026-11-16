@@ -52,8 +52,8 @@ For `target: url` it needs neither the stack commands nor `accounts.print`, and 
 
 When a scenario drives `web`, two more notes say whether the [web driver](#the-web-driver)'s optional tools are here, and what this run loses without each. They never block the run:
 
-- `` `web`: Playwright with Chromium is installed in this repository, so `web.mjs` drives the `web` scenarios ``, or `` `web`: no Playwright with Chromium in this repository, so no `web.mjs`: the `web` scenarios run on the harness's browsers ``.
-- `` `web`: `ffmpeg` is on `PATH`; this run does not use it, and later video features will ``, or `` `web`: no `ffmpeg` on `PATH`; this run does not need it, but later video features will ``.
+- `` `web`: Playwright with Chromium is installed in this repository, so `web.mjs` drives the `web` scenarios ``, or `` `web`: no Playwright with Chromium in this repository, so no `web.mjs`: the `web` scenarios run on the harness's browsers, with no Storyboards (and so no MP4s) ``.
+- `` `web`: `ffmpeg` with `ffprobe` is on `PATH`, so `mp4.mjs` builds an MP4 for each `Capture: video` scenario ``, or `` `web`: no `ffmpeg` with `ffprobe` on `PATH`, so no MP4s: each `Capture: video` scenario keeps its Storyboard ``.
 
 The skill asks for what is missing, runs on the answers given in chat, and saves them only when the person says yes. `adapter.mjs render < answers.json` prints the new body of the config the lookup found, in its own dialect, or of a new `qa.config.yml` when there is none, with the answers merged in (`run` key by key, so give a whole `stack` or `accounts` mapping) and every other key kept. YAML comments are not kept. It refuses over a problem in `run:`, a YAML syntax problem, or one in the keys both skills read; a problem in `qa-plan`'s `plan:` is carried over as it is, for `qa-plan` to report. `render --write` writes it. Over a YAML config that has comments, `--write` writes nothing and exits 3, naming the comment lines; `--write --drop-comments` writes it anyway, once the person agrees to lose them. Nothing is assumed.
 
@@ -365,6 +365,53 @@ Stdout is a JSON summary: `written`, and the `storyboard` path, its `columns` an
 | 0    | The Storyboard was written.                                                                                                                                                                                                                            |
 | 1    | Refused: the privacy check (`refused`; each refused field is now `[withheld]` in its file), or a problem in the scenario or step files, a variable in `variables` not given, or a result that is not PASS or FAIL (`problems`). No Storyboard written. |
 | 2    | Usage, or no Playwright with Chromium in this repository, or Chromium did not render it (`reason`). Nothing written; the row keeps its plain stills.                                                                                                   |
+
+## The MP4
+
+`mp4.mjs` builds a scenario's annotated **MP4**, `s<n>.mp4`, next to its Storyboard: a video that stands alone, linked right after the Storyboard in its row's Evidence cell (SKILL.md step 6). It is made for every PASS or FAIL (of either kind) whose `Capture:` is `video` and whose recordings `web.mjs --video` kept. It is built from saved files alone, the Storyboard's scenario file, the step files and the recordings, so the same command builds it again at any time without running the scenario:
+
+```bash
+node "<skill>/mp4.mjs" build <s<n>-storyboard.json> [--out <file.mp4>]
+```
+
+Give it the same `QA_*` variables the drivers were given, as that one command's own: the privacy check looks for their values. Without `--out`, it writes `s<n>.mp4` beside the scenario file.
+
+**ffmpeg and ffprobe are found on `PATH`,** and Playwright is the repository's own, loaded as `storyboard.mjs` loads it; nothing is installed, and Agent-kit takes no dependency on either. Without ffmpeg or ffprobe, without Playwright and its Chromium, or without a recording of the Session, no MP4 is made: the command exits 2 with a `reason` (`no MP4: no ffmpeg with ffprobe on PATH; the row keeps its Storyboard`), the row keeps its Storyboard, and its note carries that reason. Nothing fails.
+
+### What it reads
+
+The scenario file is the Storyboard's ([above](#the-scenario-file)), with one more key on each side that plays:
+
+| Key                                   | Meaning                                                                                                                                                                                                       |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `after.startedAt`, `before.startedAt` | The time the runner started that side's `web.mjs` run, ISO 8601 with its zone (`2026-11-16T10:04:12.000+11:00`, or `Z`). A step's wall-clock time is this plus its `atMs`. Required for each side that plays. |
+
+From each step file it reads the steps, and `sessions`: the Session's `startedAtMs`, when its recording began, and `video`, its recording's name (`video-a.webm`) in the step file's folder.
+
+### What it shows
+
+- **One Session per side:** the one `proves` names, or else the first After step's. Each side shows that Session's steps, paired by index.
+- **Before beside After** when Before ran and has a recording of that Session. After plays alone for a feature scenario, a Before not run or not observed, or a Before with no recording of that Session, and the band says why.
+- **The pacing:** each side holds on each step's frame for `HOLD_SECONDS`, 2 s, and plays the stretch from one step to the next at `BETWEEN_SPEED`, 0.5 (half speed). Where one side's stretch is shorter, it waits on its step's frame until the other arrives, so both sides reach each step together. The video opens on step 1's hold, so its length is the steps' holds plus each stretch, the longer side's, at that speed. A step a side lacks takes it no time: it waits where it was, and its caption says so. A step's time in its recording is its `atMs` less its Session's `startedAtMs`.
+- **The overlays:** the Storyboard's band across the top, and under each side the step's caption, with a timing line beneath it: the wall-clock time in the zone of `startedAt`, the time since the side started (`atMs`), and on After its difference from Before's same step (`10:04:14.5 UTC+11:00 · 2.5 s since After started · After -0.3 s`). Between two steps, the line says the side is playing at half speed on to the next step.
+
+The band and captions are HTML rendered to PNG by the Storyboard's renderer, in its palette, with JavaScript off and every request refused. ffmpeg only scales each recording to 960×540, pads, stacks and joins them with those images; it draws no text. The MP4 is H.264 (MPEG-4 Part 2 when the local ffmpeg has no `libx264`), 25 frames a second, with no audio. It is written beside its place and moved in only when complete.
+
+**The raw recordings stay in `working_dir`,** in `s<n>-web/` and `s<n>-before-web/`, and are never the row's evidence: `report.mjs read` refuses a row that links one.
+
+### Its privacy check
+
+Before any MP4 is written, the [caption privacy check](#the-caption-privacy-check) reads everything the Storyboard shows, and every text the MP4 adds: each overlay's heading and timing line, and the band's note on Before. On any match, no MP4 is written (an earlier one at that path is removed), the command exits 1, and `refused` names each field and why, never the value. A field the Storyboard shows is kept as `[withheld]` in the file it came from, as for the Storyboard.
+
+Stdout is a JSON summary: `written`, and the `mp4` path, its `session`, `sides`, `steps` and planned length in `seconds`; or `refused`, `problems` or `reason`.
+
+| Exit | Meaning                                                                                                                                                                                     |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0    | The MP4 was written.                                                                                                                                                                        |
+| 1    | Refused: the privacy check (`refused`), or a problem in the scenario or step files, a missing or zoneless `startedAt`, or a variable in `variables` not given (`problems`). No MP4 written. |
+| 2    | Usage, or no ffmpeg with ffprobe on `PATH`, no Playwright with Chromium, no recording of the Session, or ffmpeg did not build it (`reason`). Nothing written; the row keeps its Storyboard. |
+
+Its tests that build an MP4 skip without ffmpeg and ffprobe, and fail instead when `AGENT_KIT_REQUIRE_FFMPEG=1` says they must be there; the one that also renders in Chromium is forced by `AGENT_KIT_REQUIRE_CHROMIUM=1`.
 
 ## QA Artifacts and posting
 

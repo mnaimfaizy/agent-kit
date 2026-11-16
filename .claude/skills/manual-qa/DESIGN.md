@@ -104,7 +104,7 @@ At each step it saves a still, the element the step is about, that element's vis
 
 The baseline capture rules are the driver's own, not the runner's care: a still is withheld while a password field holds a value, or while a sign-in value is in a field or on the screen, and its record says so. A field filled from a sign-in value shows dots; stills are checked before and after they are taken, and in a video the masking is best-effort. A video cannot withhold a moment, so a value the page itself shows stays in it, and the video stays local like every QA Artifact.
 
-Playwright is optional. Agent-kit takes no runtime dependency, so the driver loads Playwright from the repository under test and never installs it, and readiness says, as a note, whether Chromium and `ffmpeg` are there and what the run loses without each (this run needs no `ffmpeg`; later video features will). Without Chromium the run falls back to the harness's browsers, exactly as before, so a repository that has not installed Playwright loses nothing it had.
+Playwright is optional. Agent-kit takes no runtime dependency, so the driver loads Playwright from the repository under test and never installs it, and readiness says, as a note, whether Chromium and `ffmpeg` are there and what the run loses without each: without Chromium, the Storyboards and so the MP4s; without `ffmpeg` (with `ffprobe`), the MP4s. Without Chromium the run falls back to the harness's browsers, exactly as before, so a repository that has not installed Playwright loses nothing it had.
 
 ## One file that stands alone
 
@@ -113,6 +113,14 @@ A QA Artifact used to be a bare capture: `s3.png` or a step's still says nothing
 It is built from the records `web.mjs` saved, never by running anything again: the runner's judgment is written into the scenario file, and the same files build the same layout at any time. It renders in the repository's own Chromium, as the driver does, in a palette the skill carries, since a repository's design tokens would make one repository's Storyboard look unlike another's and give the repository something to configure. Without Chromium, the plain stills are still there, so the run loses the Storyboard and nothing else.
 
 A Storyboard gathers text in one file meant to be passed on, so it gets its own check before it is written: every sign-in value the run knew, every value marked secret, and anything shaped like a token. A match stops the file, and the refusal names the field, never the value, since a refusal is printed where the value would leak too. The check is a pure function so the next file of the same kind, the annotated video, reuses it. A still the driver withheld stays withheld: the Storyboard shows its empty frame and caption, and does not reach around the driver's capture rules.
+
+## A video that shows the timing
+
+A Storyboard shows what each step looked like, not how the steps followed one another: a redirect that came late, or a session that stayed signed in a moment too long, shows only in time. For a scenario whose `Capture:` is `video`, the MP4 shows it, and stands alone the same way: the Storyboard's band across the top, and each step's caption under each side, so someone holding only the video can tell the scenario, what was expected, and the result.
+
+Raw recordings run at the app's speed and spend most of their length on loading. So each side holds on each step's frame and plays the stretch between steps slowed, at two fixed constants rather than settings, and the side that got there sooner waits, so Before's step and After's step are on screen together. A timing line under each caption gives the wall-clock time with its zone, the time since the side started, and After's difference from Before, since "it got slower" is the claim such a video exists to check.
+
+It is built from the saved records and recordings, never by running anything again, and its text is drawn by the Storyboard's renderer, so the same privacy check covers every word it shows and ffmpeg draws none. ffmpeg is optional like Chromium: without it the Storyboard stays, so the run loses the MP4 and nothing else. The raw recordings stay local and are never a row's evidence: they carry no band, no captions and no result.
 
 ## Posting is a second step
 

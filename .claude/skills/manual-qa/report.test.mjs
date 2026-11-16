@@ -661,6 +661,43 @@ test("a Storyboard is the row's main evidence: linked first, and for its own sce
   assert.deepEqual(plain.problems, []);
 });
 
+test("an MP4 sits right after its own Storyboard, and a raw web.mjs recording is never evidence (#236)", () => {
+  const row = (evidence) =>
+    readReport(
+      reportFor([
+        `| S1: An admin invites a new member | PASS | ${evidence} | invite sent |`,
+        S2_LEFT,
+      ]),
+    );
+  const good = row(
+    "`qa-report-pr-57/s1-storyboard.png` `qa-report-pr-57/s1.mp4` `qa-report-pr-57/s1-web/step-02-a.png`",
+  );
+  assert.deepEqual(good.problems, []);
+  assert.deepEqual(good.report.results[0].evidence[1], "qa-report-pr-57/s1.mp4");
+  const after = row(
+    "`qa-report-pr-57/s1-storyboard.png` `qa-report-pr-57/s1-web/step-02-a.png` `qa-report-pr-57/s1.mp4`",
+  );
+  assert.equal(after.problems.length, 1);
+  assert.match(
+    after.problems[0],
+    /S1's MP4 sits beside its Storyboard: link it right after the Storyboard/,
+  );
+  const other = row("`qa-report-pr-57/s1-storyboard.png` `qa-report-pr-57/s2.mp4`");
+  assert.equal(other.problems.length, 1);
+  assert.match(other.problems[0], /S1 links `qa-report-pr-57\/s2\.mp4`, another scenario's MP4/);
+  for (const raw of [
+    "qa-report-pr-57/s1-web/video-a.webm",
+    "qa-report-pr-57/s1-before-web/video-b.webm",
+  ]) {
+    const read = row(`\`qa-report-pr-57/s1-storyboard.png\` \`${raw}\``);
+    assert.equal(read.problems.length, 1, raw);
+    assert.match(read.problems[0], /a raw recording of web\.mjs: it is never evidence/);
+  }
+  // Without a Storyboard (no Chromium) there is no MP4 either; the row keeps its stills.
+  const plain = row("`qa-report-pr-57/s1-web/step-02-a.png`");
+  assert.deepEqual(plain.problems, []);
+});
+
 test("a report that links local media per session, and a recording, reads against its plan", () => {
   // S2 becomes a two-session scenario: an admin signs a member out while the member watches.
   const plan = PLAN.replace(

@@ -818,7 +818,7 @@ function surfaceQuestion(configured, briefed, scenarios) {
 // ── The `web` driver's tools ────────────────────────────────────────────────
 
 /**
- * The readiness notes for the `web` driver's optional tools (#232, ADAPTER.md
+ * The readiness notes for the `web` driver's optional tools (#232, #236; ADAPTER.md
  * "Readiness check"). Notes, never needs: without either, the run goes on.
  */
 export const WEB_NOTES = /** @type {const} */ ({
@@ -826,10 +826,13 @@ export const WEB_NOTES = /** @type {const} */ ({
     "`web`: Playwright with Chromium is installed in this repository, so `web.mjs` drives the `web` scenarios",
   noChromium:
     "`web`: no Playwright with Chromium in this repository, so no `web.mjs`: " +
-    "the `web` scenarios run on the harness's browsers",
-  ffmpeg: "`web`: `ffmpeg` is on `PATH`; this run does not use it, and later video features will",
+    "the `web` scenarios run on the harness's browsers, with no Storyboards (and so no MP4s)",
+  ffmpeg:
+    "`web`: `ffmpeg` with `ffprobe` is on `PATH`, so `mp4.mjs` builds an MP4 for each " +
+    "`Capture: video` scenario",
   noFfmpeg:
-    "`web`: no `ffmpeg` on `PATH`; this run does not need it, but later video features will",
+    "`web`: no `ffmpeg` with `ffprobe` on `PATH`, so no MP4s: each `Capture: video` " +
+    "scenario keeps its Storyboard",
 });
 
 /** The packages that carry Playwright's `chromium`, in the order they are tried. */
@@ -888,7 +891,7 @@ export function onPath(name, env = process.env, platform = process.platform) {
 /** What `check --for run` detects for the `web` notes, from the repository root. */
 const detectWebTools = (repo) => () => ({
   chromium: findPlaywright(repo).chromium,
-  ffmpeg: onPath("ffmpeg"),
+  ffmpeg: onPath("ffmpeg") && onPath("ffprobe"),
 });
 
 /**
