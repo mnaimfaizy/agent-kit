@@ -330,7 +330,7 @@ Read `run.evidence.upload` from step 2's effective config. With `none` (the defa
 With `gh-release:<tag>`:
 
 1. `gh repo view --json visibility,nameWithOwner`. Unless `visibility` is `PRIVATE`, say first: _anyone who can see this repository can download a release asset; upload only files that show QA Account data on a test system_.
-2. Ask about each evidence file in the report, one by one: upload it, or keep it local. Never offer to upload them all at once. When the run failed (a FAIL, or a run stopped on a blocking outcome), say that its screenshots and recordings stay local, and do not offer them. Offer only media and plain text: an archive, a PDF or a trace stays local, since no check can see inside it.
+2. Ask about each evidence file in the report, one by one: upload it, or keep it local. Never offer to upload them all at once. Offer only finished files: each Storyboard (`s<n>-storyboard.png`) and MP4 (`s<n>.mp4`) the run wrote, each `api` scenario's `s<n>-http.log` and other plain text, and a scenario's plain stills only when it has no Storyboard (no Chromium). Never offer a Before still (`s<n>-before…`), a still a Storyboard was built from (or any other still in that row), or a raw recording (`video-<session>.webm`, or any recording but the MP4): the Storyboard and MP4 show them, captioned and through the privacy check. When the run failed (a FAIL of either kind, or a run stopped on a blocking outcome), say that its screenshots and recordings stay local, and do not offer them, Storyboards and MP4s included. An archive, a PDF or a trace stays local, since no check can see inside it.
 3. Find the release: `gh release view <tag> --json isPrerelease --jq .isPrerelease` prints `true` (`prerelease`) or `false` (`release`), or fails (`missing`).
 4. Check the picks:
 
@@ -338,7 +338,7 @@ With `gh-release:<tag>`:
    node "<skill>/report.mjs" evidence "<report file>" --pick <path> --pick <path> … --visibility <visibility> --release <state> --github <nameWithOwner>
    ```
 
-   Exit 1: say each `refused` file and why. Drop them, and run it again with the rest, or with none. Say each `warnings` line.
+   Exit 1: say each `refused` file and why, which names the rule it broke. Drop them, and run it again with the rest, or with none. Say each `warnings` line.
 
 5. When `release` is `create`: `gh release create <tag> --prerelease --title "QA Artifacts" --notes "QA Artifacts uploaded by manual-qa. Not a release of the software."`. Never upload to a release that is not a prerelease.
 6. For each `accepted` file: copy `<working_dir>/<file>` to `<tmp>/<asset>`, then `gh release upload <tag> "<tmp>/<asset>" --clobber`. `--clobber` replaces this pull request's asset of the same name from an earlier run.
@@ -347,7 +347,7 @@ With `gh-release:<tag>`:
 
 ### 11. Post the report
 
-With `working-copy`, skip this step. Otherwise pass `--link <file>=<url>` for each file uploaded in step 10, so the posted text links it. A command below that exits 1 names what it refused: show it, and post nothing.
+With `working-copy`, skip this step. Otherwise pass `--link <file>=<url>` for each file uploaded in step 10, so the posted text links it: it shows an uploaded Storyboard as an image and links an MP4 and every other file. A command below that exits 1 names what it refused: show it, and post nothing.
 
 - **`pr-comment`:** one comment, whose first line is exactly `<!-- qa-report -->`.
 

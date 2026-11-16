@@ -30,7 +30,7 @@
 //      plan's `<!-- qa-plan-link -->` comment names. With `--head`, the
 //      plan's head, it says whether that comment is for an older head.
 //   3. `comment`: the PR comment body: the marker, then the report, with each
-//      uploaded evidence path linked.
+//      uploaded evidence path linked, an uploaded Storyboard shown as an image.
 //   4. `stale`: a report comment's body with a **Stale:** line after the
 //      marker, for `qa-plan` to edit in on the person's yes after a revision.
 //      The next `comment` replaces the whole body, Stale line included.
@@ -41,8 +41,10 @@
 //      prerelease, and under what asset names. Nothing goes with
 //      `evidence.upload: none`; a file the report does not list as evidence
 //      is refused, as is one neither media nor plain text (an archive, a
-//      PDF, a trace); media from a failed run is refused; a public
-//      repository gets a warning.
+//      PDF, a trace); media from a failed run is refused; of the media, only
+//      a Storyboard, an MP4 and the stills of a row with no Storyboard go,
+//      never a Before still, a still behind a Storyboard or a raw recording,
+//      each refusal naming its rule; a public repository gets a warning.
 //
 //   Every body it builds, and every picked text file (a log, a HAR), is
 //   checked for sign-in values with the plan's own credential scan, and
@@ -148,9 +150,13 @@ export function impliedHeadline(results, stopped) {
 }
 /** GitHub refuses a comment or issue body longer than this. */
 export const BODY_LIMIT = 65536;
+/** Still images: the only media, besides a Storyboard and an MP4, that may be uploaded. */
+const STILL_TYPES = "png|jpe?g|webp|bmp|tiff?|avif|heic|svg";
+/** Recordings and audio: never uploaded but as a scenario's MP4. */
+const RECORDING_TYPES = "gif|mp4|m4v|mov|webm|mkv|avi|wmv|mp3|wav|ogg|m4a";
+const STILL = new RegExp(`\\.(?:${STILL_TYPES})$`, "i");
 /** Screenshots, recordings and audio: what a failed run never uploads. */
-export const MEDIA =
-  /\.(?:png|jpe?g|gif|webp|bmp|tiff?|avif|heic|svg|mp4|m4v|mov|webm|mkv|avi|wmv|mp3|wav|ogg|m4a)$/i;
+export const MEDIA = new RegExp(`\\.(?:${STILL_TYPES}|${RECORDING_TYPES})$`, "i");
 /** Plain-text evidence: the only kind whose contents are scanned for sign-in values. */
 export const TEXT = /\.(?:log|txt|har|json|jsonl|ndjson|md|csv|tsv|xml|html?|ya?ml)$/i;
 /** The Evidence cell of a PASS or FAIL row that links no QA Artifact: `none: <reason>`. */
@@ -161,10 +167,21 @@ const STORYBOARD = /(?:^|\/)s(\d+)-storyboard\.png$/;
 const MP4 = /(?:^|\/)s(\d+)\.mp4$/;
 /** A raw recording `web.mjs --video` keeps in its folder: never a row's evidence. */
 const RAW_RECORDING = /(?:^|\/)s\d+(?:-before)?-web\/video-[a-z]\.webm$/;
+/** Before evidence, `s<n>-before…`, a file or a folder: never uploaded on its own. */
+const BEFORE = /(?:^|\/)s\d+-before(?:[-./]|$)/;
 
 const NO_UPLOAD_FROM_FAILED =
   "media from a failed run is never uploaded: its screen is the one most likely to show " +
   "what it must not; describe the failure in the report, and keep the file local";
+const RAW_UPLOAD =
+  "a raw recording is never uploaded: only a scenario's MP4 (`s<n>.mp4`), which passed the " +
+  "caption privacy check, goes; keep the recording local";
+const BEFORE_UPLOAD =
+  "a lone Before still is never uploaded: the Storyboard shows Before beside After; " +
+  "keep it local";
+const behindBoard = (board) =>
+  `a still behind a Storyboard is never uploaded: a row with a Storyboard uploads ` +
+  `\`${board}\`, its main evidence, which shows its steps captioned; keep the still local`;
 const NOT_CHECKABLE =
   "only media and plain-text evidence is uploaded: an archive, a PDF or a trace can carry " +
   "screenshots and sign-in values no check here can see; keep it local";
@@ -727,11 +744,22 @@ export function staleComment(body, head) {
   return { body: problems.length ? null : marked, problems };
 }
 
-/** Link each uploaded evidence path where the text quotes it in backticks. */
+/**
+ * Link each uploaded evidence path where the text quotes it in backticks. A
+ * Storyboard shows inline, as an image that links to its asset (on a private
+ * repository the image may not load, and the link still opens it); every other
+ * file, an MP4 included, is a link.
+ */
 function linkEvidence(text, links) {
   let out = text;
   for (const [path, url] of Object.entries(links))
-    out = out.split(`\`${path}\``).join(`[\`${path}\`](${url})`);
+    out = out
+      .split(`\`${path}\``)
+      .join(
+        STORYBOARD.test(path.replace(/\\/g, "/"))
+          ? `[![${path}](${url})](${url})`
+          : `[\`${path}\`](${url})`,
+      );
   return out;
 }
 
@@ -899,7 +927,20 @@ export function evidenceUpload({
       return `could not be read to check it (${error?.code ?? error}); keep it local`;
     }
   };
+  // Of the media, only a finished file goes: a Storyboard or MP4, or the plain
+  // stills of a row with no Storyboard. A Before still, a still the Storyboard
+  // was built from, and a raw recording never do.
+  // `read` has already refused another scenario's Storyboard or MP4 in a row.
+  const unfinishedWhy = (path, row) => {
+    const own = STORYBOARD.exec(path) ?? MP4.exec(path);
+    if (own && `S${own[1]}` === row.id) return null;
+    if (!STILL.test(path)) return RAW_UPLOAD;
+    if (BEFORE.test(path)) return BEFORE_UPLOAD;
+    const board = row.evidence.find((p) => STORYBOARD.test(p.replace(/\\/g, "/")));
+    return board ? behindBoard(board) : null;
+  };
   let leak;
+  let unfinished;
   for (const file of picks) {
     const refuse = (why) => out.refused.push({ file, why });
     const normal = posix.normalize(file.replace(/\\/g, "/"));
@@ -909,6 +950,7 @@ export function evidenceUpload({
       refuse(`evidence is uploaded only from \`${folder}\` in \`working_dir\``);
     else if (!media && !TEXT.test(normal)) refuse(NOT_CHECKABLE);
     else if (report.failed && media) refuse(NO_UPLOAD_FROM_FAILED);
+    else if (media && (unfinished = unfinishedWhy(normal, listed.get(file)))) refuse(unfinished);
     else if (!exists(normal)) refuse("no such file in `working_dir`");
     else if (!media && (leak = leakIn(normal))) refuse(leak);
     else {
