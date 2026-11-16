@@ -1161,8 +1161,25 @@ export const OBSERVES = /** @type {const} */ ([
   "screen",
   "local-file",
 ]);
-/** The plan formats this copy reads. A format=1 plan carries no per-scenario field. */
-export const FORMATS = /** @type {const} */ ([1, 2]);
+/**
+ * The optional field (format=3) saying what evidence a run keeps for a scenario: right
+ * after its **Observes:**, or wherever **Observes:** would sit when it has none, before
+ * **Steps:**. Missing, it means `screenshot` on a screen surface and `transcript` on `api`.
+ */
+export const SCENARIO_CAPTURE = "Capture";
+/** The values **Capture:** takes, from ANATOMY.md "Scenarios". */
+export const CAPTURES = /** @type {const} */ (["screenshot", "video", "transcript", "none"]);
+/**
+ * The optional field (format=3) saying what the tester sees at the merge-base, where the
+ * change is not yet made: right after **Expected result:**. A scenario with one is a fix
+ * scenario.
+ */
+export const SCENARIO_EXPECTED_BEFORE = "Expected before";
+/**
+ * The plan formats this copy reads. A format=1 plan carries no per-scenario field; a
+ * format=2 plan no **Capture:** or **Expected before:**.
+ */
+export const FORMATS = /** @type {const} */ ([1, 2, 3]);
 /** The format the composer writes. */
 export const FORMAT = FORMATS.at(-1);
 const RULE_OUT = "If this fails, first rule out";
@@ -1353,7 +1370,10 @@ export function credentialProblems(lines) {
  * scenario lists its `sessions` as `{name, id}`: one with `name: null` for
  * **Signs in as:**, else one per letter, its effective `surface`: its own
  * **Surface:** (format=2), else the Run brief's, and the values its **Observes:**
- * (format=2) lists, as `observes` (`[]` with none). Each `Review:` box in the
+ * (format=2) lists, as `observes` (`[]` with none), what its run keeps as `capture`
+ * (format=3: its **Capture:**, else `transcript` on `api` and `screenshot` elsewhere),
+ * with `captureGiven` saying whether the plan wrote it, and its **Expected before:**
+ * (format=3) as `expectedBefore` (`null` with none). Each `Review:` box in the
  * Sign-off checklist is in `reviews`, as `{text, ticked}`: never a scenario's box,
  * and a plan whose Scenarios says `None.` reads when it has one.
  * `manual-qa` runs nothing from a plan with a problem.
@@ -1390,7 +1410,9 @@ export function validatePlan(text) {
   if (!FORMATS.includes(plan.format))
     at(
       0,
-      `format=${plan.format}: this copy of ANATOMY.md reads ${FORMATS.map((f) => `format=${f}`).join(" and ")} only`,
+      `format=${plan.format}: this copy of ANATOMY.md reads ${FORMATS.slice(0, -1)
+        .map((f) => `format=${f}`)
+        .join(", ")} and format=${FORMAT} only`,
     );
 
   const titleAt = lines.findIndex((line, n) => n > 0 && line.trim() !== "");
@@ -1859,6 +1881,64 @@ export function validatePlan(text) {
             else observes.push(value);
           }
       }
+      // What a run keeps (#233): after Observes, or wherever Observes would sit.
+      const defaultCapture = surface === "api" ? "transcript" : "screenshot";
+      let capture = defaultCapture;
+      const captures = found.filter((entry) => entry.label === SCENARIO_CAPTURE);
+      for (const extra of captures.slice(1))
+        at(extra.n, `${id}: a second **${SCENARIO_CAPTURE}:**: a scenario has at most one`);
+      const kept = captures[0];
+      if (kept) {
+        const k = found.indexOf(kept);
+        const misplaced =
+          found
+            .slice(k + 1)
+            .some((entry) =>
+              [...before, SCENARIO_SURFACE, SCENARIO_OBSERVES].includes(entry.label),
+            ) || found.slice(0, k).some((entry) => after.includes(entry.label));
+        const what = `${id}: **${SCENARIO_CAPTURE}:**`;
+        const word = plainWord(kept.inline);
+        const stuck = stuckMark(word, (candidate) => CAPTURES.includes(candidate));
+        if (plan.format !== 3)
+          at(kept.n, `${what} is a format=3 field: mark the plan \`format=3\`, or leave it out`);
+        else if (misplaced)
+          at(
+            kept.n,
+            `${what} is out of position: it goes right after the scenario's **${SCENARIO_OBSERVES}:** or **${SCENARIO_SURFACE}:**, or after **${SCENARIO_LABELS[1]}:** or **${SESSIONS}:** (and **${CREATES}:**, when present) when it has neither, before **Steps:**`,
+          );
+        else if (kept.text === "") at(kept.n, `${what} is empty`);
+        else if (stuck) at(kept.n, `${what} read ${stuck}`);
+        else if (!CAPTURES.includes(word))
+          at(kept.n, `${what} \`${word}\`: expected one of: ${CAPTURES.join(", ")}`);
+        else if (word === "transcript" && surface && surface !== "api")
+          at(
+            kept.n,
+            `${what} \`transcript\` is for an \`api\` scenario, and this one drives \`${surface}\`: use \`screenshot\`, \`video\` or \`none\``,
+          );
+        else if ((word === "screenshot" || word === "video") && surface === "api")
+          at(
+            kept.n,
+            `${what} \`${word}\` is for a scenario with a screen, and this one drives \`api\`: use \`transcript\` or \`none\``,
+          );
+        else capture = word;
+      }
+      // What the merge-base shows (#233): right after Expected result. Its text is the
+      // scenario's, so it is read in full, as Expected result is.
+      /** @type {string | null} */
+      let expectedBefore = null;
+      const befores = found.filter((entry) => entry.label === SCENARIO_EXPECTED_BEFORE);
+      for (const extra of befores.slice(1))
+        at(extra.n, `${id}: a second **${SCENARIO_EXPECTED_BEFORE}:**: a scenario has at most one`);
+      const was = befores[0];
+      if (was) {
+        const what = `${id}: **${SCENARIO_EXPECTED_BEFORE}:**`;
+        if (plan.format !== 3)
+          at(was.n, `${what} is a format=3 field: mark the plan \`format=3\`, or leave it out`);
+        else if (found[found.indexOf(was) - 1]?.label !== SCENARIO_LABELS[3])
+          at(was.n, `${what} is out of position: it goes right after **${SCENARIO_LABELS[3]}:**`);
+        else if (was.text === "") at(was.n, `${what} is empty`);
+        else expectedBefore = was.text;
+      }
       const steps = get("Steps");
       if (steps && steps.text !== "" && !/^\s*\d+\.\s+\S/m.test(steps.text))
         at(steps.n, `${id}: **Steps:** expected a numbered list`);
@@ -1921,6 +2001,9 @@ export function validatePlan(text) {
         creates: [...new Set(made.filter((made) => made !== ""))],
         surface,
         observes,
+        capture,
+        captureGiven: Boolean(kept),
+        expectedBefore,
       });
       accountLines.push({ signs: (named ?? signs)?.n, creates: creates?.n, made });
     });
