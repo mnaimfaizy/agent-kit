@@ -218,12 +218,13 @@ function sections(lines) {
   return found;
 }
 
+/** A table row's cells: `\|` is a pipe in a cell's text, as GitHub reads it, never a column break. */
 const cells = (row) =>
   row
     .trim()
-    .replace(/^\||\|$/g, "")
-    .split("|")
-    .map((cell) => cell.trim());
+    .replace(/^\||(?<!\\)\|$/g, "")
+    .split(/(?<!\\)\|/)
+    .map((cell) => cell.replace(/\\\|/g, "|").trim());
 
 /**
  * Read a QA Report file into what posting needs. Its Results is a table of one

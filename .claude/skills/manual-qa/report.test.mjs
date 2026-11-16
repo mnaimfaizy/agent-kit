@@ -413,6 +413,18 @@ test("a Before cell says what the merge-base showed, or why it shows nothing", (
   );
 });
 
+test("a `\\|` in a cell is a pipe in its text, never a column break", () => {
+  const before = "matched: the badge read Status \\| Pending";
+  const { report, problems } = readReport(
+    graded([row3("S1", "PASS", before), ...ALL_PASS.slice(1)]),
+  );
+  assert.deepEqual(problems, []);
+  assert.equal(report.results[0].before, "matched: the badge read Status | Pending");
+  assert.deepEqual(report.results[0].evidence, ["qa-report-pr-57/s1.png"]);
+  const note = readReport(graded([row3("S1", "PASS", S1_BEFORE, "a \\| b"), ...ALL_PASS.slice(1)]));
+  assert.equal(note.report.results[0].notes, "a | b");
+});
+
 test("the three headlines: each is the one the rows imply, and a headline that disagrees is refused", () => {
   const regression = [row3("S1", "FAIL: regression", S1_BEFORE, "no badge"), ...ALL_PASS.slice(1)];
   const item = [

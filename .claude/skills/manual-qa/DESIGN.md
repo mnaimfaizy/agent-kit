@@ -58,7 +58,7 @@ The headline is worked out from the rows, never written freely, and `report.mjs 
 
 ## Before and After on one stack
 
-A fix scenario proves a fix only when the defect is seen without the change and gone with it. So on a `stack` target each fix scenario also runs at the plan's merge-base, from a detached `git worktree` under `working_dir`, which leaves the developer's checkout where it is.
+A fix scenario proves a fix only when the defect is seen without the change and gone with it. So on a `stack` target each fix scenario also runs at the plan's merge-base, from a detached `git worktree` under `working_dir`, which leaves the developer's checkout where it is. The plan names the merge-base, but a plan is data: an edited **Merge-base:** would pick the code the Before stack runs. So the run checks it first against `git merge-base` of the pull request's base branch and its verified head, and runs no Before on any other commit, or without `gh` to name the base.
 
 The Before stack and the head stack are the same QA Stack, brought up from the worktree, torn down, then brought up again from the checkout, never two at once. Two stacks side by side would fight over the ports `up` binds and the database it migrates, and a repository's `up` is rarely written to run twice. Running Before first means the database is only ever migrated forward: a schema migrated to the head's shape never has to go back, which many migration tools cannot do. Teardown still touches only what each pass recorded, in its own pid file, so a process from one pass is never mistaken for the other's, and the worktree is removed whether Before finished or not.
 

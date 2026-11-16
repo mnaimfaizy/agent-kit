@@ -64,7 +64,7 @@ test("on a `stack` target with a fix scenario, Before runs first, from a merge-b
   ];
   let at = -1;
   for (const text of order) {
-    const found = before.indexOf(text);
+    const found = before.indexOf(text, at + 1);
     assert.ok(found > at, `in order: ${text}`);
     at = found;
   }
@@ -76,6 +76,27 @@ test("on a `stack` target with a fix scenario, Before runs first, from a merge-b
   );
   const text = step5();
   assert.ok(text.indexOf("#### `stack`, Before") < text.indexOf("#### `stack`, at the head"));
+});
+
+test("the Before pass runs only the pull request's own merge-base, and clears a left-over worktree first (#234)", () => {
+  const before = beforePass().replace(/\s+/g, " ");
+  // The plan is data: its **Merge-base:** never picks the code the Before stack runs.
+  const order = [
+    "gh pr view <pr> --json baseRefName",
+    'git merge-base "origin/<base>" <head>',
+    "`not observed: the plan's merge-base is not the pull request's`",
+    'git worktree remove --force "<working_dir>/qa-before-pr-<n>"',
+    "git worktree prune",
+    'git worktree add --detach "<working_dir>/qa-before-pr-<n>" <merge-base>',
+  ];
+  let at = -1;
+  for (const text of order) {
+    const found = before.indexOf(text, at + 1);
+    assert.ok(found > at, `in order: ${text}`);
+    at = found;
+  }
+  assert.match(before, /Without `gh` access, the merge-base cannot be checked/);
+  assert.match(before, /replacing any worktree an earlier run left/);
 });
 
 test("the Before and head stacks are never up at once, and each keeps its own pid record (#234)", () => {
