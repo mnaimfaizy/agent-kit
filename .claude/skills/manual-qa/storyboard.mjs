@@ -75,14 +75,20 @@ export const MARKS = /** @type {const} */ ({
 });
 /** Each mark's words, beside it in the band, so the PNG needs no legend. */
 const MARK_WORDS = { "✓": "as expected:", "✗": "not as expected:", "–": "not judged:" };
-/** A sign-in value shorter than this is not looked for: as in `web.mjs`, it would match common text. */
+/**
+ * A sign-in value shorter than this is not looked for: it would match common text. A copy
+ * of web.mjs's `MIN_SECRET_LENGTH`, which it does not export: change the two together.
+ */
 const MIN_SECRET_LENGTH = 4;
 /** The width of the rendered page, in CSS pixels. */
 const PAGE_WIDTH = 1360;
 /** The width a still's crop is shown at: two columns, or one. */
 const CELL_WIDTH = { 1: 880, 2: 600 };
 
-/** Text that is a secret by its shape alone. */
+/**
+ * Text that is a secret by its shape alone: a copy of web.mjs's `SECRET_SHAPES`, which it
+ * does not export. Change the two together.
+ */
 const TOKEN_SHAPES = [
   ["a JWT", /eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]*/],
   ["a bearer or basic credential", /\b(?:Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{12,}/],
@@ -92,8 +98,7 @@ const TOKEN_SHAPES = [
 const ENV_NAME = /^QA_[A-Z0-9_]+$/;
 /**
  * A `QA_*` variable whose name marks its value secret, not only a sign-in value: web.mjs's
- * secret words without EMAIL, which here is a sign-in value. Every `QA_*` value given is
- * looked for either way; the name only says which kind a refusal names.
+ * secret words without EMAIL, which here is a sign-in value. Change the two together.
  */
 const SECRET_VARIABLE =
   /(?:^|_)(?:PASSWORD|PASSWD|PASSPHRASE|SECRET|TOKEN|API_?KEY|CREDENTIALS?|OTP|PIN|RECOVERY|MFA)(?:_|$)/;
@@ -157,15 +162,26 @@ export function privacyCheck(fields, knownSecrets) {
 }
 
 /**
- * The values a run knew, from the `QA_*` variables given to this command: a
- * name that marks a secret (`PASSWORD`, `TOKEN`, …) is a value marked secret,
- * any other a sign-in value.
+ * The values a run knew, from the `QA_*` variables given to this command, as
+ * `web.mjs` counts them: each variable the run used (the scenario file's
+ * `variables`, the ones its sequences filled), and any whose name says secret,
+ * email or username. Any other (`QA_SHIPPING_CITY`) is not one. A name that
+ * marks a secret (`PASSWORD`, `TOKEN`, …) is a value marked secret, any other a
+ * sign-in value.
  * @param {Record<string, string | undefined>} env
+ * @param {string[]} [used] the variables the run used
  * @returns {Known[]}
  */
-export function knownFromEnv(env) {
+export function knownFromEnv(env, used = []) {
+  const signIn = (name) =>
+    used.includes(name) ||
+    SECRET_VARIABLE.test(name) ||
+    EMAIL_VARIABLE.test(name) ||
+    USER_VARIABLE.test(name);
   return Object.entries(env)
-    .filter(([name, value]) => ENV_NAME.test(name) && typeof value === "string" && value)
+    .filter(
+      ([name, value]) => ENV_NAME.test(name) && signIn(name) && typeof value === "string" && value,
+    )
     .map(([name, value]) => ({
       name,
       value: /** @type {string} */ (value).replace(/[\r\n]+$/, ""),
@@ -229,6 +245,8 @@ function onScreen(box) {
   return right > x && bottom > y ? { x, y, width: right - x, height: bottom - y } : null;
 }
 
+/** The outline's stroke, drawn outward from its inner edge: the crop keeps room for it. */
+export const OUTLINE_STROKE = 3;
 const FULL_FRAME = () => ({ x: 0, y: 0, width: VIEWPORT.width, height: VIEWPORT.height });
 
 /**
@@ -236,6 +254,8 @@ const FULL_FRAME = () => ({ x: 0, y: 0, width: VIEWPORT.width, height: VIEWPORT.
  * with padding, at the viewport's aspect and at least `MIN_CROP_WIDTH` wide,
  * inside the still. The outline's inner edge is `OUTLINE_GAP` outside the
  * subject; its stroke is drawn outward from there, never over the subject.
+ * When the outline and its stroke reach past the still (a subject at its edge),
+ * the crop reaches past it too, by just that much, so all four sides show.
  * @param {Box | null} subject
  * @returns {{crop: Box, outline: Box | null, subject: Box | null}}
  */
@@ -251,14 +271,28 @@ export function cropFor(subject) {
   const aspect = VIEWPORT.width / VIEWPORT.height;
   const needWidth = outline.width + 2 * CROP_PADDING;
   const needHeight = outline.height + 2 * CROP_PADDING;
+  // Where a crop may reach: the still, and as far past it as the outline's stroke does.
+  const x0 = Math.min(0, outline.x - OUTLINE_STROKE);
+  const y0 = Math.min(0, outline.y - OUTLINE_STROKE);
+  const x1 = Math.max(VIEWPORT.width, outline.x + outline.width + OUTLINE_STROKE);
+  const y1 = Math.max(VIEWPORT.height, outline.y + outline.height + OUTLINE_STROKE);
   const width = Math.ceil(Math.max(needWidth, needHeight * aspect, MIN_CROP_WIDTH));
-  if (width >= VIEWPORT.width) return { crop: FULL_FRAME(), outline, subject: visible };
+  if (width >= VIEWPORT.width) {
+    // The full frame, widened or heightened to the viewport's aspect around any overhang.
+    const w = Math.max(x1 - x0, (y1 - y0) * aspect);
+    const h = w / aspect;
+    return {
+      crop: { x: x0 - (w - (x1 - x0)) / 2, y: y0 - (h - (y1 - y0)) / 2, width: w, height: h },
+      outline,
+      subject: visible,
+    };
+  }
   const height = width / aspect;
-  const centre = (from, size, span, limit) =>
-    Math.min(Math.max(from + size / 2 - span / 2, 0), limit - span);
+  const centre = (from, size, span, low, high) =>
+    Math.min(Math.max(from + size / 2 - span / 2, low), high - span);
   const crop = {
-    x: centre(outline.x, outline.width, width, VIEWPORT.width),
-    y: centre(outline.y, outline.height, height, VIEWPORT.height),
+    x: centre(outline.x, outline.width, width, x0, x1),
+    y: centre(outline.y, outline.height, height, y0, y1),
     width,
     height,
   };
@@ -748,28 +782,34 @@ export async function main(argv, io = {}) {
   const env = io.env ?? process.env;
 
   const loaded = loadScenario(target);
-  if (loaded.problems.length)
-    return { code: 1, out: json({ written: false, problems: loaded.problems }) };
   const { meta, records } = loaded;
-  const png = resolve(
-    out ?? join(dirname(resolve(target)), `${meta.scenario.toLowerCase()}-storyboard.png`),
-  );
+  // The Storyboard's path, known before any check, so every refusal removes an older one:
+  // a Storyboard left from an earlier run would show what this run no longer says.
+  const scenario = typeof meta?.scenario === "string" && SCENARIO.test(meta.scenario);
+  const png =
+    out !== undefined || scenario
+      ? resolve(
+          out ?? join(dirname(resolve(target)), `${meta.scenario.toLowerCase()}-storyboard.png`),
+        )
+      : null;
+  /** No Storyboard this time: any older one at its path goes too. */
+  const none = (code, body) => {
+    if (png) rmSync(png, { force: true });
+    return { code, out: json({ written: false, ...body }) };
+  };
+  if (loaded.problems.length) return none(1, { problems: loaded.problems });
 
   const unset = (meta.variables ?? []).filter((name) => !env[name]);
   if (unset.length)
-    return {
-      code: 1,
-      out: json({
-        written: false,
-        problems: unset.map(
-          (name) => `${name} is not set: give each variable the run used as this command's own`,
-        ),
-      }),
-    };
+    return none(1, {
+      problems: unset.map(
+        (name) => `${name} is not set: give each variable the run used as this command's own`,
+      ),
+    });
 
   // The privacy check comes before anything is drawn.
   const fields = shownFields(records, meta);
-  const refused = privacyCheck(fields, knownFromEnv(env));
+  const refused = privacyCheck(fields, knownFromEnv(env, meta.variables));
   if (refused.length) {
     const names = new Set(refused.map((r) => r.field));
     const touched = new Set();
@@ -780,23 +820,21 @@ export async function main(argv, io = {}) {
       }
     for (const file of touched)
       writeFileSync(loaded.files[file], `${JSON.stringify(loaded.raw[file], null, 2)}\n`);
-    rmSync(png, { force: true });
-    return { code: 1, out: json({ written: false, refused }) };
+    return none(1, { refused });
   }
 
   let laid;
   try {
     laid = layout(records, meta);
   } catch (error) {
-    return { code: 1, out: json({ written: false, problems: [String(error.message)] }) };
+    return none(1, { problems: [String(error.message)] });
   }
 
   let renderer = io.renderer;
   if (!renderer) {
     const found = findPlaywright(io.cwd ?? process.cwd());
     if (!found.chromium) {
-      rmSync(png, { force: true });
-      return { code: 2, out: json({ written: false, reason: NO_CHROMIUM }) };
+      return none(2, { reason: NO_CHROMIUM });
     }
     renderer = (l, stillOf) => renderLayout(l, stillOf, found.module);
   }

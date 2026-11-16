@@ -30,8 +30,11 @@ import { findPlaywright } from "./adapter.mjs";
 import {
   MIN_CROP_WIDTH,
   OUTLINE_GAP,
+  OUTLINE_STROKE,
   VIEWPORT,
   WITHHELD,
+  cropFor,
+  knownFromEnv,
   layout,
   loadScenario,
   main,
@@ -164,13 +167,31 @@ test("a step without a subject shows the full frame, unoutlined", () => {
   assert.equal(cell.outline, null);
 });
 
-test("a subject at the edge stays inside the still, and one off-screen shows the full frame", () => {
+/** An outline's box with its stroke, drawn outward from its inner edge. */
+const stroked = (o) => ({
+  x: o.x - OUTLINE_STROKE,
+  y: o.y - OUTLINE_STROKE,
+  width: o.width + 2 * OUTLINE_STROKE,
+  height: o.height + 2 * OUTLINE_STROKE,
+});
+
+test("a subject at the edge keeps all four sides of its outline in the crop, and one off-screen shows the full frame", () => {
   const steps = records();
   steps.after[0] = { ...steps.after[0], subject: { x: 1200, y: 690, width: 200, height: 100 } };
   steps.after[1] = { ...steps.after[1], subject: { x: 0, y: 900, width: 100, height: 40 } };
   const [edge, off] = layout(steps, fixtureMeta()).rows.map((row) => row.after);
-  assert.ok(contains({ x: 0, y: 0, ...VIEWPORT }, edge.crop));
   assert.ok(contains(edge.crop, { x: 1200, y: 690, width: 80, height: 30 }), "the visible part");
+  assert.ok(contains(edge.crop, stroked(edge.outline)), "the whole outline, stroke included");
+  const aspect = VIEWPORT.width / VIEWPORT.height;
+  for (const subject of [
+    { x: 0, y: 0, width: 1280, height: 60 },
+    { x: 0, y: 100, width: 200, height: 500 },
+    { x: 0, y: 0, width: 1280, height: 720 },
+  ]) {
+    const { crop, outline } = cropFor(subject);
+    assert.ok(contains(crop, stroked(outline)), JSON.stringify(subject));
+    assert.ok(Math.abs(crop.width / crop.height - aspect) < 0.01, "the viewport's aspect");
+  }
   assert.deepEqual(off.crop, { x: 0, y: 0, ...VIEWPORT });
   assert.equal(off.outline, null);
 });
@@ -290,6 +311,48 @@ test("the privacy check names the field holding a sign-in value, a secret or a t
   assert.match(refusals[2].why, /a JWT/);
   const text = JSON.stringify(refusals);
   for (const value of [EMAIL, PASSWORD, JWT, "ada-l"]) assert.ok(!text.includes(value));
+});
+
+test("only the values web.mjs counts as sign-in values are looked for: not `QA_SHIPPING_CITY` (#235 review)", () => {
+  const env = {
+    QA_SHIPPING_CITY: "London",
+    QA_A_EMAIL: EMAIL,
+    QA_A_PASSWORD: PASSWORD,
+    QA_B_USERNAME: "ada-l",
+    QA_A_CODE: "filled-code",
+    HOME: "/home/x",
+  };
+  const known = knownFromEnv(env, ["QA_A_CODE"]);
+  assert.deepEqual(known.map((k) => k.name).sort(), [
+    "QA_A_CODE",
+    "QA_A_EMAIL",
+    "QA_A_PASSWORD",
+    "QA_B_USERNAME",
+  ]);
+  assert.deepEqual(
+    privacyCheck([{ field: "After step 1 (A): caption", text: "Order ships to London" }], known),
+    [],
+  );
+  assert.equal(
+    privacyCheck([{ field: "title", text: "typed filled-code" }], known)[0].why,
+    "holds a sign-in value (QA_A_CODE)",
+  );
+});
+
+test("a plain `QA_*` value in a caption is not refused, and its step file is left alone", async () => {
+  const { dir, metaPath } = runFolder();
+  const file = join(dir, "s1-web", "steps.json");
+  const stepFile = JSON.parse(readFileSync(file, "utf8"));
+  stepFile.steps[0].caption = "Order ships to London";
+  writeFileSync(file, JSON.stringify(stepFile));
+  const before = readFileSync(file, "utf8");
+  const { code, out } = await main(["render", metaPath], {
+    env: { ...ENV, QA_SHIPPING_CITY: "London" },
+    cwd: ROOT,
+    renderer: stubRenderer([]),
+  });
+  assert.equal(code, 0, out);
+  assert.equal(readFileSync(file, "utf8"), before);
 });
 
 test("the privacy check is pure, and passes clean fields", () => {
@@ -470,6 +533,32 @@ test("a scenario file without `variables`, or with a step file outside the run, 
     assert.equal(code, 1);
     assert.match(out, why);
     assert.ok(!existsSync(join(dir, "s1-storyboard.png")));
+  }
+});
+
+test("every refusal removes an older Storyboard at its path, so none outlives what the run now says (#235 review)", async () => {
+  const cases = [
+    ["a result re-graded to Not proven", (meta) => ({ ...meta, result: "Not proven" }), {}],
+    ["a variable not given", (meta) => meta, { env: { QA_A_EMAIL: EMAIL } }],
+    [
+      "a proving step that is not there",
+      (meta) => ({ ...meta, proves: { session: "B", index: 9 } }),
+      {},
+    ],
+    ["a caption holding a sign-in value", (meta) => ({ ...meta, title: `For ${EMAIL}` }), {}],
+  ];
+  for (const [what, edit, io] of cases) {
+    const { dir, metaPath } = runFolder(edit);
+    const old = join(dir, "s1-storyboard.png");
+    writeFileSync(old, PNG_1X1);
+    const { code } = await main(["render", metaPath], {
+      env: ENV,
+      cwd: ROOT,
+      renderer: stubRenderer([]),
+      ...io,
+    });
+    assert.equal(code, 1, what);
+    assert.ok(!existsSync(old), `${what}: the older Storyboard is gone`);
   }
 });
 

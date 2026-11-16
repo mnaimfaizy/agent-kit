@@ -292,7 +292,7 @@ Stdout is a JSON summary: `out`, the step file's path, `completed`, how many act
 node "<skill>/storyboard.mjs" render <s<n>-storyboard.json> [--out <file.png>]
 ```
 
-Give it the same `QA_*` variables the drivers were given, as that one command's own: they are what the privacy check looks for. Without `--out`, it writes `s<n>-storyboard.png` beside the scenario file.
+Give it the same `QA_*` variables the drivers were given, as that one command's own: the privacy check looks for their values. Without `--out`, it writes `s<n>-storyboard.png` beside the scenario file.
 
 **Playwright is the repository's own,** loaded as `web.mjs` loads it, and never installed. Without Playwright and its Chromium, no Storyboard is made: the command exits 2 with a `reason` (`no Storyboard: no Playwright with Chromium in this repository; …`), the row keeps its plain stills, and its note carries that reason. Nothing fails.
 
@@ -342,7 +342,7 @@ The runner writes `<working_dir>/qa-report-pr-<n>/s<n>-storyboard.json` once the
 - **The band**, across the top: the scenario's id and title; the result; for each side, its expected and observed text, marked ✓ (as expected), ✗ (not as expected) or – (not judged); the merge-base and head commits, short; and the run context, ids only.
 - **Numbered steps** below, Before's still beside After's, paired by step index and Session. A step one side has and the other lacks keeps its row, the other side an empty frame saying so.
 - **One column** when Before was not run or not observed, or when Before's expected text equals After's and both sides showed it. Each row then carries a short Before note: why Before was not run or not observed, that Before showed the same, or, for a feature scenario, that it runs After only.
-- **Each still** is cropped around its step's subject, with padding, at the 16:9 viewport's aspect and at least 480 pixels of the still wide. An outline is drawn just outside the subject, never over it. A step with no subject, or a subject wholly off screen, shows the full frame, unoutlined.
+- **Each still** is cropped around its step's subject, with padding, at the 16:9 viewport's aspect and at least 480 pixels of the still wide. An outline is drawn just outside the subject, never over it; for a subject at the still's edge, the crop reaches past the still by the outline's width, so all four sides show. A step with no subject, or a subject wholly off screen, shows the full frame, unoutlined.
 - **A withheld still** is a labelled empty frame (`Still withheld: <why>`) above its caption. `web.mjs` withholds a still whenever a sign-in value is on the screen, so an app that shows the QA Account's email in its header has most signed-in stills withheld: their rows show the caption and the empty frame, and the band still carries the result.
 - **The step that proves the result** is highlighted.
 
@@ -350,9 +350,9 @@ It is HTML rendered to PNG in Chromium with JavaScript off and every request ref
 
 ### The caption privacy check
 
-Before any Storyboard is written, `privacyCheck(fields, knownSecrets)` reads everything it would show: the title, each side's expected and observed text and note, every caption, every withheld label, and the run context. Before's captions are read even when one column leaves them out, since the same records can build a two-column Storyboard later. Every `QA_*` variable given to the command is looked for, not only those `variables` names. It looks for:
+Before any Storyboard is written, `privacyCheck(fields, knownSecrets)` reads everything it would show: the title, each side's expected and observed text and note, every caption, every withheld label, and the run context. Before's captions are read even when one column leaves them out, since the same records can build a two-column Storyboard later. It looks for:
 
-- every sign-in value the run knew: each `QA_*` variable given to the command, in any case and in its URL, JSON and HTML forms; a username (`USER`, `USERNAME` or `LOGIN` in its variable's name, and no secret or email word) as written, as a whole word;
+- every sign-in value the run knew, as `web.mjs` counts them: each variable `variables` names (the ones the run's sequences filled), and any `QA_*` variable given whose name says secret, email or username; any other, such as `QA_SHIPPING_CITY`, is not one. Each is looked for in any case and in its URL, JSON and HTML forms; a username (`USER`, `USERNAME` or `LOGIN` in its variable's name, and no secret or email word) as written, as a whole word;
 - every value marked secret: a variable whose name says so (`PASSWORD`, `SECRET`, `TOKEN`, `API_KEY`, `OTP`, `PIN` and the like);
 - token-shaped text: a JWT, a bearer or basic credential, a GitHub token, an API key.
 
