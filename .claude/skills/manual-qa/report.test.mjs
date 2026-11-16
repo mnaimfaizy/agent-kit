@@ -479,6 +479,25 @@ test("a report with no headline is refused, naming the three; so is an item miss
   assert.match(unlisted.problems[0], /S1 is Not proven but is not listed under the headline/);
 });
 
+test("a stray word after the title is no headline, and an anchor problem does not hide a wrong headline", () => {
+  for (const word of ["constructor", "toString", "QA passed"])
+    assert.match(
+      readReport(graded(ALL_PASS, { headline: [word] })).problems[0],
+      /no headline/,
+      word,
+    );
+  const noHead = graded(ALL_PASS, { headline: ["**QA failed**"] }).replace(
+    `head \`${HEAD}\``,
+    "head `2`",
+  );
+  const { problems } = readReport(noHead);
+  assert.match(problems.join("\n"), /names no full head/);
+  assert.match(
+    problems.join("\n"),
+    /the headline is _QA failed_, but the rows make it _QA passed_/,
+  );
+});
+
 test("an old report's bare `FAIL` is refused, naming the new words; PASS and left for a person still read", () => {
   const old = reportFor(["| S1: x | FAIL | `qa-report-pr-57/s1.png` | no invite |"], undefined, {
     headline: ["**QA failed**"],
@@ -550,7 +569,7 @@ test("`read` exits 1 for a PASS or FAIL row with a bare `none`, an empty `none:`
       const at = report.split("\n").findIndex((line) => line.startsWith("| S1:")) + 1;
       assert.equal(code, 1, `${result} with \`${evidence}\``);
       assert.deepEqual(JSON.parse(out).problems, [
-        `line ${at}: S1 is a ${result} with no evidence path: link its QA Artifact in backticks, ` +
+        `line ${at}: S1 is ${result}, with no evidence path: link its QA Artifact in backticks, ` +
           "or write `none: <reason>`",
       ]);
     }

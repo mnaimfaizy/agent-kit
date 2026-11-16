@@ -105,8 +105,8 @@ export const RESULTS = /** @type {const} */ ([
   "left for a person",
 ]);
 /** The results of a scenario that ran, so it owes its evidence or `none: <reason>`. */
-const RAN = ["PASS", "FAIL: regression", "FAIL: pre-existing", "Not proven"];
-const RESULT_WORDS = "PASS, FAIL: regression, FAIL: pre-existing, Not proven or left for a person";
+const RAN = RESULTS.filter((result) => result !== "left for a person");
+const RESULT_WORDS = `${RESULTS.slice(0, -1).join(", ")} or ${RESULTS.at(-1)}`;
 /** The three headlines, one of which a QA Report opens with, as written and as `read` names them. */
 export const HEADLINES = /** @type {const} */ ({
   "**QA failed**": "QA failed",
@@ -268,9 +268,10 @@ export function readReport(text) {
   let headlineAt = -1;
   if (titleAt !== -1) {
     headlineAt = lines.findIndex((line, n) => n > titleAt && line.trim() !== "");
-    const named = HEADLINES[/** @type {keyof typeof HEADLINES} */ (lines[headlineAt]?.trim())];
-    if (named) {
-      report.headline = named;
+    // Own keys only: a line such as `constructor` names no headline.
+    const line = lines[headlineAt]?.trim() ?? "";
+    if (Object.hasOwn(HEADLINES, line)) {
+      report.headline = HEADLINES[/** @type {keyof typeof HEADLINES} */ (line)];
       for (const line of lines.slice(headlineAt + 1)) {
         if (/^\s*[-*]\s+\*\*/.test(line) || /^#/.test(line)) break;
         const item = /^\s*[-*]\s+(S\d+)\b/.exec(line)?.[1];
@@ -337,6 +338,8 @@ export function readReport(text) {
       .map((line) => REVIEW_FOLLOW_UP.exec(line)?.[1])
       .filter((text) => text !== undefined);
 
+  // The headline is judged from the rows, so only a problem in the rows themselves holds it back.
+  const beforeRows = problems.length;
   const results = found.Results;
   if (!results) problems.push("no `## Results` section");
   else {
@@ -413,7 +416,7 @@ export function readReport(text) {
       // A scenario that ran is captured by default: no path needs a stated reason.
       if (RAN.includes(result) && !paths.length && !reason)
         problems.push(
-          `line ${n + 1}: ${id} is a ${result} with no evidence path: link its QA Artifact ` +
+          `line ${n + 1}: ${id} is ${result}, with no evidence path: link its QA Artifact ` +
             "in backticks, or write `none: <reason>`",
         );
       report.results.push({
@@ -450,7 +453,7 @@ export function readReport(text) {
   );
   // Any FAIL, of either kind, fails the run for uploads, whatever the headline.
   report.failed = report.stopped || report.results.some((row) => row.result.startsWith("FAIL"));
-  if (report.headline && results && !problems.length) {
+  if (report.headline && results && problems.length === beforeRows) {
     const implied = impliedHeadline(report.results, report.stopped);
     if (report.headline !== implied)
       problems.push(
