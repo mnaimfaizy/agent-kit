@@ -260,7 +260,7 @@ export function checkSequence(sequence, env) {
   // A sign-in value written in, in place of its placeholder: in any case, a value
   // this sequence fills and any `QA_*` value whose name says it is a secret or an
   // email; as written and as a whole string or query value, one whose name says it
-  // is a username, since a username such as `admin` is often a common word a label
+  // is a username, filled or not, since a username such as `admin` is often a common word a label
   // or caption uses ("Admin", "the admin page"). Any other variable is not looked for.
   const written = [...strings(sequence, "")].flatMap(([, text]) => [
     text,
@@ -279,7 +279,7 @@ export function checkSequence(sequence, env) {
   for (const name of Object.keys(env)) {
     const value = ENV_NAME.test(name) ? envValue(env, name) : undefined;
     if (!value || value.length < MIN_SECRET_LENGTH) continue;
-    const anyCase = named.has(name) || SECRET_VARIABLE.test(name);
+    const anyCase = !USER_VARIABLE.test(name) && (named.has(name) || SECRET_VARIABLE.test(name));
     if (!anyCase && !USER_VARIABLE.test(name)) continue;
     const found = anyCase
       ? encodedForms(value).some((form) =>
@@ -321,7 +321,7 @@ const maskField = (element) =>
  * case the page replaced the field it was filled into (a re-render). Between
  * two actions a replaced field shows its text, so a video's masking is
  * best-effort; stills are covered by `withholdReason`.
- * @param {any} page @param {string[]} values
+ * @param {any} page @param {Held[]} values
  */
 async function mask(page, values) {
   if (!values.length) return;
@@ -332,9 +332,12 @@ async function mask(page, values) {
         (elements, [held, style]) => {
           for (const e of elements)
             if (
-              held.some((v) =>
-                /** @type {HTMLInputElement} */ (e).value.toLowerCase().includes(v.toLowerCase()),
-              )
+              held.some(({ value, exact }) => {
+                const text = /** @type {HTMLInputElement} */ (e).value;
+                return exact
+                  ? text.includes(value)
+                  : text.toLowerCase().includes(value.toLowerCase());
+              })
             )
               /** @type {HTMLElement} */ (e).style.setProperty(style, "disc", "important");
         },
@@ -361,10 +364,21 @@ const why = (error) =>
     .slice(0, 500);
 
 /**
+ * A sign-in value this run filled. A username (`exact`) is compared as written, since
+ * it is often a common word the page shows in another case ("Admin"); any other is
+ * compared in lower case, since `text-transform` changes the case `innerText` reports.
+ * @typedef {{ value: string, exact: boolean }} Held
+ */
+
+/** Whether a text holds a filled sign-in value. @param {string} text @param {Held} held */
+const holds = (text, { value, exact }) =>
+  exact ? text.includes(value) : text.toLowerCase().includes(value.toLowerCase());
+
+/**
  * Why a still must not be taken now, or null: a password field with a value,
  * a field holding a sign-in value, or a sign-in value on the screen (the
  * baseline capture rules, ADAPTER.md "Capture rules").
- * @param {any} page @param {string[]} values the sign-in values this run filled
+ * @param {any} page @param {Held[]} values the sign-in values this run filled
  */
 async function withholdReason(page, values) {
   for (const frame of page.frames()) {
@@ -395,12 +409,9 @@ async function withholdReason(page, values) {
       return "a frame's fields could not be read, so the still is withheld";
     }
     if (fields.some((f) => f.password && f.value)) return "a password field holds a value";
-    // Compared in lower case: `text-transform` changes the case `innerText` reports.
-    const held = values.map((v) => v.toLowerCase());
-    if (fields.some((f) => f.value && held.some((v) => f.value.toLowerCase().includes(v))))
+    if (fields.some((f) => f.value && values.some((held) => holds(f.value, held))))
       return "a field holds a sign-in value";
-    if (held.some((v) => screen.toLowerCase().includes(v)))
-      return "a sign-in value is on the screen";
+    if (values.some((held) => holds(screen, held))) return "a sign-in value is on the screen";
   }
   return null;
 }
@@ -421,7 +432,7 @@ export async function runSequence(
   const shoot = screenshot ?? ((page, path) => page.screenshot({ path }));
   const origin = new URL(base).origin;
   const redact = new Redactor();
-  /** Each sign-in value a fill names, in the order filled, for the withhold check. */
+  /** @type {Held[]} each sign-in value a fill names, in the order filled, for the withhold check */
   const values = [];
   /** @type {[string, string][]} each sign-in value and its label */
   const labelled = [];
@@ -431,7 +442,8 @@ export async function runSequence(
         const value = envValue(env, name);
         redact.add(value, `[redacted:${name}]`);
         if (value) labelled.push([value, `[redacted:${name}]`]);
-        if (value && !values.includes(value)) values.push(value);
+        if (value && !values.some((held) => held.value === value))
+          values.push({ value, exact: USER_VARIABLE.test(name) });
       }
 
   const start = clock();

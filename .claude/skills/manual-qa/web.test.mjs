@@ -79,6 +79,9 @@ before(async () => {
         const has = /(?:^|; )sid=/.test(req.headers.cookie ?? "");
         return html(`<h1>Who</h1><p id="who">${has ? "signed in" : "nobody"}</p>`);
       }
+      if (url.pathname === "/users")
+        return html('<label>Username <input name="username"></label><a href="/admin">Admin</a>');
+      if (url.pathname === "/admin") return html("<h1>Admin</h1>");
       if (url.pathname === "/sign-in")
         return html(
           '<form method="post" action="/login">' +
@@ -364,7 +367,33 @@ test("a username is looked for only as written", () => {
     /value of QA_A_USERNAME inline/,
   );
   assert.match(ok([{ goto: "/sign-in?user=admin" }], env).join("\n"), /QA_A_USERNAME inline/);
+  // Filled through its placeholder, as a sign-in does, it is still looked for only as written.
+  const signIn = [
+    { session: "A", fill: { label: "Username" }, value: "{{env:QA_A_USERNAME}}" },
+    { session: "A", click: { role: "link", name: "Admin" } },
+  ];
+  assert.deepEqual(checkSequence({ actions: signIn }, env), []);
 });
+
+test(
+  "a filled username does not withhold a still where the page shows it in another case",
+  { skip: NEEDS_CHROMIUM },
+  async () => {
+    const { code, steps, stdout } = await drive(
+      [
+        { session: "A", goto: "/users" },
+        { session: "A", fill: { label: "Username" }, value: "{{env:QA_A_USERNAME}}" },
+        { session: "A", click: { role: "link", name: "Admin" } },
+        { session: "A", step: "The admin page" },
+      ],
+      { env: { QA_A_USERNAME: "admin" } },
+    );
+    assert.equal(code, 0, stdout);
+    const [shown] = steps.steps;
+    assert.equal(shown.withheld, null);
+    assert.ok(shown.still);
+  },
+);
 
 test("a placeholder must name a set QA_ variable, and goes only in a fill's value", () => {
   assert.match(
