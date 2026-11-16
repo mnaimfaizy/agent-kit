@@ -626,6 +626,41 @@ test("`read` exits 0 for `none: <reason>`, a backticked path, and a bare `none` 
   }
 });
 
+test("a Storyboard is the row's main evidence: linked first, and for its own scenario (#235)", () => {
+  const row = (evidence) =>
+    reportFor([
+      `| S1: An admin invites a new member | PASS | ${evidence} | invite sent |`,
+      S2_LEFT,
+    ]);
+  const good = readReport(
+    row("`qa-report-pr-57/s1-storyboard.png` `qa-report-pr-57/s1-web/step-02-a.png`"),
+  );
+  assert.deepEqual(good.problems, []);
+  assert.deepEqual(good.report.results[0].evidence, [
+    "qa-report-pr-57/s1-storyboard.png",
+    "qa-report-pr-57/s1-web/step-02-a.png",
+  ]);
+  const second = readReport(
+    row("`qa-report-pr-57/s1-web/step-02-a.png` `qa-report-pr-57/s1-storyboard.png`"),
+  );
+  assert.equal(second.problems.length, 1);
+  assert.match(second.problems[0], /S1's Storyboard is its main evidence: link it first/);
+  const other = readReport(row("`qa-report-pr-57/s2-storyboard.png`"));
+  assert.equal(other.problems.length, 1);
+  assert.match(
+    other.problems[0],
+    /S1 links `qa-report-pr-57\/s2-storyboard.png`, another scenario's Storyboard/,
+  );
+  // Without Chromium the row keeps its plain stills, and its note says why.
+  const plain = readReport(
+    reportFor([
+      "| S1: An admin invites a new member | PASS | `qa-report-pr-57/s1-web/step-02-a.png` | invite sent; no Storyboard: no Playwright with Chromium in this repository |",
+      S2_LEFT,
+    ]),
+  );
+  assert.deepEqual(plain.problems, []);
+});
+
 test("a report that links local media per session, and a recording, reads against its plan", () => {
   // S2 becomes a two-session scenario: an admin signs a member out while the member watches.
   const plan = PLAN.replace(

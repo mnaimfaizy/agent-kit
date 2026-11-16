@@ -14,11 +14,12 @@
 //      is the one the rows imply, that `Not proven` rests on a Before that
 //      showed the expected result, that `FAIL: pre-existing` names its
 //      merge-base evidence, and that a `url` run ran no Before. A row that
-//      ran links its evidence in backticks, or says `none: <reason>`; a row
-//      left for a person may say a bare `none`. With `--plan`, it also checks
-//      the report against the plan it ran: the same anchors, one row per
-//      scenario, a Before cell (and `Not proven`) only on a fix scenario, one
-//      that has **Expected before:**, and each fix scenario's Before filled;
+//      ran links its evidence in backticks, its own Storyboard first when it has
+//      one, or says `none: <reason>`; a row left for a person may say a bare
+//      `none`. With `--plan`, it also checks the report against the plan it
+//      ran: the same anchors, one row per scenario, a Before cell (and
+//      `Not proven`) only on a fix scenario, one that has **Expected
+//      before:**, and each fix scenario's Before filled;
 //      each scenario that signs in as a Scenario account left for a person
 //      when the scenario creating it did not pass; and each `Review:` box the
 //      plan leaves open listed under Follow-ups, with the box's text.
@@ -153,6 +154,8 @@ export const MEDIA =
 export const TEXT = /\.(?:log|txt|har|json|jsonl|ndjson|md|csv|tsv|xml|html?|ya?ml)$/i;
 /** The Evidence cell of a PASS or FAIL row that links no QA Artifact: `none: <reason>`. */
 export const NO_EVIDENCE = /^none:\s*\S/;
+/** A scenario's Storyboard, `s<n>-storyboard.png`: its number is the scenario's. */
+const STORYBOARD = /(?:^|\/)s(\d+)-storyboard\.png$/;
 
 const NO_UPLOAD_FROM_FAILED =
   "media from a failed run is never uploaded: its screen is the one most likely to show " +
@@ -420,6 +423,17 @@ export function readReport(text) {
           `line ${n + 1}: ${id} is ${result}, with no evidence path: link its QA Artifact ` +
             "in backticks, or write `none: <reason>`",
         );
+      // A Storyboard (`s<n>-storyboard.png`) is its row's main evidence: its own, and first.
+      paths.forEach((path, i) => {
+        const board = STORYBOARD.exec(path);
+        if (!board) return;
+        if (`S${board[1]}` !== id)
+          problems.push(`${at} links \`${path}\`, another scenario's Storyboard`);
+        else if (i > 0)
+          problems.push(
+            `${at}'s Storyboard is its main evidence: link it first in the Evidence cell`,
+          );
+      });
       report.results.push({
         id,
         scenario,

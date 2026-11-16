@@ -128,6 +128,10 @@ _Avoid_: test user, demo account
 An account a QA Plan's scenario creates during a run, with values the tester chooses then. Never seeded, and never copied into a QA Plan or QA Report.
 _Avoid_: created account, temp user, run account
 
+**Fix scenario**:
+A QA Plan scenario whose plan gives an **Expected before:** line, the defect the merge-base should show. On a `stack` target it runs Before, at the merge-base, and After, at the head; any other scenario, and every scenario on a `url` target, runs After only.
+_Avoid_: bug scenario, regression scenario, fix flag
+
 **Session**:
 One signed-in identity in a QA Plan's scenario, with cookies and storage no other session shares; a scenario has one or more.
 _Avoid_: profile, tab, browser context
@@ -153,11 +157,15 @@ A QA Plan's last section, empty after compose, where whoever runs the plan recor
 _Avoid_: results section, test log
 
 **QA Artifact**:
-A screenshot, recording or log captured during a QA run, saved locally by default at each scenario's expected result; private until the person picks it for upload.
+A capture from a QA run that stands alone: someone holding only the file can tell the scenario, what each side expected, what each side did, and the result. It is saved locally by default, and stays private until the person picks it for upload.
 _Avoid_: evidence upload, attachment
 
+**Storyboard**:
+The QA Artifact for a scenario with a screen: a band naming the scenario, the result, each side's expected and observed text and the commits, above numbered steps with Before beside After.
+_Avoid_: contact sheet, filmstrip, combined image
+
 **QA Report**:
-The self-contained Markdown file `manual-qa` writes for one run of one QA Plan: the build it checked, one row per scenario (PASS, FAIL, or left for a person), and the evidence.
+The self-contained Markdown file `manual-qa` writes for one run of one QA Plan: the build it checked, one row per scenario with one of five results (PASS, FAIL: regression, FAIL: pre-existing, Not proven, or left for a person), and the evidence.
 _Avoid_: test report, QA results
 
 ### Orchestration

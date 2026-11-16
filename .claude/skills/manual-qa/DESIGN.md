@@ -16,6 +16,8 @@ These are word for word the definitions in Agent-kit's root glossary, where a co
 
 **Scenario account**: An account a QA Plan's scenario creates during a run, with values the tester chooses then. Never seeded, and never copied into a QA Plan or QA Report.
 
+**Fix scenario**: A QA Plan scenario whose plan gives an **Expected before:** line, the defect the merge-base should show. On a `stack` target it runs Before, at the merge-base, and After, at the head; any other scenario, and every scenario on a `url` target, runs After only.
+
 **Session**: One signed-in identity in a QA Plan's scenario, with cookies and storage no other session shares; a scenario has one or more.
 
 **Surface**: What a scenario drives (`web`, `desktop`, `mobile` or `api`). The Run brief gives the plan's default; a scenario may override it.
@@ -28,9 +30,11 @@ These are word for word the definitions in Agent-kit's root glossary, where a co
 
 **Execution record**: A QA Plan's last section, empty after compose, where whoever runs the plan records each scenario's result.
 
-**QA Artifact**: A screenshot, recording or log captured during a QA run, saved locally by default at each scenario's expected result; private until the person picks it for upload.
+**QA Artifact**: A capture from a QA run that stands alone: someone holding only the file can tell the scenario, what each side expected, what each side did, and the result. It is saved locally by default, and stays private until the person picks it for upload.
 
-**QA Report**: The self-contained Markdown file `manual-qa` writes for one run of one QA Plan: the build it checked, one row per scenario (PASS, FAIL, or left for a person), and the evidence.
+**Storyboard**: The QA Artifact for a scenario with a screen: a band naming the scenario, the result, each side's expected and observed text and the commits, above numbered steps with Before beside After.
+
+**QA Report**: The self-contained Markdown file `manual-qa` writes for one run of one QA Plan: the build it checked, one row per scenario with one of five results (PASS, FAIL: regression, FAIL: pre-existing, Not proven, or left for a person), and the evidence.
 
 ## Two skills, one format
 
@@ -101,6 +105,14 @@ At each step it saves a still, the element the step is about, that element's vis
 The baseline capture rules are the driver's own, not the runner's care: a still is withheld while a password field holds a value, or while a sign-in value is in a field or on the screen, and its record says so. A field filled from a sign-in value shows dots; stills are checked before and after they are taken, and in a video the masking is best-effort. A video cannot withhold a moment, so a value the page itself shows stays in it, and the video stays local like every QA Artifact.
 
 Playwright is optional. Agent-kit takes no runtime dependency, so the driver loads Playwright from the repository under test and never installs it, and readiness says, as a note, whether Chromium and `ffmpeg` are there and what the run loses without each (this run needs no `ffmpeg`; later video features will). Without Chromium the run falls back to the harness's browsers, exactly as before, so a repository that has not installed Playwright loses nothing it had.
+
+## One file that stands alone
+
+A QA Artifact used to be a bare capture: `s3.png` or a step's still says nothing on its own about which scenario it is, what was expected, or what the result was, so it was evidence only beside the report row that explained it, and a file passed on alone lost its meaning. A Storyboard carries its own explanation: a band with the scenario, the result, each side's expected and observed text and the commits, above the numbered steps, Before beside After, so someone holding only the PNG can check the claim. The crop and the outline put the eye on the element the step was about without hiding it, so the outline sits outside the subject.
+
+It is built from the records `web.mjs` saved, never by running anything again: the runner's judgment is written into the scenario file, and the same files build the same layout at any time. It renders in the repository's own Chromium, as the driver does, in a palette the skill carries, since a repository's design tokens would make one repository's Storyboard look unlike another's and give the repository something to configure. Without Chromium, the plain stills are still there, so the run loses the Storyboard and nothing else.
+
+A Storyboard gathers text in one file meant to be passed on, so it gets its own check before it is written: every sign-in value the run knew, every value marked secret, and anything shaped like a token. A match stops the file, and the refusal names the field, never the value, since a refusal is printed where the value would leak too. The check is a pure function so the next file of the same kind, the annotated video, reuses it. A still the driver withheld stays withheld: the Storyboard shows its empty frame and caption, and does not reach around the driver's capture rules.
 
 ## Posting is a second step
 

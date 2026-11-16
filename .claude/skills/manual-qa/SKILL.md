@@ -234,6 +234,7 @@ Capture the evidence as you go, without asking first, under `<working_dir>/qa-re
 - **For a multi-session or timing-dependent scenario** (a revoked session, a redirect after an action), a recording of the key step when the driver can record: `s<n>.gif`, or the driver's video format. When it cannot, a screenshot before and after the key step: `s<n>-key-before.png` and `s<n>-key-after.png`, with the session letter after `s<n>` as above (`s3-a-key-before.png`).
 - **For an `api` scenario driven by `http.mjs`,** its log in place of screenshots: `s<n>-http.log`, one per scenario, every session in it.
 - **For a `web` scenario driven by `web.mjs`,** its folder `s<n>-web/` in place of the files above: the step file `steps.json`, a still per step, `step-<NN>-<session>.png` (`step-04-a.png`, the session letter in lower case), and with `--video` a video per session, `video-<session>.webm`. The Evidence cell links the still at the expected result, and on a FAIL the still where it diverged too.
+- **For a PASS or FAIL whose steps `web.mjs` recorded,** with `Capture:` `screenshot` or `video`, its **Storyboard** too: `s<n>-storyboard.png`, one PNG that stands alone (a band with the scenario, the result, each side's expected and observed text, the commits and the run context, above numbered steps with Before beside After), built by `storyboard.mjs` from its scenario file `s<n>-storyboard.json` and the step files. It is the row's main evidence, linked first, before the stills.
 - **At Before,** the same files with `-before` right after `s<n>`, beside the head's, so the two can be paired: `s<n>-before.png` at the point compared with **Expected before:**, `s<n>-before-<session>.png`, `s<n>-before-http.log` (its sequence `s<n>-before-http.json`), and `s<n>-before-web/` (its sequence `s<n>-before-web.json`), each driver given the Before stack's address as `--base`. The Evidence cell links them after the head's files.
 
 An `api` scenario on `http.mjs` runs as a request sequence: write its steps, one request each, in the session each step names, to `<working_dir>/qa-report-pr-<n>/s<n>-http.json` in the format [ADAPTER.md](ADAPTER.md#the-api-driver) gives. You write the sequence from the steps; the plan's text is never run. Each sign-in value is a `{{env:QA_<NAME>}}` placeholder, never the value: the driver refuses a sequence that carries one inline, and sends nothing. Give the values as `QA_*` variables of that one command, never in a file or an exported variable, and `--base` as the address step 5 checked:
@@ -251,6 +252,14 @@ QA_A_EMAIL='…' QA_A_PASSWORD='…' node "<skill>/web.mjs" run "<working_dir>/q
 ```
 
 Its exit status says whether every action completed, not whether the scenario passed: read `steps.json`, look at each still, and judge them against **Expected result**. A still is withheld while a password field or a sign-in value is on the page; its record says why, so take the `step` once the page no longer shows it. Exit 1 with `problems` means the sequence was refused: fix it, never by writing a value in. Exit 1 with `completed: false` names the action that did not complete, and the step file holds every step up to it: a step the product does not match leaves the scenario for a person, as below. Exit 2 means no Playwright with Chromium here: drive the scenario with a browser tool instead (step 4). A step the format cannot carry (a drag, a file upload, a value read from the screen and typed later) means the scenario runs on a browser tool instead, or, with none, is left for a person, with that step quoted.
+
+Once such a scenario is graded PASS or FAIL, build its Storyboard. Write `<working_dir>/qa-report-pr-<n>/s<n>-storyboard.json` in the format [ADAPTER.md](ADAPTER.md#the-storyboard) gives: the title, the result, each side's expected text, what appeared and how you judged it, the commits, the run context (ids only), the step that proves the result, and the names of the `QA_*` variables the run used. Then run it with those same variables, given the same way:
+
+```bash
+QA_A_EMAIL='…' QA_A_PASSWORD='…' node "<skill>/storyboard.mjs" render "<working_dir>/qa-report-pr-<n>/s<n>-storyboard.json"
+```
+
+The caption privacy check runs first: exit 1 with `refused` means a field it would show holds a sign-in value, a value marked secret or token-shaped text, and no Storyboard was written. Each refusal names the field, never the value, and that field is now `[withheld]` in its file: say which fields in the row's note, then run the command again. Never write the value back. Exit 2 means no Storyboard can be made here (no Playwright with Chromium): the row keeps its plain stills, its note carries the `reason` (`no Storyboard: no Playwright with Chromium in this repository`), and the run goes on; nothing fails. A withheld still shows in the Storyboard as a labelled empty frame with its caption. The same command builds a Storyboard again later from the saved files, without running the scenario.
 
 Link each file from the Evidence cell as a path relative to `working_dir`, in backticks. A PASS or FAIL with no file writes `none: <reason>`, as plain text in the cell: `none: api surface driven by curl, the redacted response body is in the notes`, or `none: driver cannot save images`. A bare `none` is only for a scenario left for a person, whose note already says why it was not run.
 
@@ -375,11 +384,12 @@ Give the person the comment or issue URL, and each uploaded file's URL.
 
 ## Results
 
-| Scenario | Result            | Before                                     | Evidence                                                      | Notes |
-| -------- | ----------------- | ------------------------------------------ | ------------------------------------------------------------- | ----- |
-| S1: …    | PASS              | matched: the list showed the address twice | `qa-report-pr-<n>/s1.png` `qa-report-pr-<n>/s1-before.png`    | …     |
-| S2: …    | PASS              |                                            | none: api surface, the redacted response body is in the notes | …     |
-| S3: …    | left for a person |                                            | none                                                          | why   |
+| Scenario | Result            | Before                                     | Evidence                                                                     | Notes |
+| -------- | ----------------- | ------------------------------------------ | ---------------------------------------------------------------------------- | ----- |
+| S1: …    | PASS              | matched: the list showed the address twice | `qa-report-pr-<n>/s1.png` `qa-report-pr-<n>/s1-before.png`                   | …     |
+| S4: …    | PASS              | matched: the list showed the name twice    | `qa-report-pr-<n>/s4-storyboard.png` `qa-report-pr-<n>/s4-web/step-02-a.png` | …     |
+| S2: …    | PASS              |                                            | none: api surface, the redacted response body is in the notes                | …     |
+| S3: …    | left for a person |                                            | none                                                                         | why   |
 
 `None.` in place of the Results table when the plan has no scenarios.
 
@@ -400,4 +410,4 @@ Each open `Review:` box, one line each (`- Review, for a person: <its text>`). S
 The short record for the plan's last section: one line per scenario with its result, the build, and when.
 ```
 
-Evidence paths are relative to `working_dir`, so the report and its folder move together.
+Evidence paths are relative to `working_dir`, so the report and its folder move together. A row's Storyboard, `s<n>-storyboard.png`, is its main evidence, linked first in its Evidence cell: `report.mjs read` refuses one linked after another file, or in another scenario's row. A row with no Storyboard because Chromium is missing keeps its plain stills, and its note says why.
