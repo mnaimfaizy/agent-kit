@@ -825,10 +825,11 @@ export const WEB_NOTES = /** @type {const} */ ({
   chromium:
     "`web`: Playwright with Chromium is installed in this repository, so `web.mjs` drives the `web` scenarios",
   noChromium:
-    "`web`: no Playwright with Chromium in this repository: the `web` scenarios run on the harness's browsers, " +
-    "without `web.mjs` and without Storyboards",
-  ffmpeg: "`web`: `ffmpeg` is on `PATH`, so an annotated MP4 can be made from a recording",
-  noFfmpeg: "`web`: no `ffmpeg` on `PATH`: no annotated MP4",
+    "`web`: no Playwright with Chromium in this repository, so no `web.mjs`: " +
+    "the `web` scenarios run on the harness's browsers",
+  ffmpeg: "`web`: `ffmpeg` is on `PATH`; this run does not use it, and later video features will",
+  noFfmpeg:
+    "`web`: no `ffmpeg` on `PATH`; this run does not need it, but later video features will",
 });
 
 /** The packages that carry Playwright's `chromium`, in the order they are tried. */

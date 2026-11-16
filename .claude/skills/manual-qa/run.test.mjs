@@ -240,8 +240,9 @@ test("a `web` run notes whether Playwright with Chromium and ffmpeg are there, a
   // Each note says what the run loses without the tool.
   assert.match(WEB_NOTES.noChromium, /harness's browsers/);
   assert.match(WEB_NOTES.noChromium, /`web\.mjs`/);
-  assert.match(WEB_NOTES.noChromium, /Storyboards/);
-  assert.match(WEB_NOTES.noFfmpeg, /annotated MP4/);
+  assert.match(WEB_NOTES.noFfmpeg, /this run does not need it/);
+  // No note names a feature that has not shipped.
+  for (const note of Object.values(WEB_NOTES)) assert.doesNotMatch(note, /Storyboard|MP4/);
 });
 
 test("the tool notes come only when a scenario drives `web`", () => {

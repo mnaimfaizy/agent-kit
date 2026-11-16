@@ -21,7 +21,7 @@ import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { WEB_NOTES, findPlaywright } from "./adapter.mjs";
-import { STEP_KEYS, checkSequence, main } from "./web.mjs";
+import { STEP_KEYS, checkSequence, main, runSequence } from "./web.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, "..", "..", "..");
@@ -48,6 +48,10 @@ let base;
 let port;
 let sid = 0;
 let dir;
+/** A second host: the redirect tests assert it never sees a request. */
+let other;
+let otherBase;
+const otherSeen = [];
 
 const page = (body, head = "") =>
   `<!doctype html><html><head><meta charset="utf-8"><title>t</title>${head}</head><body>${body}</body></html>`;
@@ -93,6 +97,41 @@ before(async () => {
             "d.setAttribute('role', 'status'); d.textContent = 'Saved the profile'; " +
             'document.body.append(d); }, 400)">Save</button>',
         );
+      if (url.pathname === "/bounce302") {
+        res.writeHead(302, { location: `${otherBase}/landed` });
+        return res.end();
+      }
+      if (url.pathname === "/hop") {
+        res.writeHead(302, { location: "/bounce302" });
+        return res.end();
+      }
+      if (url.pathname === "/login307") {
+        res.writeHead(307, { location: `${otherBase}/steal` });
+        return res.end();
+      }
+      if (url.pathname === "/mask") {
+        // A page style that turns masking off, and a re-render that replaces the field.
+        res.writeHead(200, { "content-type": "text/html" });
+        return res.end(
+          page(
+            '<label>Nick <input id="n"></label><script>' +
+              "document.getElementById('n').addEventListener('input', (e) => {" +
+              "  const fresh = document.createElement('input'); fresh.id = 'n'; fresh.value = e.target.value;" +
+              "  e.target.replaceWith(fresh);" +
+              "  setTimeout(() => { const p = document.createElement('p'); p.setAttribute('role', 'status');" +
+              "    p.textContent = getComputedStyle(document.getElementById('n')).webkitTextSecurity;" +
+              "    document.body.append(p); }, 500);" +
+              "}, { once: true });</script>",
+            "<style>input { -webkit-text-security: none !important; }</style>",
+          ),
+        );
+      }
+      if (url.pathname === "/post-form")
+        return html(
+          '<form method="post" action="/login307">' +
+            '<label>Password <input name="password" type="password"></label>' +
+            "<button>Send</button></form>",
+        );
       if (url.pathname === "/away") return html(`<a href="http://localhost:${port}/who">Leave</a>`);
       html("<h1>Home</h1>");
     });
@@ -100,11 +139,19 @@ before(async () => {
   await new Promise((done) => server.listen(0, "127.0.0.1", done));
   port = server.address().port;
   base = `http://127.0.0.1:${port}`;
+  other = createServer((req, res) => {
+    otherSeen.push(req.url);
+    res.writeHead(200, { "content-type": "text/html" });
+    res.end(page("<h1>Other host</h1>"));
+  });
+  await new Promise((done) => other.listen(0, "127.0.0.1", done));
+  otherBase = `http://localhost:${other.address().port}`;
   dir = mkdtempSync(join(tmpdir(), "web-driver-"));
 });
 
 after(() => {
   server.close();
+  other.close();
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -414,6 +461,85 @@ test(
       0,
       "the other host was never reached",
     );
+  },
+);
+
+test(
+  "a redirect off the checked address is stopped before the request leaves",
+  { skip: NEEDS_CHROMIUM },
+  async () => {
+    otherSeen.length = 0;
+    for (const path of ["/bounce302", "/hop"]) {
+      const { code, summary } = await drive([{ session: "A", goto: path }]);
+      assert.equal(code, 1, path);
+      assert.match(summary.error.why, /left the checked address/, path);
+    }
+    // A 307 after a sign-in POST would carry the form, password included, to the other host.
+    const posted = await drive([
+      { session: "A", goto: "/post-form" },
+      { session: "A", fill: { label: "Password" }, value: "{{env:QA_A_PASSWORD}}" },
+      { session: "A", click: { role: "button", name: "Send" } },
+    ]);
+    assert.equal(posted.code, 1);
+    assert.match(posted.summary.error.why, /left the checked address/);
+    assert.deepEqual(otherSeen, [], "the other host never saw a request");
+  },
+);
+
+test(
+  "a sign-in value that appears while the still is taken drops the still",
+  { skip: NEEDS_CHROMIUM },
+  async () => {
+    const out = mkdtempSync(join(tmpdir(), "web-recheck-"));
+    try {
+      const sequence = {
+        actions: [
+          { session: "A", goto: "/sign-in" },
+          { session: "A", fill: { label: "Note" }, value: "{{env:QA_A_EMAIL}}" },
+          { session: "A", fill: { label: "Note" }, value: "" },
+          { session: "A", step: "Shown during the still" },
+          { session: "A", step: "Still shown" },
+        ],
+      };
+      // A script that renders the email just as the still is taken, after the first check.
+      const screenshot = async (pageHandle, path) => {
+        await pageHandle.screenshot({ path });
+        await pageHandle.evaluate((text) => {
+          document.body.append(Object.assign(document.createElement("p"), { textContent: text }));
+        }, EMAIL);
+      };
+      const result = await runSequence(sequence, {
+        base,
+        env: ENV,
+        out,
+        video: false,
+        playwright: PLAYWRIGHT.module,
+        screenshot,
+      });
+      assert.equal(result.completed, true, JSON.stringify(result.error));
+      const [during, after] = result.steps;
+      assert.equal(during.still, null);
+      assert.match(during.withheld, /sign-in value is on the screen/);
+      assert.equal(existsSync(join(out, "step-01-a.png")), false, "the still was deleted");
+      assert.equal(after.still, null);
+      assert.match(after.withheld, /sign-in value is on the screen/);
+    } finally {
+      rmSync(out, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
+  "a field filled from a sign-in value stays masked over page styles and a re-render",
+  { skip: NEEDS_CHROMIUM },
+  async () => {
+    const { code, steps, stdout } = await drive([
+      { session: "A", goto: "/mask" },
+      { session: "A", fill: { label: "Nick" }, value: "{{env:QA_A_EMAIL}}" },
+      { session: "A", step: "Masked", subject: { role: "status" }, timeoutMs: 3000 },
+    ]);
+    assert.equal(code, 0, stdout);
+    assert.equal(steps.steps[0].text, "disc");
   },
 );
 

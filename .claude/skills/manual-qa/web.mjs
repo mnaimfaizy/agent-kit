@@ -73,6 +73,7 @@ export const MAX_WAIT_MS = 15_000;
 export const DEFAULT_WAIT_MS = 5_000;
 /** A subject's visible text longer than this is cut in its record. */
 export const TEXT_LIMIT = 2_000;
+const LEFT = "a page left the checked address; the run stopped there";
 const VIEWPORT = { width: 1280, height: 720 };
 const MIN_SECRET_LENGTH = 4;
 
@@ -279,6 +280,37 @@ function locate(page, target) {
   return page.getByText(target.text, { exact });
 }
 
+/** Masks one field's text with dots, over any page style. @param {Element} element */
+const maskField = (element) =>
+  /** @type {HTMLElement} */ (element).style.setProperty(
+    "-webkit-text-security",
+    "disc",
+    "important",
+  );
+
+/**
+ * Masks again, after every action, each field that holds a sign-in value, in
+ * case the page replaced the field it was filled into (a re-render). Between
+ * two actions a replaced field shows its text, so a video's masking is
+ * best-effort; stills are covered by `withholdReason`.
+ * @param {any} page @param {string[]} values
+ */
+async function mask(page, values) {
+  if (!values.length) return;
+  for (const frame of page.frames())
+    await frame
+      .$$eval(
+        "input:not([type=password]), textarea",
+        (elements, [held, style]) => {
+          for (const e of elements)
+            if (held.some((v) => /** @type {HTMLInputElement} */ (e).value.includes(v)))
+              /** @type {HTMLElement} */ (e).style.setProperty(style, "disc", "important");
+        },
+        [values, "-webkit-text-security"],
+      )
+      .catch(() => {});
+}
+
 /** Whether a page's address is the checked one (or the blank page a context opens on). */
 const onAddress = (url, origin) => {
   if (url === "about:blank") return true;
@@ -329,10 +361,16 @@ async function withholdReason(page, values) {
  * Runs a checked sequence. Stops at the first action that does not complete.
  * @param {any} sequence a sequence `checkSequence` accepted
  * @param {{base: string, env: Record<string, string | undefined>, out: string,
- *   video: boolean, playwright: any, now?: () => number}} options
+ *   video: boolean, playwright: any, now?: () => number,
+ *   screenshot?: (page: any, path: string) => Promise<unknown>}} options
+ *   `screenshot` takes the still (a seam for tests; Playwright's own by default)
  */
-export async function runSequence(sequence, { base, env, out, video, playwright, now }) {
+export async function runSequence(
+  sequence,
+  { base, env, out, video, playwright, now, screenshot },
+) {
   const clock = now ?? (() => performance.now());
+  const shoot = screenshot ?? ((page, path) => page.screenshot({ path }));
   const origin = new URL(base).origin;
   const redact = new Redactor();
   /** Each sign-in value a fill names, longest first, for the withhold check. */
@@ -370,23 +408,34 @@ export async function runSequence(sequence, { base, env, out, video, playwright,
     context.setDefaultTimeout(ACTION_TIMEOUT_MS);
     context.setDefaultNavigationTimeout(NAVIGATION_TIMEOUT_MS);
     const state = { left: false };
-    // A page that tries to leave the checked address is stopped there.
-    await context.route("**/*", (route) => {
-      const request = route.request();
-      let topLevel = false;
-      try {
-        topLevel =
-          request.isNavigationRequest() && request.frame() === request.frame().page().mainFrame();
-      } catch {
-        // a request with no frame (a service worker's)
-      }
-      if (topLevel && new URL(request.url()).origin !== origin) {
-        state.left = true;
-        return route.abort("blockedbyclient");
-      }
-      return route.continue();
-    });
     const page = await context.newPage();
+    // A page that tries to leave the checked address is stopped before the request
+    // is sent: a link, a script, or a redirect at any hop, since a 307 after a
+    // sign-in POST would resend the form. Playwright's routes see only a redirect's
+    // first address, so this pauses each top-level document request, hops
+    // included, through Chromium's own Fetch interception.
+    const cdp = await context.newCDPSession(page);
+    const mainFrame = (await cdp.send("Page.getFrameTree")).frameTree.frame.id;
+    cdp.on("Fetch.requestPaused", (paused) => {
+      const leaves = paused.frameId === mainFrame && !onAddress(paused.request.url, origin);
+      if (leaves) state.left = true;
+      cdp
+        .send(
+          leaves ? "Fetch.failRequest" : "Fetch.continueRequest",
+          leaves
+            ? { requestId: paused.requestId, errorReason: "BlockedByClient" }
+            : { requestId: paused.requestId },
+        )
+        .catch(() => {});
+    });
+    await cdp.send("Fetch.enable", {
+      patterns: [{ urlPattern: "*", resourceType: "Document", requestStage: "Request" }],
+    });
+    // A tab or window a click opens is closed, not followed: only the Session's page
+    // carries this guard.
+    context.on("page", (opened) => {
+      if (opened !== page) opened.close().catch(() => {});
+    });
     sessionInfo[session] = { startedAtMs: Math.round(clock() - start), video: null };
     const opened = { context, page, state };
     sessions.set(session, opened);
@@ -418,11 +467,8 @@ export async function runSequence(sequence, { base, env, out, video, playwright,
           if (type === "password" && action.value !== "" && !onlyPlaceholders(action.value))
             throw new Error("a literal value into a password field; give it as {{env:QA_…}}");
           // A field filled from a sign-in value shows dots, as a password field does,
-          // so no still or video frame shows the value as typed.
-          if (action.value.match(PLACEHOLDER))
-            await field.evaluate((e) =>
-              /** @type {HTMLElement} */ (e).style.setProperty("-webkit-text-security", "disc"),
-            );
+          // so the value as typed reaches no still or video frame (best-effort: see `mask`).
+          if (action.value.match(PLACEHOLDER)) await field.evaluate(maskField);
           await field.fill(fill(action.value));
         } else {
           let subject = null;
@@ -447,13 +493,22 @@ export async function runSequence(sequence, { base, env, out, video, playwright,
                 : visible;
           }
           const index = steps.length + 1;
-          const withheld = await withholdReason(page, values);
-          const still = withheld
+          let withheld = await withholdReason(page, values);
+          let still = withheld
             ? null
             : `step-${String(index).padStart(2, "0")}-${session.toLowerCase()}.png`;
           const atMs = Math.max(Math.round(clock() - start), lastAt + 1);
           lastAt = atMs;
-          if (still) await page.screenshot({ path: join(out, still) });
+          if (still) {
+            await shoot(page, join(out, still));
+            // The page's scripts kept running while the still was taken: check again,
+            // and drop a still that may show what the first check did not.
+            withheld = await withholdReason(page, values);
+            if (withheld) {
+              rmSync(join(out, still), { force: true });
+              still = null;
+            }
+          }
           steps.push({
             session,
             index,
@@ -466,11 +521,17 @@ export async function runSequence(sequence, { base, env, out, video, playwright,
           });
           writeSteps();
         }
-        if (state.left || !onAddress(page.url(), origin))
-          throw new Error("a page left the checked address; the run stopped there");
+        if (state.left || !onAddress(page.url(), origin)) throw new Error(LEFT);
+        await mask(page, values);
         done += 1;
       } catch (failure) {
-        error = { action: i + 1, session, verb, why: redact.text(why(failure)) };
+        const left = sessions.get(session)?.state.left;
+        error = {
+          action: i + 1,
+          session,
+          verb,
+          why: left ? LEFT : redact.text(why(failure)),
+        };
         break;
       }
     }
