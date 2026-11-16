@@ -393,6 +393,22 @@ test("uploads are picked one by one, refuse a failed run's media, and warn on a 
   assert.match(skill, /Never upload to a release that is not a prerelease/);
 });
 
+test("step 10 offers only finished files: a Storyboard, an MP4, a log, or stills with no Storyboard (#237)", () => {
+  const step10 = skill.slice(skill.indexOf("### 10. Upload"), skill.indexOf("### 11. Post"));
+  assert.match(
+    step10,
+    /Offer only finished files: each Storyboard \(`s<n>-storyboard\.png`\) and MP4/,
+  );
+  assert.match(step10, /each `api` scenario's `s<n>-http\.log`/);
+  assert.match(step10, /plain stills only when it has no Storyboard/);
+  assert.match(
+    step10,
+    /Never offer a Before still \(`s<n>-before…`\), a still a Storyboard was built from, or a raw recording/,
+  );
+  // Step 11 posts what step 10 uploaded: a Storyboard inline, an MP4 linked.
+  assert.match(skill, /shows an uploaded Storyboard as an image and links an MP4/);
+});
+
 test("evidence is captured locally by default, without a question; only upload asks", () => {
   const flat = skill.replace(/\s+/g, " ");
   assert.doesNotMatch(flat, /only where a written result is not enough/);

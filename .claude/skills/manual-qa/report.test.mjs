@@ -115,6 +115,16 @@ const upload = (report, picks, more = {}) =>
     ...more,
   });
 
+// S1 has a Storyboard, an MP4, the step still it was built from and a Before still;
+// S2 has none (no Chromium): its plain stills, a Before still, a recording and a log.
+const BOARD_ROWS = [
+  "| S1: An admin invites a new member | PASS | `qa-report-pr-57/s1-storyboard.png` `qa-report-pr-57/s1.mp4` `qa-report-pr-57/s1-web/step-02-a.png` `qa-report-pr-57/s1-before-web/step-02-a.png` | invite sent |",
+  "| S2: A signed-out visitor cannot open the members page | PASS | `qa-report-pr-57/s2-web/step-03-a.png` `qa-report-pr-57/s2-fail.png` `qa-report-pr-57/s2-before.png` `qa-report-pr-57/s2.webm` `qa-report-pr-57/s2.gif` `qa-report-pr-57/s2-http.log` | redirected; no Storyboard: no Playwright with Chromium in this repository |",
+];
+const BOARDS = reportFor(BOARD_ROWS);
+const p57 = (name) => `qa-report-pr-57/${name}`;
+const refusedWhy = (result) => Object.fromEntries(result.refused.map((r) => [r.file, r.why]));
+
 // --- Reading a report ---
 
 test("a report reads into its anchors and one result per scenario", () => {
@@ -1167,6 +1177,19 @@ test("uploaded evidence is linked; the rest stays a local path", () => {
   assert.ok(body.includes("| `qa-report-pr-57/s2.log` |"));
 });
 
+test("an uploaded Storyboard shows as an image, and an uploaded MP4 as a link (#237)", () => {
+  const base = "https://github.com/o/r/releases/download/qa-artifacts/";
+  const board = `${base}pr-57-s1-storyboard.png`;
+  const video = `${base}pr-57-s1.mp4`;
+  const links = { [p57("s1-storyboard.png")]: board, [p57("s1.mp4")]: video };
+  const { body, problems } = reportComment(BOARDS, { links });
+  assert.deepEqual(problems, []);
+  assert.ok(body.includes(`[![${p57("s1-storyboard.png")}](${board})](${board})`), body);
+  assert.ok(body.includes(`[\`${p57("s1.mp4")}\`](${video})`));
+  // A still that was not uploaded stays a local path.
+  assert.ok(body.includes(`\`${p57("s1-web/step-02-a.png")}\` `));
+});
+
 test("a report that carries a sign-in value is not posted", () => {
   // Built at run time: no credential-looking literal is ever committed.
   const value = ["Zq", "8v", "Lw", "3n", "Rt", "7k"].join("");
@@ -1446,6 +1469,111 @@ test("a passed run's picked media is accepted under a per-PR asset name", () => 
       url: "https://github.com/o/r/releases/download/qa-artifacts/pr-57-s1.png",
     },
   ]);
+});
+
+test("a passed run's Storyboard and MP4 are accepted (#237)", () => {
+  const result = upload(BOARDS, [p57("s1-storyboard.png"), p57("s1.mp4")], { github: "o/r" });
+  assert.deepEqual(result.refused, []);
+  assert.deepEqual(
+    result.accepted.map((a) => a.asset),
+    ["pr-57-s1-storyboard.png", "pr-57-s1.mp4"],
+  );
+});
+
+test("a Before still, a step still behind a Storyboard, or a recording is refused, naming the rule (#237)", () => {
+  const result = upload(BOARDS, [
+    p57("s1-before-web/step-02-a.png"),
+    p57("s2-before.png"),
+    p57("s1-web/step-02-a.png"),
+    p57("s2.webm"),
+    p57("s2.gif"),
+  ]);
+  assert.deepEqual(result.accepted, []);
+  const why = refusedWhy(result);
+  assert.match(why[p57("s1-before-web/step-02-a.png")], /^a lone Before still is never uploaded/);
+  assert.match(why[p57("s2-before.png")], /^a lone Before still is never uploaded/);
+  assert.match(
+    why[p57("s1-web/step-02-a.png")],
+    /^a still behind a Storyboard is never uploaded: upload `qa-report-pr-57\/s1-storyboard\.png`/,
+  );
+  for (const raw of ["s2.webm", "s2.gif"])
+    assert.match(why[p57(raw)], /^a raw recording is never uploaded: only a scenario's MP4/, raw);
+  // A web.mjs recording never reads as evidence (#236); even handed in, it is refused.
+  const report = readReport(BOARDS).report;
+  report.results[0].evidence.push(p57("s1-web/video-a.webm"));
+  const raw = evidenceUpload({
+    upload: "gh-release:qa-artifacts",
+    report,
+    picks: [p57("s1-web/video-a.webm")],
+    exists: () => true,
+    read: everyFile,
+    visibility: "PRIVATE",
+  });
+  assert.match(raw.refused[0].why, /^a raw recording is never uploaded/);
+  // A step's key-before still is no Before still.
+  const key = PASSED.replace("`qa-report-pr-57/s1.png`", "`qa-report-pr-57/s1-key-before.png`");
+  assert.deepEqual(upload(key, [p57("s1-key-before.png")]).refused, []);
+});
+
+test("a scenario with no Storyboard still offers its plain stills, and an api log goes as today (#237)", () => {
+  const result = upload(BOARDS, [
+    p57("s2-web/step-03-a.png"),
+    p57("s2-fail.png"),
+    p57("s2-http.log"),
+  ]);
+  assert.deepEqual(result.refused, []);
+  assert.deepEqual(
+    result.accepted.map((a) => a.asset),
+    ["pr-57-s2-web-step-03-a.png", "pr-57-s2-fail.png", "pr-57-s2-http.log"],
+  );
+});
+
+test("a run with only FAIL: pre-existing, or one stopped, refuses all media, Storyboard and MP4 too (#237)", () => {
+  const note =
+    "merge-base evidence: the two-point run shows `members_redirect` failing at the merge-base";
+  const preExisting = reportFor([
+    BOARD_ROWS[0],
+    BOARD_ROWS[1]
+      .replace("| PASS |", "| FAIL: pre-existing |")
+      .replace(/\| redirected;[^|]*\|$/, `| ${note} |`),
+  ]);
+  const stopped = reportFor([
+    BOARD_ROWS[0].replace("| invite sent |", "| invite sent; the run stopped at S1: data loss |"),
+    BOARD_ROWS[1],
+  ]);
+  const media = [p57("s1-storyboard.png"), p57("s1.mp4"), p57("s2-web/step-03-a.png")];
+  for (const report of [preExisting, stopped]) {
+    assert.deepEqual(readReport(report).problems, []);
+    assert.equal(readReport(report).report.failed, true);
+    const result = upload(report, [...media, p57("s2-http.log")]);
+    assert.deepEqual(
+      result.refused.map((r) => r.file),
+      media,
+    );
+    for (const refused of result.refused)
+      assert.match(refused.why, /^media from a failed run is never uploaded/);
+    assert.deepEqual(
+      result.accepted.map((a) => a.file),
+      [p57("s2-http.log")],
+    );
+  }
+});
+
+test("the CLI refuses a step still behind a Storyboard with exit 1, naming the rule (#237)", () => {
+  const io = {
+    readFile: (p) => (p === "report.md" ? BOARDS : null),
+    read: (p) =>
+      p === "qa.config.yml" ? "run:\n  evidence: { upload: gh-release:qa-artifacts }\n" : null,
+    exists: () => true,
+    readEvidence: everyFile,
+  };
+  const picks = (...files) => ["evidence", "report.md", ...files.flatMap((f) => ["--pick", f])];
+  const bad = main(picks(p57("s1-storyboard.png"), p57("s1-web/step-02-a.png")), io);
+  assert.equal(bad.code, 1);
+  const refused = JSON.parse(bad.out).refused;
+  assert.equal(refused.length, 1);
+  assert.match(refused[0].why, /^a still behind a Storyboard is never uploaded/);
+  assert.equal(main(picks(p57("s1-storyboard.png"), p57("s1.mp4")), io).code, 0);
 });
 
 test("only the files picked, and only ones the report lists, are uploaded", () => {
