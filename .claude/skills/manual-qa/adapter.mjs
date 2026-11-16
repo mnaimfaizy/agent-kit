@@ -49,7 +49,8 @@
 //   and exits 1 on any problem, 2 on bad usage; `host` exits 0 when the run may
 //   sign in, 1 on a stop, 3 when the QA person must confirm the host in chat.
 
-import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -814,6 +815,81 @@ function surfaceQuestion(configured, briefed, scenarios) {
   );
 }
 
+// ── The `web` driver's tools ────────────────────────────────────────────────
+
+/**
+ * The readiness notes for the `web` driver's optional tools (#232, ADAPTER.md
+ * "Readiness check"). Notes, never needs: without either, the run goes on.
+ */
+export const WEB_NOTES = /** @type {const} */ ({
+  chromium:
+    "`web`: Playwright with Chromium is installed in this repository, so `web.mjs` drives the `web` scenarios",
+  noChromium:
+    "`web`: no Playwright with Chromium in this repository: the `web` scenarios run on the harness's browsers, " +
+    "without `web.mjs` and without Storyboards",
+  ffmpeg: "`web`: `ffmpeg` is on `PATH`, so an annotated MP4 can be made from a recording",
+  noFfmpeg: "`web`: no `ffmpeg` on `PATH`: no annotated MP4",
+});
+
+/** The packages that carry Playwright's `chromium`, in the order they are tried. */
+const PLAYWRIGHT_PACKAGES = ["playwright", "@playwright/test", "playwright-core"];
+
+/**
+ * Playwright as the repository at `dir` has it, loaded from its own
+ * `node_modules` (never installed): the package found, its module, and whether
+ * its Chromium is downloaded. Agent-kit takes no dependency on it.
+ * @param {string} dir the repository root
+ * @returns {{package: string | null, module: any, chromium: boolean}}
+ */
+export function findPlaywright(dir) {
+  const require = createRequire(join(resolve(dir), "package.json"));
+  for (const name of PLAYWRIGHT_PACKAGES) {
+    let module;
+    try {
+      module = require(name);
+    } catch {
+      continue;
+    }
+    if (!module?.chromium) continue;
+    let executable = "";
+    try {
+      executable = module.chromium.executablePath();
+    } catch {
+      // no browser for this platform
+    }
+    return { package: name, module, chromium: Boolean(executable) && existsSync(executable) };
+  }
+  return { package: null, module: null, chromium: false };
+}
+
+/**
+ * Whether a program is a file in one of `PATH`'s folders (with a `PATHEXT`
+ * extension on Windows). Nothing is run.
+ * @param {string} name
+ * @param {Record<string, string | undefined>} [env]
+ * @param {string} [platform]
+ */
+export function onPath(name, env = process.env, platform = process.platform) {
+  const windows = platform === "win32";
+  const folders = (env.PATH ?? env.Path ?? "").split(windows ? ";" : ":").filter(Boolean);
+  const extensions = windows ? ["", ...(env.PATHEXT ?? ".EXE;.CMD;.BAT").split(";")] : [""];
+  return folders.some((folder) =>
+    extensions.some((extension) => {
+      try {
+        return statSync(join(folder, name + extension)).isFile();
+      } catch {
+        return false;
+      }
+    }),
+  );
+}
+
+/** What `check --for run` detects for the `web` notes, from the repository root. */
+const detectWebTools = (repo) => () => ({
+  chromium: findPlaywright(repo).chromium,
+  ffmpeg: onPath("ffmpeg"),
+});
+
 /**
  * What `manual-qa` still needs before it runs a plan, from the config and,
  * when one is given, the plan's Run brief. `needs` are asked for; a `note` is
@@ -824,9 +900,15 @@ function surfaceQuestion(configured, briefed, scenarios) {
  *   a plan `validatePlan` read with no problems; every session id that is a role
  *   must be declared, and a Scenario account need not be. A plan with no
  *   scenarios needs nothing, and is told only `gh` can check its build
+ * @param {(() => {chromium: boolean, ffmpeg: boolean}) | null} [tools] detects the `web`
+ *   driver's tools, called only when a scenario drives `web`; without it, no tool notes
  * @returns {{ready: boolean, needs: string[], notes: string[], run: {target: string | null, surface: string | null, roles: string[]}}}
  */
-export function runReadiness({ path, config, runProblems: problems = [] }, plan = null) {
+export function runReadiness(
+  { path, config, runProblems: problems = [] },
+  plan = null,
+  tools = null,
+) {
   const brief = plan?.brief ?? null;
   const run = isMapping(config.run) ? config.run : {};
   // A malformed entry is a `run:` problem, reported below; it declares no role.
@@ -921,6 +1003,17 @@ export function runReadiness({ path, config, runProblems: problems = [] }, plan 
     notes.push(
       "no `run.version_endpoint`: without `gh` access the build cannot be checked against the plan's head",
     );
+  // The `web` driver's tools are optional: each note says what the run loses without one.
+  const surfaces = plan?.scenarios?.length
+    ? plan.scenarios.map((scenario) => scenario.surface)
+    : [effective.surface];
+  if (tools && [...surfaces, run.surface].includes("web")) {
+    const found = tools();
+    notes.push(
+      found.chromium ? WEB_NOTES.chromium : WEB_NOTES.noChromium,
+      found.ffmpeg ? WEB_NOTES.ffmpeg : WEB_NOTES.noFfmpeg,
+    );
+  }
   return { ready: needs.length === 0, needs, notes, run: effective };
 }
 
@@ -2475,7 +2568,8 @@ const readStdin = () => {
 
 /**
  * @param {string[]} argv the arguments after the script
- * @param {{read?: (path: string) => string | null, stdin?: () => string}} [io]
+ * @param {{read?: (path: string) => string | null, stdin?: () => string,
+ *   tools?: () => {chromium: boolean, ffmpeg: boolean}}} [io]
  * @returns {{code: number, out: string}}
  */
 export function main(argv, io = {}) {
@@ -2559,7 +2653,11 @@ export function main(argv, io = {}) {
     if (section === "run") {
       const planPath = option(argv, "--plan")[0];
       const planned = planPath === undefined ? null : readPlan(planPath);
-      const readiness = runReadiness(loaded, planned?.problems.length ? null : planned?.plan);
+      const readiness = runReadiness(
+        loaded,
+        planned?.problems.length ? null : planned?.plan,
+        io.tools ?? detectWebTools(repo),
+      );
       const failed = loaded.runProblems.length > 0 || (planned?.problems.length ?? 0) > 0;
       return {
         code: failed ? 1 : 0,

@@ -48,7 +48,10 @@ The first file present is the config: `qa.config.yml`, then `qa.config.yaml`, th
 
 `node "<skill>/adapter.mjs" check --for run --plan <file>` prints the config path, the problems `manual-qa` stops on, the effective values, and `readiness`: what the run still **needs** (asked for) and **notes** (said, and the run goes on). The plan's Run brief fills a target or surface the config leaves out; when the two disagree, the person is asked which this run uses. It needs a target, a surface and the roles, every role the plan signs in as declared, and, for `target: stack`, the four stack commands and `accounts.print`.
 
-For `target: url` it needs neither the stack commands nor `accounts.print`, and notes instead that the address is asked in chat and where the role values come from. No key holds a hosted address, and the skill never saves one: a URL in a file is not confirmation ([the host rule](#the-host-rule)).
+For `target: url` it needs neither the stack commands nor `accounts.print`, and notes instead that the address is asked in chat and where the role values come from. When a scenario drives `web`, two more notes say whether the [web driver](#the-web-driver)'s optional tools are here, and what the run loses without each. They never block the run:
+
+- `` `web`: Playwright with Chromium is installed in this repository, so `web.mjs` drives the `web` scenarios ``, or `` `web`: no Playwright with Chromium in this repository: the `web` scenarios run on the harness's browsers, without `web.mjs` and without Storyboards ``.
+- `` `web`: `ffmpeg` is on `PATH`, so an annotated MP4 can be made from a recording ``, or `` `web`: no `ffmpeg` on `PATH`: no annotated MP4 ``. No key holds a hosted address, and the skill never saves one: a URL in a file is not confirmation ([the host rule](#the-host-rule)).
 
 The skill asks for what is missing, runs on the answers given in chat, and saves them only when the person says yes. `adapter.mjs render < answers.json` prints the new body of the config the lookup found, in its own dialect, or of a new `qa.config.yml` when there is none, with the answers merged in (`run` key by key, so give a whole `stack` or `accounts` mapping) and every other key kept. YAML comments are not kept. It refuses over a problem in `run:`, a YAML syntax problem, or one in the keys both skills read; a problem in `qa-plan`'s `plan:` is carried over as it is, for `qa-plan` to report. `render --write` writes it. Over a YAML config that has comments, `--write` writes nothing and exits 3, naming the comment lines; `--write --drop-comments` writes it anyway, once the person agrees to lose them. Nothing is assumed.
 
@@ -185,6 +188,97 @@ Stdout is a JSON summary: the log's path, `completed`, and each request's sessio
 | 0    | Every request completed: each got a response, whatever its status. Not that the scenario passed.                 |
 | 1    | The sequence was refused (`problems`; nothing sent, no log), or a request did not complete (`completed: false`). |
 | 2    | Usage.                                                                                                           |
+
+## The web driver
+
+`web.mjs` drives the `web` surface (SKILL.md steps 4 and 6; its reasons are in DESIGN.md, "A driver for the web surface"). It carries out a step sequence in Playwright's Chromium and records what each step showed. It makes no assertions: the runner compares the stills and text with **Expected result:**, as on every other surface.
+
+```bash
+node "<skill>/web.mjs" run <sequence.json> --base <address> --out <dir> [--video]
+```
+
+`--base` is the address the host rule let through, with no path. `--out` is the scenario's evidence folder, `<working_dir>/qa-report-pr-<n>/s<n>-web/`; a run first removes the files an earlier run wrote there (`steps.json`, `step-*.png`, `video-*.webm`) and nothing else. `--video` keeps a video per Session. It takes no other option: no sign-in value is ever given on the command line.
+
+**Playwright is the repository's own.** The driver loads `playwright` (or `@playwright/test`, or `playwright-core`) from the `node_modules` of the repository it runs in, and never installs it; Agent-kit adds no dependency. Without it, or without its Chromium, the driver runs nothing and exits 2, naming what to install: `npm install --save-dev playwright` and `npx playwright install chromium`. The run then drives `web` with the harness's browsers (SKILL.md step 4).
+
+### The step sequence
+
+The runner writes one sequence per scenario, from the scenario's steps, as a JSON file in `working_dir` (`s<n>-web.json` beside the evidence folder). It is never committed: the plan stays prose a person can run by hand.
+
+```json
+{
+  "actions": [
+    { "session": "A", "goto": "/sign-in" },
+    { "session": "A", "fill": { "label": "Email" }, "value": "{{env:QA_A_EMAIL}}" },
+    { "session": "A", "fill": { "label": "Password" }, "value": "{{env:QA_A_PASSWORD}}" },
+    { "session": "A", "click": { "role": "button", "name": "Sign in" } },
+    { "session": "A", "goto": "/settings/profile" },
+    { "session": "A", "fill": { "label": "Display name" }, "value": "Ada" },
+    { "session": "A", "click": { "role": "button", "name": "Save" } },
+    {
+      "session": "A",
+      "step": "The saved toast",
+      "subject": { "role": "status" },
+      "timeoutMs": 5000
+    },
+    { "session": "B", "goto": "/members" },
+    { "session": "B", "step": "B sees the new name", "subject": { "text": "Ada" } }
+  ]
+}
+```
+
+The file holds one key, `actions`, a list of 1 to 200 actions carried out in order. Each action has an optional `session` (one capital letter, default `A`) and exactly one of:
+
+| Action  | With                   | What it does                                                                                                                                                  |
+| ------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `goto`  |                        | Goes to a path, which starts with one `/` and is relative to `--base`: never a URL.                                                                           |
+| `click` |                        | Clicks an element.                                                                                                                                            |
+| `fill`  | `value`                | Fills a field with text, or with `{{env:QA_<NAME>}}` placeholders.                                                                                            |
+| `press` |                        | Presses one key, such as `Enter`, `Tab` or `Control+A`.                                                                                                       |
+| `wait`  | `timeoutMs`            | Waits until an element is visible: 5,000 ms by default, at most 15,000.                                                                                       |
+| `step`  | `subject`, `timeoutMs` | Takes a **step**: its value is the caption. With a `subject`, it first waits for that element to be visible, by the same bound, and records its box and text. |
+
+An element is found as a tester finds it: `{"role": "button", "name": "Save"}` (an ARIA role, and optionally its accessible name), `{"label": "Email"}` (a field's label) or `{"text": "Saved"}` (visible text), each with an optional `"exact": true`. One that matches more than one element does not complete. Any other key, in an action, an element or the file, is a problem.
+
+Each Session gets its own browser context, with its own cookies and storage, opened at its first action. A page that tries to leave the checked address (a link, a redirect, a script) is stopped, and that action does not complete. A click or fill waits up to 10 seconds for its element, and a page up to 30 seconds to load.
+
+**A sequence that carries a sign-in value inline is refused**, and nothing runs: no browser starts and nothing is written. `web.mjs` names the action and the field, never the value. It refuses:
+
+- the text of any `QA_*` variable's value, of four characters or more, written anywhere in the file, raw or encoded;
+- a `fill` whose element names a secret (a label or name with `password`, `passcode`, `secret`, `token`, `API key`, `credential`, `OTP`, `one-time`, `PIN`, `recovery`, `MFA`, `2FA` or `verification`) holding anything but placeholders;
+- a placeholder anywhere but a fill's `value`, one naming a variable outside `QA_`, or one that is not set;
+- a value shaped like a secret anywhere: a JWT, a `Bearer` or `Basic` credential, a GitHub, OpenAI-style, AWS or Slack token;
+- a `goto` with a query parameter whose name names a secret;
+- a `goto` that is a URL, or a path to another host (`//host`).
+
+At run time, a literal value filled into a password field does not complete either.
+
+### The step file
+
+`<out>/steps.json` holds `steps`, one record per step in order, and `sessions`, each Session's `startedAtMs` and `video`. It is written when the run starts and again after every step, so when an action does not complete, it holds every step up to it.
+
+| Key        | Meaning                                                                                                                                     |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `session`  | The Session the step ran in.                                                                                                                |
+| `index`    | The step's number in the scenario, from 1.                                                                                                  |
+| `caption`  | The step's caption, from the sequence.                                                                                                      |
+| `still`    | The still's file name in `<out>`, `step-<NN>-<session>.png` (`step-03-b.png`), or `null` when it was withheld.                              |
+| `subject`  | The subject's box in the still, `{x, y, width, height}` in CSS pixels of the 1280×720 viewport, or `null` with no subject.                  |
+| `text`     | The subject's visible text, cut at 2,000 characters, or `null` with no subject.                                                             |
+| `atMs`     | When the still was taken, in milliseconds since the run started; it rises from step to step. A Session's video starts at its `startedAtMs`. |
+| `withheld` | Why the still was not taken, or `null`.                                                                                                     |
+
+**The capture rules bind every still.** No still is taken while a password field on the page holds a value, while any field holds a sign-in value the sequence filled, or while such a value is on the screen. The record says why in `withheld`, and keeps its caption, subject and text. The value of a filled sign-in field never appears in the step file, the summary or a caption: a subject's text or an error that would show it gets `[redacted:<VARIABLE>]` in its place.
+
+With `--video`, each Session's video is `<out>/video-<session>.webm`, Playwright's own recording of that Session's context from its first action. Without it, there is none. A video cannot withhold a moment: it shows a sign-in screen as it was, a password field as dots and an email as typed. It stays in `working_dir` with every other QA Artifact.
+
+Stdout is a JSON summary: `out`, the step file's path, `completed`, how many actions completed, how many stills were taken and withheld, the `videos` kept, and for an action that did not complete, `error` with its number, Session, action and why; or, for a refused sequence, `problems`.
+
+| Exit | Meaning                                                                                                                                                           |
+| ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0    | Every action completed. Not that the scenario passed.                                                                                                             |
+| 1    | The sequence was refused (`problems`; nothing run, nothing written), or an action did not complete (`completed: false`; the step file holds every step up to it). |
+| 2    | Usage, or no Playwright with Chromium in this repository.                                                                                                         |
 
 ## QA Artifacts and posting
 
