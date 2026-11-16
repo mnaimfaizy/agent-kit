@@ -352,6 +352,20 @@ test("a variable is a sign-in one only by a whole word of its name", () => {
   assert.deepEqual(ok([{ step: "London is shown" }, { step: "small-footprint chosen" }], env), []);
 });
 
+test("a username is looked for only as written", () => {
+  const env = { QA_A_USERNAME: "admin" };
+  assert.deepEqual(
+    ok([{ click: { role: "link", name: "Admin" } }, { step: "the admin page" }], env),
+    [],
+  );
+  assert.deepEqual(ok([{ step: "Admin is shown" }], env), []);
+  assert.match(
+    ok([{ fill: { label: "Username" }, value: "admin" }], env).join("\n"),
+    /value of QA_A_USERNAME inline/,
+  );
+  assert.match(ok([{ goto: "/sign-in?user=admin" }], env).join("\n"), /QA_A_USERNAME inline/);
+});
+
 test("a placeholder must name a set QA_ variable, and goes only in a fill's value", () => {
   assert.match(
     ok([{ fill: { label: "x" }, value: "{{env:HOME}}" }]).join("\n"),

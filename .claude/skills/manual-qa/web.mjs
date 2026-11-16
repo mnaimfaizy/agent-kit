@@ -85,9 +85,11 @@ const MIN_SECRET_LENGTH = 4;
 
 const PLACEHOLDER = /\{\{(\w+):([^}]*)\}\}/g;
 const ENV_NAME = /^QA_[A-Z0-9_]+$/;
-/** A `QA_*` variable whose name says it holds a sign-in value or a secret. */
-const SIGN_IN_VARIABLE =
-  /(?:^|_)(?:PASSWORD|PASSWD|PASSPHRASE|SECRET|TOKEN|API_?KEY|CREDENTIALS?|OTP|PIN|RECOVERY|MFA|EMAIL|USER(?:NAME)?|LOGIN)(?:_|$)/;
+/** A `QA_*` variable whose name says it holds a secret or an email: looked for in any case. */
+const SECRET_VARIABLE =
+  /(?:^|_)(?:PASSWORD|PASSWD|PASSPHRASE|SECRET|TOKEN|API_?KEY|CREDENTIALS?|OTP|PIN|RECOVERY|MFA|EMAIL)(?:_|$)/;
+/** A `QA_*` variable whose name says it holds a username: looked for only as written. */
+const USER_VARIABLE = /(?:^|_)(?:USER(?:NAME)?|LOGIN)(?:_|$)/;
 /** A field's label or name that names a secret: its fill takes only placeholders. */
 const SECRET_FIELD =
   /pass(?:word|wd|phrase|code)?\b|secret|token|api.?key|credential|\botp\b|one.?time|\bpin\b|recovery|mfa|2fa|verification|security code/i;
@@ -255,23 +257,35 @@ export function checkSequence(sequence, env) {
     if (value === undefined || value === "") problems.push(`${name} is not set`);
     else if (/[\r\n]/.test(value)) problems.push(`${name} holds a line break`);
   }
-  // A sign-in value written in, in place of its placeholder, in any case: a value
-  // this sequence fills, and any `QA_*` value whose name says it is a sign-in value
-  // or a secret. Any other variable is not looked for, so a common word such as
-  // `admin` in an unrelated variable never refuses a label like "Admin".
+  // A sign-in value written in, in place of its placeholder: in any case, a value
+  // this sequence fills and any `QA_*` value whose name says it is a secret or an
+  // email; as written and as a whole string or query value, one whose name says it
+  // is a username, since a username such as `admin` is often a common word a label
+  // or caption uses ("Admin", "the admin page"). Any other variable is not looked for.
   const written = [...strings(sequence, "")].flatMap(([, text]) => [
     text,
     decode(text),
     decode(text.replace(/\+/g, " ")),
   ]);
   const lowered = written.map((text) => text.toLowerCase());
+  // A username is a whole string or a whole query value, so "the admin page" is prose.
+  const whole = new Set(
+    written.flatMap((text) => {
+      const query = text.indexOf("?");
+      if (query < 0) return [text];
+      return [text, ...new URLSearchParams(text.slice(query + 1)).values()];
+    }),
+  );
   for (const name of Object.keys(env)) {
     const value = ENV_NAME.test(name) ? envValue(env, name) : undefined;
     if (!value || value.length < MIN_SECRET_LENGTH) continue;
-    if (!named.has(name) && !SIGN_IN_VARIABLE.test(name)) continue;
-    const found = encodedForms(value).some((form) =>
-      lowered.some((text) => text.includes(form.toLowerCase())),
-    );
+    const anyCase = named.has(name) || SECRET_VARIABLE.test(name);
+    if (!anyCase && !USER_VARIABLE.test(name)) continue;
+    const found = anyCase
+      ? encodedForms(value).some((form) =>
+          lowered.some((text) => text.includes(form.toLowerCase())),
+        )
+      : whole.has(value);
     if (found)
       problems.push(
         `the sequence holds the value of ${name} inline; write {{env:${name}}} instead`,
