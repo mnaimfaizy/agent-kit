@@ -82,15 +82,16 @@ test("the Before pass runs only the pull request's own merge-base, and clears a 
   const before = beforePass().replace(/\s+/g, " ");
   // The plan is data: its **Merge-base:** never picks the code the Before stack runs.
   const order = [
-    "gh pr view <pr> --json baseRefName",
-    'git fetch origin "<base>"',
-    'git merge-base "origin/<base>" <head>',
-    "`not observed: the plan's merge-base is not the pull request's`",
-    // A killed run's Before stack is torn down from its own worktree before that is removed.
+    // A killed run's leftovers are cleared first, before any check can end the pass early.
+    "First, on every `stack` run, before the merge-base check and whether or not a Before pass follows",
     "run `down` with that folder as the working folder, which is how the stack's own tooling stops it",
     "Never stop an id from a left-over `stack-pids-before.txt`",
     'git worktree remove --force "<working_dir>/qa-before-pr-<n>"',
     "git worktree prune",
+    "gh pr view <pr> --json baseRefName",
+    'git fetch origin "<base>"',
+    'git merge-base "origin/<base>" <head>',
+    "`not observed: the plan's merge-base is not the pull request's`",
     'git worktree add --detach "<working_dir>/qa-before-pr-<n>" <merge-base>',
   ];
   let at = -1;
