@@ -52,6 +52,8 @@ let dir;
 let other;
 let otherBase;
 const otherSeen = [];
+/** What `/shadow` and `/shout` show, set by the test that drives them. */
+let shownValue = "";
 
 const page = (body, head = "") =>
   `<!doctype html><html><head><meta charset="utf-8"><title>t</title>${head}</head><body>${body}</body></html>`;
@@ -126,6 +128,28 @@ before(async () => {
           ),
         );
       }
+      if (url.pathname === "/popup-form")
+        return html(
+          `<form method="post" action="${otherBase}/popup-steal" target="_blank">` +
+            '<label>Password <input name="password" type="password"></label>' +
+            "<button>Open</button></form>" +
+            `<a href="${otherBase}/popup-link" target="_blank">New tab</a>`,
+        );
+      if (url.pathname === "/shadow")
+        return html(
+          `<sign-in-badge data-who="${shownValue}"></sign-in-badge><script>` +
+            "customElements.define('sign-in-badge', class extends HTMLElement { connectedCallback() {" +
+            "  const root = this.attachShadow({ mode: 'open' });" +
+            "  root.innerHTML = '<p>Signed in as ' + this.dataset.who + '</p>';" +
+            "  this.removeAttribute('data-who'); } });" +
+            "</script>",
+        );
+      if (url.pathname === "/shout")
+        return html(
+          `<p style="text-transform: uppercase">Contact: ${shownValue.toLowerCase()}</p>`,
+        );
+      if (url.pathname === "/framed")
+        return html(`<h1>Framed</h1><iframe src="${otherBase}/embedded"></iframe>`);
       if (url.pathname === "/post-form")
         return html(
           '<form method="post" action="/login307">' +
@@ -540,6 +564,62 @@ test(
     ]);
     assert.equal(code, 0, stdout);
     assert.equal(steps.steps[0].text, "disc");
+  },
+);
+
+test("a tab a click opens never sends its first request", { skip: NEEDS_CHROMIUM }, async () => {
+  otherSeen.length = 0;
+  const posted = await drive([
+    { session: "A", goto: "/popup-form" },
+    { session: "A", fill: { label: "Password" }, value: "{{env:QA_A_PASSWORD}}" },
+    { session: "A", click: { role: "button", name: "Open" } },
+    { session: "A", click: { role: "link", name: "New tab" } },
+    { session: "A", fill: { label: "Password" }, value: "" },
+    { session: "A", step: "Still on the form" },
+  ]);
+  assert.equal(posted.code, 0, posted.stdout);
+  assert.deepEqual(otherSeen, [], "the other host never saw a request");
+});
+
+test(
+  "a frame on another host still loads: only a page's own address is guarded",
+  { skip: NEEDS_CHROMIUM },
+  async () => {
+    otherSeen.length = 0;
+    const { code, stdout } = await drive([
+      { session: "A", goto: "/framed" },
+      { session: "A", wait: { role: "heading", name: "Framed" } },
+    ]);
+    assert.equal(code, 0, stdout);
+    // The frame's request may land a moment after the page reports loaded.
+    for (let i = 0; i < 20 && !otherSeen.length; i++) await new Promise((r) => setTimeout(r, 50));
+    assert.deepEqual(otherSeen, ["/embedded"]);
+  },
+);
+
+test(
+  "a sign-in value in an open shadow root, or shown in another case, withholds the still",
+  { skip: NEEDS_CHROMIUM },
+  async () => {
+    shownValue = EMAIL;
+    const { code, steps, out, stdout } = await drive([
+      { session: "A", goto: "/sign-in" },
+      // A fill names the value, so the driver knows to look for it.
+      { session: "A", fill: { label: "Note" }, value: "{{env:QA_A_EMAIL}}" },
+      { session: "A", goto: "/shadow" },
+      { session: "A", step: "Badge in a shadow root" },
+      { session: "A", goto: "/shout" },
+      { session: "A", step: "Shouted", subject: { text: "Contact" } },
+    ]);
+    shownValue = "";
+    assert.equal(code, 0, stdout);
+    const [badge, shouted] = steps.steps;
+    assert.equal(badge.still, null);
+    assert.match(badge.withheld, /sign-in value is on the screen/);
+    assert.equal(shouted.still, null);
+    assert.match(shouted.withheld, /sign-in value is on the screen/);
+    assert.match(shouted.text, /^CONTACT: \[redacted:QA_A_EMAIL\]$/);
+    assert.ok(!allText(out).toLowerCase().includes(EMAIL));
   },
 );
 

@@ -345,14 +345,30 @@ async function withholdReason(page, values) {
           value: /** @type {HTMLInputElement} */ (e).value,
         })),
       );
-      screen = await frame.evaluate(() => document.body?.innerText ?? "");
+      // The rendered text, and the text of every open shadow root (a web component's
+      // "Signed in as …"), which `innerText` leaves out. Closed shadow roots stay unread.
+      screen = await frame.evaluate(() => {
+        const texts = [document.body?.innerText ?? ""];
+        const walk = (root) => {
+          for (const element of root.querySelectorAll("*"))
+            if (element.shadowRoot) {
+              texts.push(element.shadowRoot.textContent ?? "");
+              walk(element.shadowRoot);
+            }
+        };
+        walk(document);
+        return texts.join("\n");
+      });
     } catch {
       return "a frame's fields could not be read, so the still is withheld";
     }
     if (fields.some((f) => f.password && f.value)) return "a password field holds a value";
-    if (fields.some((f) => f.value && values.some((v) => f.value.includes(v))))
+    // Compared in lower case: `text-transform` changes the case `innerText` reports.
+    const held = values.map((v) => v.toLowerCase());
+    if (fields.some((f) => f.value && held.some((v) => f.value.toLowerCase().includes(v))))
       return "a field holds a sign-in value";
-    if (values.some((v) => screen.includes(v))) return "a sign-in value is on the screen";
+    if (held.some((v) => screen.toLowerCase().includes(v)))
+      return "a sign-in value is on the screen";
   }
   return null;
 }
@@ -375,11 +391,14 @@ export async function runSequence(
   const redact = new Redactor();
   /** Each sign-in value a fill names, longest first, for the withhold check. */
   const values = [];
+  /** @type {[string, string][]} each sign-in value and its label */
+  const labelled = [];
   for (const action of sequence.actions)
     if (typeof action.value === "string")
       for (const [, , name] of action.value.matchAll(PLACEHOLDER)) {
         const value = envValue(env, name);
         redact.add(value, `[redacted:${name}]`);
+        if (value) labelled.push([value, `[redacted:${name}]`]);
         if (value && !values.includes(value)) values.push(value);
       }
 
@@ -394,7 +413,11 @@ export async function runSequence(
     );
   writeSteps();
 
-  const browser = await playwright.chromium.launch({ headless: true });
+  // No prerendering: a prerendered page would load outside the guard below.
+  const browser = await playwright.chromium.launch({
+    headless: true,
+    args: ["--disable-features=Prerender2"],
+  });
   /** @type {Map<string, {context: any, page: any, state: {left: boolean}}>} */
   const sessions = new Map();
   const open = async (session) => {
@@ -415,9 +438,23 @@ export async function runSequence(
     // first address, so this pauses each top-level document request, hops
     // included, through Chromium's own Fetch interception.
     const cdp = await context.newCDPSession(page);
-    const mainFrame = (await cdp.send("Page.getFrameTree")).frameTree.frame.id;
+    // A frame is a main frame unless it is known to have a parent: decided per
+    // request, not by an id read once, so a main frame that replaces another
+    // (an activated prerender, a new frame tree) is still guarded. A frame not yet
+    // known counts as a main frame, so a doubt blocks rather than lets through.
+    /** @type {Set<string>} */
+    const subframes = new Set();
+    cdp.on("Page.frameAttached", ({ frameId, parentFrameId }) => {
+      if (parentFrameId) subframes.add(frameId);
+    });
+    cdp.on("Page.frameDetached", ({ frameId }) => subframes.delete(frameId));
+    cdp.on("Page.frameNavigated", ({ frame }) => {
+      if (frame.parentId) subframes.add(frame.id);
+      else subframes.delete(frame.id);
+    });
+    await cdp.send("Page.enable");
     cdp.on("Fetch.requestPaused", (paused) => {
-      const leaves = paused.frameId === mainFrame && !onAddress(paused.request.url, origin);
+      const leaves = !subframes.has(paused.frameId) && !onAddress(paused.request.url, origin);
       if (leaves) state.left = true;
       cdp
         .send(
@@ -431,8 +468,22 @@ export async function runSequence(
     await cdp.send("Fetch.enable", {
       patterns: [{ urlPattern: "*", resourceType: "Document", requestStage: "Request" }],
     });
-    // A tab or window a click opens is closed, not followed: only the Session's page
-    // carries this guard.
+    // A tab or window a click opens is closed, not followed. Its first request is
+    // stopped before it is sent: a route sees every page's first request, popups'
+    // included (a `target="_blank"` sign-in form would carry its password out).
+    await context.route("**/*", (route) => {
+      const request = route.request();
+      if (!request.isNavigationRequest()) return route.continue();
+      // A popup's first request comes before Playwright knows its page, so it has
+      // no frame yet: that, or any page but the Session's, is a popup.
+      let ours = false;
+      try {
+        ours = request.frame().page() === page;
+      } catch {
+        // no frame yet
+      }
+      return ours ? route.continue() : route.abort("blockedbyclient");
+    });
     context.on("page", (opened) => {
       if (opened !== page) opened.close().catch(() => {});
     });
@@ -441,6 +492,13 @@ export async function runSequence(
     sessions.set(session, opened);
     return opened;
   };
+  /** A sign-in value in any case (`text-transform`), replaced by its variable's name. */
+  const redactAnyCase = (text) =>
+    labelled.reduce(
+      (out, [value, label]) =>
+        out.replace(new RegExp(value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"), label),
+      text,
+    );
   const fill = (text) => text.replace(PLACEHOLDER, (_, __, name) => envValue(env, name) ?? "");
 
   let done = 0;
@@ -486,7 +544,7 @@ export async function runSequence(
               width: Math.round(box.width),
               height: Math.round(box.height),
             };
-            const visible = redact.text((await element.innerText()).trim());
+            const visible = redactAnyCase(redact.text((await element.innerText()).trim()));
             text =
               visible.length > TEXT_LIMIT
                 ? `${visible.slice(0, TEXT_LIMIT)} [cut at ${TEXT_LIMIT} characters]`

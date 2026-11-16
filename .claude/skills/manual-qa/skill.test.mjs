@@ -402,6 +402,12 @@ test("step 6 names `web.mjs`'s evidence folder and runs it on a sequence the run
     /node "<skill>\/web\.mjs" run "<working_dir>\/qa-report-pr-<n>\/s<n>-web\.json" --base "<address>" --out "<working_dir>\/qa-report-pr-<n>\/s<n>-web"/,
   );
   assert.match(flat, /the sequence is never committed/);
+  // A video cannot withhold a moment: no `--video` when the Capture rules add anything.
+  assert.match(
+    flat,
+    /Add `--video` for a multi-session or timing-dependent scenario, unless the Run brief's \*\*Capture rules\*\* add anything beyond the baseline/,
+  );
+  assert.match(flat, /Its stills are the full viewport, so their framing is the page's/);
   assert.match(
     flat,
     /Its exit status says whether every action completed, not whether the scenario passed/,
