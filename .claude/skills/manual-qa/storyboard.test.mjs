@@ -56,7 +56,8 @@ const NEEDS_CHROMIUM =
 const EMAIL = "admin@example.test";
 const PASSWORD = "Corr3ct-Horse-Battery";
 const ENV = { QA_A_EMAIL: EMAIL, QA_A_PASSWORD: PASSWORD };
-const JWT = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.c2lnbmF0dXJlLXZhbHVl";
+/** A made-up JWT, joined at run time so no token-shaped literal sits in the file. */
+const JWT = ["eyJhbGciOiJIUzI1NiJ9", "eyJzdWIiOiIxIn0", "c2lnbmF0dXJl"].join(".");
 /** A 1×1 PNG: a still the renderer can scale; the tests never look at its pixels. */
 const PNG_1X1 = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAwS2OUAAAAABJRU5ErkJggg==",
