@@ -130,21 +130,24 @@ export function timingLine({ side, startedAt, atMs, beforeAtMs = null }) {
 /** The Session the MP4 follows: the one `proves` names, or the first After step's. */
 const sessionOf = (records, meta) => meta.proves?.session ?? records.after[0]?.session;
 
-/**
- * Why Before does not play beside After, or null when it does: Before ran and
- * has a recording of the Session.
- */
 /** A side's recording of the Session, by the name `web.mjs` gives it, or null. */
 function videoOf(file, session) {
   const name = file?.sessions?.[session]?.video;
   return typeof name === "string" && VIDEO_NAME.test(name) ? name : null;
 }
 
-function beforeNoteFor(meta, raw, session) {
+/**
+ * Why Before does not play beside After, or null when it does: Before ran and
+ * has a recording of the Session, named in its step file and, by `recorded`,
+ * there on disk.
+ * @param {(side: "Before" | "After", name: string) => boolean} recorded
+ */
+function beforeNoteFor(meta, raw, session, recorded) {
   const before = isObject(meta.before) ? meta.before : null;
   if (!before) return "Before: not run, a feature scenario runs After only";
   if (BEFORE_UNSEEN.includes(before.state)) return `Before ${before.state}: ${before.observed}`;
-  if (!videoOf(raw.before, session)) return `Before: no recording of Session ${session}`;
+  const name = videoOf(raw.before, session);
+  if (!name || !recorded("Before", name)) return `Before: no recording of Session ${session}`;
   return null;
 }
 
@@ -161,6 +164,8 @@ function beforeNoteFor(meta, raw, session) {
  * @param {{after: any[], before: any[] | null}} records
  * @param {any} meta the scenario file
  * @param {{after: any, before: any}} raw the step files as read (their `sessions`)
+ * @param {{recorded?: (side: "Before" | "After", name: string) => boolean}} [options]
+ *   whether a side's recording is on disk (`main` looks; every recording counts as there by default)
  * @returns {{session: string, sides: Side[], beforeNote: string | null,
  *   pieces: {kind: "hold" | "between", index: number, seconds: number}[], seconds: number}}
  *
@@ -169,7 +174,7 @@ function beforeNoteFor(meta, raw, session) {
  *   overlays: {field: string, heading: string, caption: string, timing: string}[]}} Side
  *   `at`: the step's time in the recording, in seconds; `from`: where its stretch starts
  */
-export function timeline(records, meta, raw) {
+export function timeline(records, meta, raw, { recorded = () => true } = {}) {
   const session = sessionOf(records, meta);
   const afterSteps = records.after.filter((r) => r.session === session);
   if (!afterSteps.length) throw new Error("After has no steps to show");
@@ -179,7 +184,7 @@ export function timeline(records, meta, raw) {
   };
 
   const before = isObject(meta.before) ? meta.before : null;
-  const beforeNote = beforeNoteFor(meta, raw, session);
+  const beforeNote = beforeNoteFor(meta, raw, session, recorded);
   const two = beforeNote === null;
   const beforeBy = new Map(
     (two ? (records.before ?? []) : [])
@@ -500,13 +505,15 @@ export async function main(argv, io = {}) {
       ),
     });
 
-  const two = beforeNoteFor(meta, loaded.raw, sessionOf(records, meta)) === null;
+  const dirs = { Before: loaded.records.beforeDir, After: loaded.records.afterDir };
+  const recorded = (side, name) => Boolean(dirs[side]) && existsSync(join(dirs[side], name));
+  const two = beforeNoteFor(meta, loaded.raw, sessionOf(records, meta), recorded) === null;
   const times = checkStartTimes(meta, two);
   if (times.length) return none(1, { problems: times });
   let laid;
   try {
     layout(records, meta); // the Storyboard's own checks: `proves` names an After step
-    laid = timeline(records, meta, loaded.raw);
+    laid = timeline(records, meta, loaded.raw, { recorded });
   } catch (error) {
     return none(1, { problems: [String(error.message)] });
   }
@@ -522,14 +529,14 @@ export async function main(argv, io = {}) {
     return none(1, { refused });
   }
 
-  const dirs = { Before: loaded.records.beforeDir, After: loaded.records.afterDir };
+  // Before plays only with its recording there, so only After can lack one here.
   const videos = laid.sides.map((s) => (s.video ? join(dirs[s.side], s.video) : null));
   const lacking = laid.sides.find((s, i) => !videos[i] || !existsSync(videos[i]));
   if (lacking)
     return none(2, {
       reason:
         `no MP4: no recording of Session ${laid.session} on ${lacking.side} ` +
-        "(web.mjs ran without --video); the row keeps its Storyboard",
+        "(web.mjs ran without --video, or its file is gone); the row keeps its Storyboard",
     });
 
   let renderer = io.renderer;

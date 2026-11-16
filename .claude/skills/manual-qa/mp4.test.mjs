@@ -480,6 +480,9 @@ test("a missing or zoneless start time, or a variable not given, is a problem an
   const noBefore = runFolder({
     edit: (m) => ({ ...m, before: { ...m.before, startedAt: undefined } }),
   });
+  // Before plays only with its recording there: a stand-in will do, since nothing is built.
+  for (const side of ["s1-web", "s1-before-web"])
+    writeFileSync(join(noBefore.dir, side, "video-a.webm"), "");
   result = await main(["build", noBefore.metaPath], { env: ENV, renderer: standIn });
   assert.match(JSON.parse(result.out).problems[0], /^before\.startedAt/);
   // A feature scenario needs no Before start time.
@@ -520,19 +523,50 @@ test("without ffmpeg no MP4 is made, the Storyboard is kept, the reason is given
   assert.deepEqual(readReport(report).problems, []);
 });
 
-test("without a recording of the Session, or without Chromium, no MP4 is made and the reason says so", async () => {
-  const { metaPath } = runFolder({ videos: false });
-  const bin = mkdtempSync(join(tmpdir(), "mp4-bin-"));
-  dirs.push(bin);
-  writeFileSync(join(bin, "ffmpeg"), "");
-  writeFileSync(join(bin, "ffprobe"), "");
-  const result = await main(["build", metaPath], { env: { ...ENV, PATH: bin }, renderer: standIn });
+test("without After's recording no MP4 is made, and a Before recording that is gone leaves After alone (#243 review)", async () => {
+  // Stand-in recordings: they only need to be there until ffmpeg runs.
+  const { dir, metaPath } = runFolder({ videos: false });
+  const result = await main(["build", metaPath], { env: ENV, renderer: standIn });
   assert.equal(result.code, 2);
   assert.match(
     JSON.parse(result.out).reason,
-    /^no MP4: no recording of Session A on Before \(web\.mjs ran without --video\)/,
+    /^no MP4: no recording of Session A on After \(web\.mjs ran without --video, or its file is gone\)/,
   );
-  assert.match(NO_CHROMIUM_MP4, /^no MP4: no Playwright with Chromium in this repository/);
+  writeFileSync(join(dir, "s1-web", "video-a.webm"), "");
+  const loadedNow = loadScenario(metaPath);
+  const laid = timeline(loadedNow.records, loadedNow.meta, loadedNow.raw, {
+    recorded: (side, name) =>
+      existsSync(join(dir, side === "Before" ? "s1-before-web" : "s1-web", name)),
+  });
+  assert.deepEqual(
+    laid.sides.map((s) => s.side),
+    ["After"],
+  );
+  assert.equal(laid.beforeNote, "Before: no recording of Session A");
+});
+
+test("a Before recording that is gone builds a one-sided MP4", { skip: NEEDS_FFMPEG }, async () => {
+  const { dir, metaPath } = runFolder();
+  rmSync(join(dir, "s1-before-web", "video-a.webm"));
+  const { code, out } = await main(["build", metaPath], { env: ENV, renderer: standIn });
+  assert.equal(code, 0, out);
+  const summary = JSON.parse(out);
+  assert.deepEqual(summary.sides, ["After"]);
+  assert.equal(summary.note, "Before: no recording of Session A");
+  assert.equal(probe(join(dir, "s1.mp4")).width, SIDE.width);
+});
+
+test("without Chromium no MP4 is made, and nothing is left behind (#243 review)", async () => {
+  const { dir, metaPath } = runFolder({ videos: false });
+  for (const side of ["s1-web", "s1-before-web"])
+    writeFileSync(join(dir, side, "video-a.webm"), "");
+  const empty = mkdtempSync(join(tmpdir(), "no-playwright-"));
+  dirs.push(empty);
+  const { code, out } = await main(["build", metaPath], { env: ENV, cwd: empty });
+  assert.equal(code, 2, out);
+  assert.deepEqual(JSON.parse(out), { written: false, reason: NO_CHROMIUM_MP4 });
+  assert.equal(existsSync(join(dir, "s1.mp4")), false);
+  assert.equal(existsSync(join(dir, ".s1.mp4.partial")), false);
 });
 
 test("usage errors exit 2", async () => {
