@@ -6,7 +6,9 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
-The coming release is classed **Major** (per [docs/releases.md](docs/releases.md)), for one required new permission: every review Caller's job (the one that `uses:` `agent-review-reusable.yml`) must now grant `actions: write`, even in manual mode, or the review stops running (the **Consumer action** in the auto mode entry below, from [#130](https://github.com/mnaimfaizy/agent-kit/issues/130)). The rest is additive: a third First-class flow, Review response, with its skill (`address-pr-review`), trusted script, reusable workflow, auto mode, guide, example Caller and CLI support, all off until you turn it on.
+## [1.0.0-beta.7] - 2026-11-17
+
+Seventh beta on the `1.0.0` line, classed **Major** (per [docs/releases.md](docs/releases.md)), for one required new permission: every review Caller's job (the one that `uses:` `agent-review-reusable.yml`) must now grant `actions: write`, even in manual mode, or the review stops running (the **Consumer action** in the auto mode entry below, from [#130](https://github.com/mnaimfaizy/agent-kit/issues/130)). The rest is additive: a third First-class flow, Review response, with its skill (`address-pr-review`), trusted script, reusable workflow, auto mode, guide, example Caller and CLI support, all off until you turn it on; QA evidence that stands alone (Before/After runs at the merge-base, five results, Storyboards, annotated MP4s and stricter uploads); two shipped `manual-qa` drivers (`web.mjs` and `http.mjs`); and `orchestrate` harness detection.
 
 ### Added
 
