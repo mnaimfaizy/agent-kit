@@ -109,7 +109,7 @@ A plan with no scenarios and no `Review:` box ([Sign-off checklist](#sign-off-ch
 
 ### Fix scenarios
 
-A **fix scenario** proves that a defect is fixed. It is the scenario that carries **Expected before:**, the defect as the merge-base shows it; there is no other fix-or-feature mark. A scenario without one runs at the head only.
+A **fix scenario** proves that a defect is fixed. It is the scenario that carries **Expected before:**, the defect as the merge-base shows it; there is no other fix-or-feature mark. A scenario without one runs at the head only. On a `stack` target, `manual-qa` runs each fix scenario at the merge-base first (its Before), on the same QA Stack, then at the head; a `url` target runs it at the head only. The QA Report grades each scenario with one of five results: **PASS**, **FAIL: regression**, **FAIL: pre-existing** (only a scenario without **Expected before:**, with merge-base evidence), **Not proven** (a fix scenario whose Before already showed **Expected result:**) or **left for a person**.
 
 Write **Expected before:** from the issue's reproduction, or from what the merge-base does, never invented. Like **Expected result:**, it is a product output the tester sees, not a value read from source.
 
@@ -190,4 +190,4 @@ The outcomes that block the merge whatever else passes: a regression against the
 
 ## Execution record
 
-Empty after compose: exactly the line `_Not run yet._`. Whoever runs the plan replaces it with one row per scenario (scenario, result, evidence, notes), the build they ran against, and when. `manual-qa` writes the full QA Report beside it; this section is the short record that stays with the plan.
+Empty after compose: exactly the line `_Not run yet._`. Whoever runs the plan replaces it with one row per scenario (scenario, result, evidence, notes), the build they ran against, and when. A result is one of the five under [Fix scenarios](#fix-scenarios). `manual-qa` writes the full QA Report beside it; this section is the short record that stays with the plan.

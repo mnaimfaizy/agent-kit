@@ -6,13 +6,15 @@
  */
 
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import {
+  HEADLINES,
   REPORT_MARKER,
+  RESULTS,
   evidenceUpload,
   findComments,
   main,
@@ -29,21 +31,53 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const PLAN = readFileSync(join(HERE, "fixtures", "plans", "good.md"), "utf8");
 const HEAD = "2".repeat(40);
 
+/**
+ * The headline a report's rows imply, and its item lines, worked out here on
+ * their own so a fixture never takes report.mjs's word for it: a regression or
+ * a stopped run fails; any other result but PASS is an item; else it passed.
+ */
+const headlineOf = (rows) => {
+  const results = rows.map((row) => row.split("|")[2]?.trim());
+  if (results.includes("FAIL: regression") || /the run stopped at S\d+/i.test(rows.join("\n")))
+    return ["**QA failed**"];
+  const items = rows.filter((row, i) => results[i] !== "PASS" && /\|\s*S\d+/.test(row));
+  // A report with Results `None.` has no rows, and nothing was shown to pass.
+  if (!rows.length) return ["**QA passed, with items listed:**"];
+  if (!items.length) return ["**QA passed**"];
+  return [
+    "**QA passed, with items listed:**",
+    "",
+    ...items.map((row) => `- ${/S\d+/.exec(row)[0]}: ${row.split("|")[2].trim()}`),
+  ];
+};
+
 /** A QA Report for fixtures/plans/good.md (subject #42, pull request #57). */
-const reportFor = (rows, record = "- S1: PASS\n- S2: PASS\n- Build: verified by `gh`") =>
+const reportFor = (
+  rows,
+  record = "- S1: PASS\n- S2: PASS\n- Build: verified by `gh`",
+  {
+    headline = headlineOf(rows),
+    run = "`stack`",
+    header = [
+      "| Scenario | Result | Evidence | Notes |",
+      "| -------- | ------ | -------- | ----- |",
+    ],
+  } = {},
+) =>
   [
     "# QA Report: Members can be invited by email",
     "",
+    ...headline,
+    "",
     `- **Plan:** \`tmp/qa/qa-plan-pr-57.md\`, subject #42, pull request #57, head \`${HEAD}\``,
     "- **Build check:** verified by `gh`",
-    "- **Run:** `stack`, `web`, driven by the built-in browser, on 2026-11-10 10:00",
+    `- **Run:** ${run}, \`web\`, driven by the built-in browser, on 2026-11-10 10:00`,
     "- **Accounts:** admin",
     "- **Teardown:** `down` run; nothing else started",
     "",
     "## Results",
     "",
-    "| Scenario | Result | Evidence | Notes |",
-    "| -------- | ------ | -------- | ----- |",
+    ...header,
     ...rows,
     "",
     "## Follow-ups",
@@ -61,7 +95,7 @@ const PASSED = reportFor([
   "| S2: A signed-out visitor cannot open the members page | PASS | `qa-report-pr-57/s2.log` | redirected |",
 ]);
 const FAILED = reportFor([
-  "| S1: An admin invites a new member | FAIL | `qa-report-pr-57/s1.png` | no invite appeared |",
+  "| S1: An admin invites a new member | FAIL: regression | `qa-report-pr-57/s1.png` | no invite appeared |",
   "| S2: A signed-out visitor cannot open the members page | PASS | `qa-report-pr-57/s2.log` | redirected |",
 ]);
 const STOPPED = reportFor([
@@ -221,6 +255,284 @@ test("a result other than the three is a problem", () => {
   assert.match(problems[0], /S1's result is `passed-ish`/);
 });
 
+// --- Five results, three headlines, and Before (#234) ---
+
+/** fixtures/plans/good-format-3.md: S1 is a fix scenario (it has **Expected before:**); S2 and S3 are not. */
+const PLAN3 = readFileSync(join(HERE, "fixtures", "plans", "good-format-3.md"), "utf8");
+const BEFORE_HEADER = [
+  "| Scenario | Result | Before | Evidence | Notes |",
+  "| -------- | ------ | ------ | -------- | ----- |",
+];
+const S1_BEFORE = "matched: the dialog closed, and the list did not show `new@example.test`";
+const row3 = (id, result, before, note = "ok") =>
+  `| ${id}: scenario ${id} | ${result} | ${before} | \`qa-report-pr-57/${id.toLowerCase()}.png\` | ${note} |`;
+/** A report for PLAN3, its headline worked out from its rows unless one is given. */
+const graded = (rows, options = {}) =>
+  reportFor(rows, "- S1: PASS\n- S2: PASS\n- S3: PASS", { header: BEFORE_HEADER, ...options });
+const ALL_PASS = [row3("S1", "PASS", S1_BEFORE), row3("S2", "PASS", ""), row3("S3", "PASS", "")];
+const gradeAgainst = (report, plan = PLAN3) =>
+  main(["read", "report.md", "--plan", "plan.md"], {
+    readFile: (path) => ({ "report.md": report, "plan.md": plan })[path] ?? null,
+  });
+const problemsOf = (report, plan = PLAN3) => JSON.parse(gradeAgainst(report, plan).out).problems;
+
+test("PASS: After matched; the run passes, and the tracker ticks the box", () => {
+  const report = graded(ALL_PASS);
+  assert.equal(gradeAgainst(report).code, 0, gradeAgainst(report).out);
+  const read = readReport(report).report;
+  assert.equal(read.headline, "QA passed");
+  assert.equal(read.failed, false);
+  assert.equal(read.results[0].before, S1_BEFORE);
+  assert.equal(read.results[1].before, "");
+  assert.match(trackerBody(PLAN3, report).body, /^- \[x\] S1:/m);
+});
+
+test("FAIL: regression: the run fails, uploads key on it, and the box is cleared", () => {
+  for (const before of [S1_BEFORE, "not observed: the Before stack did not start: `up` failed"]) {
+    const report = graded([
+      row3("S1", "FAIL: regression", before, "no badge"),
+      ...ALL_PASS.slice(1),
+    ]);
+    assert.equal(gradeAgainst(report).code, 0, gradeAgainst(report).out);
+    const read = readReport(report).report;
+    assert.equal(read.headline, "QA failed");
+    assert.equal(read.failed, true);
+    assert.match(trackerBody(PLAN3, report).body, /^- \[ \] S1:/m);
+    assert.equal(upload(report, ["qa-report-pr-57/s1.png"]).accepted.length, 0);
+  }
+  // A scenario with no Expected before fails as a regression too, with no evidence needed.
+  const s2 = graded([ALL_PASS[0], row3("S2", "FAIL: regression", "", "no redirect"), ALL_PASS[2]]);
+  assert.equal(gradeAgainst(s2).code, 0, gradeAgainst(s2).out);
+});
+
+test("FAIL: pre-existing: only with merge-base evidence, and it still fails the run for uploads", () => {
+  const note =
+    "merge-base evidence: the two-point run shows `members_redirect` failing at the merge-base";
+  const report = graded([ALL_PASS[0], row3("S2", "FAIL: pre-existing", "", note), ALL_PASS[2]]);
+  assert.equal(gradeAgainst(report).code, 0, gradeAgainst(report).out);
+  const read = readReport(report).report;
+  assert.equal(read.headline, "QA passed, with items listed");
+  assert.deepEqual(read.items, ["S2"]);
+  assert.equal(read.failed, true);
+  assert.match(trackerBody(PLAN3, report).body, /^- \[ \] S2:/m);
+  assert.equal(upload(report, ["qa-report-pr-57/s2.png"]).accepted.length, 0);
+  // Without the evidence, it is a regression.
+  const bare = graded([
+    ALL_PASS[0],
+    row3("S2", "FAIL: pre-existing", "", "fails at both"),
+    ALL_PASS[2],
+  ]);
+  assert.match(
+    problemsOf(bare).join("\n"),
+    /S2 is a FAIL: pre-existing with no merge-base evidence: .* or it is a FAIL: regression/,
+  );
+  // A fix scenario that fails is a regression, whatever the merge-base showed.
+  const fix = graded([row3("S1", "FAIL: pre-existing", "", note), ...ALL_PASS.slice(1)]);
+  assert.match(
+    problemsOf(fix).join("\n"),
+    /S1 is a fix scenario, so a failure at the head is a FAIL: regression/,
+  );
+  const withBefore = graded([
+    row3("S1", "FAIL: pre-existing", S1_BEFORE, note),
+    ...ALL_PASS.slice(1),
+  ]);
+  assert.match(problemsOf(withBefore).join("\n"), /S1 is a FAIL: pre-existing with a Before cell/);
+});
+
+test("Not proven: a fix scenario whose Before already showed the expected result", () => {
+  const before = "showed the expected result: the list showed `new@example.test` with **Invited**";
+  const report = graded([row3("S1", "Not proven", before), ...ALL_PASS.slice(1)]);
+  assert.equal(gradeAgainst(report).code, 0, gradeAgainst(report).out);
+  const read = readReport(report).report;
+  assert.equal(read.headline, "QA passed, with items listed");
+  assert.deepEqual(read.items, ["S1"]);
+  assert.equal(read.failed, false);
+  assert.match(trackerBody(PLAN3, report).body, /^- \[ \] S1:/m);
+  // A PASS whose Before already showed the expected result is Not proven.
+  const passed = graded([row3("S1", "PASS", before), ...ALL_PASS.slice(1)]);
+  assert.match(
+    problemsOf(passed).join("\n"),
+    /S1's Before already showed the expected result.*Not proven/,
+  );
+  // Not proven needs that Before.
+  const matched = graded([row3("S1", "Not proven", S1_BEFORE), ...ALL_PASS.slice(1)]);
+  assert.match(
+    problemsOf(matched).join("\n"),
+    /S1 is Not proven, which is only for a fix scenario/,
+  );
+});
+
+test("Not proven, or a Before cell, on a scenario the plan gives no Expected before is refused", () => {
+  const before = "showed the expected result: the sign-in page";
+  const notProven = graded([ALL_PASS[0], row3("S2", "Not proven", before), ALL_PASS[2]]);
+  assert.equal(readReport(notProven).problems.length, 0, "the report alone cannot tell");
+  assert.deepEqual(problemsOf(notProven), [
+    "S2 is Not proven, but the plan gives it no **Expected before:**: Not proven is only for a " +
+      "fix scenario whose Before showed the expected result",
+  ]);
+  const cell = graded([ALL_PASS[0], row3("S2", "PASS", "matched: the members page"), ALL_PASS[2]]);
+  assert.match(
+    problemsOf(cell)[0],
+    /^S2 has a Before cell, but the plan gives it no \*\*Expected before:\*\*/,
+  );
+  // A fix scenario's row shows its Before.
+  const empty = graded([row3("S1", "PASS", ""), ...ALL_PASS.slice(1)]);
+  assert.match(problemsOf(empty)[0], /^S1 is a fix scenario .* but its Before cell is empty/);
+});
+
+test("left for a person: an item under the headline, never ticked; a fix scenario's Before may be not run", () => {
+  const report = graded([
+    row3("S1", "left for a person", "not run: no tool here can drive a `web` surface").replace(
+      "`qa-report-pr-57/s1.png`",
+      "none",
+    ),
+    ...ALL_PASS.slice(1),
+  ]);
+  assert.equal(gradeAgainst(report).code, 0, gradeAgainst(report).out);
+  const read = readReport(report).report;
+  assert.equal(read.headline, "QA passed, with items listed");
+  assert.equal(read.failed, false);
+  assert.match(trackerBody(PLAN3, report).body, /^- \[ \] S1:/m);
+});
+
+test("a Before cell says what the merge-base showed, or why it shows nothing", () => {
+  for (const before of [
+    S1_BEFORE,
+    "did not match: an error page",
+    "not observed: step 2's **Send invite** is not on the merge-base's screen",
+    "not run: the run stopped before Before",
+  ])
+    assert.deepEqual(
+      readReport(graded([row3("S1", "PASS", before), ...ALL_PASS.slice(1)])).problems,
+      [],
+      before,
+    );
+  assert.match(
+    readReport(graded([row3("S1", "PASS", "it worked"), ...ALL_PASS.slice(1)])).problems[0],
+    /S1's Before is `it worked`: it starts with one of `matched: …`/,
+  );
+});
+
+test("the three headlines: each is the one the rows imply, and a headline that disagrees is refused", () => {
+  const regression = [row3("S1", "FAIL: regression", S1_BEFORE, "no badge"), ...ALL_PASS.slice(1)];
+  const item = [
+    row3("S1", "Not proven", "showed the expected result: the badge"),
+    ...ALL_PASS.slice(1),
+  ];
+  const cases = [
+    [ALL_PASS, "QA passed"],
+    [item, "QA passed, with items listed"],
+    [regression, "QA failed"],
+  ];
+  const lines = {
+    "QA passed": ["**QA passed**"],
+    "QA passed, with items listed": [
+      "**QA passed, with items listed:**",
+      "",
+      "- S1: Not proven, the badge was there before",
+    ],
+    "QA failed": ["**QA failed**"],
+  };
+  for (const [rows, implied] of cases)
+    for (const [name, headline] of Object.entries(lines)) {
+      const { problems, report } = readReport(graded(rows, { headline }));
+      if (name === implied) assert.deepEqual(problems, [], name);
+      else {
+        assert.equal(report.headline, name);
+        assert.match(
+          problems.join("\n"),
+          new RegExp(`the headline is _${name}_, but the rows make it _${implied}_`),
+        );
+      }
+    }
+  // A run stopped on a blocking outcome fails, with no FAIL row.
+  const stopped = readReport(
+    graded(
+      [
+        ALL_PASS[0],
+        ALL_PASS[1],
+        "| S3: scenario S3 | left for a person |  | none | _the run stopped at S2: data loss_ |",
+      ],
+      { headline: ["**QA passed, with items listed:**", "", "- S3: left for a person"] },
+    ),
+  );
+  assert.match(
+    stopped.problems.join("\n"),
+    /the headline is _QA passed, with items listed_, but the rows make it _QA failed_/,
+  );
+});
+
+test("a report with no headline is refused, naming the three; so is an item missing under its headline", () => {
+  const none = readReport(graded(ALL_PASS, { headline: [] }));
+  assert.match(
+    none.problems[0],
+    /no headline: the first line after its title is one of `\*\*QA failed\*\*`, `\*\*QA passed, with items listed:\*\*`, `\*\*QA passed\*\*`/,
+  );
+  const unlisted = readReport(
+    graded(
+      [row3("S1", "Not proven", "showed the expected result: the badge"), ...ALL_PASS.slice(1)],
+      {
+        headline: ["**QA passed, with items listed:**"],
+      },
+    ),
+  );
+  assert.match(unlisted.problems[0], /S1 is Not proven but is not listed under the headline/);
+});
+
+test("an old report's bare `FAIL` is refused, naming the new words; PASS and left for a person still read", () => {
+  const old = reportFor(["| S1: x | FAIL | `qa-report-pr-57/s1.png` | no invite |"], undefined, {
+    headline: ["**QA failed**"],
+  });
+  assert.match(
+    readReport(old).problems[0],
+    /S1's result is `FAIL`, a word QA Reports no longer use: write `FAIL: regression`, or `FAIL: pre-existing` .*PASS, FAIL: regression, FAIL: pre-existing, Not proven or left for a person/,
+  );
+  // An old report that opens with no headline is refused for that alone.
+  const unheaded = PASSED.replace(/\n\*\*QA passed\*\*\n/, "");
+  assert.notEqual(unheaded, PASSED);
+  assert.match(readReport(unheaded).problems.join("\n"), /no headline/);
+});
+
+test("a `url` run never runs Before, and its fix scenarios say why", () => {
+  const hosted = "not run: the target is hosted";
+  const url = graded([row3("S1", "PASS", hosted), ...ALL_PASS.slice(1)], {
+    run: "`url` at `qa.example.com`",
+  });
+  assert.equal(gradeAgainst(url).code, 0, gradeAgainst(url).out);
+  assert.equal(readReport(url).report.target, "url");
+  const ran = graded([row3("S1", "PASS", S1_BEFORE), ...ALL_PASS.slice(1)], {
+    run: "`url` at `qa.example.com`",
+  });
+  assert.match(
+    readReport(ran).problems[0],
+    /S1's Before says `matched` on a `url` run: .*`not run: the target is hosted`/,
+  );
+});
+
+test("the docs that name the results name the five, and the headlines the three", () => {
+  const read = (...path) => readFileSync(join(HERE, ...path), "utf8").replace(/\s+/g, " ");
+  const docs = {
+    "SKILL.md": read("SKILL.md"),
+    "DESIGN.md": read("DESIGN.md"),
+    "ANATOMY.md": read("ANATOMY.md"),
+  };
+  // Agent-kit's own guide, when this copy sits in Agent-kit: a copied skill has no docs/.
+  const guide = join(HERE, "..", "..", "..", "docs", "qa.md");
+  if (existsSync(guide)) docs["docs/qa.md"] = read("..", "..", "..", "docs", "qa.md");
+  for (const [name, text] of Object.entries(docs)) {
+    for (const result of RESULTS)
+      assert.ok(text.toLowerCase().includes(result.toLowerCase()), `${name} names ${result}`);
+    assert.doesNotMatch(
+      text,
+      /PASS, FAIL or _?left for a person/,
+      `${name} still names three results`,
+    );
+  }
+  for (const name of ["SKILL.md", "DESIGN.md", "docs/qa.md"].filter((name) => name in docs))
+    for (const headline of Object.values(HEADLINES))
+      assert.ok(docs[name].includes(headline), `${name} names the headline ${headline}`);
+});
+
 // --- Evidence: captured by default, `none` only with a reason ---
 
 const S2_LEFT =
@@ -228,16 +540,17 @@ const S2_LEFT =
 const readCli = (report) => main(["read", "r.md"], { readFile: () => report });
 
 test("`read` exits 1 for a PASS or FAIL row with a bare `none`, an empty `none:` or no path", () => {
-  for (const result of ["PASS", "FAIL"])
+  for (const result of ["PASS", "FAIL: regression"])
     for (const evidence of ["none", "none:", "none:   ", "", "see the notes", "None: x"]) {
       const report = reportFor([
         `| S1: An admin invites a new member | ${result} | ${evidence} | invite sent |`,
         S2_LEFT,
       ]);
       const { code, out } = readCli(report);
+      const at = report.split("\n").findIndex((line) => line.startsWith("| S1:")) + 1;
       assert.equal(code, 1, `${result} with \`${evidence}\``);
       assert.deepEqual(JSON.parse(out).problems, [
-        `line 13: S1 is a ${result} with no evidence path: link its QA Artifact in backticks, ` +
+        `line ${at}: S1 is a ${result} with no evidence path: link its QA Artifact in backticks, ` +
           "or write `none: <reason>`",
       ]);
     }
@@ -249,7 +562,7 @@ test("`read` exits 0 for `none: <reason>`, a backticked path, and a bare `none` 
     "none: driver cannot save images",
     "`qa-report-pr-57/s1.png`",
   ])
-    for (const result of ["PASS", "FAIL"]) {
+    for (const result of ["PASS", "FAIL: regression"]) {
       const report = reportFor([
         `| S1: An admin invites a new member | ${result} | ${evidence} | invite sent |`,
         S2_LEFT,
@@ -330,7 +643,7 @@ const againstPlan = (rows, plan = ACCOUNT_PLAN) =>
 test("a scenario whose Scenario account's creator did not pass is left for a person, saying why", () => {
   assert.deepEqual(validatePlan(ACCOUNT_PLAN).problems, []);
   // The creator failed, or was itself left for a person: the dependent is left, with the reason.
-  for (const creator of ["FAIL", "left for a person"])
+  for (const creator of ["FAIL: regression", "left for a person"])
     assert.deepEqual(
       againstPlan([S1_ROW(creator, "no invite appeared"), S2_ROW("left for a person", LEFT_NOTE)]),
       [],
@@ -338,7 +651,7 @@ test("a scenario whose Scenario account's creator did not pass is left for a per
   // A run stopped on a blocking outcome may give the dependent its stop note instead.
   assert.deepEqual(
     againstPlan([
-      S1_ROW("FAIL", "data loss"),
+      S1_ROW("FAIL: regression", "data loss"),
       S2_ROW("left for a person", "_the run stopped at S1: data loss_"),
     ]),
     [],
@@ -350,15 +663,21 @@ test("a scenario whose Scenario account's creator did not pass is left for a per
 test("a dependent run or failed after its creator did not pass is a problem", () => {
   const want = `S2 ${LEFT_NOTE}: its result is _left for a person_, with the note _${LEFT_NOTE}_`;
   for (const rows of [
-    [S1_ROW("FAIL", "no invite appeared"), S2_ROW("PASS", "signed in")],
-    [S1_ROW("FAIL", "no invite appeared"), S2_ROW("FAIL", "could not sign in")],
+    [S1_ROW("FAIL: regression", "no invite appeared"), S2_ROW("PASS", "signed in")],
+    [
+      S1_ROW("FAIL: regression", "no invite appeared"),
+      S2_ROW("FAIL: regression", "could not sign in"),
+    ],
     // Left for a person, but without saying why.
-    [S1_ROW("FAIL", "no invite appeared"), S2_ROW("left for a person", "could not sign in")],
+    [
+      S1_ROW("FAIL: regression", "no invite appeared"),
+      S2_ROW("left for a person", "could not sign in"),
+    ],
   ])
     assert.deepEqual(againstPlan(rows), [want]);
   // The plain plan has no Scenario account: nothing depends on S1.
   assert.deepEqual(
-    againstPlan([S1_ROW("FAIL", "no invite"), S2_ROW("PASS", "redirected")], PLAN),
+    againstPlan([S1_ROW("FAIL: regression", "no invite"), S2_ROW("PASS", "redirected")], PLAN),
     [],
   );
 });
@@ -369,7 +688,7 @@ test("a stop note counts only on a dependent after the stop", () => {
   for (const stop of ["S2", "S4"])
     assert.deepEqual(
       againstPlan([
-        S1_ROW("FAIL", "no invite appeared"),
+        S1_ROW("FAIL: regression", "no invite appeared"),
         S2_ROW("left for a person", `_the run stopped at ${stop}: data loss_`),
       ]),
       [want],
@@ -406,7 +725,7 @@ test("the rule carries down a chain of Scenario accounts", () => {
   assert.deepEqual(
     againstPlan(
       [
-        S1_ROW("FAIL", "no invite appeared"),
+        S1_ROW("FAIL: regression", "no invite appeared"),
         S2_ROW("left for a person", LEFT_NOTE),
         S3_ROW("left for a person", S3_NOTE),
       ],
@@ -417,7 +736,7 @@ test("the rule carries down a chain of Scenario accounts", () => {
   assert.deepEqual(
     againstPlan(
       [
-        S1_ROW("FAIL", "no invite appeared"),
+        S1_ROW("FAIL: regression", "no invite appeared"),
         S2_ROW("left for a person", LEFT_NOTE),
         S3_ROW("PASS", "signed in"),
       ],
@@ -437,14 +756,14 @@ test("a multi-session scenario with a session whose account's creator did not pa
   const note = "session A signs in as `temp-user`, which S1 creates, and S1 did not pass";
   assert.deepEqual(
     againstPlan(
-      [S1_ROW("FAIL", "no invite appeared"), S2_ROW("left for a person", note)],
+      [S1_ROW("FAIL: regression", "no invite appeared"), S2_ROW("left for a person", note)],
       sessions,
     ),
     [],
   );
   assert.deepEqual(
     againstPlan(
-      [S1_ROW("FAIL", "no invite appeared"), S2_ROW("PASS", "A was signed out")],
+      [S1_ROW("FAIL: regression", "no invite appeared"), S2_ROW("PASS", "A was signed out")],
       sessions,
     ),
     [`S2 ${note}: its result is _left for a person_, with the note _${note}_`],
@@ -483,7 +802,7 @@ test("a note naming any blocked session is the reason", () => {
   const S3_ROW = (result, note) =>
     `| S3: Each new user sees the other's change | ${result} | ${noEvidence(result)} | ${note} |`;
   const rows = (note) => [
-    S1_ROW("FAIL", "no invite appeared"),
+    S1_ROW("FAIL: regression", "no invite appeared"),
     S2_ROW("left for a person", LEFT_NOTE),
     S3_ROW("left for a person", note),
   ];
@@ -518,8 +837,11 @@ test("a report checked against a plan it did not run is a problem", () => {
 test("`read --plan` checks the report against its plan, and exits 1 on a problem", () => {
   const files = {
     "plan.md": ACCOUNT_PLAN,
-    "good.md": reportFor([S1_ROW("FAIL", "no invite"), S2_ROW("left for a person", LEFT_NOTE)]),
-    "bad.md": reportFor([S1_ROW("FAIL", "no invite"), S2_ROW("PASS", "signed in")]),
+    "good.md": reportFor([
+      S1_ROW("FAIL: regression", "no invite"),
+      S2_ROW("left for a person", LEFT_NOTE),
+    ]),
+    "bad.md": reportFor([S1_ROW("FAIL: regression", "no invite"), S2_ROW("PASS", "signed in")]),
   };
   const io = { readFile: (path) => files[path] ?? null };
   assert.equal(main(["read", "good.md", "--plan", "plan.md"], io).code, 0);
