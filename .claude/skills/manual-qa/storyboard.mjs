@@ -420,7 +420,7 @@ const PALETTE = {
   fail: "#c62828",
 };
 
-const escapeHtml = (text) =>
+export const escapeHtml = (text) =>
   String(text ?? "").replace(
     /[&<>"']/g,
     (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c],
@@ -453,15 +453,12 @@ function frameHtml(c, width, png) {
 }
 
 /**
- * The Storyboard as one self-contained HTML page: no script, no font, no
- * request, the stills inlined.
- * @param {ReturnType<typeof layout>} laid
- * @param {(side: "before" | "after", still: string) => Buffer | null} stillOf
+ * The band across the top: the scenario, the result, each side's expected and
+ * observed text with its mark, the commits and the run context. Exported so the
+ * MP4 (#236) shows the same band.
+ * @param {ReturnType<typeof layout>["band"]} band
  */
-export function storyboardHtml(laid, stillOf) {
-  const { band } = laid;
-  const width = CELL_WIDTH[laid.columns];
-  const failed = band.result.startsWith("FAIL");
+export function bandHtml(band) {
   const sides = band.sides
     .map(
       (s) =>
@@ -478,6 +475,62 @@ export function storyboardHtml(laid, stillOf) {
     .filter(Boolean)
     .map(escapeHtml)
     .join(" · ");
+  return `<div class="band"><h1>${escapeHtml(band.scenario)}: ${escapeHtml(band.title)}</h1>
+<div class="result">${escapeHtml(band.result)}</div>
+<div class="sides">${sides}</div>
+<div class="meta">Merge-base ${band.commits.base} · Head ${band.commits.head}${context ? ` · ${context}` : ""}</div></div>`;
+}
+
+/**
+ * A self-contained page in the Storyboard's palette and type: no script, no
+ * font, no request. Exported so the MP4 (#236) renders its band and captions
+ * in the same style.
+ * @param {string} body
+ * @param {{pageWidth: number, cellWidth: number, failed: boolean}} options
+ */
+export function pageHtml(body, { pageWidth, cellWidth, failed }) {
+  const p = PALETTE;
+  return `<!doctype html><html><head><meta charset="utf-8"><style>
+*{box-sizing:border-box}
+body{margin:0;width:${pageWidth}px;background:${p.page};color:${p.ink};font:15px/1.4 -apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif}
+.band{padding:20px 24px;background:${p.panel};border-bottom:1px solid ${p.line}}
+.band h1{margin:0 0 4px;font-size:22px}
+.result{display:inline-block;margin-bottom:12px;padding:2px 10px;border-radius:4px;color:#fff;font-weight:600;background:${failed ? p.fail : p.pass}}
+.sides{display:flex;gap:24px}
+.side{flex:1;min-width:0}
+.side h3{margin:0 0 4px;font-size:14px;text-transform:uppercase;color:${p.muted}}
+.side p{margin:2px 0}
+.mark{font-weight:700}
+.meta{margin-top:12px;color:${p.muted};font-size:13px}
+.heads{display:flex;gap:16px;padding:12px 24px 0;color:${p.muted};font-weight:600}
+.heads span:first-child{width:56px}
+.heads span{width:${cellWidth}px}
+.row{display:flex;gap:16px;align-items:flex-start;padding:12px 24px;border-bottom:1px solid ${p.line}}
+.row.proves{background:#eef4ff;box-shadow:inset 4px 0 0 ${p.proves}}
+.number{width:56px;font-size:22px;font-weight:700}
+.number small{display:block;font-size:12px;color:${p.muted}}
+.proves-label{margin-top:6px;font-size:11px;font-weight:600;color:${p.proves}}
+.frame{position:relative;overflow:hidden;background:${p.frame};border:1px solid ${p.line}}
+.frame img{position:absolute;max-width:none}
+.frame.empty{display:flex;align-items:center;justify-content:center;color:${p.muted};font-weight:600;padding:16px;text-align:center}
+.outline{position:absolute;outline:3px solid ${p.outline};outline-offset:0}
+.caption{margin-top:4px;width:${cellWidth}px;font-size:13px}
+.note{flex:1;padding-top:4px;color:${p.muted};font-size:13px}
+</style></head><body>
+${body}
+</body></html>`;
+}
+
+/**
+ * The Storyboard as one self-contained HTML page: no script, no font, no
+ * request, the stills inlined.
+ * @param {ReturnType<typeof layout>} laid
+ * @param {(side: "before" | "after", still: string) => Buffer | null} stillOf
+ */
+export function storyboardHtml(laid, stillOf) {
+  const { band } = laid;
+  const width = CELL_WIDTH[laid.columns];
+  const failed = band.result.startsWith("FAIL");
   const heads =
     laid.columns === 2
       ? `<div class="heads"><span></span><span>Before</span><span>After</span></div>`
@@ -502,40 +555,11 @@ export function storyboardHtml(laid, stillOf) {
       );
     })
     .join("");
-  const p = PALETTE;
-  return `<!doctype html><html><head><meta charset="utf-8"><style>
-*{box-sizing:border-box}
-body{margin:0;width:${PAGE_WIDTH}px;background:${p.page};color:${p.ink};font:15px/1.4 -apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif}
-.band{padding:20px 24px;background:${p.panel};border-bottom:1px solid ${p.line}}
-.band h1{margin:0 0 4px;font-size:22px}
-.result{display:inline-block;margin-bottom:12px;padding:2px 10px;border-radius:4px;color:#fff;font-weight:600;background:${failed ? p.fail : p.pass}}
-.sides{display:flex;gap:24px}
-.side{flex:1;min-width:0}
-.side h3{margin:0 0 4px;font-size:14px;text-transform:uppercase;color:${p.muted}}
-.side p{margin:2px 0}
-.mark{font-weight:700}
-.meta{margin-top:12px;color:${p.muted};font-size:13px}
-.heads{display:flex;gap:16px;padding:12px 24px 0;color:${p.muted};font-weight:600}
-.heads span:first-child{width:56px}
-.heads span{width:${width}px}
-.row{display:flex;gap:16px;align-items:flex-start;padding:12px 24px;border-bottom:1px solid ${p.line}}
-.row.proves{background:#eef4ff;box-shadow:inset 4px 0 0 ${p.proves}}
-.number{width:56px;font-size:22px;font-weight:700}
-.number small{display:block;font-size:12px;color:${p.muted}}
-.proves-label{margin-top:6px;font-size:11px;font-weight:600;color:${p.proves}}
-.frame{position:relative;overflow:hidden;background:${p.frame};border:1px solid ${p.line}}
-.frame img{position:absolute;max-width:none}
-.frame.empty{display:flex;align-items:center;justify-content:center;color:${p.muted};font-weight:600;padding:16px;text-align:center}
-.outline{position:absolute;outline:3px solid ${p.outline};outline-offset:0}
-.caption{margin-top:4px;width:${width}px;font-size:13px}
-.note{flex:1;padding-top:4px;color:${p.muted};font-size:13px}
-</style></head><body>
-<div class="band"><h1>${escapeHtml(band.scenario)}: ${escapeHtml(band.title)}</h1>
-<div class="result">${escapeHtml(band.result)}</div>
-<div class="sides">${sides}</div>
-<div class="meta">Merge-base ${band.commits.base} · Head ${band.commits.head}${context ? ` · ${context}` : ""}</div></div>
-${heads}${rows}
-</body></html>`;
+  return pageHtml(`${bandHtml(band)}\n${heads}${rows}`, {
+    pageWidth: PAGE_WIDTH,
+    cellWidth: width,
+    failed,
+  });
 }
 
 /**
@@ -563,17 +587,39 @@ const stillReader = (records) => (side, still) => {
 };
 
 async function renderLayout(laid, stillOf, playwright) {
+  const [png] = await renderPages([{ html: storyboardHtml(laid, stillOf), width: PAGE_WIDTH }], {
+    playwright,
+  });
+  return png;
+}
+
+/**
+ * Renders self-contained pages to PNG bytes in one Chromium: JavaScript off,
+ * every request refused, so a page shows only what it carries. Each PNG is the
+ * page's full height at its width, and at least its `height` (600 by default;
+ * the MP4 gives 1, so an overlay is only as tall as its text). Exported so the
+ * MP4 (#236) renders its band and captions here.
+ * @param {{html: string, width: number, height?: number}[]} pages
+ * @param {{playwright: any}} options the repository's own Playwright module
+ * @returns {Promise<Buffer[]>}
+ */
+export async function renderPages(pages, { playwright }) {
   const browser = await playwright.chromium.launch({ headless: true });
   try {
-    const context = await browser.newContext({
-      viewport: { width: PAGE_WIDTH, height: 600 },
-      deviceScaleFactor: 1,
-      javaScriptEnabled: false,
-    });
-    await context.route("**/*", (route) => route.abort());
-    const page = await context.newPage();
-    await page.setContent(storyboardHtml(laid, stillOf), { waitUntil: "load" });
-    return await page.screenshot({ fullPage: true, type: "png" });
+    const pngs = [];
+    for (const { html, width, height = 600 } of pages) {
+      const context = await browser.newContext({
+        viewport: { width, height },
+        deviceScaleFactor: 1,
+        javaScriptEnabled: false,
+      });
+      await context.route("**/*", (route) => route.abort());
+      const page = await context.newPage();
+      await page.setContent(html, { waitUntil: "load" });
+      pngs.push(await page.screenshot({ fullPage: true, type: "png" }));
+      await context.close();
+    }
+    return pngs;
   } finally {
     await browser.close().catch(() => {});
   }
@@ -755,6 +801,26 @@ function setAt(object, path, value) {
   at[path.at(-1)] = value;
 }
 
+/**
+ * Keeps each refused field's text as `[withheld]` in the file it came from, the
+ * step file or the scenario file, so a later build runs without it. Exported so
+ * the MP4 (#236) refuses the same way.
+ * @param {ReturnType<typeof loadScenario>} loaded
+ * @param {ReturnType<typeof shownFields>} fields
+ * @param {{field: string}[]} refused
+ */
+export function withholdRefused(loaded, fields, refused) {
+  const names = new Set(refused.map((r) => r.field));
+  const touched = new Set();
+  for (const field of fields)
+    if (names.has(field.field)) {
+      setAt(loaded.raw[field.from.file], field.from.path, WITHHELD);
+      touched.add(field.from.file);
+    }
+  for (const file of touched)
+    writeFileSync(loaded.files[file], `${JSON.stringify(loaded.raw[file], null, 2)}\n`);
+}
+
 // ── CLI ─────────────────────────────────────────────────────────────────────
 
 const USAGE = "usage: node storyboard.mjs render <s<n>-storyboard.json> [--out <file.png>]\n";
@@ -811,15 +877,7 @@ export async function main(argv, io = {}) {
   const fields = shownFields(records, meta);
   const refused = privacyCheck(fields, knownFromEnv(env, meta.variables));
   if (refused.length) {
-    const names = new Set(refused.map((r) => r.field));
-    const touched = new Set();
-    for (const field of fields)
-      if (names.has(field.field)) {
-        setAt(loaded.raw[field.from.file], field.from.path, WITHHELD);
-        touched.add(field.from.file);
-      }
-    for (const file of touched)
-      writeFileSync(loaded.files[file], `${JSON.stringify(loaded.raw[file], null, 2)}\n`);
+    withholdRefused(loaded, fields, refused);
     return none(1, { refused });
   }
 
