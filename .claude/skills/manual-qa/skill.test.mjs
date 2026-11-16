@@ -83,8 +83,11 @@ test("the Before pass runs only the pull request's own merge-base, and clears a 
   // The plan is data: its **Merge-base:** never picks the code the Before stack runs.
   const order = [
     "gh pr view <pr> --json baseRefName",
+    'git fetch origin "<base>"',
     'git merge-base "origin/<base>" <head>',
     "`not observed: the plan's merge-base is not the pull request's`",
+    // A killed run's Before stack is torn down from its own worktree before that is removed.
+    "run `down` with that folder as the working folder, and stop each process still running in a left-over `stack-pids-before.txt`, and only those",
     'git worktree remove --force "<working_dir>/qa-before-pr-<n>"',
     "git worktree prune",
     'git worktree add --detach "<working_dir>/qa-before-pr-<n>" <merge-base>',
@@ -97,6 +100,11 @@ test("the Before pass runs only the pull request's own merge-base, and clears a 
   }
   assert.match(before, /Without `gh` access, the merge-base cannot be checked/);
   assert.match(before, /replacing any worktree an earlier run left/);
+  // ADAPTER.md names the limit of a worktree inside the repository.
+  assert.match(
+    adapter.replace(/\s+/g, " "),
+    /finds the head checkout's untracked files instead: its `node_modules`/,
+  );
 });
 
 test("the Before and head stacks are never up at once, and each keeps its own pid record (#234)", () => {
