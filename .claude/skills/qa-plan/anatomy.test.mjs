@@ -449,7 +449,7 @@ test("a scenario may say what its run captures, after Observes and before Steps 
   );
   assert.match(capture, /wherever \*\*Observes:\*\* would sit/);
   assert.match(capture, /once at most/);
-  assert.match(capture, /`format=3` only/);
+  assert.match(capture, /`format=3` or later/);
   assert.match(section("Shape"), /\*\*Capture:\*\* and \*\*Signs in as:\*\*/);
 });
 
@@ -465,7 +465,7 @@ test("a fix scenario carries Expected before, right after Expected result (forma
   assert.match(before, /what the tester sees at the merge-base, where the change is not yet made/);
   assert.match(before, /under the same rules as \*\*Expected result:\*\*/);
   assert.match(before, /Right after \*\*Expected result:\*\*, once at most/);
-  assert.match(before, /`format=3` only/);
+  assert.match(before, /`format=3` or later/);
   assert.match(scenarios, /^### Fix scenarios$/m);
   assert.match(scenarios, /It is the scenario that carries \*\*Expected before:\*\*/);
   assert.match(scenarios, /A scenario without one runs at the head only/);

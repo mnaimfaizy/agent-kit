@@ -1887,9 +1887,9 @@ export function validatePlan(text) {
       const captures = found.filter((entry) => entry.label === SCENARIO_CAPTURE);
       for (const extra of captures.slice(1))
         at(extra.n, `${id}: a second **${SCENARIO_CAPTURE}:**: a scenario has at most one`);
-      const kept = captures[0];
-      if (kept) {
-        const k = found.indexOf(kept);
+      const ownCapture = captures[0];
+      if (ownCapture) {
+        const k = found.indexOf(ownCapture);
         const misplaced =
           found
             .slice(k + 1)
@@ -1897,27 +1897,30 @@ export function validatePlan(text) {
               [...before, SCENARIO_SURFACE, SCENARIO_OBSERVES].includes(entry.label),
             ) || found.slice(0, k).some((entry) => after.includes(entry.label));
         const what = `${id}: **${SCENARIO_CAPTURE}:**`;
-        const word = plainWord(kept.inline);
+        const word = plainWord(ownCapture.inline);
         const stuck = stuckMark(word, (candidate) => CAPTURES.includes(candidate));
-        if (plan.format !== 3)
-          at(kept.n, `${what} is a format=3 field: mark the plan \`format=3\`, or leave it out`);
+        if (plan.format < 3)
+          at(
+            ownCapture.n,
+            `${what} is a format=3 field: mark the plan \`format=3\`, or leave it out`,
+          );
         else if (misplaced)
           at(
-            kept.n,
+            ownCapture.n,
             `${what} is out of position: it goes right after the scenario's **${SCENARIO_OBSERVES}:** or **${SCENARIO_SURFACE}:**, or after **${SCENARIO_LABELS[1]}:** or **${SESSIONS}:** (and **${CREATES}:**, when present) when it has neither, before **Steps:**`,
           );
-        else if (kept.text === "") at(kept.n, `${what} is empty`);
-        else if (stuck) at(kept.n, `${what} read ${stuck}`);
+        else if (ownCapture.text === "") at(ownCapture.n, `${what} is empty`);
+        else if (stuck) at(ownCapture.n, `${what} read ${stuck}`);
         else if (!CAPTURES.includes(word))
-          at(kept.n, `${what} \`${word}\`: expected one of: ${CAPTURES.join(", ")}`);
+          at(ownCapture.n, `${what} \`${word}\`: expected one of: ${CAPTURES.join(", ")}`);
         else if (word === "transcript" && surface && surface !== "api")
           at(
-            kept.n,
+            ownCapture.n,
             `${what} \`transcript\` is for an \`api\` scenario, and this one drives \`${surface}\`: use \`screenshot\`, \`video\` or \`none\``,
           );
         else if ((word === "screenshot" || word === "video") && surface === "api")
           at(
-            kept.n,
+            ownCapture.n,
             `${what} \`${word}\` is for a scenario with a screen, and this one drives \`api\`: use \`transcript\` or \`none\``,
           );
         else capture = word;
@@ -1926,18 +1929,24 @@ export function validatePlan(text) {
       // scenario's, so it is read in full, as Expected result is.
       /** @type {string | null} */
       let expectedBefore = null;
-      const befores = found.filter((entry) => entry.label === SCENARIO_EXPECTED_BEFORE);
-      for (const extra of befores.slice(1))
+      const expectedBefores = found.filter((entry) => entry.label === SCENARIO_EXPECTED_BEFORE);
+      for (const extra of expectedBefores.slice(1))
         at(extra.n, `${id}: a second **${SCENARIO_EXPECTED_BEFORE}:**: a scenario has at most one`);
-      const was = befores[0];
-      if (was) {
+      const ownBefore = expectedBefores[0];
+      if (ownBefore) {
         const what = `${id}: **${SCENARIO_EXPECTED_BEFORE}:**`;
-        if (plan.format !== 3)
-          at(was.n, `${what} is a format=3 field: mark the plan \`format=3\`, or leave it out`);
-        else if (found[found.indexOf(was) - 1]?.label !== SCENARIO_LABELS[3])
-          at(was.n, `${what} is out of position: it goes right after **${SCENARIO_LABELS[3]}:**`);
-        else if (was.text === "") at(was.n, `${what} is empty`);
-        else expectedBefore = was.text;
+        if (plan.format < 3)
+          at(
+            ownBefore.n,
+            `${what} is a format=3 field: mark the plan \`format=3\`, or leave it out`,
+          );
+        else if (found[found.indexOf(ownBefore) - 1]?.label !== SCENARIO_LABELS[3])
+          at(
+            ownBefore.n,
+            `${what} is out of position: it goes right after **${SCENARIO_LABELS[3]}:**`,
+          );
+        else if (ownBefore.text === "") at(ownBefore.n, `${what} is empty`);
+        else expectedBefore = ownBefore.text;
       }
       const steps = get("Steps");
       if (steps && steps.text !== "" && !/^\s*\d+\.\s+\S/m.test(steps.text))
@@ -2002,7 +2011,7 @@ export function validatePlan(text) {
         surface,
         observes,
         capture,
-        captureGiven: Boolean(kept),
+        captureGiven: Boolean(ownCapture),
         expectedBefore,
       });
       accountLines.push({ signs: (named ?? signs)?.n, creates: creates?.n, made });
