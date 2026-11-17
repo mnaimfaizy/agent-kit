@@ -309,8 +309,9 @@ def test_the_steering_check_passes_on_its_own_environment() -> None:
 
 def test_a_staged_script_ends_by_naming_what_failed() -> None:
     # The agent sees a long check output cut short, so the staged verify.sh
-    # (and format.sh) must end with one line naming the command that failed,
-    # or saying that every command passed. Run the staging function itself.
+    # (and format.sh) must end with one line: the exit code and the last
+    # command that failed (which may not be the one that ended the script),
+    # or `exited 0`. Run the staging function itself.
     stage = code(step(jobs()["respond"], "Stage the trusted runtime outside the workspace")["run"])
     found = re.search(r"^stage_script\(\) \{\n.*?^\}$", stage, re.MULTILINE | re.DOTALL)
     assert found, "staging defines stage_script() { ... }"
@@ -339,6 +340,12 @@ def test_a_staged_script_ends_by_naming_what_failed() -> None:
     # An exit with no failing command says so, rather than naming one.
     bare = staged("verify", "exit 3")
     assert last(bare) == "verify.sh: FAILED with exit 3; last failing command: none"
+    # The Caller's own EXIT trap cannot replace the summary: bash keeps one
+    # handler per signal, so the body runs in a child shell.
+    trapped = staged("verify", "set -e\ntrap 'echo cleanup' EXIT\nfalse")
+    assert trapped.returncode == 1
+    assert "cleanup" in trapped.stdout
+    assert last(trapped) == "verify.sh: FAILED with exit 1; last failing command: false"
     passed = staged("format", "set -e\necho formatted")
     assert passed.returncode == 0
     assert last(passed) == "format.sh: exited 0"

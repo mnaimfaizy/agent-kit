@@ -407,18 +407,40 @@ jobs:
           printf '%s\n' "$DEFAULT_BRANCH" > "$HOOKS/push-guard-base"
 
           # The Caller's checks and formatter, each one exact command the
-          # agent may run. A header makes each script's last line give its
-          # exit code and the last command that failed (errtrace reaches into
-          # functions): the agent sees a long output cut short, and would not
-          # otherwise know which check broke.
+          # agent may run. Each script's last line gives its exit code and the
+          # last command that failed (errtrace reaches into functions): the
+          # agent sees a long output cut short, and would not otherwise know
+          # which check broke.
           stage_script() {
+            # The Caller's commands, with errtrace and an ERR trap that logs
+            # each failing command, run in a child shell: a trap the Caller
+            # sets (bash keeps one per signal) cannot remove the summary.
             {
-              printf '__script=%s.sh\n' "$1"
               cat <<'HEADER'
-          set -E; trap '__failed=$BASH_COMMAND' ERR
-          trap '__rc=$?; if [ "$__rc" -ne 0 ]; then printf "%s: FAILED with exit %s; last failing command: %s\n" "$__script" "$__rc" "${__failed:-none}"; else printf "%s: exited 0\n" "$__script"; fi' EXIT
+          set -E; trap '[ -n "${__ERRLOG:-}" ] && printf "%s\n" "$BASH_COMMAND" >> "$__ERRLOG"' ERR
           HEADER
               printf '%s\n' "$2"
+            } > "$STAGED/$1.body.sh"
+            # The command the agent runs: the body, then one summary line.
+            {
+              printf '__script=%s.sh\n' "$1"
+              cat <<'WRAPPER'
+          __ERRLOG=$(mktemp 2>/dev/null) || __ERRLOG=
+          export __ERRLOG
+          bash "${BASH_SOURCE[0]%.sh}.body.sh"
+          __rc=$?
+          __failed=
+          if [ -n "$__ERRLOG" ]; then
+            __failed=$(tail -n 1 "$__ERRLOG")
+            rm -f "$__ERRLOG"
+          fi
+          if [ "$__rc" -ne 0 ]; then
+            printf '%s: FAILED with exit %s; last failing command: %s\n' "$__script" "$__rc" "${__failed:-none}"
+          else
+            printf '%s: exited 0\n' "$__script"
+          fi
+          exit "$__rc"
+          WRAPPER
             } > "$STAGED/$1.sh"
           }
           if [ -n "$VERIFY" ]; then
