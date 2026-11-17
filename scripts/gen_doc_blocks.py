@@ -76,14 +76,14 @@ def _folders(paths: list[str]) -> list[str]:
 
 def review_response_protected_paths(sources: Sources) -> str:
     fact = sources.js["review-response-protected-paths"]
-    return "\n".join(
-        [
-            f"- Files named {_code(fact['PROTECTED_FILES'], 'or')}, at any depth.",
-            f"- Anything under {_code(_folders(fact['PROTECTED_DIRS_ANY_DEPTH']), 'or')}, at any depth.",
-            f"- Anything under {_code(_folders(fact['PROTECTED_ROOT_DIRS']), 'or')}, from the repository root.",
-            f"- Every Kit-owned path, from the repository root: {_code(fact['KIT_OWNED_PATHS'])}.",
-        ]
-    )
+    bullets = [
+        (fact["PROTECTED_FILES"], "- Files named {}, at any depth.", "or"),
+        (_folders(fact["PROTECTED_DIRS_ANY_DEPTH"]), "- Anything under {}, at any depth.", "or"),
+        (_folders(fact["PROTECTED_ROOT_DIRS"]), "- Anything under {}, from the repository root.", "or"),
+        (fact["KIT_OWNED_PATHS"], "- Every Kit-owned path, from the repository root: {}.", "and"),
+    ]
+    # A constant emptied in the script drops its bullet rather than rendering an empty list.
+    return "\n".join(line.format(_code(items, conjunction)) for items, line, conjunction in bullets if items)
 
 
 # Each fact's name, as its markers spell it, and the function that writes its block.
@@ -142,7 +142,10 @@ def parse(text: str, label: str) -> tuple[list[Block], list[str]]:
 
 def run(root: Path, check: bool) -> int:
     sources = Sources(root)
-    problems, stale, changed, seen = [], [], [], set()
+    problems: list[str] = []
+    stale: list[str] = []
+    pending: list[tuple[Path, str, str]] = []
+    seen: set[str] = set()
     for page in doc_pages(root):
         label = page.relative_to(root).as_posix()
         text = page.read_text(encoding="utf-8")
@@ -155,25 +158,31 @@ def run(root: Path, check: bool) -> int:
         page_stale = [block for block in blocks if text[block.start : block.end].strip() != wanted[block.fact]]
         if not page_stale:
             continue
-        if check:
-            stale += [f"{label}: generated:{block.fact} is stale" for block in page_stale]
-            continue
+        stale += [f"{label}: generated:{block.fact} is stale" for block in page_stale]
         out, at = [], 0
         for block in blocks:
             out += [text[at : block.start], "\n\n", wanted[block.fact], "\n\n"]
             at = block.end
-        page.write_text("".join(out) + text[at:], encoding="utf-8", newline="\n")
-        changed.append(label)
+        pending.append((page, label, "".join(out) + text[at:]))
     for fact in sorted(set(FACTS) - seen):
         problems.append(f"generated:{fact} appears in no doc page; add its block where the fact is described")
-    if problems or stale:
+    # Every page is read and checked before any is written, so a problem leaves the docs as they were.
+    if problems and not check:
+        print("\n".join(problems), file=sys.stderr)
+        print("Fix the markers above; nothing was written.", file=sys.stderr)
+        return 1
+    if check and (problems or stale):
         print("\n".join(problems + stale), file=sys.stderr)
         if stale:
             print(f"Run: {FIX_COMMAND}", file=sys.stderr)
         return 1
     if check:
         print(f"Generated blocks are up to date ({', '.join(sorted(seen))})")
-    elif changed:
+        return 0
+    for page, _, new in pending:
+        page.write_text(new, encoding="utf-8", newline="\n")
+    if pending:
+        changed = [label for _, label, _ in pending]
         prettier(root, changed)
         print(f"Rewrote {', '.join(changed)}")
     else:

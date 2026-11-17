@@ -113,10 +113,47 @@ def test_a_broken_marker_fails_and_names_it() -> None:
             assert FIX_COMMAND not in result.stderr, f"{name}: the fix command cannot fix a marker:\n{result.stderr}"
 
 
+def test_an_empty_source_list_is_rendered_not_a_crash() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = copy_repo(Path(tmp))
+        script = root / REVIEW_RESPONSE_SCRIPT
+        text = script.read_text(encoding="utf-8")
+        anchor = 'const PROTECTED_ROOT_DIRS = [".github/agent-runtime"];'
+        assert anchor in text, "PROTECTED_ROOT_DIRS changed shape; update this test"
+        script.write_text(text.replace(anchor, "const PROTECTED_ROOT_DIRS = [];", 1), encoding="utf-8")
+
+        result = check(root)
+
+    assert "Traceback" not in result.stderr, result.stderr
+    assert result.returncode == 1, f"--check passed after PROTECTED_ROOT_DIRS was emptied:\n{result.stdout}"
+    assert f"docs/review-response.md: generated:{PROTECTED_BLOCK} is stale" in result.stderr, result.stderr
+
+
+def test_a_marker_problem_stops_the_write_before_any_page_changes() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = copy_repo(Path(tmp))
+        stale = root / "docs" / "review-response.md"
+        stale.write_text(stale.read_text(encoding="utf-8").replace("`.gitmodules`", "`.gitmodules-old`", 1), "utf-8")
+        before = stale.read_text(encoding="utf-8")
+        broken = root / "docs" / "getting-started.md"
+        broken.write_text(broken.read_text(encoding="utf-8") + "\n<!--generated: typo-->\n", encoding="utf-8")
+
+        result = subprocess.run(
+            [sys.executable, str(GENERATOR), "--root", str(root)], capture_output=True, text=True, check=False
+        )
+        after = stale.read_text(encoding="utf-8")
+
+    assert result.returncode == 1, f"the write passed with a broken marker:\n{result.stdout}"
+    assert "docs/getting-started.md" in result.stderr and "nothing was written" in result.stderr, result.stderr
+    assert after == before, "a page was rewritten although another page had a marker problem"
+
+
 if __name__ == "__main__":
     test_every_block_on_disk_matches_its_source()
     test_protected_paths_block_is_in_both_pages()
     test_check_names_a_stale_block_and_the_fix()
     test_a_new_protected_path_without_regenerating_fails()
     test_a_broken_marker_fails_and_names_it()
+    test_an_empty_source_list_is_rendered_not_a_crash()
+    test_a_marker_problem_stops_the_write_before_any_page_changes()
     print("generated-blocks-contract tests passed")
