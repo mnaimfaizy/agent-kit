@@ -166,7 +166,7 @@ gh variable set CLAUDE_SECURITY_AUDIT_ENABLED --body true
 gh variable set CLAUDE_REVIEW_RESPONSE_ENABLED --body true
 ```
 
-Inside the Agent flow, each Stage also has its own switch, `CLAUDE_PLAN_ENABLED`, `CLAUDE_IMPLEMENT_ENABLED` and `CLAUDE_REVIEW_ENABLED`. Unset counts as on; only `false` turns that Stage off. A Stage runs only when the master switch is `true` and its own switch is not `false`, so the plan job passes `kill_switch: ${{ vars.CLAUDE_AGENT_FLOW_ENABLED != 'true' || vars.CLAUDE_PLAN_ENABLED == 'false' }}`. For example, to keep plan and review but have a person write the code:
+Inside the Agent flow, each Stage also has its own switch, `CLAUDE_PLAN_ENABLED`, `CLAUDE_IMPLEMENT_ENABLED` and `CLAUDE_REVIEW_ENABLED`. Unset counts as on; only `false` turns that Stage off (GitHub compares these values without regard to case, so `False` does too, and `TRUE` counts as `true` for a flow's switch). A Stage runs only when the master switch is `true` and its own switch is not `false`, so the plan job passes `kill_switch: ${{ vars.CLAUDE_AGENT_FLOW_ENABLED != 'true' || vars.CLAUDE_PLAN_ENABLED == 'false' }}`. For example, to keep plan and review but have a person write the code:
 
 ```bash
 gh variable set CLAUDE_IMPLEMENT_ENABLED --body false

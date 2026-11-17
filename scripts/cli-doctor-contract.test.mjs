@@ -1163,6 +1163,22 @@ describe("review fixes (PR #78)", () => {
       r.fix.join("\n"),
     );
     assert.ok(!r.fix.some((f) => f.includes("CLAUDE_AGENT_FLOW_ENABLED")), "already set");
+    // Every old name gets a delete command, after every set command.
+    const deletes = oldNames.map((name) => `gh variable delete ${name} --repo acme/app`);
+    for (const d of deletes) assert.ok(r.fix.includes(d), `${d}: ${r.fix.join("\n")}`);
+    const lastSet = Math.max(...r.fix.map((f, i) => (f.includes(" set ") ? i : -1)));
+    const firstDelete = r.fix.findIndex((f) => f.includes(" delete "));
+    assert.ok(lastSet < firstDelete, r.fix.join("\n"));
+
+    // The new name already set: the warning still prints the delete command.
+    const both = checkVariables({
+      github: listedAs(["CLAUDE_MODEL_PLAN", "CLAUDE_PLAN_MODEL"]),
+      repo: "acme/app",
+      ownerType: "User",
+      requirements: reads(["CLAUDE_PLAN_MODEL"]),
+    });
+    assert.equal(both.status, "warn");
+    assert.deepEqual(both.fix, ["gh variable delete CLAUDE_MODEL_PLAN --repo acme/app"]);
 
     // The old master switch alone: the new one is missing, so the check fails and says why.
     const f = checkVariables({
@@ -1178,6 +1194,7 @@ describe("review fixes (PR #78)", () => {
     );
     assert.deepEqual(f.fix, [
       "gh variable set CLAUDE_AGENT_FLOW_ENABLED --repo acme/app --body true",
+      "gh variable delete CLAUDE_PIPELINE_ENABLED --repo acme/app",
     ]);
 
     // An old name the Callers no longer read a replacement of is not flagged.

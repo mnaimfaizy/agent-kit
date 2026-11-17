@@ -22,7 +22,7 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
   Until `CLAUDE_AGENT_FLOW_ENABLED` is set, the Agent flow stays off.
 
 - All five reusable workflows take a new `effort` input (default `""`, which passes no `--effort`), and the `model` input defaults to `claude-opus-5-5`. A new first step, **Check model and effort inputs**, fails the run before the agent starts when `effort` is anything but `low`, `medium`, `high`, `xhigh` or `max`, or `model` is not a plain model id, since both are pasted into `claude_args`. The error names the input.
-- `agent-kit init` prints `CLAUDE_AGENT_FLOW_ENABLED` for the Agent flow's Kill switch. `agent-kit doctor` treats a Stage switch as optional, and warns about each renamed variable still set while the Callers read its replacement, naming the replacement.
+- `agent-kit init` prints `CLAUDE_AGENT_FLOW_ENABLED` for the Agent flow's Kill switch. `agent-kit doctor` treats a Stage switch as optional, and warns about each renamed variable still set while the Callers read its replacement. The warning names the replacement and prints the `gh variable delete` command for the old name, after any `gh variable set` command.
 
 ## [1.0.0-beta.7] - 2026-11-17
 

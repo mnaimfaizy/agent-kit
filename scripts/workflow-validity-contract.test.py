@@ -236,7 +236,7 @@ REMOVED_VARIABLES = (
 )
 
 
-def test_no_old_variable_names_outside_the_release_notes() -> None:
+def test_no_old_variable_names_outside_history_and_rename_map() -> None:
     files = subprocess.run(["git", "ls-files"], cwd=ROOT, capture_output=True, text=True, check=True).stdout.split()
     # History, the ADR that records the rename, the tests, and doctor's rename map.
     allowed = (
@@ -268,5 +268,5 @@ if __name__ == "__main__":
     test_callers_grant_what_the_called_jobs_request()
     test_callers_default_to_kill_switch_on()
     test_callers_read_model_and_effort_from_repository_variables()
-    test_no_old_variable_names_outside_the_release_notes()
+    test_no_old_variable_names_outside_history_and_rename_map()
     print("workflow-validity-contract tests passed")

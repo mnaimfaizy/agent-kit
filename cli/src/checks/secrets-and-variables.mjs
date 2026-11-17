@@ -281,6 +281,11 @@ export function checkVariables({ github, repo, ownerType, requirements }) {
       setCommand("variable", name, repo, killSwitch(name) ? ["--body", "true"] : []),
     ),
   );
+  // Each old name goes last, once its replacement has a value: deleting first
+  // would lose the value before it is copied. The old names are the kit's own.
+  for (const { oldName } of renamed) {
+    fix.push(command("gh", "variable", "delete", oldName, "--repo", repo));
+  }
   if (missing.length) {
     return result(ID, TITLE, "fail", `${missing.length} required variable(s) missing.`, {
       details: [...details, ...notes],
