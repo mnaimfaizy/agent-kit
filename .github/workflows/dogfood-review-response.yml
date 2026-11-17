@@ -61,12 +61,16 @@ jobs:
         pipx install uv==0.11.23
         uv sync --locked
         npm ci
+      # The agent runs these inside Claude Code's sandbox, which can write only
+      # to the working tree and a temp dir and has no network. `uv run` exits 2
+      # there, unable to create its cache in ~/.cache, so call the tools that
+      # `uv sync` put in .venv directly.
       verify_commands: |
         set -e
-        uv run pytest
+        .venv/bin/pytest
         npm test
-        uv run ruff check .
-        uv run ruff format --check .
+        .venv/bin/ruff check .
+        .venv/bin/ruff format --check .
         npx prettier --check .
       # A push made with the job token does not start CI on its own: start
       # the held run of this workflow for the pushed commit.
