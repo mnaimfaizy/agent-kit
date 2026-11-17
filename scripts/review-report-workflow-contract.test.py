@@ -118,6 +118,19 @@ def test_the_brief_sets_the_re_review_rules() -> None:
         assert needle in brief, f"the brief must say {needle!r}"
 
 
+def test_the_brief_keeps_fixed_threads_out_of_the_report_lists() -> None:
+    # Run 44169512125 (PR #276): a re-review found its seven unanswered
+    # threads fixed and listed each one as an unlinked list item, so the
+    # report check failed the job. A fixed thread is said in prose.
+    brief = flat(step(BRIEF_STEP)["run"])
+    for needle in [
+        "List it in the report if the head still has its finding.",
+        "If the head fixed it, leave it out of the lists: say so in one sentence of prose, "
+        "never as a list item per fixed thread.",
+    ]:
+        assert needle in brief, f"the brief must say {needle!r}"
+
+
 def test_the_reviewer_gains_no_tool() -> None:
     # Replies are posted by the trusted step, so the grant is unchanged: no
     # `gh api`, no comment command.
@@ -265,6 +278,28 @@ def test_the_report_step_fails_naming_an_entry_without_a_thread() -> None:
     assert '"The README is stale." links no review thread' in result.stdout
     assert "links a comment by another author (mallory)" in result.stdout
     assert "drift" not in result.stdout.split("::error", 1)[1].split("\n")[0]
+
+
+def test_a_re_review_with_its_earlier_findings_fixed_passes() -> None:
+    # The shape the brief asks for once earlier threads are fixed: the new
+    # finding is an entry, the fixed threads are one sentence of prose.
+    result = run_report_step(
+        f"- [src/a.ts:1]({THREAD}11) — new drift\n\n"
+        "I checked the two earlier threads against the head: both are fixed, so neither is listed."
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "1 entries, each linking its thread" in result.stdout
+
+
+def test_a_re_review_listing_its_fixed_findings_unlinked_fails() -> None:
+    # Run 44169512125: each fixed finding as a list item with no thread link.
+    result = run_report_step(
+        f"- [src/a.ts:1]({THREAD}11) — new drift\n\n"
+        "I checked the earlier threads against the head:\n"
+        "- The id is now the next unused suffix."
+    )
+    assert result.returncode != 0
+    assert '"The id is now the next unused suffix." links no review thread' in result.stdout
 
 
 if __name__ == "__main__":

@@ -490,7 +490,10 @@ jobs:
           1. Never post a new thread for a finding one of them already holds,
              resolved or not.
           2. A thread with verdict null has not been answered yet: leave it
-             alone, with no reply. List it in the report if it still applies.
+             alone, with no reply. List it in the report if the head still
+             has its finding. If the head fixed it, leave it out of the
+             lists: say so in one sentence of prose, never as a list item
+             per fixed thread.
           3. A thread whose verdict you agree with: stay silent. No reply, and
              leave it out of the report.
           4. A thread whose verdict you disagree with: say why in the report's
