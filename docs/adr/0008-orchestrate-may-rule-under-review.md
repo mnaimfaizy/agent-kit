@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # Orchestrate's Chief of Staff may rule, under review

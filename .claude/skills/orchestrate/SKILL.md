@@ -2,7 +2,7 @@
 name: orchestrate
 description: Run a set of issues, or a whole spec, through other sessions as their Chief of Staff — analyse them, propose one Dispatch Plan, hand each Delegation to an Executor, relay every Decision Request, verify each report, QA each finished head where the repository requires it, and close out with the Ready to Merge list and a merge order. Invoked by the user.
 disable-model-invocation: true
-argument-hint: "#<n> [#<n>…] [go] | --spec <n> [go] | --status [<run>] | --resume <run>"
+argument-hint: "#<n> [#<n>…] [go] [autonomous] | --spec <n> [go] [autonomous] | --status [<run>] | --resume <run>"
 metadata:
   agent-kit-scope: user
 ---
@@ -35,22 +35,55 @@ It finds the repository from the folder it runs in, and lists the copies of `orc
 
 - `/orchestrate #12 #34`: a run for these issues. The Dispatch Plan waits for "go".
 - `/orchestrate #12 #34 go`: the same, and the run starts straight after the Dispatch Plan is shown, unless analysis raised a Decision Request.
-- `/orchestrate --spec 50 [go]`: a run for the spec `#50` and the work it holds, in dependency order. Load [SPEC.md](SPEC.md) before step 3: it says how the spec becomes Delegations and how the work lands.
+- `/orchestrate #12 #34 go autonomous`, or `/orchestrate #12 #34 autonomous`: the same, with the Dispatch Plan's **Decision authority** line filled in as `autonomous` ([Autonomous runs](#autonomous-runs)). The word only fills the line in: the run is autonomous only once the plan is approved with that line, as step 4 says.
+- `/orchestrate --spec 50 [go] [autonomous]`: a run for the spec `#50` and the work it holds, in dependency order. Load [SPEC.md](SPEC.md) before step 3: it says how the spec becomes Delegations and how the work lands. `autonomous` fills in the Decision authority line, as for issues.
 - `/orchestrate --status [<run>]`: print the board of the run named, or of the latest run, and act on nothing.
 - `/orchestrate --resume <run>`: continue a run from its board ([RUN.md](RUN.md#resume)).
 
-`--spec` takes exactly one issue number and nothing else but `go`. Any other argument this version does not know, or a mix of the forms above, stops the run before anything is read: say which invocations this version knows.
+`--spec` takes exactly one issue number and nothing else but `go` and `autonomous`. `autonomous` is taken once, last, and only in a run for issues or a spec, after `go` when both are given. With `--status` or `--resume`, on its own, before `go`, or twice, it is a mix this version does not take. Any other argument this version does not know, or a mix of the forms above, `autonomous` included, stops the run before anything is read: say which invocations this version knows.
 
 ## Rules
 
 - **Authority.** The Chief of Staff never merges, force-pushes, changes repository settings, or destroys a branch, worktree or checkpoint without the human's yes. A yes covers the one action it was given for. The detached worktrees the Chief of Staff makes for its own checks are its own scratch space: it removes each one when that check ends, and never one a Delegation works in.
 - **Writes as the human.** A Delegation may push its own branch, open its own pull request and reply on its own review. Every other write made in the human's name (an issue comment, a new issue, a label, closing an issue) goes through the Chief of Staff: it drafts the write and raises it as a Decision Request, unless the human approved that kind of routine write in the Dispatch Plan.
 - **Nothing is reported that was not checked.** A Delegation's report is a claim. The Chief of Staff tells the human only what it has checked against the branch, the pull request and CI, and says which parts it could not check.
-- **Every question goes to the human whole.** A Decision Request is self-contained: the human can answer it without opening the Delegation, from the question, the options, the evidence and the recommendation alone ([BRIEF.md](BRIEF.md#decision-request)).
+- **Every question goes to the human whole.** A Decision Request is self-contained: the human can answer it without opening the Delegation, from the question, the options, the evidence and the recommendation alone ([BRIEF.md](BRIEF.md#decision-request)). In an autonomous run, the kinds of question the human handed over at "go" are answered by Rulings instead ([Autonomous runs](#autonomous-runs)). Each Ruling is self-contained in the same way, so the human can review it from the Ruling Ledger alone. Every other question still goes to the human whole.
 - **No unsettled design gets built.** An issue that is not ready for an agent becomes an analysis Delegation: it produces evidence and options, then stops.
 - **Two Delegations that touch the same files never share a wave**, and a named shared resource has one holder at a time. The **QA Stack** is one, held by every QA Delegation that runs against it, whether or not `limits.shared` names it.
 - **QA holds for one head.** A QA result is about the commit it ran on. Any push to the branch after it, a review fix or a conflict merge alike, voids it, and the new head goes through QA again.
 - **No repository fact is guessed.** Every command route, re-gate command, model, skill, label and limit comes from the config, or from the human's answer when the config does not say.
+
+## Autonomous runs
+
+A run whose Dispatch Plan was approved with **Decision authority: autonomous** (step 4) is an autonomous run. In it, the Chief of Staff answers some Decision Requests itself, as **Rulings**, and keeps them in the run's **Ruling Ledger** ([RUN.md](RUN.md#ruling-ledger)). The human reviews each one in the **Ruling Review** before anything is Ready to Merge. Why: [DESIGN.md](DESIGN.md#rulings-under-review). A run approved with plain `go` is not autonomous: every Decision Request goes to the human, and nothing in this section applies.
+
+**The split is fixed, all or nothing.** The human hands over every kind in the first list, or none.
+
+- **The Chief of Staff rules on:** a building Delegation's question about how to do the work within its issue's goal; a stalled or crashed Delegation (nudge it, or restart it from its branch as a new Delegation, `d<issue>-<k>` with the next suffix not yet used in the run ([RUN.md](RUN.md#layout)), on the same Executor and model), once per issue in the run; the merge order between conflicting branches (step 8); a QA FAIL (send it back, or run QA again, step 9); the delivery of a QA Plan (step 9).
+- **The human keeps:** widening a scope fence; accepting a QA FAIL or waiving a manual scenario; an analysis Delegation's options; any write as the human not approved as routine; everything under Authority. So do the questions the Chief of Staff raises before "go", such as a missing triage role or a closed issue at step 3.
+
+**The evidence bar.** The Chief of Staff rules only when its evidence picks one option: the issue or spec text, the glossary, an ADR, code, CI output, or an earlier Ruling. Each piece is cited so that it can still be checked after the branch has moved: `path:line` at a commit SHA, command output saved to a file in the run folder's `evidence/` ([RUN.md](RUN.md#layout)), a tracker permalink, or an earlier Ruling by its id. "It seemed reasonable" does not meet the bar. When the evidence is split or missing, or when an option cannot be undone by a later commit, it does not rule: it treats the question as one the human keeps.
+
+**A question it does not rule on** sets only its own Delegation to `waiting`. The run goes on: the other Delegations keep working, and the next one whose wait is over starts. The question is queued for the human, whole, on the board and in the Chief of Staff's session, and the Chief of Staff notifies the human where the harness can ([HARNESSES.md](HARNESSES.md#notifying-the-human)).
+
+**Making a Ruling:**
+
+1. Give it the next run-wide id, `R<n>`: `R1`, `R2`, and so on, never reused.
+2. Append it to the Ruling Ledger, `unreviewed`, with its question, options, choice and reason, evidence, and the earlier Rulings it cites. Mark the Decision Request in the Delegation's `decisions.md` as answered by the Chief of Staff, as `R<n>`.
+3. `message` it to the Delegation that asked, in the Ruling form ([BRIEF.md](BRIEF.md#ruling)), or for a stall, a crash or a merge order, to the Delegation it acts on. Record it where `decisions.to` says, labelled "Chief of Staff ruling, not yet reviewed". With `pull-request`, the line goes in the building Delegation's own pull request body: for a building Delegation's Ruling, its Ruling form tells it to add the line; for a QA Delegation's, whose brief allows no such write, the QA Delegation's form says `Record: none`, and the Chief of Staff sends the line to the building Delegation whose pull request it tests. With `issue-comment`, the Chief of Staff drafts the comment, a write as the human handled as step 6 says. The Delegation goes on with the Ruling while that write waits.
+4. Log it in the Activity Log, then act on it as on the human's answer: the nudge or restart, the merge order, the send back, the new QA run, or the delivery.
+
+A Ruling may cite an earlier one by its id, and the ledger shows the link.
+
+A Ruling **concerns** a branch and its pull request, not one Delegation: the branch of the Delegation it was sent to, or, for a QA Delegation, the branch whose pull request it tests. So it concerns every Delegation that works on that branch, before or after it: a restart, an overturn's new Delegation, and the building Delegation a QA Ruling's pull request belongs to. That Delegation's Ready to Merge waits for it. A Delegation started from another's branch (a restart, or an overturn's new Delegation) gets, in its brief's **Read first**, every Ruling already concerning that branch, from the ledger: its id, its choice, its verdict, and its **Commits** line. Where the earlier Delegation left no verified report, the Chief of Staff fills that line from the branch (`git log <merge-base>..<head>`) and the earlier Delegation's Activity Log, and marks each commit `(read from the branch, not reported)`, as the ledger form shows ([RUN.md](RUN.md#ruling-ledger)). A Delegation that has ended can no longer change its pull request: a line it would add or update is sent to the Chief of Staff instead, who drafts the edit to that pull request's body as a write as the human, handled as step 6 says. The Dispatch Plan of an autonomous run offers that edit as a routine kind the human may approve.
+
+**The Ruling Review.** The human may uphold or overturn a Ruling at any time in the Chief of Staff's session, and must before a Delegation it concerns is Ready to Merge (step 10). The answer names Rulings by id, `upheld: R1 R2; overturned: R3 → option 2`, or is "uphold all". `--status` prints the ledger, and `--resume` opens with the Rulings still awaiting review ([RUN.md](RUN.md#resume)). There is no other invocation for it.
+
+- **Upheld:** the ledger says `upheld`. The building Delegation whose pull request carries the Ruling line updates it to upheld, or, when it has ended, the Chief of Staff drafts that edit, as above; with `issue-comment`, that update is a write as the human, drafted as usual.
+- **Overturned:** the ledger says `overturned`, with the option the human chose. It becomes an ordinary human answer to the Decision Request, recorded where `decisions.to` says, and the Ruling line is updated to overturned in the same way. It is sent to the Delegation, or, when that one has ended, to a new Delegation started from its branch, `d<issue>-<k>` with the next unused suffix, on the same Executor and model. The rework is a push: the head goes back to step 7, and QA on the old head is `void` (step 6). An overturned merge order changes only the order step 10 prints.
+- **Every Ruling that cited an overturned one** is marked `needs re-review` in the ledger, and is reviewed again. It is not overturned with it.
+
+A Delegation is Ready to Merge only when every Ruling it concerns is `upheld`, or `overturned` with its rework verified. Until then, a Delegation that otherwise meets Ready to Merge is `awaiting Ruling Review` ([RUN.md](RUN.md#states)).
 
 ## Workflow
 
@@ -122,9 +155,11 @@ A Delegation in a later wave because of an overlap or a blocker starts only once
 
 Choose each Executor from what this harness's file offers (its **Executors** line), or from what `executors` names: a Live Session for a building Delegation where the harness has one, so the human can open it; a headless run or a sub-agent for an analysis Delegation, or where the harness has no Live Sessions; a session the human starts where the harness can start neither. A QA Delegation is never a sub-agent: it runs user-invoked skills, and needs a working copy and a browser of its own.
 
-The human's "go" approves the whole plan: every row, and the routine writes they tick. A change to any row is a new plan, shown again. With `go` in the invocation, start as soon as the plan is shown, unless step 3 raised a Decision Request, or a harness the plan uses is below `verified`: then wait for the answer and the human's "go".
+Last, the **Decision authority** line: `relay`, the default, where every Decision Request goes to the human, or `autonomous`, where the Chief of Staff rules on the kinds [Autonomous runs](#autonomous-runs) lists, and the human reviews each Ruling before anything is Ready to Merge. The line lists both halves of the split, so the human sees what they would hand over. An `autonomous` word in the invocation fills it in as `autonomous`; without one, it reads `relay`.
 
-**Done when:** the human has said "go" to this plan, and the board records it.
+The human's "go" approves the whole plan: every row, the routine writes they tick, and the Decision authority line as shown. `go autonomous` approves it with the line set to `autonomous`. A change to any row, or setting the line back to `relay` on a harness at `verified`, is a new plan, shown again. With `go` in the invocation, start as soon as the plan is shown, unless step 3 raised a Decision Request, or a harness the plan uses is below `verified`: then wait for the answer and the human's "go". Below `verified`, the line an `autonomous` word fills in reads `autonomous, on a typed go autonomous`, and the plan says that Rulings would be made on a harness whose limits are not fully known. That line, as shown, offers two answers: `go autonomous`, typed after seeing the plan, starts the run autonomous; a plain `go` approves the plan as shown with the line at `relay`. Neither is a change to the plan, so neither shows it again.
+
+**Done when:** the human has said "go" to this plan, and the board records it, with its Decision authority.
 
 ### 5. Dispatch a wave
 
@@ -136,16 +171,18 @@ For each Delegation in the wave, write its brief to its folder in the run, carry
 
 `await` the running Delegations. For each event:
 
-- **A Decision Request:** relay it to the human, whole. When the human answers, `message` the answer to the Delegation, and log it. Then record it where `decisions.to` says ([CONFIG.md](CONFIG.md#decisions)), starting with `decisions.marker` when one is set: for `pull-request`, the message tells the Delegation to add it to its own pull request's body; for `issue-comment`, the Chief of Staff drafts the comment, and posts it as a write as the human.
+- **A Decision Request:** in an autonomous run, first decide whether it is a kind the Chief of Staff rules on, with evidence that meets the bar ([Autonomous runs](#autonomous-runs)). If it is, make a Ruling. If not, set only that Delegation to `waiting`, queue the question, notify the human where the harness can, and go on with the run. In any other run, relay it to the human, whole. When the human answers, `message` the answer to the Delegation, and log it. Then record it where `decisions.to` says ([CONFIG.md](CONFIG.md#decisions)), starting with `decisions.marker` when one is set: for `pull-request`, the message tells the Delegation to add it to its own pull request's body; for `issue-comment`, the Chief of Staff drafts the comment, and posts it as a write as the human.
 - **A drafted write as the human:** an approved routine kind goes ahead and is logged; any other kind is relayed as a Decision Request, and made only on a yes.
 - **A report:** verify it (step 7), or for a QA Delegation, step 9.
-- **A push to a branch that has passed step 7:** its head moved. Its verification and any QA for the old head no longer hold: set its building row back to `reported`, whether it was `verified` or `ready to merge`, mark a running or `passed` QA Delegation for it `void` (a `failed` one stays `failed`, as the record of that run), and verify the new head from step 7.
+- **A push to a branch that has passed step 7:** its head moved. Its verification and any QA for the old head no longer hold: set its building row back to `reported`, whether it was `verified`, `awaiting Ruling Review` or `ready to merge`, mark a running or `passed` QA Delegation for it `void` (a `failed` one stays `failed`, as the record of that run), and verify the new head from step 7.
 - **No sign of progress** for longer than the work explains: read the Delegation's Activity Log and its branch. If it is stuck, `message` it once with what you see. If it is still stuck at the next check, raise it to the human as a Decision Request.
 - **A crash:** keep its branch and worktree as they are: they are its handoff. Record what was done and what is left on the board, and raise it to the human with a recommendation (start a new Delegation from the branch, or stop).
+- **In an autonomous run**, a Delegation still stuck after the nudge, or a crashed one, is a Ruling instead of a question to the human: nudge it again, or restart it from its branch. The Chief of Staff makes one such Ruling per issue in the run. When the nudged or restarted Delegation stalls or crashes again, that is a question the human keeps: it is queued and notified as a question not ruled on ([Autonomous runs](#autonomous-runs)). Stopping it, or dropping it from the run, stays the human's.
+- **A Ruling overturned in the Ruling Review:** act on it as on any human answer ([Autonomous runs](#autonomous-runs)).
 
 When a Delegation leaves the wave, start the next Delegation whose wait is over, within `limits.building`, or one on a harness that runs sequentially.
 
-**Done when:** every building Delegation is Ready to Merge, stopped with its analysis delivered, parked until a merge, landed on a spec run's integration branch ([SPEC.md](SPEC.md#on-an-integration-branch)), or raised to the human.
+**Done when:** every building Delegation is Ready to Merge or `awaiting Ruling Review`, stopped with its analysis delivered, parked until a merge, landed on a spec run's integration branch ([SPEC.md](SPEC.md#on-an-integration-branch)), or raised to the human.
 
 ### 7. Verify each report
 
@@ -156,6 +193,7 @@ Check each claim the report makes ([BRIEF.md](BRIEF.md#report)) against the sour
 - **CI:** every check on that head has passed;
 - **re-gate:** each `regate` command passes on that head, run in a detached worktree of the branch, never in the Delegation's;
 - **review:** where the repository runs Agent-kit's review workflow, that review has run on that head ([below](#the-review-workflow)); every review comment is fixed or answered; and with `ready_to_merge.review: approved`, an approving review exists;
+- **Rulings:** in an autonomous run, the report's commit-to-Ruling map ([BRIEF.md](BRIEF.md#report)): each commit it maps is on the branch, each Ruling it names is in the ledger, and every Ruling that concerns its branch is in this map, or in the verified report of an earlier Delegation on the same branch (one it was restarted from); a Ruling its brief listed from an earlier Delegation is carried into the map with the commits the brief gave, and checked against the ledger entry the brief was written from, and, with `pull-request`, its pull request's body carries the line of each Ruling it concerns, with its current verdict. A ticket on a spec run's integration branch has no pull request: its lines are checked on the `<integration>` row instead ([SPEC.md](SPEC.md#on-an-integration-branch));
 - **scope fence:** every path the branch changes from the default branch (`git diff --name-only <merge-base> <head>`) is inside its scope fence, or was answered as a Decision Request. A change outside it that no Decision Request answered, a fix a reviewer or CI prompted included, is raised to the human as a Decision Request: the fence was approved in the Dispatch Plan, and only the human widens it.
 
 #### The review workflow
@@ -174,13 +212,13 @@ QA is not checked here: it runs on the head this step verified (step 9).
 
 A claim that does not hold goes back to the Delegation with what was found. Tell the human only what held. A building Delegation whose report holds goes on to step 8.
 
-An analysis Delegation's report is checked the same way: every piece of evidence it cites must be where it says. Then relay its options as a Decision Request.
+An analysis Delegation's report is checked the same way: every piece of evidence it cites must be where it says. Then relay its options as a Decision Request, in an autonomous run too: an analysis Delegation's options stay the human's.
 
 **Done when:** each report is verified, or sent back with what did not hold.
 
 ### 8. Find conflicts between finished branches
 
-For each pair of verified branches, and for each against the default branch, check whether they merge cleanly in the order proposed, without touching any checkout (`git merge-tree --write-tree`). A pair that conflicts goes back into the plan: propose an order that merges one first and has the other's Delegation merge the default branch into its own branch afterwards, resolving the conflict in a new commit, as a Decision Request. A rebase would need a force-push. That new commit is a new head: the branch goes back to step 7, and any QA for its old head is `void`.
+For each pair of verified branches, and for each against the default branch, check whether they merge cleanly in the order proposed, without touching any checkout (`git merge-tree --write-tree`). A pair that conflicts goes back into the plan: propose an order that merges one first and has the other's Delegation merge the default branch into its own branch afterwards, resolving the conflict in a new commit, as a Decision Request, or, in an autonomous run, as a Ruling. A rebase would need a force-push. That new commit is a new head: the branch goes back to step 7, and any QA for its old head is `void`.
 
 This runs before QA so that the head QA tests is the head that merges. A branch whose report held and that merges cleanly is Ready to Merge when it needs no QA. One that needs QA is `verified`, and goes to step 9.
 
@@ -191,13 +229,13 @@ This runs before QA so that the head QA tests is the head that merges. A branch 
 For each building Delegation that is `verified` and merges cleanly in the order from step 8 (on a spec run with an integration branch, the `<integration>` row, [SPEC.md](SPEC.md#on-an-integration-branch)), with `<head>` the commit step 7 verified:
 
 1. **Dispatch its QA Delegation.** Write the QA brief ([BRIEF.md](BRIEF.md#the-qa-brief)), pinned to `<head>`, and `spawn` it on the plan's Executor with `models.qa`, once no other holder of the QA Stack is running, when it holds the QA Stack. Record it on the board as `running`, with `<head>` in its Branch cell. When it reports a mismatch at its phase 1, the head moved: handle it as a push (step 6). When it reports that the head is pinned, send `/qa-plan <n>` to it as the plan says, and log whether the session ran it as an invocation; if it did not, tell the human which session to type it in, and what. The first run that relies on a message for this records the result in its Activity Log, for [HARNESSES.md](HARNESSES.md) to be corrected.
-2. **Relay the QA Plan.** The QA Delegation raises its draft QA Plan as a Decision Request: relay it whole. When `qa-plan` found no Residue, it wrote no plan, and the QA Delegation reports that instead: go to 3. The human's answer is `qa-plan`'s yes, or the correction it asks for. When the human is in the QA session and answered `qa-plan` there, its Activity Log says so, and there is nothing to relay. Once the plan is delivered, start `manual-qa` in that session the way the plan says: `message` it `/manual-qa <plan file>`, or tell the human to type it there.
+2. **Relay the QA Plan.** The QA Delegation raises its draft QA Plan as a Decision Request: relay it whole. In an autonomous run, its delivery is a Ruling instead, when the evidence meets the bar: each scenario follows from a promise in the issue, and none needs a write the human keeps. When `qa-plan` found no Residue, it wrote no plan, and the QA Delegation reports that instead: go to 3. The human's answer is `qa-plan`'s yes, or the correction it asks for. When the human is in the QA session and answered `qa-plan` there, its Activity Log says so, and there is nothing to relay. Once the plan is delivered, start `manual-qa` in that session the way the plan says: `message` it `/manual-qa <plan file>`, or tell the human to type it there.
 3. **Verify its report** against the source: the QA Plan and QA Report it copied into its Delegation folder, the plan's **Head** is `<head>`, the report has one row per scenario in the plan, the pull request's head is still `<head>`, and wherever the report says the plan was delivered or the report posted, it is there. With no Residue there is no plan or QA Report: check instead that each claim the report names as proving a promise is a test or CI check that passed on `<head>`. A claim that does not hold goes back to the QA Delegation.
 4. **Act on the result:**
    - **Every scenario passed:** the QA Delegation is `passed`, and the building Delegation is Ready to Merge.
    - **No Residue:** `qa-plan` found every promise covered by automation and wrote no plan. Once its claims are checked, the QA Delegation is `passed`, the building Delegation is Ready to Merge, and the close-out says it needed no manual QA, with the claims.
    - **Scenarios left for a person, and no FAIL:** one Decision Request lists them, each with its steps from the plan. The human runs each and gives its result, or waives it, and the answer is recorded where `decisions.to` says. The building Delegation is Ready to Merge once each has passed or been waived. A FAIL the human reports is handled as below.
-   - **A FAIL, or an outcome under the plan's _Stop and do not merge if_:** the QA Delegation is `failed`. One Decision Request carries each failing row with its evidence, and three options: send it back to the building Delegation (recommended), run QA again on the same head (when the failure looks like the QA Stack, not the change), or accept it as it is. On send back, `message` the building Delegation the failing rows: it is `sent back`, and its fix's new head starts again at step 7. On accept, record the decision where `decisions.to` says, and the building Delegation is Ready to Merge.
+   - **A FAIL, or an outcome under the plan's _Stop and do not merge if_:** the QA Delegation is `failed`. One Decision Request carries each failing row with its evidence, and three options: send it back to the building Delegation (recommended), run QA again on the same head (when the failure looks like the QA Stack, not the change), or accept it as it is. On send back, `message` the building Delegation the failing rows: it is `sent back`, and its fix's new head starts again at step 7. On accept, record the decision where `decisions.to` says, and the building Delegation is Ready to Merge. In an autonomous run, send back or run again is a Ruling; accepting the FAIL stays the human's, and so does waiving a scenario left for a person.
 
 Each QA run after the first, on a new head or on the same one, is a new QA Delegation, `d<issue>-qa2`, then `-qa3`, under the same "go". Its QA Plan replaces the one delivered before.
 
@@ -205,9 +243,11 @@ Each QA run after the first, on a new head or on the same one, is a new QA Deleg
 
 ### 10. Close out
 
-First check each Ready to Merge row's head for a review run or comment newer than its verification ([step 7](#the-review-workflow)); a row with one goes back to step 7. Then print the Ready to Merge list, one row per Delegation with its pull request and head, and for one that needed QA, its QA result for that head; then the merge order from step 8. With `routes.merge` set, print the command for each, in order. Never run it.
+In an autonomous run, the Ruling Review comes first. List each Delegation that is `awaiting Ruling Review`. Show the Ruling Ledger grouped by Delegation: each Ruling with its question, its options, the choice and its reason, its evidence, the commits that followed from it, and the Rulings it cited, `needs re-review` ones first. The human answers per Ruling, `upheld: R1 R2; overturned: R3 → option 2`, or with "uphold all". An overturn sends its Delegation back to work, as [Autonomous runs](#autonomous-runs) says, and its row leaves this close-out until its new head is verified. Once no Ruling for a row is `unreviewed` or `needs re-review`, and, with `pull-request`, its pull request's body shows each Ruling it concerns with its verdict (sent to the Delegation, or drafted by the Chief of Staff, as [Autonomous runs](#autonomous-runs) says), it is Ready to Merge.
 
-Also print what is not on the list and why: parked Delegations, analysis results waiting on a decision, issues for the human, and anything raised and unanswered.
+Then check each Ready to Merge row's head for a review run or comment newer than its verification ([step 7](#the-review-workflow)); a row with one goes back to step 7. Then print the Ready to Merge list, one row per Delegation with its pull request and head, and for one that needed QA, its QA result for that head; then the merge order from step 8. With `routes.merge` set, print the command for each, in order. Never run it.
+
+Also print what is not on the list and why: parked Delegations, Delegations awaiting Ruling Review, analysis results waiting on a decision, issues for the human, and anything raised and unanswered.
 
 Then one line for the harness: each **check before use** item this run settled, and what it found, so the harness file can be corrected; and, on an unlisted harness, an offer to draft a harness file from what the run learned. Writing either is a change to this skill, made only on the human's yes.
 

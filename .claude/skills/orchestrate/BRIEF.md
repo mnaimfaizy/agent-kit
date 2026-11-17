@@ -6,14 +6,14 @@ What the Chief of Staff hands an Executor, and what comes back. Load it before w
 
 Every brief carries these eight items, in this order, as its own headed sections. An Executor reads only its brief: anything it needs and the brief leaves out, it will guess. Fill each item from the config's effective values (`node "<skill>/config.mjs" check`) and the issue, never from memory of another repository.
 
-1. **Read first.** Each document in `read_first`, then the issue, its comments, and the issues and pull requests it links. The Delegation reads them before it plans anything.
+1. **Read first.** Each document in `read_first`, then the issue, its comments, and the issues and pull requests it links. The Delegation reads them before it plans anything. In an autonomous run, a Delegation started from another's branch also gets the Rulings already concerning that branch, each with its id, choice, verdict and commits ([SKILL.md](SKILL.md#autonomous-runs)).
 2. **Goal, and what done means.** One sentence of goal, then the issue's acceptance criteria, each as a check the Delegation can run or show. For an analysis Delegation, done is the evidence and the options, and nothing built.
 3. **Phases, with explicit stop points.** Numbered phases, each ending in a **Stop:** line that says what the Delegation reports, and whether it waits for an answer before going on. A building brief's last phases are always: a code review of its own diff (with `skills.review` when the config names one, on `models.review` where the harness lets a phase run on its own model), fixes for what the review found, then the final commit. Those fixes, and every later one a reviewer, CI or an automated fixer prompts, stay inside the scope fence (item 4). An analysis brief stops after its evidence and options. A QA brief's phases are its own ([below](#the-qa-brief)).
 4. **Scope fences.** The paths and shared resources the Delegation may change (its scope fence from the Dispatch Plan), and what it must not touch: other Delegations' fences, files outside the issue's subject, the default branch. The fence binds every change on the branch, whoever asked for it: a fix prompted by a code review, a CI failure or an automated fixer included. A change outside the fence is a Decision Request first, not a judgement call, and is made only once it is answered.
 5. **Command routes.** How to commit (`routes.commit`), how to open the pull request (`routes.pull_request`), and the commands that re-gate the branch (`regate`). The skill to implement with (`skills.implement`) in a building brief, or to analyse with (`skills.triage`) in an analysis brief, when the config names one. The branch name the Dispatch Plan gave it.
 6. **Rules for writes.** The Delegation may push its own branch, open its own pull request and reply on its own review. It never merges, force-pushes, changes repository settings, or deletes a branch, worktree or checkpoint. Any other write in the human's name (an issue comment, a new issue, a label, closing an issue) it drafts and raises as a Decision Request, unless the brief lists that kind as approved for the run.
-7. **The Decision Request form.** The form below, verbatim, and the rule: when the Delegation cannot settle a question from its brief and the documents it read, it raises a Decision Request and stops that line of work until it is answered.
-8. **Report and log files.** The paths of its Activity Log, its report and its Decision Requests file in the run folder ([RUN.md](RUN.md)), each as an absolute path into the Chief of Staff's checkout: the run folder is gitignored, so the Delegation's own worktree has no copy of it, and a relative path would land in that worktree, where the Chief of Staff never looks. Then the report form below. It appends to its Activity Log as it works, and writes its report when it reaches a stop point.
+7. **The Decision Request form.** The form below, verbatim, and the rule: when the Delegation cannot settle a question from its brief and the documents it read, it raises a Decision Request and stops that line of work until it is answered. In an autonomous run, the brief adds that an answer may arrive as a Ruling `R<n>`, in the [Ruling form](#ruling) below, to be acted on as an answer and recorded in its pull request labelled "Chief of Staff ruling, not yet reviewed", then updated to its verdict after the Ruling Review.
+8. **Report and log files.** The paths of its Activity Log, its report and its Decision Requests file in the run folder ([RUN.md](RUN.md)), each as an absolute path into the Chief of Staff's checkout: the run folder is gitignored, so the Delegation's own worktree has no copy of it, and a relative path would land in that worktree, where the Chief of Staff never looks. Then the report form below, which in an autonomous run carries the commit-to-Ruling map: each Ruling it followed, with the commits that followed from it. It appends to its Activity Log as it works, and writes its report when it reaches a stop point.
 
 ## The QA brief
 
@@ -51,6 +51,23 @@ A QA Delegation's brief carries the same eight items, filled for QA. It tests on
 
 The Chief of Staff relays it as written, adding only which Delegation it is from. When the answer comes, it is recorded where `decisions.to` says (with `pull-request`, by the Delegation in its own pull request's body), so a reviewer of the pull request can see why the work went the way it did.
 
+## Ruling
+
+In an autonomous run, the Chief of Staff answers some Decision Requests itself ([SKILL.md](SKILL.md#autonomous-runs)), and sends each to the Delegation in this form:
+
+```markdown
+### Ruling: R<n>, <one-line question>
+
+**Delegation:** <id>, for #<issue>
+**Answers:** <the Decision Request's heading, or the stall, crash, conflict or QA result it acts on>
+**Choice:** <option number and what it says>, because <reason>
+**Evidence:** <for each claim: `path:line` at a commit SHA, a file in the run folder's `evidence/`, a tracker permalink, or a Ruling id>
+**Cites:** <earlier Rulings by id, or none>
+**Record:** <with `pull-request`, to a building Delegation that has a pull request: add `R<n> (Chief of Staff ruling, not yet reviewed): <question> → <choice>` to your pull request's body, under "Decisions"; to a QA Delegation, or a ticket on a spec run's integration branch: none, the Chief of Staff records it; with `issue-comment`: none, the Chief of Staff records it>
+```
+
+The Delegation acts on a Ruling as on the human's answer, and marks its Decision Request in `decisions.md` answered by `R<n>`. A Ruling stands until the Ruling Review, where the human upholds or overturns it. The Chief of Staff then `message`s the verdict, and a Delegation that added the line changes `not yet reviewed` in it to `upheld`, or to `overturned → option <k>`. An overturn comes with the human's answer, sent like any other: the Delegation redoes the work the Ruling led to, in new commits on its branch, and reports again. Every commit made because of a Ruling goes in the report's **Rulings** line.
+
 ## Report
 
 ```markdown
@@ -62,6 +79,7 @@ The Chief of Staff relays it as written, adding only which Delegation it is from
 **Done:** <each acceptance criterion, and how it was shown>
 **Re-gate:** <each command, and its result>
 **Review:** <each review comment, and how it was handled; where the repository runs Agent-kit's review workflow, its run on this head: finished, running, or not started>
+**Rulings:** <in an autonomous run, each Ruling followed, as `R<n>: <full commit SHA>, …`, the commits that followed from it, with its pull request line's verdict, and each Ruling the brief listed from an earlier Delegation on the branch, with the commits the brief gave; or none>
 **Not done:** <what is left, and why>
 **Decision Requests:** <open ones, by heading>
 ```

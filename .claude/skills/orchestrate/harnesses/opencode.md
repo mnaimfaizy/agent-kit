@@ -7,6 +7,7 @@
 - **Headless QA:** yes, else a session the human opens.
 - **Facts from:** opencode.ai/docs and `anomalyco/opencode` (formerly `sst/opencode`) v2.3.0, source at commit `cbe7159`, read on 2026-11-14. OpenCode was not run with a prompt.
 - **Executors:** building and QA, a headless run in its own worktree; analysis, the `subagent` tool; QA falls back to a session the human opens.
+- **Notify:** none known: the sources in **Facts from** name no way for the Chief of Staff to notify the human. A queued question waits in its session and on the board.
 
 ## Verbs
 
@@ -30,3 +31,4 @@
 - Whether the background shell's end wakes an idle Chief of Staff.
 - Whether naming a skill in a prompt, or attaching it through the API, loads it; in OpenCode 2, `disable-model-invocation` only hides a skill from the model's list.
 - Whether the browser tool exists without the desktop app attached.
+- Whether the harness can notify the human that a question is queued, and how: record what was found.

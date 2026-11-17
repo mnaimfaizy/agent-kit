@@ -40,6 +40,7 @@ The id is the value `harness:` and `executors.*` take in the config ([CONFIG.md]
 - `- **Headless QA:**` `yes` when that headless run can carry a QA Delegation, or `none: …`.
 - `- **Facts from:**` where and when each fact was read.
 - `- **Executors:**` building, analysis and QA.
+- `- **Notify:**` how the Chief of Staff can tell the human a question is queued, or `none known`, with a **check before use** item ([below](#notifying-the-human)).
 
 Then the sections `## Verbs`, `## Limits` and `## Check before use`. A draft for an unlisted harness follows the same form.
 
@@ -120,6 +121,12 @@ Codex Cloud, the Copilot cloud agent, Devin Cloud, Cursor Cloud Agents and Antig
 A harness file's **Executors** line wins over this table where they differ. The Dispatch Plan names the Executor for every Delegation, and the human's "go" approves it.
 
 A QA Delegation is never a sub-agent, on any harness: a sub-agent cannot take a user-invoked skill, and QA needs a working copy and a browser of its own. On every harness, the QA Delegation's session starts on its brief, never on a skill command, so the head is pinned before `qa-plan` runs. Where the way a QA skill starts is still **check before use**, the Dispatch Plan says the human may be asked to type `/qa-plan <n>`, and later `/manual-qa <plan file>`, in that session.
+
+## Notifying the human
+
+In an autonomous run, a question the Chief of Staff may not rule on is queued, and the run goes on ([SKILL.md](SKILL.md#autonomous-runs)). The human may be away, so the Chief of Staff tells them a question is waiting where the harness can, by the way its file's **Notify** line names. The notification says only that a question is queued, for which Delegation, and in which session: the question itself stays whole on the board and in the Chief of Staff's session, because a notification may be shown where others can read it.
+
+Where the line is `none known`, the queued question waits in the Chief of Staff's session and on the board, and `--status` prints it. The Dispatch Plan for an autonomous run says so under **Harness limits**, so the human knows to look. A way to notify that a run finds is recorded in its Activity Log, and the close-out lists it with the other **check before use** items the run settled.
 
 ## The Harness limits section
 

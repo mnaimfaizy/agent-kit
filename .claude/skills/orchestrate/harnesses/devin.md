@@ -7,6 +7,7 @@
 - **Headless QA:** none, until a run shows `-p` takes a QA skill.
 - **Facts from:** docs.devin.ai, Devin CLI v3000.12.57 and Devin Desktop 3.12.59, read on 2026-11-14. Devin was not run with a prompt. Windsurf is now Devin Desktop; Cascade was removed in Desktop 3.9.19, and its agent is now the Devin CLI's.
 - **Executors:** building, a headless run in a worktree the Chief of Staff makes ([HARNESSES.md](../HARNESSES.md#a-headless-run-in-a-worktree)); analysis, a sub-agent; QA, a Desktop session the human starts.
+- **Notify:** none known: the sources in **Facts from** name no way for the Chief of Staff to notify the human. A queued question waits in its session and on the board.
 
 ## Verbs
 
@@ -31,3 +32,4 @@
 - What `-p` does when a tool call needs approval.
 - Whether Devin honours `disable-model-invocation` (its own field is `triggers`); if it does not, the agent could load `qa-plan` itself.
 - Whether `devin -p "/qa-plan <n>"` runs the skill as the user's own invocation.
+- Whether the harness can notify the human that a question is queued, and how: record what was found.
