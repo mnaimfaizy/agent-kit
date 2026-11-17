@@ -18,17 +18,18 @@ On Windows, work in Git Bash. `.gitattributes` forces LF working copies; a CRLF 
 
 Everything CI runs, locally:
 
-| Check                    | Command                                                               |
-| ------------------------ | --------------------------------------------------------------------- |
-| Python contract tests    | `uv run pytest`                                                       |
-| Node contract tests      | `npm test` (also runs every `.claude/skills/*/*.test.mjs` suite)      |
-| Release snapshot paths   | `uv run python scripts/verify_release_snapshot.py`                    |
-| Workflow reference fresh | `uv run python scripts/gen_workflow_reference.py --check`             |
-| Python lint / format     | `uv run ruff check .` · `uv run ruff format --check .`                |
-| Markdown / YAML / JSON   | `npx prettier --check .` (fix: `npm run format`)                      |
-| Shell                    | `shellcheck` on `git ls-files '*.sh'` (pre-commit bundles it)         |
-| Workflows                | `actionlint` (pre-commit bundles it; CI uses the digest-pinned image) |
-| All lint hooks at once   | `uv run pre-commit run --all-files`                                   |
+| Check                    | Command                                                                             |
+| ------------------------ | ----------------------------------------------------------------------------------- |
+| Python contract tests    | `uv run pytest`                                                                     |
+| Node contract tests      | `npm test` (also runs every `.claude/skills/*/*.test.mjs` suite)                    |
+| Release snapshot paths   | `uv run python scripts/verify_release_snapshot.py`                                  |
+| Workflow reference fresh | `uv run python scripts/gen_workflow_reference.py --check`                           |
+| Generated blocks fresh   | `uv run python scripts/gen_doc_blocks.py --check` (also runs under `uv run pytest`) |
+| Python lint / format     | `uv run ruff check .` · `uv run ruff format --check .`                              |
+| Markdown / YAML / JSON   | `npx prettier --check .` (fix: `npm run format`)                                    |
+| Shell                    | `shellcheck` on `git ls-files '*.sh'` (pre-commit bundles it)                       |
+| Workflows                | `actionlint` (pre-commit bundles it; CI uses the digest-pinned image)               |
+| All lint hooks at once   | `uv run pre-commit run --all-files`                                                 |
 
 CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs three jobs on every PR and push to `main`: **Tests**, **Lint and format**, **Internal links**. External links are checked weekly by [links.yml](.github/workflows/links.yml), which opens a tracking issue on failure.
 
@@ -48,6 +49,7 @@ CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs three jobs on eve
 | `examples/`                                  | Caller templates, setup presets, Threat pack skeletons, QA config and Hazard pack templates, and an `orchestrate` config. |
 | `scripts/*.test.py`, `*.test.mjs`            | Contract tests.                                                                                                           |
 | `scripts/gen_workflow_reference.py`          | Generates `docs/reference.md` from the workflows.                                                                         |
+| `scripts/gen_doc_blocks.py`, `doc-facts.mjs` | Write the Generated blocks in the docs from their Doc facts ([how](#docs-that-are-generated-and-how-to-add-one)).         |
 | `security/`                                  | This repository's own Threat pack (dogfood audit).                                                                        |
 
 ## Contract tests
@@ -93,7 +95,7 @@ To add a new kind of Doc fact, in the pull request that introduces the list:
 3. Put the empty markers where the list belongs, replacing any hand-written copy, and run the command above.
 4. Add a case to `generated-blocks-contract.test.py` that changes the source in a temporary copy and asserts the check fails, like the protected-paths case.
 
-The check also fails, naming the page, on an unknown fact name, a mistyped marker, a marker with no partner or one block opened inside another, and on a fact in `FACTS` that no page holds. Running the generator does not fix those: correct the marker by hand.
+The check also fails, naming the page, on an unknown fact name, a mistyped marker, a marker with no partner or one block opened inside another, and on a fact in `FACTS` that no page holds. Running the generator does not fix those, and it writes no page until they are gone: correct the marker by hand.
 
 ## Action and dependency pins
 
