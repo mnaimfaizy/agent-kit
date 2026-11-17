@@ -169,22 +169,33 @@ For each Delegation in the wave, write its brief to its folder in the run, carry
 
 ### 6. Run the loop
 
-`await` the running Delegations. For each event:
+`await` the running Delegations, on the harness's event and the heartbeat ([HARNESSES.md](HARNESSES.md#waiting-an-event-and-a-heartbeat)). A wake-up means something may have changed, never that a report is final. So on each one, check every running Delegation, not only the one the wake-up named. For each event:
 
 - **A Decision Request:** in an autonomous run, first decide whether it is a kind the Chief of Staff rules on, with evidence that meets the bar ([Autonomous runs](#autonomous-runs)). If it is, make a Ruling. If not, set only that Delegation to `waiting`, queue the question, notify the human where the harness can, and go on with the run. In any other run, relay it to the human, whole. When the human answers, `message` the answer to the Delegation, and log it. Then record it where `decisions.to` says ([CONFIG.md](CONFIG.md#decisions)), starting with `decisions.marker` when one is set: for `pull-request`, the message tells the Delegation to add it to its own pull request's body; for `issue-comment`, the Chief of Staff drafts the comment, and posts it as a write as the human.
 - **A drafted write as the human:** an approved routine kind goes ahead and is logged; any other kind is relayed as a Decision Request, and made only on a yes.
-- **A report:** verify it (step 7), or for a QA Delegation, step 9.
+- **A report:** when its **Final:** line says `yes`, verify it (step 7), or for a QA Delegation, step 9. When it says `no, waiting on <what>`, it is not verified yet and not sent back: re-arm the wait on that Delegation, and let the heartbeat check it again.
 - **A push to a branch that has passed step 7:** its head moved. Its verification and any QA for the old head no longer hold: set its building row back to `reported`, whether it was `verified`, `awaiting Ruling Review` or `ready to merge`, mark a running or `passed` QA Delegation for it `void` (a `failed` one stays `failed`, as the record of that run), and verify the new head from step 7.
 - **No sign of progress** for longer than the work explains: read the Delegation's Activity Log and its branch. If it is stuck, `message` it once with what you see. If it is still stuck at the next check, raise it to the human as a Decision Request.
 - **A crash:** keep its branch and worktree as they are: they are its handoff. Record what was done and what is left on the board, and raise it to the human with a recommendation (start a new Delegation from the branch, or stop).
 - **In an autonomous run**, a Delegation still stuck after the nudge, or a crashed one, is a Ruling instead of a question to the human: nudge it again, or restart it from its branch. The Chief of Staff makes one such Ruling per issue in the run. When the nudged or restarted Delegation stalls or crashes again, that is a question the human keeps: it is queued and notified as a question not ruled on ([Autonomous runs](#autonomous-runs)). Stopping it, or dropping it from the run, stays the human's.
 - **A Ruling overturned in the Ruling Review:** act on it as on any human answer ([Autonomous runs](#autonomous-runs)).
 
+**The heartbeat.** Arm it at the first `spawn` of the run, in the form the harness file gives, and record its id on the board, with the time it was made ([RUN.md](RUN.md#board)). On tier 3 there is none: the human is the event. Delete it at close-out (step 10), or when the run parks with nothing running and only the human's merges to wait for, and record that on the board. `--resume` arms it again ([RUN.md](RUN.md#resume)). Where the harness's heartbeat expires, recreate it before then and record the new id. On each firing, the Chief of Staff:
+
+1. reads the board;
+2. compares each running Delegation's `report.md` and `decisions.md` with what it last handled, by the time and size it logged when it handled them;
+3. checks each Delegation's session or process where nothing new was written, the pull request's checks (`gh pr checks <pr>`), and the review run ([step 7](#the-review-workflow));
+4. acts on what changed, as the events above say, and re-arms any wait that ended or timed out, such as a subscription on one Delegation or a capped wait on CI or the review. When nothing changed, it logs one line in the Activity Log and ends the turn at once.
+
+A question already queued and notified is not notified again at each firing: it waits on the board, as before.
+
 When a Delegation leaves the wave, start the next Delegation whose wait is over, within `limits.building`, or one on a harness that runs sequentially.
 
 **Done when:** every building Delegation is Ready to Merge or `awaiting Ruling Review`, stopped with its analysis delivered, parked until a merge, landed on a spec run's integration branch ([SPEC.md](SPEC.md#on-an-integration-branch)), or raised to the human.
 
 ### 7. Verify each report
+
+Only a final report is verified: one that says `**Final:** yes`. A report that says `no, waiting on <what>` is not sent back, since the Delegation said what it waits for. It waits for the heartbeat (step 6). A report with no **Final:** line is sent back, as a blank line would be.
 
 Check each claim the report makes ([BRIEF.md](BRIEF.md#report)) against the source:
 
@@ -202,7 +213,7 @@ The review workflow's Caller is the repository's workflow with a job that `uses:
 
 With a Caller, green CI and no review comments is not a settled review: the review workflow posts its comments after CI is green, minutes later. Base the claim on the Caller's run for the verified head, never on whether comments exist yet. Find it with `gh run list --workflow <Caller> --commit <head>`, or the review job's check in `gh pr checks <pr>`. A run started by a manual dispatch is recorded against the commit it was dispatched on, usually the default branch's, not the pull request's head, so neither of those finds it: list the Caller's dispatched runs since the head was pushed (`gh run list --workflow <Caller> --event workflow_dispatch`), and read which head each reviewed from its log once it has finished: the review job's "Build review brief" step shows the head it was given as `HEAD_SHA` (`gh run view <run-id> --log`; `gh` gives no log for a run still going). A dispatched run still queued or running, started since the head was pushed, counts as a review running for this head until its finished log says otherwise. A finished dispatched run, started since the head was pushed, whose log shows no `HEAD_SHA` (its gate refused the dispatching actor, or it was cancelled while it waited) is a failed or cancelled review: raise it as below, with its link. A run whose review job was skipped is not a review, and neither is a run for an earlier head. The review claim holds once a run's review job has finished on this head and every comment it posted is fixed or answered, or once the human has said no review is coming for this head, recorded where `decisions.to` says.
 
-- **The review is running or queued:** the row stays `reported`. Check it again at the pace the review takes, minutes apart: at each `await`, or with `gh run watch <run-id> --interval 60`. Never tighter than that. Where the harness delivers the pull request's events to this session, wait for them instead. Where it does not, as on harnesses with no CI or pull request subscription, these checks are the only way the comments reach the run.
+- **The review is running or queued:** the row stays `reported`. Check it again at the pace the review takes, minutes apart: at each wake-up, the heartbeat's included, or with a capped wait the harness file names, such as `gh run watch <run-id> --interval 60`. Never tighter than that. A capped wait that ends with nothing found is re-armed at the next heartbeat, never left ended. Where the harness delivers the pull request's events to this session, wait for them instead. Where it does not, as on harnesses with no CI or pull request subscription, these checks are the only way the comments reach the run.
 - **No run on this head:** the review starts on a trigger the human owns, such as a label (Agent-kit's example Caller runs on `agent:review`) or a manual dispatch. Raise a Decision Request: start the review on this head, or say no review is coming. Adding the label is a write as the human, drafted unless the human approved that kind in the Dispatch Plan.
 - **The review job failed or was cancelled:** it is not a review. Raise it to the human, with the run's link, with the same two options.
 
@@ -248,6 +259,8 @@ In an autonomous run, the Ruling Review comes first. List each Delegation that i
 Then check each Ready to Merge row's head for a review run or comment newer than its verification ([step 7](#the-review-workflow)); a row with one goes back to step 7. Then print the Ready to Merge list, one row per Delegation with its pull request and head, and for one that needed QA, its QA result for that head; then the merge order from step 8. With `routes.merge` set, print the command for each, in order. Never run it.
 
 Also print what is not on the list and why: parked Delegations, Delegations awaiting Ruling Review, analysis results waiting on a decision, issues for the human, and anything raised and unanswered.
+
+Once the list is printed, delete the heartbeat (step 6) and record that on the board. Anything that sends a Delegation back to work after that, such as an overturned Ruling, arms it again.
 
 Then one line for the harness: each **check before use** item this run settled, and what it found, so the harness file can be corrected; and, on an unlisted harness, an offer to draft a harness file from what the run learned. Writing either is a change to this skill, made only on the human's yes.
 

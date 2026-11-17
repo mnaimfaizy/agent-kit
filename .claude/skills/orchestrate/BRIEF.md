@@ -13,7 +13,7 @@ Every brief carries these eight items, in this order, as its own headed sections
 5. **Command routes.** How to commit (`routes.commit`), how to open the pull request (`routes.pull_request`), and the commands that re-gate the branch (`regate`). The skill to implement with (`skills.implement`) in a building brief, or to analyse with (`skills.triage`) in an analysis brief, when the config names one. The branch name the Dispatch Plan gave it.
 6. **Rules for writes.** The Delegation may push its own branch, open its own pull request and reply on its own review. It never merges, force-pushes, changes repository settings, or deletes a branch, worktree or checkpoint. Any other write in the human's name (an issue comment, a new issue, a label, closing an issue) it drafts and raises as a Decision Request, unless the brief lists that kind as approved for the run.
 7. **The Decision Request form.** The form below, verbatim, and the rule: when the Delegation cannot settle a question from its brief and the documents it read, it raises a Decision Request and stops that line of work until it is answered. In an autonomous run, the brief adds that an answer may arrive as a Ruling `R<n>`, in the [Ruling form](#ruling) below, to be acted on as an answer and recorded in its pull request labelled "Chief of Staff ruling, not yet reviewed", then updated to its verdict after the Ruling Review.
-8. **Report and log files.** The paths of its Activity Log, its report and its Decision Requests file in the run folder ([RUN.md](RUN.md)), each as an absolute path into the Chief of Staff's checkout: the run folder is gitignored, so the Delegation's own worktree has no copy of it, and a relative path would land in that worktree, where the Chief of Staff never looks. Then the report form below, which in an autonomous run carries the commit-to-Ruling map: each Ruling it followed, with the commits that followed from it. It appends to its Activity Log as it works, and writes its report when it reaches a stop point.
+8. **Report and log files.** The paths of its Activity Log, its report and its Decision Requests file in the run folder ([RUN.md](RUN.md)), each as an absolute path into the Chief of Staff's checkout: the run folder is gitignored, so the Delegation's own worktree has no copy of it, and a relative path would land in that worktree, where the Chief of Staff never looks. Then the report form below, which in an autonomous run carries the commit-to-Ruling map: each Ruling it followed, with the commits that followed from it. It appends to its Activity Log as it works, and writes its report when it reaches a stop point. It never ends its turn while work its report depends on is still running, such as a re-gate, a test run or a wait on CI: it waits for that work in the same turn. If it must end the turn anyway, it first writes the report with `**Final:** no, waiting on <what>`, and writes it again with `**Final:** yes` when that work has finished. A turn that ends early wakes the Chief of Staff with nothing to verify.
 
 ## The QA brief
 
@@ -30,7 +30,7 @@ A QA Delegation's brief carries the same eight items, filled for QA. It tests on
 5. **Command routes.** The pull request's number and `<head>`, the QA config's path (`qa_config` from `check`), and how each QA skill starts on this harness (its file under [harnesses/](harnesses/), and [HARNESSES.md](HARNESSES.md#choosing-an-executor)): sent to the session as a message after the phase before it stops, or typed there by the human. `qa-plan` and `manual-qa` are invoked only by a person, so the session never tries to start one itself. When a message names a skill and the session cannot run it as an invocation, it says so in its Activity Log and its last message, and waits for the human to type it.
 6. **Rules for writes.** Delivering the QA Plan only on the answer to phase 2's Decision Request. Posting the QA Report only when the brief lists it as an approved routine kind for the run, or on a Decision Request's yes. Uploading a QA Artifact only on a yes for that file. When the human is in this session and answers a QA skill's own question here (to deliver, to post, or to upload a file), that answer counts: log it, and raise no Decision Request for it. No other write.
 7. **The Decision Request form.** As in the Brief Contract.
-8. **Report and log files.** As in the Brief Contract, with the paths of `qa-plan.md` and `qa-report.md` in its Delegation folder, and the QA report form below in place of the report form.
+8. **Report and log files.** As in the Brief Contract, with the paths of `qa-plan.md` and `qa-report.md` in its Delegation folder, and the QA report form below in place of the report form. The same rule on ending a turn holds: a QA report says `**Final:** yes` only once nothing it depends on is still running, and `**Final:** no, waiting on <what>` before a turn that must end sooner.
 
 ## Decision Request
 
@@ -73,6 +73,7 @@ The Delegation acts on a Ruling as on the human's answer, and marks its Decision
 ```markdown
 ### Report: <Delegation id>, #<issue>
 
+**Final:** <yes, or no, waiting on <what>>
 **Stop point:** <phase number and its Stop: line>
 **Branch:** <name> at <full commit SHA>, pushed: <yes/no>
 **Pull request:** <URL, or none yet>
@@ -84,13 +85,14 @@ The Delegation acts on a Ruling as on the human's answer, and marks its Decision
 **Decision Requests:** <open ones, by heading>
 ```
 
-Every line is a claim the Chief of Staff checks before it tells the human anything. A line that cannot be filled says so; a report with a blank line is sent back.
+Every line is a claim the Chief of Staff checks before it tells the human anything. A line that cannot be filled says so; a report with a blank line is sent back. The **Final:** line tells an early wake-up from a finished report: the Chief of Staff verifies only a report that says `yes`, and keeps checking one that says `no` ([SKILL.md](SKILL.md) step 7).
 
 A QA Delegation reports in this form instead:
 
 ```markdown
 ### QA report: <Delegation id>, #<issue>, pull request #<n>
 
+**Final:** <yes, or no, waiting on <what>>
 **Stop point:** <phase number and its Stop: line>
 **Head:** <full commit SHA tested>; the pull request's head at the end: <full SHA>
 **QA Plan:** <path in the run folder>; delivered: <where, or not yet>; or none: no Residue, with each claim that proves a promise

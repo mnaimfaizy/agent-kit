@@ -98,6 +98,16 @@ With `executors` in the config, one kind of Delegation runs on another harness's
 
 A Delegation is Ready to Merge only when every check on its head has passed, its review is settled, its QA requirement is met on its current head, its Rulings are upheld or overturned with their rework verified (in an autonomous run) and its branch merges cleanly.
 
+### While you are away
+
+The Chief of Staff never waits on one signal alone. Each wait pairs the harness's own event, such as a session ending a turn, with a **heartbeat**: a check that re-arms itself every 10 minutes by default. On each wake-up it checks every running Delegation's report, its pull request's checks and the review run, not only the one that woke it, and acts on anything new. A firing with nothing new logs one line and ends. Each report says whether it is final (`**Final:** yes`), and only a final one is verified. So a Delegation that ends a turn before its re-gate finishes, or a wait on CI that times out empty, no longer leaves the run idle.
+
+- **Claude Code (desktop app and CLI):** the heartbeat is a recurring scheduled task in the Chief of Staff's session, armed at the first Delegation and deleted at close-out. The board shows its id, and `--resume` arms it again. Every firing is a short turn on the Chief of Staff's model.
+- **Cursor:** the Chief of Staff keeps its turn open on a watch that checks every minute, and runs it again every 10 to 15 minutes. To talk to it mid-run, stop its turn. The Dispatch Plan may also offer a `stop` hook as a backup, a change to your project settings made only on your yes.
+- **A harness with no way to start another agent:** there is no heartbeat. You say when a session has written its report.
+
+Nothing local runs while the computer sleeps. Before leaving a desktop run unattended, turn on **Keep computer awake** in the Claude desktop app's **Settings > Desktop app**; a closed lid still sleeps. The Dispatch Plan reminds you.
+
 ## QA
 
 With `ready_to_merge.qa: report` (for every issue, or only those carrying one of `qa_labels`), each building Delegation gets a QA Delegation, `d<issue>-qa`, listed in the Dispatch Plan with its Executor and model (`models.qa`). It starts only when its building Delegation is verified: CI green, review settled, and a clean merge in the proposed order. It tests that one head:

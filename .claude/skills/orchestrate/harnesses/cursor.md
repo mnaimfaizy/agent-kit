@@ -5,7 +5,7 @@
 - **Tier:** between 1 and 2. It starts sub-agents in the background and tells the Chief of Staff when one ends, but the human cannot talk to a sub-agent while it works.
 - **Headless run:** `agent -p`
 - **Headless QA:** yes, else a session the human starts.
-- **Facts from:** cursor.com/docs, the Subagents, Worktrees, Skills, Headless and Run modes pages, read on 2026-11-14 with Cursor 3.28; and the first run.
+- **Facts from:** cursor.com/docs, the Subagents, Worktrees, Skills, Headless and Run modes pages, read on 2026-11-14 with Cursor 3.28; and the first run. The waiting facts (`await` and the `stop` hook) are from the Subagents, Hooks and Agent overview pages and the CLI changelog, read on 2026-11-18 with Cursor 3.30.14.
 - **Executors:** building and analysis, a background sub-agent in its own worktree; QA, a headless run of the Cursor CLI (`agent`), else a session the human starts.
 - **Notify:** none known: the sources in **Facts from** name no way for the Chief of Staff to notify the human. A queued question waits in its session and on the board.
 
@@ -13,7 +13,8 @@
 
 - `spawn`, for a building or analysis Delegation: a background Task sub-agent on the brief, with the plan's model, and a brief that opens by asking for its own isolated worktree on the Delegation's branch. Straight after `spawn`, check that the sub-agent's working directory is a worktree under `~/.cursor/worktrees/` on that branch. If it is the Chief of Staff's checkout, stop the sub-agent and raise it to the human before it writes anything. The handle is the agent id the Task tool returns.
 - `message`: "Resume agent `<id>`: <text>", once the sub-agent has ended.
-- `await`: end the turn. A background sub-agent's end is announced with its final message. Never poll. If the editor does not announce it, read `~/.cursor/subagents/` at an interval matched to the work.
+- `await`: a foreground watch inside the turn ([HARNESSES.md](../HARNESSES.md#waiting-an-event-and-a-heartbeat)). The Chief of Staff runs a shell loop in the foreground that checks every 60 seconds. It returns on any change to a Delegation's `report.md` or `decisions.md`, to `~/.cursor/subagents/`, or to the state of a pull request the run waits on, or else at a 10 to 15 minute cap. Then the Chief of Staff acts on what changed, or on nothing, writes the board, and runs the watch again. The Chief of Staff never ends its turn while a Delegation runs, so the run never depends on the editor waking an idle parent. A background sub-agent's end, where the editor announces it, is one more change the watch sees. The watch's cap is the heartbeat.
+- The Dispatch Plan offers a `stop` hook heartbeat as a persistent change, made only on the human's yes. While a run is open, shown by a marker file in the run folder, a project `stop` hook returns `followup_message: "Heartbeat: check the orchestrate board"` with `loop_limit: null`, so a turn that ends anyway is followed by another. It is the net under the watch, not a replacement for it: whether it can wait before it returns is a check before use item.
 - `report`: the report file, by its absolute path; a Delegation whose write is refused ends with its report as its last message instead.
 - A QA Delegation: the Chief of Staff makes its worktree, `git worktree add --detach <path> <head>`, with `<path>` outside `~/.cursor/worktrees/`, which Cursor cleans up. Then `agent -p "<brief>" --model <model> --output-format json` in that worktree, as a background process, with `message` as `agent -p "<text>" --resume <session-id>` there. Print mode refuses every write outside the workspace, so the QA run ends with its report as its last message, unless the human approved `--force` in the Dispatch Plan. If `-p` does not run `/qa-plan <n>`, or has no browser, fall back to a session the human starts in a worktree, where the human types `/qa-plan <n>` and later `/manual-qa <plan file>`.
 
@@ -25,6 +26,7 @@
 - A sub-agent cannot subscribe to CI (refused in the first run), and a CI subscription does not deliver review comments. The Chief of Staff watches each pull request's checks and comments itself, with `gh`.
 - Cursor deletes the oldest worktrees under `~/.cursor/worktrees/` once there are more than `cursor.worktreeMaxCount` (25 by default), including ones made by hand there. A Delegation pushes its branch as soon as it has a commit, and the Chief of Staff makes its own scratch worktrees outside that folder.
 - QA may fall back to a session the human starts, where the human types the two QA commands.
+- While a Delegation runs, the Chief of Staff's turn stays open on the foreground watch. A message the human queues there waits for the current task to finish, so to talk to the Chief of Staff mid-run, the human stops its turn. The Chief of Staff answers, then runs the watch again.
 - A Cursor Cloud Agent can subscribe to its own pull request, but cannot reach the run folder or the local QA Stack, and needs a cloud plan; it is offered only when the human asks.
 - Cursor Projects (beta) is never an Executor or the Chief of Staff. Its coordinator rewrites each brief, and no API setting picks a worker's model, branch or brief. Its local workers run in the existing checkout, with no isolation. Nothing it does reaches a local session as an event (read 2026-11-14).
 
@@ -32,6 +34,9 @@
 
 - Whether text can reach a sub-agent while it is still working.
 - That the editor, and not only the CLI, announces a background sub-agent's end.
+- Whether a finished background sub-agent or background shell starts a new turn in an idle parent, in the editor or the interactive CLI. The CLI changelog documents it for ACP mode only (not yet confirmed).
+- How long a foreground shell command in the editor may run, and whether a long turn is cut off. The foreground watch depends on both (not yet confirmed).
+- Whether a `stop` hook may wait minutes before it returns `followup_message`, and its default timeout, which the docs give only as "platform default" (not yet confirmed).
 - Whether a worktree sub-agent's workspace is its worktree or the Chief of Staff's folder, and so whether its report write needs approval.
 - Whether `-p` runs `/qa-plan <n>` as the user's own invocation, and whether a headless run has a browser.
 - Which copy wins when both `~/.claude/skills` and `.claude/skills` hold `orchestrate`: Cursor loads both.
