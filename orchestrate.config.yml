@@ -24,6 +24,7 @@ regate:
   - "node --test --test-skip-pattern='denies an out-of-tree read with the staged hook|exits non-zero from the command line on an unexpected key' scripts/*.test.mjs .claude/skills/*/*.test.mjs"
   - uv run ruff check .
   - uv run ruff format --check .
+  - npm ci
   - npx prettier --check .
 
 skills:
