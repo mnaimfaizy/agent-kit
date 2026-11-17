@@ -259,3 +259,25 @@ _Avoid_: trigger, chain
 **Maintainer guidance**:
 A trusted person's reply on a finding's thread, passed to the next round.
 _Avoid_: instructions, feedback
+
+### Docs gate
+
+**Doc fact**:
+A fact that has one source in Agent-kit's code or config and also appears in its docs, such as a variable name, a protected path, an agent's tool limits or a Trigger label.
+_Avoid_: doc constant, shared fact
+
+**Generated block**:
+A marked part of a doc page whose text is written from a Doc fact's source and checked in CI, while the prose around it stays hand-written.
+_Avoid_: snippet, include, autogen section
+
+**Deprecation register**:
+The one record of each removed or renamed name, its replacement, the release it changed in, and where the old name may still appear.
+_Avoid_: rename map, removed-names list
+
+**Docs map**:
+A repository's list that pairs areas of its code with the doc pages that describe them, read by the review to find pages a change may leave stale.
+_Avoid_: doc index, sitemap
+
+**Docs-impact finding**:
+A review finding that names a doc page still describing what the change under review added, renamed, changed or removed.
+_Avoid_: stale-doc warning, docs drift
