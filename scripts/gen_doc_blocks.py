@@ -57,14 +57,22 @@ OWN_MODEL = re.compile(r"CLAUDE_([A-Z0-9_]+)_MODEL")
 STAGE_NAMES = {"REVIEW_RESPONSE": "Review response", "SECURITY_AUDIT": "security audit"}
 
 
+@dataclass(frozen=True)
+class Fallback:
+    """A setting read as `vars.A || vars.B || 'x'`: the variables in order, then the literal default, if any."""
+
+    variables: tuple[str, ...]
+    default: str | None
+
+
 @dataclass
 class Stage:
     """One Stage as an example Caller sets it up: its Kill switch terms and its fallback chains."""
 
     name: str
-    switch: list[tuple[str, str]]  # (variable, "is `true`" or "is not `false`"), all of which must hold
-    model: list[str | None]  # variables in order, then the literal default (None if there is none)
-    effort: list[str | None]
+    switch: list[tuple[str, bool]]  # (variable, True if it must be `true`, False if it must not be `false`)
+    model: Fallback
+    effort: Fallback
 
 
 class Sources:
@@ -89,13 +97,21 @@ class Sources:
     @cached_property
     def stages(self) -> list[Stage]:
         """Each Stage, from every example Caller job that passes a `model`, in file and job order."""
-        stages = []
+        stages: list[Stage] = []
         for path in sorted(self.root.glob(CALLERS)):
             label = path.relative_to(self.root).as_posix()
-            for job_name, job in (yaml.safe_load(path.read_text(encoding="utf-8")).get("jobs") or {}).items():
-                settings = job.get("with") or {}
-                if "model" in settings:
-                    stages.append(_stage(settings, f"{label}: job {job_name}"))
+            caller = yaml.safe_load(path.read_text(encoding="utf-8"))
+            jobs = caller.get("jobs") if isinstance(caller, dict) else None
+            if not isinstance(jobs, dict):
+                raise SystemExit(f"{label}: has no jobs mapping, so no Stage can be read from it")
+            for job_name, job in jobs.items():
+                settings = (job or {}).get("with") or {}
+                if "model" not in settings:
+                    continue
+                stage = _stage(settings, f"{label}: job {job_name}")
+                if any(seen.name == stage.name for seen in stages):
+                    raise SystemExit(f"{label}: job {job_name} sets up the {stage.name} Stage a second time")
+                stages.append(stage)
         return stages
 
 
@@ -106,19 +122,16 @@ def _expression(settings: dict, key: str, where: str) -> str:
     return match.group(1)
 
 
-def _chain(settings: dict, key: str, where: str) -> list[str | None]:
-    """`vars.A || vars.B || 'x'` as ["A", "B", "x"]; with no literal at the end, the last item is None."""
-    chain: list[str | None] = []
+def _fallback(settings: dict, key: str, where: str) -> Fallback:
+    """`vars.A || vars.B || 'x'`, which must start with a variable."""
     terms = [term.strip() for term in _expression(settings, key, where).split("||")]
-    for at, term in enumerate(terms):
-        variable, literal = VARIABLE.fullmatch(term), LITERAL.fullmatch(term)
-        if variable:
-            chain.append(variable.group(1))
-        elif literal and at == len(terms) - 1:
-            chain.append(literal.group(1))
-        else:
-            raise SystemExit(f"{where}: {key} has {term!r}; the generator reads only vars.NAME || ... || 'default'")
-    return chain if literal else [*chain, None]
+    default = LITERAL.fullmatch(terms[-1])
+    variables = [VARIABLE.fullmatch(term) for term in (terms[:-1] if default else terms)]
+    if not variables or not all(variables):
+        raise SystemExit(
+            f"{where}: {key} is {' || '.join(terms)!r}; the generator reads only vars.NAME || ... || 'default'"
+        )
+    return Fallback(tuple(match.group(1) for match in variables), default.group(1) if default else None)
 
 
 def _stage(settings: dict, where: str) -> Stage:
@@ -130,9 +143,9 @@ def _stage(settings: dict, where: str) -> Stage:
                 f"{where}: kill_switch has {term.strip()!r}; the generator reads only"
                 " vars.NAME != 'true' or vars.NAME == 'false', joined by ||"
             )
-        switch.append((match.group(1), "is `true`" if match.group(2) == "!=" else "is not `false`"))
-    model, effort = _chain(settings, "model", where), _chain(settings, "effort", where)
-    token = OWN_MODEL.fullmatch(model[0] or "")
+        switch.append((match.group(1), match.group(2) == "!="))
+    model, effort = _fallback(settings, "model", where), _fallback(settings, "effort", where)
+    token = OWN_MODEL.fullmatch(model.variables[0])
     if not token:
         raise SystemExit(f"{where}: model should read the Stage's own CLAUDE_<STAGE>_MODEL first")
     name = STAGE_NAMES.get(token.group(1), token.group(1).lower().replace("_", " "))
@@ -172,7 +185,10 @@ def _table(header: list[str], rows: list[list[str]]) -> str:
 
 
 def stage_kill_switches(sources: Sources) -> str:
-    rows = [[stage.name, " and ".join(f"`{var}` {state}" for var, state in stage.switch)] for stage in sources.stages]
+    def condition(variable: str, must_be_true: bool) -> str:
+        return f"`{variable}` is `true`" if must_be_true else f"`{variable}` is not `false`"
+
+    rows = [[stage.name, " and ".join(condition(*term) for term in stage.switch)] for stage in sources.stages]
     return _table(["Stage", "Runs when"], rows)
 
 
@@ -180,20 +196,20 @@ def stage_model_and_effort(sources: Sources) -> str:
     stages = sources.stages
     # Every Stage reads its own variable, then the same shared ones, then the same default.
     for setting in ("model", "effort"):
-        tails = {tuple(getattr(stage, setting)[1:]) for stage in stages}
+        tails = {(getattr(stage, setting).variables[1:], getattr(stage, setting).default) for stage in stages}
         if len(tails) > 1:
             raise SystemExit(
                 f"The example Callers' {setting} settings fall back differently ({sorted(map(str, tails))});"
                 " the stage-model-and-effort block shows one shared fallback, so make them agree"
             )
 
-    def shared(chain: list[str | None]) -> str:
-        return ", then ".join(f"`{var}`" for var in chain[1:-1]) or "none"
+    def shared(fallback: Fallback) -> str:
+        return ", then ".join(f"`{variable}`" for variable in fallback.variables[1:]) or "none"
 
-    def default(chain: list[str | None]) -> str:
-        return f"`{chain[-1]}`" if chain[-1] else "none"
+    def default(fallback: Fallback) -> str:
+        return f"`{fallback.default}`" if fallback.default else "none"
 
-    rows = [[stage.name, f"`{stage.model[0]}`", f"`{stage.effort[0]}`"] for stage in stages]
+    rows = [[stage.name, f"`{stage.model.variables[0]}`", f"`{stage.effort.variables[0]}`"] for stage in stages]
     if stages:
         first = stages[0]
         rows.append(["any Stage above", shared(first.model), shared(first.effort)])
@@ -201,17 +217,17 @@ def stage_model_and_effort(sources: Sources) -> str:
     return _table(["Stage", "Model", "Effort"], rows)
 
 
-def _sh(value: str) -> str:
+def _shell_word(value: str) -> str:
     """A shell word, double-quoted as the docs write them unless that would expand something."""
     return f'"{value}"' if not set(value) & set('"\\$`!') else shlex.quote(value)
 
 
 def trigger_labels(sources: Sources) -> str:
     labels = sources.js["trigger-labels"]
-    width = max((len(_sh(label["name"])) for label in labels), default=0)
+    width = max((len(_shell_word(label["name"])) for label in labels), default=0)
     lines = [
-        f"gh label create {_sh(label['name']).ljust(width)} --color {label['color']}"
-        f" --description {_sh(label['description'])}"
+        f"gh label create {_shell_word(label['name']).ljust(width)} --color {label['color']}"
+        f" --description {_shell_word(label['description'])}"
         for label in labels
     ]
     return "\n".join(["```bash", *lines, "```"])

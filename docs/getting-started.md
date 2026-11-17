@@ -158,7 +158,7 @@ Skip if you only use plan → implement → review.
 
 ## 8. Turn the flows on (Kill switch variables)
 
-Callers read every Stage setting from repository variables named `CLAUDE_<STAGE>_<SETTING>`, with the Stage tokens `PLAN`, `IMPLEMENT`, `REVIEW`, `REVIEW_RESPONSE` and `SECURITY_AUDIT` ([ADR 0009](adr/0009-stage-settings-resolve-in-the-caller.md)). A flow's **Kill switch** keeps it off until the variable is exactly `true`, and each Stage runs only when every condition in its row holds:
+Callers read every Stage setting from repository variables named `CLAUDE_<STAGE>_<SETTING>`, with the Stage tokens `PLAN`, `IMPLEMENT`, `REVIEW`, `REVIEW_RESPONSE` and `SECURITY_AUDIT` ([ADR 0009](adr/0009-stage-settings-resolve-in-the-caller.md)). Each Stage's **Kill switch** variables keep it off until every condition in its row holds:
 
 <!-- generated:stage-kill-switches -->
 
@@ -178,7 +178,7 @@ gh variable set CLAUDE_SECURITY_AUDIT_ENABLED --body true
 gh variable set CLAUDE_REVIEW_RESPONSE_ENABLED --body true
 ```
 
-Inside the Agent flow, each Stage also has its own switch, as the table shows. Unset counts as on; only `false` turns that Stage off (GitHub compares these values without regard to case, so `False` does too, and `TRUE` counts as `true` for a flow's switch). A Stage runs only when the master switch is `true` and its own switch is not `false`, so the plan job passes `kill_switch: ${{ vars.CLAUDE_AGENT_FLOW_ENABLED != 'true' || vars.CLAUDE_PLAN_ENABLED == 'false' }}`. For example, to keep plan and review but have a person write the code:
+Inside the Agent flow, each Stage also has its own switch, as the table shows. Unset counts as on; only `false` turns that Stage off (GitHub compares these values without regard to case, so `False` does too, and `TRUE` counts as `true` for a flow's switch). For example, to keep plan and review but have a person write the code:
 
 ```bash
 gh variable set CLAUDE_IMPLEMENT_ENABLED --body false
@@ -188,7 +188,7 @@ gh variable set CLAUDE_IMPLEMENT_ENABLED --body false
 
 Set a flow's switch to anything but `true` (or delete it) to stop it instantly without a commit.
 
-**Model and effort (optional).** Each Stage reads its own variable first, then the shared one. A model falls back to `claude-opus-5-5`. With no effort set, `--effort` is left off and the model's own default applies. For example, the plan job passes `model: ${{ vars.CLAUDE_PLAN_MODEL || vars.CLAUDE_MODEL || 'claude-opus-5-5' }}` and `effort: ${{ vars.CLAUDE_PLAN_EFFORT || vars.CLAUDE_EFFORT || '' }}`. Change either at any time, with no commit needed:
+**Model and effort (optional).** Each Stage reads its own variable first, then the shared one, then the default in the last row. With no effort set, `--effort` is left off and the model's own default applies. Change either at any time, with no commit needed:
 
 <!-- generated:stage-model-and-effort -->
 

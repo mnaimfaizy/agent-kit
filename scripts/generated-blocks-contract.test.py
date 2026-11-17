@@ -118,11 +118,11 @@ def test_a_new_protected_path_without_regenerating_fails() -> None:
 def test_a_changed_init_label_without_regenerating_fails() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = copy_repo(Path(tmp))
-        script = root / INIT_SCRIPT
-        text = script.read_text(encoding="utf-8")
-        anchor = '["agent:review", "5319E7", "Agent-kit: review this PR"]'
-        assert anchor in text, "init's agent:review label changed shape; update this test"
-        script.write_text(text.replace(anchor, '["agent:review", "C5DEF5", "Agent-kit: review this PR"]'), "utf-8")
+        edit(
+            root / INIT_SCRIPT,
+            '["agent:review", "5319E7", "Agent-kit: review this PR"]',
+            '["agent:review", "C5DEF5", "Agent-kit: review this PR"]',
+        )
 
         result = check(root)
 
@@ -177,19 +177,26 @@ def test_a_changed_kill_switch_without_regenerating_fails() -> None:
 
 
 def test_a_caller_setting_the_generator_cannot_read_fails_and_names_it() -> None:
-    with tempfile.TemporaryDirectory() as tmp:
-        root = copy_repo(Path(tmp))
-        edit(
-            root / RESPONSE_CALLER,
+    cases = {
+        "kill_switch": (
             "kill_switch: ${{ vars.CLAUDE_REVIEW_RESPONSE_ENABLED != 'true' }}",
             "kill_switch: ${{ !vars.CLAUDE_REVIEW_RESPONSE_ENABLED }}",
-        )
+        ),
+        "effort": (
+            "effort: ${{ vars.CLAUDE_REVIEW_RESPONSE_EFFORT || vars.CLAUDE_EFFORT || '' }}",
+            "effort: ${{ 'high' }}",
+        ),
+    }
+    for key, (old, new) in cases.items():
+        with tempfile.TemporaryDirectory() as tmp:
+            root = copy_repo(Path(tmp))
+            edit(root / RESPONSE_CALLER, old, new)
 
-        result = check(root)
+            result = check(root)
 
-    assert result.returncode == 1, f"--check passed on a Kill switch it cannot read:\n{result.stdout}"
-    assert "Traceback" not in result.stderr, result.stderr
-    assert "examples/review-response-caller.yml" in result.stderr and "kill_switch" in result.stderr, result.stderr
+        assert result.returncode == 1, f"--check passed on a {key} it cannot read:\n{result.stdout}"
+        assert "Traceback" not in result.stderr, result.stderr
+        assert "examples/review-response-caller.yml" in result.stderr and key in result.stderr, result.stderr
 
 
 def test_a_broken_marker_fails_and_names_it() -> None:
