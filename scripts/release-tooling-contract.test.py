@@ -187,6 +187,15 @@ def ready_main(tag: str = "v1.0.0-beta.2") -> str:
     return g("rev-parse", "HEAD")
 
 
+def on_main(files: dict[str, str]) -> None:
+    """Commit files to main and push them, so prepare's branch (cut from origin/main) has them."""
+    for path, text in files.items():
+        write(path, text)
+    g("add", "-A")
+    g("commit", "-qm", "fixture")
+    g("push", "-q", "origin", "main")
+
+
 # --- prepare ----------------------------------------------------------------
 
 
@@ -234,7 +243,7 @@ def test_prepare_is_safe_to_re_run_and_never_overwrites_notes() -> None:
         assert read("release-notes/v1.0.0-beta.2.md") == "Written by hand.\n"
 
 
-REGISTER = """\
+REGISTER_FIXTURE = """\
 # A comment, as the real register has.
 
 - kind: variable
@@ -256,18 +265,9 @@ REGISTER = """\
 """
 
 
-def on_main(files: dict[str, str]) -> None:
-    """Commit files to main and push them, so prepare's branch (cut from origin/main) has them."""
-    for path, text in files.items():
-        write(path, text)
-    g("add", "-A")
-    g("commit", "-qm", "fixture")
-    g("push", "-q", "origin", "main")
-
-
-def test_prepare_puts_the_release_s_register_entries_in_the_notes() -> None:
+def test_prepare_puts_the_tag_s_register_entries_in_the_notes() -> None:
     with sandbox():
-        on_main({"docs/deprecations.yml": REGISTER})
+        on_main({"docs/deprecations.yml": REGISTER_FIXTURE})
         code, out = run("prepare", "--tag", "v1.0.0-beta.2", "--date", "2026-11-14")
         assert code == 0, out
         notes = read("release-notes/v1.0.0-beta.2.md")
@@ -282,7 +282,9 @@ def test_prepare_puts_the_release_s_register_entries_in_the_notes() -> None:
         ], table
         assert "EARLIER_FLAG" not in notes, "an entry for another release is not in these notes"
         # The maintainer still finishes the notes around the table.
-        assert action.count(release.NOTES_MARKER) == 1 and notes.count(release.NOTES_MARKER) >= 3
+        template = release.notes_from_template("v1.0.0-beta.2", [])
+        assert action.count(release.NOTES_MARKER) == 1
+        assert notes.count(release.NOTES_MARKER) == template.count(release.NOTES_MARKER)
         assert "{{" not in notes
 
 
@@ -293,7 +295,7 @@ def test_prepare_writes_no_table_without_entries_for_the_release() -> None:
         without = read("release-notes/v1.0.0-beta.2.md")
     with sandbox():
         # A register whose entries are all for other releases.
-        on_main({"docs/deprecations.yml": REGISTER.replace("release: 1.0.0-beta.2", "release: 1.0.0-beta.1")})
+        on_main({"docs/deprecations.yml": REGISTER_FIXTURE.replace("release: 1.0.0-beta.2", "release: 1.0.0-beta.1")})
         assert run("prepare", "--tag", "v1.0.0-beta.2", "--date", "2026-11-14")[0] == 0
         assert read("release-notes/v1.0.0-beta.2.md") == without
     assert "|" not in without and "no longer work" not in without
@@ -302,7 +304,7 @@ def test_prepare_writes_no_table_without_entries_for_the_release() -> None:
 
 def test_prepare_never_adds_the_table_to_existing_notes() -> None:
     with sandbox():
-        on_main({"docs/deprecations.yml": REGISTER, "release-notes/v1.0.0-beta.2.md": "Written by hand.\n"})
+        on_main({"docs/deprecations.yml": REGISTER_FIXTURE, "release-notes/v1.0.0-beta.2.md": "Written by hand.\n"})
         code, out = run("prepare", "--tag", "v1.0.0-beta.2", "--date", "2026-11-14")
         assert code == 0, out
         assert "release-notes/v1.0.0-beta.2.md: exists; left as is." in out
@@ -312,7 +314,11 @@ def test_prepare_never_adds_the_table_to_existing_notes() -> None:
 def test_prepare_refuses_a_register_outside_its_shape_before_writing() -> None:
     with sandbox():
         on_main(
-            {"docs/deprecations.yml": REGISTER.replace("  release: 1.0.0-beta.2\n", "  release: '1.0.0-beta.2'\n", 1)}
+            {
+                "docs/deprecations.yml": REGISTER_FIXTURE.replace(
+                    "  release: 1.0.0-beta.2\n", "  release: '1.0.0-beta.2'\n", 1
+                )
+            }
         )
         code, out = run("prepare", "--tag", "v1.0.0-beta.2", "--date", "2026-11-14")
         assert code == 1
@@ -751,7 +757,7 @@ def test_cutting_doc_describes_the_two_step_flow() -> None:
 if __name__ == "__main__":
     test_prepare_writes_the_release_prep_branch_and_pushes_nothing()
     test_prepare_is_safe_to_re_run_and_never_overwrites_notes()
-    test_prepare_puts_the_release_s_register_entries_in_the_notes()
+    test_prepare_puts_the_tag_s_register_entries_in_the_notes()
     test_prepare_writes_no_table_without_entries_for_the_release()
     test_prepare_never_adds_the_table_to_existing_notes()
     test_prepare_refuses_a_register_outside_its_shape_before_writing()

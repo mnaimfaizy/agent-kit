@@ -356,7 +356,7 @@ def move_unreleased(text: str, version: str, date: str) -> tuple[str, bool]:
     return text[: heading.end()] + "\n" + section + ("\n" + tail if tail else ""), True
 
 
-def register_entries(text: str) -> list[dict[str, str | None]]:
+def register_entries(text: str, where: str) -> list[dict[str, str | None]]:
     """The register's entries, read strictly in its fixed shape: this tool has no YAML parser."""
     entries: list[dict[str, str | None]] = []
     entry: dict | None = None
@@ -381,16 +381,20 @@ def register_entries(text: str) -> list[dict[str, str | None]]:
         elif entry is not None and line in ("  allowed_paths: []", "  allowed_paths:"):
             in_list = line.endswith(":")
         elif in_list and item and REGISTER_SCALAR.fullmatch(item[1]):
+            # Checked, not kept: the notes need no allowed paths.
             continue
         else:
             raise ReleaseError(
                 f"{REGISTER}:{number}: not in the register's shape: {line!r}."
-                " Fix it on the default branch (see the comment at the top of the register), then re-run."
+                f" Fix it {where} (the comment at the top of the register gives the shape), then re-run."
             )
     for entry in entries:
         missing = [key for key in ("kind", "old", "replacement", "release") if key not in entry]
         if missing:
-            raise ReleaseError(f"{REGISTER}: the entry for {entry.get('old')!r} has no {', '.join(missing)}.")
+            raise ReleaseError(
+                f"{REGISTER}: the entry for {entry.get('old')!r} has no {', '.join(missing)}."
+                f" Fix it {where}, then re-run."
+            )
     return entries
 
 
@@ -430,7 +434,8 @@ def read_register(rev: str | None) -> list[dict[str, str | None]]:
         text = path.read_text(encoding="utf-8") if path.is_file() else ""
     else:
         text = head_file(REGISTER, rev) or ""
-    return register_entries(text)
+    # A fresh run reads the default branch's register; a re-run, the release branch's.
+    return register_entries(text, "on the default branch" if rev else "on this branch")
 
 
 def notes_from_template(tag: str, entries: list[dict[str, str | None]]) -> str:
