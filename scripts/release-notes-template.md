@@ -1,6 +1,8 @@
 <!--
 The release notes template. `scripts/prepare-release.sh` copies everything
 below the template-end line to `release-notes/<tag>.md` and fills in the tag.
+The {{DEPRECATIONS}} line becomes an old-to-new table of the Deprecation
+register's entries for the tag (docs/deprecations.yml), or nothing when it has none.
 Replace every TODO(release-notes) line; neither the prepare commit nor the cut
 accepts notes that still have one. Model: the newest beta's notes in release-notes/.
 -->
@@ -10,6 +12,7 @@ TODO(release-notes): one paragraph. Which {{STAGE}} on the line this is, its bum
 
 ### Consumer action
 
+{{DEPRECATIONS}}
 - TODO(release-notes): what a Consumer must do, or **None required.** Upgrade the `uses:` pins and the Kit-owned paths together, as always. From a clean branch in your repository:
 
   ```bash
