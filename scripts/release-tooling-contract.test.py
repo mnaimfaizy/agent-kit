@@ -325,6 +325,9 @@ def test_prepare_refuses_a_register_outside_its_shape_before_writing() -> None:
         assert "docs/deprecations.yml:6: not in the register's shape" in out, out
         assert not Path("release-notes/v1.0.0-beta.2.md").exists()
         assert "## [Unreleased]\n\n### Added" in read("CHANGELOG.md"), "nothing is written before the refusal"
+        # Not even the branch, so a re-run after the fix does not stop on "Branch ... exists".
+        assert g("branch", "--show-current") == "main"
+        assert g("branch", "--list", "chore/release-v1.0.0-beta.2") == ""
 
 
 def test_prepare_commits_only_finished_notes_and_can_open_the_pr() -> None:
