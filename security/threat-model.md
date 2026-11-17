@@ -23,7 +23,7 @@ Threat pack for the dogfood security audit of this repository. Scope is the kit 
 2. **PR head → review/audit runtime.** Untrusted. Instructions, skills, and the read-confinement hook are restored from the PR base before the agent runs.
 3. **Agent workspace → credentialed steps.** The agent can write the workspace; later credentialed steps must only run scripts staged from a trusted commit and digest-checked.
 4. **Agent → runner filesystem.** Read/Glob/Grep are confined to the workspace by the PreToolUse hook; `.git/` reads are denied.
-5. **Caller → reusable workflow.** Caller-owned inputs (`scan_command`, `verify_commands`, `setup_commands`, `extra_allowed_tools`) run with job privileges; they are trusted but must not be derivable from issue/PR text.
+5. **Caller → reusable workflow.** Caller-owned inputs (`scan_command`, `verify_commands`, `format_commands`, `setup_commands`, `extra_allowed_tools`) run with job privileges; they are trusted but must not be derivable from issue/PR text.
 6. **Maintainer → tag.** Only the default branch is tagged; tags are never moved.
 
 ## Attack paths to walk

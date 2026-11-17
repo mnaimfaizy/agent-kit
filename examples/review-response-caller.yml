@@ -61,6 +61,8 @@ jobs:
         # It runs in the agent's sandbox: no network, writes only to the working tree and a temp dir.
         # Call the tools setup installed directly (.venv/bin/pytest, not `uv run pytest`).
         # Prefer quiet reporters: the agent sees a long output cut short.
+        # Have your formatter ignore /review-response-brief.md and /review-response.json
+        # (for prettier, in .prettierignore): the kit writes them in the workspace root.
         set -e
         echo "Provide Consumer verify commands here (lint/tests/typecheck)."
       # Optional: a formatter the agent runs on its edits before the checks,

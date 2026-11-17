@@ -326,13 +326,35 @@ def test_a_staged_script_ends_by_naming_what_failed() -> None:
             )
             return subprocess.run(["bash", f"{tmp}/{name}.sh"], capture_output=True, text=True, check=False, cwd=tmp)
 
+    def last(result: subprocess.CompletedProcess) -> str:
+        return result.stdout.strip().splitlines()[-1]
+
     failed = staged("verify", "set -e\ntrue\necho noise\nfalse\necho never")
     assert failed.returncode == 1
     assert "never" not in failed.stdout
-    assert failed.stdout.strip().splitlines()[-1] == "verify.sh: FAILED with exit 1 at: false"
+    assert last(failed) == "verify.sh: FAILED with exit 1; last failing command: false"
+    # A check that fails inside a Caller-defined function is still named.
+    inside = staged("verify", "set -e\nchecks() { true; false; }\nchecks")
+    assert last(inside) == "verify.sh: FAILED with exit 1; last failing command: false"
+    # An exit with no failing command says so, rather than naming one.
+    bare = staged("verify", "exit 3")
+    assert last(bare) == "verify.sh: FAILED with exit 3; last failing command: none"
     passed = staged("format", "set -e\necho formatted")
     assert passed.returncode == 0
-    assert passed.stdout.strip().splitlines()[-1] == "format.sh: every command passed"
+    assert last(passed) == "format.sh: exited 0"
+
+
+def test_the_dogfood_formatter_skips_the_kits_own_files() -> None:
+    # The kit writes review-response-brief.md (and the agent writes
+    # review-response.json) in the workspace root, hidden from git only by
+    # .git/info/exclude, which prettier does not read. Unignored, `prettier
+    # --check .` fails on the brief whatever the agent changed, and `--write`
+    # rewrites it.
+    dogfood = (WORKFLOWS / "dogfood-review-response.yml").read_text(encoding="utf-8")
+    assert "prettier --check" in dogfood and "prettier --write" in dogfood
+    ignored = (ROOT / ".prettierignore").read_text(encoding="utf-8").splitlines()
+    for name in ("/review-response-brief.md", "/review-response.json"):
+        assert name in ignored, f".prettierignore must list {name}"
 
 
 def test_the_agent_holds_no_write_credential_and_no_gh() -> None:

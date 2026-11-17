@@ -407,15 +407,16 @@ jobs:
           printf '%s\n' "$DEFAULT_BRANCH" > "$HOOKS/push-guard-base"
 
           # The Caller's checks and formatter, each one exact command the
-          # agent may run. A header makes each script's last line name the
-          # command that failed (or say all passed): the agent sees a long
-          # output cut short, and would not otherwise know which check broke.
+          # agent may run. A header makes each script's last line give its
+          # exit code and the last command that failed (errtrace reaches into
+          # functions): the agent sees a long output cut short, and would not
+          # otherwise know which check broke.
           stage_script() {
             {
               printf '__script=%s.sh\n' "$1"
               cat <<'HEADER'
-          trap '__failed=$BASH_COMMAND' ERR
-          trap '__rc=$?; if [ "$__rc" -ne 0 ]; then printf "%s: FAILED with exit %s at: %s\n" "$__script" "$__rc" "${__failed:-unknown}"; else printf "%s: every command passed\n" "$__script"; fi' EXIT
+          set -E; trap '__failed=$BASH_COMMAND' ERR
+          trap '__rc=$?; if [ "$__rc" -ne 0 ]; then printf "%s: FAILED with exit %s; last failing command: %s\n" "$__script" "$__rc" "${__failed:-none}"; else printf "%s: exited 0\n" "$__script"; fi' EXIT
           HEADER
               printf '%s\n' "$2"
             } > "$STAGED/$1.sh"

@@ -8,7 +8,7 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ### Added
 
-- Review response takes an optional `format_commands` input: a Caller-owned formatter, such as `npx prettier --write .`, that the agent may run on its edits before the checks. It is staged and allowed as one exact command, like `verify_commands`, and runs in the same sandbox. Without it, the round on [#254](https://github.com/mnaimfaizy/agent-kit/pull/254) could not re-pad a Markdown table by hand, and declined the fix.
+- Review response takes an optional `format_commands` input: a Caller-owned formatter, such as `npx prettier --write .`, that the agent may run on its edits before the checks. It is staged and allowed as one exact command, like `verify_commands`, and runs in the same sandbox. Without it, the round on [#254](https://github.com/mnaimfaizy/agent-kit/pull/254) could not re-pad a Markdown table by hand, and declined the fix. **Consumer action** if your checks run prettier (or another formatter that does not read `.git/info/exclude`): add `/review-response-brief.md` and `/review-response.json` to its ignore file. The kit writes the brief to the workspace root, and it is not prettier-clean, so `prettier --check .` fails every round.
 
 ### Changed
 
@@ -30,7 +30,7 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ### Fixed
 
-- Review response's staged `verify.sh` (and `format.sh`) now end with one line naming the command that failed and its exit code, or saying every command passed. The agent sees a long check output cut short, and on [#254](https://github.com/mnaimfaizy/agent-kit/pull/254) it could not tell which check broke. The dogfood Caller also uses quiet reporters.
+- Review response's staged `verify.sh` (and `format.sh`) now end with one line giving the exit code and the last command that failed (with errtrace, so a failure inside a function is named too), or `exited 0`. The agent sees a long check output cut short, and on [#254](https://github.com/mnaimfaizy/agent-kit/pull/254) it could not tell which check broke. The dogfood Caller also uses quiet reporters.
 - Review response's `verify_commands` run inside Claude Code's sandbox, which allows writes only to the working tree and a temp directory, with no network. `uv run` fails there with exit 2, because it cannot create its cache under `~/.cache`, so the round on [#254](https://github.com/mnaimfaizy/agent-kit/pull/254) could only decline. The dogfood Caller now calls `.venv/bin/pytest` and `.venv/bin/ruff` directly, and [review-response.md](docs/review-response.md) and the example Caller say to call installed tools, not cache-writing wrappers.
 - Review response no longer fails every round at **Check git configuration after setup**. That step refuses `GIT_*` variables that setup could leave to steer git, but the step itself was given the trusted git's path as `GIT_BIN`, so the check matched its own input and stopped each round before the agent ran (seen on [#254](https://github.com/mnaimfaizy/agent-kit/pull/254)). The variable is now `TRUSTED_GIT`, and a contract test runs the check with the step's own environment. Affects v1.0.0-beta.7.
 

@@ -2,5 +2,9 @@ uv.lock
 package-lock.json
 # Shipped release notes are immutable history.
 release-notes/
+# Review response's brief and response file, written to the workspace root
+# during a round and hidden from git only by .git/info/exclude.
+/review-response-brief.md
+/review-response.json
 # Hand-tuned Explainer Pages are not formatted (explainer BUILD.md, Constraints).
 .claude/skills/explainer/examples/
