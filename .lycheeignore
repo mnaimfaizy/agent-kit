@@ -1,0 +1,8 @@
+# URLs the weekly external-link check (links.yml) skips. One regex per line.
+
+# npmjs.com package pages return 403 Forbidden to automated clients, so lychee
+# reports them as broken although they work in a browser. The packages were
+# verified via registry.npmjs.org, which returns 200 for both. Only this host
+# is skipped; registry.npmjs.org and every other host are still checked.
+# Found in #242.
+^https://www\.npmjs\.com/
