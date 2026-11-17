@@ -1,0 +1,39 @@
+# orchestrate.config.yml: Agent-kit's own facts for the orchestrate skill.
+# This repository's config, not part of the kit: it is not in
+# scripts/release-snapshot-manifest.txt or the CLI's copy lists.
+# Template: examples/orchestrate.config.yml. Keys and defaults: CONFIG.md.
+# Check: node .claude/skills/orchestrate/config.mjs check
+
+run_dir: tmp/orchestrate
+
+read_first:
+  - AGENTS.md
+  - CONTRIBUTING.md
+  - GLOSSARY.md
+
+routes:
+  commit: "Conventional Commits (fix, feat, ci, docs, chore), one logical change per commit, with git commit and the Co-authored-by trailer the harness adds"
+  pull_request: "gh pr create --draft --base main; fill in the PR template checklist; the body ends with Closes #<n>"
+  merge: "gh pr merge <n> --merge"
+
+# The Node line skips two tests that fail on macOS (they fail on main too) and
+# pass on CI's ubuntu-latest, where ci.yml still runs them. Fixing them is a
+# separate change. The rest of both suites runs.
+regate:
+  - uv run pytest
+  - "node --test --test-skip-pattern='denies an out-of-tree read with the staged hook|exits non-zero from the command line on an unexpected key' scripts/*.test.mjs .claude/skills/*/*.test.mjs"
+  - uv run ruff check .
+  - uv run ruff format --check .
+  - npx prettier --check .
+
+skills:
+  implement: tdd
+  triage: triage
+  review: code-review
+
+triage_labels: docs/agents/triage-labels.md
+
+harness: claude-code-desktop
+
+ready_to_merge:
+  review_workflow: detect
