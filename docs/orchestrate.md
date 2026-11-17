@@ -96,7 +96,7 @@ With `executors` in the config, one kind of Delegation runs on another harness's
 9. **QA each finished head**, where the config requires it ([below](#qa)).
 10. **Close out.** It prints the Ready to Merge list, the merge order, the merge commands when the config names one, and what is not on the list and why. After you say you have merged, it offers a **Run Summary** on the umbrella issue the run's issues share, if they share one, posted only on your yes, and offers to resume the run if Delegations are parked behind the merges.
 
-A Delegation is Ready to Merge only when every check on its head has passed, its review is settled, its QA requirement is met on its current head, its Rulings are upheld (in an autonomous run) and its branch merges cleanly.
+A Delegation is Ready to Merge only when every check on its head has passed, its review is settled, its QA requirement is met on its current head, its Rulings are upheld or overturned with their rework verified (in an autonomous run) and its branch merges cleanly.
 
 ## QA
 
@@ -162,7 +162,7 @@ When you answer, the Chief of Staff sends the answer to the Delegation and recor
 
 A long run with you away stalls on every question. Most of them the evidence already answers: how to build within a settled issue, which branch merges first, whether a QA FAIL is the change or the stack. In an **autonomous run**, the Chief of Staff answers those itself, as **Rulings**, and you review each one before anything is Ready to Merge. Why: [ADR 0008](adr/0008-orchestrate-may-rule-under-review.md).
 
-**Turning it on.** The Dispatch Plan has a **Decision authority** line: `relay`, where every question comes to you, or `autonomous`. Answer the plan with `go autonomous` to turn it on for this run, or add `autonomous` to the invocation to fill the line in. There is no config key: how far you trust a run is your call each time. On a harness below `verified`, the run is autonomous only when you type `go autonomous` after seeing the plan, which then says that Rulings will be made on a harness whose limits are not fully known.
+**Turning it on.** The Dispatch Plan has a **Decision authority** line: `relay`, where every question comes to you, or `autonomous`. Answer the plan with `go autonomous` to turn it on for this run, or add `autonomous` to the invocation to fill the line in. There is no config key: how far you trust a run is your call each time. On a harness below `verified`, the line reads `autonomous, on a typed go autonomous`, and the plan says that Rulings would be made on a harness whose limits are not fully known. Type `go autonomous` after seeing the plan to run it autonomous; a plain `go` approves the plan as shown with every question relayed to you. Neither shows the plan again.
 
 **What it rules on, and what stays yours.** The split is fixed, all or nothing:
 
@@ -185,7 +185,7 @@ upheld: R1 R2; overturned: R3 → option 2
 uphold all
 ```
 
-You can also answer at any time during the run, in the Chief of Staff's session. `--status` prints the ledger, and `--resume` opens with the Rulings still awaiting review. Once every Ruling for a Delegation is upheld, it is Ready to Merge, and the merge order is printed.
+You can also answer at any time during the run, in the Chief of Staff's session. `--status` prints the ledger, and `--resume` opens with the Rulings still awaiting review. Once every Ruling for a Delegation is upheld, or overturned with its rework verified, and its pull request shows each verdict, it is Ready to Merge, and the merge order is printed.
 
 An overturned Ruling becomes an ordinary answer from you: it goes to the Delegation (or to a new one started from its branch), the rework is a push, and the new head is verified and QA'd again. Every Ruling that cited the overturned one is marked **needs re-review** and comes back to you; it is not overturned with it. The pull request's Ruling line is updated to upheld or overturned, and the Run Summary lists every Ruling with its verdict. In a spec run on an integration branch, the integration branch's pull request waits for the Ruling Review, and an overturn for a ticket that has already landed is fixed by a fix Delegation on that branch.
 

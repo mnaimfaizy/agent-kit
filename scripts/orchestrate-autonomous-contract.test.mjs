@@ -95,10 +95,21 @@ describe("SKILL.md: rules and steps", () => {
     const step = section(SKILL, "### 4. Show the Dispatch Plan");
     assert.match(step, /\*\*Decision authority\*\*/);
     assert.match(step, /`go autonomous`/);
-    assert.match(
-      step,
-      /Below `verified`, the run is autonomous only on a `go autonomous` the human types/,
-    );
+    assert.match(step, /`autonomous, on a typed go autonomous`/);
+    assert.match(step, /Neither is a change to the plan, so neither shows it again/);
+  });
+
+  it("limits stall and crash Rulings to one per issue, and restarts on the next unused suffix", () => {
+    assert.match(section(SKILL, "### 6. Run the loop"), /one such Ruling per issue in the run/);
+    assert.match(section(SKILL, "## Autonomous runs"), /`d<issue>-<k>` with the next/);
+    assert.ok(!SKILL.includes("`d<issue>-2`"), "no fixed `-2` suffix");
+  });
+
+  it("says who updates a Ruling line once its Delegation has ended, and which Rulings concern a row", () => {
+    const auto = section(SKILL, "## Autonomous runs");
+    assert.match(auto, /A Ruling \*\*concerns\*\* the Delegation/);
+    assert.match(auto, /who drafts the edit to that pull request's body as a write as the human/);
+    assert.match(section(SKILL, "### 10. Close out"), /pull request's body shows each Ruling/);
   });
 
   for (const [heading, phrase] of [
@@ -126,6 +137,17 @@ describe("RUN.md", () => {
 
   it("has the board states `awaiting Ruling Review`", () => {
     assert.match(section(RUN, "## States"), /^\| `awaiting Ruling Review` +\|/m);
+  });
+
+  it("lets a Delegation with an overturned Ruling be `ready to merge` once its rework is verified", () => {
+    assert.match(
+      section(RUN, "## States"),
+      /Rulings upheld or overturned with their rework verified/,
+    );
+  });
+
+  it("gives a third Delegation for an issue its own suffix", () => {
+    assert.match(section(RUN, "## Layout"), /a third `-3`, and so on/);
   });
 
   it("describes the ledger, its verdicts and `needs re-review`", () => {
@@ -171,6 +193,13 @@ describe("BRIEF.md", () => {
     assert.match(form, /upheld|overturned/);
   });
 
+  it("the Ruling form records nothing itself for a QA Delegation or an integration-branch ticket", () => {
+    assert.match(
+      section(BRIEF, "## Ruling"),
+      /to a QA Delegation, or a ticket on a spec run's integration branch: none, the Chief of Staff records it/,
+    );
+  });
+
   it("the report form carries a Rulings line", () => {
     assert.match(section(BRIEF, "## Report"), /^\*\*Rulings:\*\* /m);
   });
@@ -181,6 +210,7 @@ describe("SPEC.md", () => {
     const landing = section(SPEC, "### On an integration branch");
     assert.match(landing, /Ruling Review/);
     assert.match(landing, /`d<n>-fix<k>`/);
+    assert.match(landing, /skipped for a ticket and made on the `<integration>` row instead/);
   });
 });
 
