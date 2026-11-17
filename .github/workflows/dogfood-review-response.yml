@@ -61,13 +61,25 @@ jobs:
         pipx install uv==0.11.23
         uv sync --locked
         npm ci
+      # The agent runs these inside Claude Code's sandbox, which can write only
+      # to the working tree and a temp dir and has no network. `uv run` exits 2
+      # there, unable to create its cache in ~/.cache, so call the tools that
+      # `uv sync` put in .venv directly.
+      # Quiet reporters keep the output short: the agent sees a long output
+      # cut short. The staged script's last line names a failing command.
       verify_commands: |
         set -e
-        uv run pytest
-        npm test
-        uv run ruff check .
-        uv run ruff format --check .
-        npx prettier --check .
+        .venv/bin/pytest -q
+        node --test --test-reporter=dot scripts/*.test.mjs .claude/skills/*/*.test.mjs
+        .venv/bin/ruff check .
+        .venv/bin/ruff format --check .
+        npx prettier --check --log-level warn .
+      # The agent cannot hand-pad a Markdown table to prettier's liking: let
+      # it format its edits before the checks.
+      format_commands: |
+        set -e
+        .venv/bin/ruff format .
+        npx prettier --write --log-level warn .
       # A push made with the job token does not start CI on its own: start
       # the held run of this workflow for the pushed commit.
       ci_workflow: .github/workflows/ci.yml

@@ -58,8 +58,18 @@ jobs:
       # command. Code the job runs: never build it from issue or PR text.
       verify_commands: |
         # The agent runs this block as one `bash` script; set -e makes any failing command fail it.
+        # It runs in the agent's sandbox: no network, writes only to the working tree and a temp dir.
+        # Call the tools setup installed directly (.venv/bin/pytest, not `uv run pytest`).
+        # Prefer quiet reporters: the agent sees a long output cut short.
+        # Have your formatter ignore /review-response-brief.md and /review-response.json
+        # (for prettier, in .prettierignore): the kit writes them in the workspace root.
         set -e
         echo "Provide Consumer verify commands here (lint/tests/typecheck)."
+      # Optional: a formatter the agent runs on its edits before the checks,
+      # in the same sandbox. Without one it must match your format by hand.
+      # format_commands: |
+      #   set -e
+      #   npx prettier --write --log-level warn .
       # setup_commands installs your toolchain and dependencies before the
       # agent runs, with npm, pnpm and Yarn 2+ install scripts always off.
       # Copy a preset from examples/setup-presets/ (python.sh, node.sh,
