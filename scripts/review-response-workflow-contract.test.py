@@ -25,6 +25,7 @@ The script itself is covered by review-response-contract.test.mjs.
 import os
 import re
 import subprocess
+import tempfile
 from pathlib import Path
 
 import yaml
@@ -55,6 +56,7 @@ REVIEWED_TOOLS = {
     "Bash(git rev-parse HEAD)",
 }
 VERIFY_RULE = "Bash(bash $RUNNER_TEMP/review-response/verify.sh)"
+FORMAT_RULE = "Bash(bash $RUNNER_TEMP/review-response/format.sh)"
 MUST_DENY = {
     "Read(./.git/**)",
     "Edit(./.git/**)",
@@ -114,6 +116,7 @@ def test_the_caller_contract() -> None:
         "extra_protected_paths",
         "setup_commands",
         "verify_commands",
+        "format_commands",
         "ci_workflow",
         "response_mode",
         "model",
@@ -304,6 +307,36 @@ def test_the_steering_check_passes_on_its_own_environment() -> None:
         assert run({name: "x"}).returncode == 1, f"refuse {name} left by setup"
 
 
+def test_a_staged_script_ends_by_naming_what_failed() -> None:
+    # The agent sees a long check output cut short, so the staged verify.sh
+    # (and format.sh) must end with one line naming the command that failed,
+    # or saying that every command passed. Run the staging function itself.
+    stage = code(step(jobs()["respond"], "Stage the trusted runtime outside the workspace")["run"])
+    found = re.search(r"^stage_script\(\) \{\n.*?^\}$", stage, re.MULTILINE | re.DOTALL)
+    assert found, "staging defines stage_script() { ... }"
+    assert 'stage_script verify "$VERIFY"' in stage
+    assert 'stage_script format "$FORMAT"' in stage
+
+    def staged(name: str, body: str) -> subprocess.CompletedProcess:
+        with tempfile.TemporaryDirectory() as tmp:
+            subprocess.run(
+                ["bash", "-c", f'set -euo pipefail\n{found.group(0)}\nstage_script {name} "$BODY"'],
+                env={"PATH": os.environ["PATH"], "STAGED": tmp, "BODY": body},
+                check=True,
+            )
+            return subprocess.run(
+                ["bash", f"{tmp}/{name}.sh"], capture_output=True, text=True, check=False, cwd=tmp
+            )
+
+    failed = staged("verify", "set -e\ntrue\necho noise\nfalse\necho never")
+    assert failed.returncode == 1
+    assert "never" not in failed.stdout
+    assert failed.stdout.strip().splitlines()[-1] == "verify.sh: FAILED with exit 1 at: false"
+    passed = staged("format", "set -e\necho formatted")
+    assert passed.returncode == 0
+    assert passed.stdout.strip().splitlines()[-1] == "format.sh: every command passed"
+
+
 def test_the_agent_holds_no_write_credential_and_no_gh() -> None:
     respond = jobs()["respond"]
     agent = step(respond, AGENT_STEP)
@@ -326,10 +359,11 @@ def test_the_agent_holds_no_write_credential_and_no_gh() -> None:
     granted = re.search(r"^DEFAULT='([^']*)'$", tools, re.MULTILINE)
     assert granted, "the default grant is one literal"
     assert set(granted.group(1).split(",")) == REVIEWED_TOOLS
-    # The verify rule is added only when the Caller set verify commands, and
-    # only as that exact command: the staged script, run whole.
+    # The verify and format rules are added only when the Caller set those
+    # commands, and only as that exact command: the staged script, run whole.
     assert f'"{VERIFY_RULE}"' in tools
-    assert tools.count("Bash(") == len([t for t in REVIEWED_TOOLS if t.startswith("Bash(")]) + 1
+    assert f'"{FORMAT_RULE}"' in tools
+    assert tools.count("Bash(") == len([t for t in REVIEWED_TOOLS if t.startswith("Bash(")]) + 2
 
 
 def test_nothing_after_the_agent_talks_to_github() -> None:
