@@ -6,7 +6,7 @@ What the Chief of Staff hands an Executor, and what comes back. Load it before w
 
 Every brief carries these eight items, in this order, as its own headed sections. An Executor reads only its brief: anything it needs and the brief leaves out, it will guess. Fill each item from the config's effective values (`node "<skill>/config.mjs" check`) and the issue, never from memory of another repository.
 
-1. **Read first.** Each document in `read_first`, then the issue, its comments, and the issues and pull requests it links. The Delegation reads them before it plans anything.
+1. **Read first.** Each document in `read_first`, then the issue, its comments, and the issues and pull requests it links. The Delegation reads them before it plans anything. In an autonomous run, a Delegation started from another's branch also gets the Rulings already concerning that branch, each with its id, choice, verdict and commits ([SKILL.md](SKILL.md#autonomous-runs)).
 2. **Goal, and what done means.** One sentence of goal, then the issue's acceptance criteria, each as a check the Delegation can run or show. For an analysis Delegation, done is the evidence and the options, and nothing built.
 3. **Phases, with explicit stop points.** Numbered phases, each ending in a **Stop:** line that says what the Delegation reports, and whether it waits for an answer before going on. A building brief's last phases are always: a code review of its own diff (with `skills.review` when the config names one, on `models.review` where the harness lets a phase run on its own model), fixes for what the review found, then the final commit. Those fixes, and every later one a reviewer, CI or an automated fixer prompts, stay inside the scope fence (item 4). An analysis brief stops after its evidence and options. A QA brief's phases are its own ([below](#the-qa-brief)).
 4. **Scope fences.** The paths and shared resources the Delegation may change (its scope fence from the Dispatch Plan), and what it must not touch: other Delegations' fences, files outside the issue's subject, the default branch. The fence binds every change on the branch, whoever asked for it: a fix prompted by a code review, a CI failure or an automated fixer included. A change outside the fence is a Decision Request first, not a judgement call, and is made only once it is answered.
@@ -79,7 +79,7 @@ The Delegation acts on a Ruling as on the human's answer, and marks its Decision
 **Done:** <each acceptance criterion, and how it was shown>
 **Re-gate:** <each command, and its result>
 **Review:** <each review comment, and how it was handled; where the repository runs Agent-kit's review workflow, its run on this head: finished, running, or not started>
-**Rulings:** <in an autonomous run, each Ruling followed, as `R<n>: <full commit SHA>, …`, the commits that followed from it, with its pull request line's verdict; or none>
+**Rulings:** <in an autonomous run, each Ruling followed, as `R<n>: <full commit SHA>, …`, the commits that followed from it, with its pull request line's verdict, and each Ruling the brief listed from an earlier Delegation on the branch, with the commits the brief gave; or none>
 **Not done:** <what is left, and why>
 **Decision Requests:** <open ones, by heading>
 ```

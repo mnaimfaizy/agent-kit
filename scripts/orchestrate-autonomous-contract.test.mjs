@@ -116,6 +116,14 @@ describe("SKILL.md: rules and steps", () => {
       section(SKILL, "### 7. Verify each report"),
       /or in the verified report of an earlier Delegation on the same branch/,
     );
+    assert.match(
+      section(SKILL, "## Autonomous runs"),
+      /gets, in its brief's \*\*Read first\*\*, every Ruling already concerning that branch/,
+    );
+    assert.match(
+      section(BRIEF, "## The Brief Contract"),
+      /a Delegation started from another's branch also gets the Rulings already concerning that branch/,
+    );
     assert.match(auto, /who drafts the edit to that pull request's body as a write as the human/);
     assert.match(section(SKILL, "### 10. Close out"), /pull request's body shows each Ruling/);
   });
