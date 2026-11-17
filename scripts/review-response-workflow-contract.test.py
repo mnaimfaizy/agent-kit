@@ -22,7 +22,9 @@ round never starts a review.
 The script itself is covered by review-response-contract.test.mjs.
 """
 
+import os
 import re
+import subprocess
 from pathlib import Path
 
 import yaml
@@ -263,7 +265,7 @@ def test_the_sandbox_and_install_rules_are_fixed_by_the_kit() -> None:
     # Setup can also steer later steps through $GITHUB_ENV and $GITHUB_PATH.
     for needle in ("GIT_[A-Z0-9_]*", "LD_[A-Z0-9_]*", "NODE_OPTIONS", "BASH_ENV"):
         assert needle in recheck, f"refuse {needle} left by setup"
-    assert '"$(command -v git)" != "$GIT_BIN"' in recheck
+    assert '"$(command -v git)" != "$TRUSTED_GIT"' in recheck
     assert '"$GITHUB_WORKSPACE" | "$GITHUB_WORKSPACE"/*' in recheck
     agent_env = step(respond, AGENT_STEP)["env"]
     assert agent_env["GIT_CONFIG_COUNT"] == "0"
@@ -271,6 +273,35 @@ def test_the_sandbox_and_install_rules_are_fixed_by_the_kit() -> None:
     assert agent_env["LD_PRELOAD"] == ""
     assert '"$ACTUAL" != "$HOOK_SHA256"' in recheck
     assert step_index(respond, "Check git configuration after setup") == step_index(respond, AGENT_STEP) - 3
+
+
+def test_the_steering_check_passes_on_its_own_environment() -> None:
+    # Run the check, not just read it: a variable the step itself is given
+    # (job or step env) must never look like steering left by setup. In
+    # v1.0.0-beta.7 the step's own GIT_BIN matched `GIT_[A-Z0-9_]*`, so every
+    # round stopped before the agent ran.
+    respond = jobs()["respond"]
+    recheck = step(respond, "Check git configuration after setup")
+    block = re.search(r"^STEERING=.*?^fi$", code(recheck["run"]), re.MULTILINE | re.DOTALL)
+    assert block, "the steering check is one STEERING=... if ... fi block"
+    given = {**respond.get("env", {}), **recheck.get("env", {})}
+    base = {"PATH": os.environ["PATH"], "HOME": os.environ.get("HOME", "/tmp")}
+
+    def run(extra: dict) -> subprocess.CompletedProcess:
+        env = {**base, **{name: "x" for name in given}, **extra}
+        return subprocess.run(
+            ["bash", "-c", "set -euo pipefail\n" + block.group(0)],
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    clean = run({})
+    assert clean.returncode == 0, f"the step's own env trips its check: {clean.stdout.strip()}"
+    # And it still refuses what setup could leave behind.
+    for name in ("GIT_DIR", "LD_PRELOAD", "NODE_OPTIONS", "BASH_ENV"):
+        assert run({name: "x"}).returncode == 1, f"refuse {name} left by setup"
 
 
 def test_the_agent_holds_no_write_credential_and_no_gh() -> None:
