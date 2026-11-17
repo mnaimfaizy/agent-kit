@@ -15,3 +15,7 @@ The five default triage roles, each label equal to its role name (`needs-triage`
 ### Domain docs
 
 Single-context: one `GLOSSARY.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+
+### Docs map
+
+Which doc pages describe each code area, read by the `code-review` skill's docs-impact check. See `docs/agents/docs-map.md`.
