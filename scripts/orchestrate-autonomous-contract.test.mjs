@@ -56,7 +56,7 @@ describe("SKILL.md: invocations", () => {
 
   it("puts `autonomous` in the argument hint", () => {
     const hint = /^argument-hint: "(.+)"$/m.exec(SKILL)[1];
-    assert.match(hint, /#<n> \[#<n>…\] \[go \[autonomous\]\]/);
+    assert.match(hint, /#<n> \[#<n>…\] \[go\] \[autonomous\]/);
     assert.match(hint, /--spec <n> \[go\] \[autonomous\]/);
   });
 });
