@@ -25,6 +25,7 @@ The script itself is covered by review-response-contract.test.mjs.
 import os
 import re
 import subprocess
+import tempfile
 from pathlib import Path
 
 import yaml
@@ -55,6 +56,7 @@ REVIEWED_TOOLS = {
     "Bash(git rev-parse HEAD)",
 }
 VERIFY_RULE = "Bash(bash $RUNNER_TEMP/review-response/verify.sh)"
+FORMAT_RULE = "Bash(bash $RUNNER_TEMP/review-response/format.sh)"
 MUST_DENY = {
     "Read(./.git/**)",
     "Edit(./.git/**)",
@@ -114,6 +116,7 @@ def test_the_caller_contract() -> None:
         "extra_protected_paths",
         "setup_commands",
         "verify_commands",
+        "format_commands",
         "ci_workflow",
         "response_mode",
         "model",
@@ -304,6 +307,63 @@ def test_the_steering_check_passes_on_its_own_environment() -> None:
         assert run({name: "x"}).returncode == 1, f"refuse {name} left by setup"
 
 
+def test_a_staged_script_ends_by_naming_what_failed() -> None:
+    # The agent sees a long check output cut short, so the staged verify.sh
+    # (and format.sh) must end with one line: the exit code and the last
+    # command that failed (which may not be the one that ended the script),
+    # or `exited 0`. Run the staging function itself.
+    stage = code(step(jobs()["respond"], "Stage the trusted runtime outside the workspace")["run"])
+    found = re.search(r"^stage_script\(\) \{\n.*?^\}$", stage, re.MULTILINE | re.DOTALL)
+    assert found, "staging defines stage_script() { ... }"
+    assert 'stage_script verify "$VERIFY"' in stage
+    assert 'stage_script format "$FORMAT"' in stage
+
+    def staged(name: str, body: str) -> subprocess.CompletedProcess:
+        with tempfile.TemporaryDirectory() as tmp:
+            subprocess.run(
+                ["bash", "-c", f'set -euo pipefail\n{found.group(0)}\nstage_script {name} "$BODY"'],
+                env={"PATH": os.environ["PATH"], "STAGED": tmp, "BODY": body},
+                check=True,
+            )
+            return subprocess.run(["bash", f"{tmp}/{name}.sh"], capture_output=True, text=True, check=False, cwd=tmp)
+
+    def last(result: subprocess.CompletedProcess) -> str:
+        return result.stdout.strip().splitlines()[-1]
+
+    failed = staged("verify", "set -e\ntrue\necho noise\nfalse\necho never")
+    assert failed.returncode == 1
+    assert "never" not in failed.stdout
+    assert last(failed) == "verify.sh: FAILED with exit 1; last failing command: false"
+    # A check that fails inside a Caller-defined function is still named.
+    inside = staged("verify", "set -e\nchecks() { true; false; }\nchecks")
+    assert last(inside) == "verify.sh: FAILED with exit 1; last failing command: false"
+    # An exit with no failing command says so, rather than naming one.
+    bare = staged("verify", "exit 3")
+    assert last(bare) == "verify.sh: FAILED with exit 3; last failing command: none"
+    # The Caller's own EXIT trap cannot replace the summary: bash keeps one
+    # handler per signal, so the body runs in a child shell.
+    trapped = staged("verify", "set -e\ntrap 'echo cleanup' EXIT\nfalse")
+    assert trapped.returncode == 1
+    assert "cleanup" in trapped.stdout
+    assert last(trapped) == "verify.sh: FAILED with exit 1; last failing command: false"
+    passed = staged("format", "set -e\necho formatted")
+    assert passed.returncode == 0
+    assert last(passed) == "format.sh: exited 0"
+
+
+def test_the_dogfood_formatter_skips_the_kits_own_files() -> None:
+    # The kit writes review-response-brief.md (and the agent writes
+    # review-response.json) in the workspace root, hidden from git only by
+    # .git/info/exclude, which prettier does not read. Unignored, `prettier
+    # --check .` fails on the brief whatever the agent changed, and `--write`
+    # rewrites it.
+    dogfood = (WORKFLOWS / "dogfood-review-response.yml").read_text(encoding="utf-8")
+    assert "prettier --check" in dogfood and "prettier --write" in dogfood
+    ignored = (ROOT / ".prettierignore").read_text(encoding="utf-8").splitlines()
+    for name in ("/review-response-brief.md", "/review-response.json"):
+        assert name in ignored, f".prettierignore must list {name}"
+
+
 def test_the_agent_holds_no_write_credential_and_no_gh() -> None:
     respond = jobs()["respond"]
     agent = step(respond, AGENT_STEP)
@@ -326,10 +386,11 @@ def test_the_agent_holds_no_write_credential_and_no_gh() -> None:
     granted = re.search(r"^DEFAULT='([^']*)'$", tools, re.MULTILINE)
     assert granted, "the default grant is one literal"
     assert set(granted.group(1).split(",")) == REVIEWED_TOOLS
-    # The verify rule is added only when the Caller set verify commands, and
-    # only as that exact command: the staged script, run whole.
+    # The verify and format rules are added only when the Caller set those
+    # commands, and only as that exact command: the staged script, run whole.
     assert f'"{VERIFY_RULE}"' in tools
-    assert tools.count("Bash(") == len([t for t in REVIEWED_TOOLS if t.startswith("Bash(")]) + 1
+    assert f'"{FORMAT_RULE}"' in tools
+    assert tools.count("Bash(") == len([t for t in REVIEWED_TOOLS if t.startswith("Bash(")]) + 2
 
 
 def test_nothing_after_the_agent_talks_to_github() -> None:

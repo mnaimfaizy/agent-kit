@@ -78,6 +78,11 @@ on:
         required: false
         type: string
         default: ""
+      format_commands:
+        description: "Caller-owned formatter the agent runs on its edits before the checks (multi-line shell), such as `npx prettier --write .`. Runs in the agent's sandbox like `verify_commands`. Empty gives the agent no formatter. Code the job runs: never build it from issue or PR text."
+        required: false
+        type: string
+        default: ""
       ci_workflow:
         description: "The one workflow whose held `pull_request` run publish may start for the commit it pushed, as `.github/workflows/<file>.yml`. Empty starts none: approve the run from the pull request's checks."
         required: false
@@ -363,6 +368,7 @@ jobs:
       - name: Stage the trusted runtime outside the workspace
         env:
           VERIFY: ${{ inputs.verify_commands }}
+          FORMAT: ${{ inputs.format_commands }}
         shell: bash
         run: |
           set -euo pipefail
@@ -400,9 +406,48 @@ jobs:
           # pushes, so it only ever refuses.
           printf '%s\n' "$DEFAULT_BRANCH" > "$HOOKS/push-guard-base"
 
-          # The Caller's checks, as the one build command the agent may run.
+          # The Caller's checks and formatter, each one exact command the
+          # agent may run. Each script's last line gives its exit code and the
+          # last command that failed (errtrace reaches into functions): the
+          # agent sees a long output cut short, and would not otherwise know
+          # which check broke.
+          stage_script() {
+            # The Caller's commands, with errtrace and an ERR trap that logs
+            # each failing command, run in a child shell: a trap the Caller
+            # sets (bash keeps one per signal) cannot remove the summary.
+            {
+              cat <<'HEADER'
+          set -E; trap '[ -n "${__ERRLOG:-}" ] && printf "%s\n" "$BASH_COMMAND" >> "$__ERRLOG"' ERR
+          HEADER
+              printf '%s\n' "$2"
+            } > "$STAGED/$1.body.sh"
+            # The command the agent runs: the body, then one summary line.
+            {
+              printf '__script=%s.sh\n' "$1"
+              cat <<'WRAPPER'
+          __ERRLOG=$(mktemp 2>/dev/null) || __ERRLOG=
+          export __ERRLOG
+          bash "${BASH_SOURCE[0]%.sh}.body.sh"
+          __rc=$?
+          __failed=
+          if [ -n "$__ERRLOG" ]; then
+            __failed=$(tail -n 1 "$__ERRLOG")
+            rm -f "$__ERRLOG"
+          fi
+          if [ "$__rc" -ne 0 ]; then
+            printf '%s: FAILED with exit %s; last failing command: %s\n' "$__script" "$__rc" "${__failed:-none}"
+          else
+            printf '%s: exited 0\n' "$__script"
+          fi
+          exit "$__rc"
+          WRAPPER
+            } > "$STAGED/$1.sh"
+          }
           if [ -n "$VERIFY" ]; then
-            printf '%s\n' "$VERIFY" > "$STAGED/verify.sh"
+            stage_script verify "$VERIFY"
+          fi
+          if [ -n "$FORMAT" ]; then
+            stage_script format "$FORMAT"
           fi
           chmod 444 "$STAGED"/* "$HOOKS"/*
 
@@ -586,13 +631,23 @@ jobs:
           # The Caller's checks, staged read-only by the kit, as one exact
           # command: no prefix rule another command could ride on.
           VERIFY_RULE="Bash(bash $RUNNER_TEMP/review-response/verify.sh)"
-          if [ -f "$RUNNER_TEMP/review-response/verify.sh" ]; then
-            echo "allowed=${DEFAULT},${VERIFY_RULE}" >> "$GITHUB_OUTPUT"
-            echo "checks=Run the repository's checks with exactly this command, as its own Bash call: bash $RUNNER_TEMP/review-response/verify.sh" >> "$GITHUB_OUTPUT"
-          else
-            echo "allowed=${DEFAULT}" >> "$GITHUB_OUTPUT"
-            echo "checks=This repository configured no check command for you: say so in the reply of every finding you fix." >> "$GITHUB_OUTPUT"
+          FORMAT_RULE="Bash(bash $RUNNER_TEMP/review-response/format.sh)"
+          ALLOWED="$DEFAULT"
+          CHECKS=""
+          if [ -f "$RUNNER_TEMP/review-response/format.sh" ]; then
+            ALLOWED="${ALLOWED},${FORMAT_RULE}"
+            CHECKS="Before the checks, format your edits with exactly this command, as its own Bash call: bash $RUNNER_TEMP/review-response/format.sh"
           fi
+          if [ -f "$RUNNER_TEMP/review-response/verify.sh" ]; then
+            ALLOWED="${ALLOWED},${VERIFY_RULE}"
+            CHECKS="${CHECKS:+$CHECKS }Run the repository's checks (the last line of their output names the command that failed) with exactly this command, as its own Bash call: bash $RUNNER_TEMP/review-response/verify.sh"
+          else
+            CHECKS="${CHECKS:+$CHECKS }This repository configured no check command for you: say so in the reply of every finding you fix."
+          fi
+          {
+            echo "allowed=${ALLOWED}"
+            echo "checks=${CHECKS}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Install Bun (pinned, checksum-verified)
         # claude-code-action installs Bun from the GitHub release CDN, which
