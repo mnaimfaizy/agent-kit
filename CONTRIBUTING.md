@@ -66,13 +66,6 @@ The tests are contracts, not unit tests: they pin behavior a Consumer depends on
 
 - New shipped path? Add it to `scripts/release-snapshot-manifest.txt`.
 
-## Action and dependency pins
-
-- Every `uses:` in `.github/workflows/` is pinned to a full commit SHA with a `# vX.Y.Z` comment. Dependabot bumps them weekly.
-- `anthropics/claude-code-action` is excluded from Dependabot and asserted by the contract tests. To bump it: read its release notes, update the SHA in all five reusable workflows and in `CLAUDE_ACTION_SHA` in the tests, and note it in the CHANGELOG. Also re-check the implement workflow's "Check branch naming inputs" step against the new version's branch naming (`validateBranchName`'s pattern, the default name and its 50-character cut, the fallback to default naming when a template's branch exists, and empty path-segment collapsing), and update the step and its tests if any of these changed. Then add the new SHA to `BUN_FOR_ACTION` in `scripts/bun-install-contract.test.py`, with the `bun-version` from that commit's `action.yml`. If the Bun version changed, update `BUN_VERSION`, `NPM_SHA256`, `RELEASE_SHA256` and the release asset id in the "Install Bun" step of all five reusable workflows. The npm registry publishes no SHA-256 (`dist.shasum` is SHA-1 and `dist.integrity` is base64 SHA-512). So download the tarball given as `dist.tarball` at `registry.npmjs.org/@oven/bun-linux-x64/<version>`, check it against `dist.integrity` (`openssl dgst -sha512 -binary <file> | openssl base64 -A` must print the text after its `sha512-` prefix), and record its `sha256sum` as `NPM_SHA256`. Take `RELEASE_SHA256` from that release's `SHASUMS256.txt`, and the asset id of `bun-linux-x64.zip` from `gh api repos/oven-sh/bun/releases/tags/bun-v<version>`.
-- The actionlint image in `ci.yml` is pinned by digest; update the tag and digest together.
-- Keep `.pre-commit-config.yaml` hook versions in step with `uv.lock` (ruff) and CI.
-
 ## Dogfood flows
 
 `dogfood-security-audit.yml`, `dogfood-agent-pipeline.yml` and `dogfood-review-response.yml` run this repository's own reusable workflows from the same commit (`uses: ./…`), so changes are exercised before they are tagged. All three stay off until you enable them.
@@ -118,7 +111,18 @@ Also: install the [Claude GitHub App](https://github.com/apps/claude) on the rep
 
 The Allowlist in every dogfood Caller is `mnaimfaizy`; edit it to add maintainers. For Review response, also edit `response_allowlist_actors` in `dogfood-agent-pipeline.yml`'s review job, so it stays equal to `dogfood-review-response.yml`'s `allowlist_actors`.
 
-The dogfood Review response refuses many of this repository's pull requests, by design. Its gate refuses one that changes a protected path: a file named `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`, `.mcp.json`, `.claude.json` or `.gitmodules`, anything under `.claude/`, `.agents/skills/` or `.husky/` at any depth, or a Kit-owned path (`.github/agent-runtime/`, `.github/agent-pipeline/`, `.github/security-audit/`, `.github/agent-review-response/` and every skill in [kit-owned-paths.txt](kit-owned-paths.txt)). The list is `PROTECTED_FILES`, `PROTECTED_DIRS_ANY_DEPTH`, `PROTECTED_ROOT_DIRS` and `KIT_OWNED_PATHS` in [review-response.mjs](.github/agent-review-response/review-response.mjs); check there if this paragraph and the script disagree. The agent also cannot change `.github/workflows`, so it declines a finding that needs one. Rounds here mostly cover docs, `cli/`, `scripts/` and `examples/` pull requests; a refusal is not a bug. The round reads its trusted script, hooks and skill from `main`, so a change to them is exercised only after it merges.
+The dogfood Review response refuses many of this repository's pull requests, by design. Its gate refuses one that changes a protected path:
+
+<!-- generated:review-response-protected-paths -->
+
+- Files named `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`, `.mcp.json`, `.claude.json` or `.gitmodules`, at any depth.
+- Anything under `.claude/`, `.agents/skills/` or `.husky/`, at any depth.
+- Anything under `.github/agent-runtime/`, from the repository root.
+- Every Kit-owned path, from the repository root: `.claude/skills/code-review/`, `.claude/skills/security-audit/`, `.claude/skills/security-finding-triage/`, `.claude/skills/security-response/`, `.claude/skills/explainer/`, `.claude/skills/instruction-drift-audit/`, `.claude/skills/qa-plan/`, `.claude/skills/manual-qa/`, `.claude/skills/plain-prose/`, `.claude/skills/orchestrate/`, `.claude/skills/address-pr-review/`, `.github/agent-runtime/`, `.github/agent-pipeline/`, `.github/security-audit/` and `.github/agent-review-response/`.
+
+<!-- /generated:review-response-protected-paths -->
+
+The list is generated from `PROTECTED_FILES`, `PROTECTED_DIRS_ANY_DEPTH`, `PROTECTED_ROOT_DIRS` and `KIT_OWNED_PATHS` in [review-response.mjs](.github/agent-review-response/review-response.mjs). The agent also cannot change `.github/workflows`, so it declines a finding that needs one. Rounds here mostly cover docs, `cli/`, `scripts/` and `examples/` pull requests; a refusal is not a bug. The round reads its trusted script, hooks and skill from `main`, so a change to them is exercised only after it merges.
 
 ## Branch protection
 
