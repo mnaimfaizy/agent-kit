@@ -538,7 +538,7 @@ jobs:
         env:
           HOOK_SHA256: ${{ steps.confine.outputs.hook_sha256 }}
           NODE_BIN: ${{ steps.confine.outputs.node }}
-          GIT_BIN: ${{ steps.confine.outputs.git }}
+          TRUSTED_GIT: ${{ steps.confine.outputs.git }}
         shell: bash
         run: |
           set -euo pipefail
@@ -549,7 +549,7 @@ jobs:
             echo "$STEERING"
             exit 1
           fi
-          if [ -z "$GIT_BIN" ] || [ "$(command -v git)" != "$GIT_BIN" ]; then
+          if [ -z "$TRUSTED_GIT" ] || [ "$(command -v git)" != "$TRUSTED_GIT" ]; then
             echo "Setup changed which git runs."
             exit 1
           fi
