@@ -34,9 +34,13 @@ def tracked_files(root: Path) -> list[str]:
     return [f for f in out.split("\0") if f]
 
 
-def allowed(rel: str, prefixes: tuple[str, ...]) -> bool:
-    # A prefix ending in "/" is a folder; any other is one file.
-    return any(rel.startswith(p) if p.endswith("/") else rel == p for p in prefixes)
+def covers(path: str, rel: str) -> bool:
+    # A path ending in "/" is a folder; any other is one file.
+    return rel.startswith(path) if path.endswith("/") else rel == path
+
+
+def allowed(rel: str, paths: tuple[str, ...]) -> bool:
+    return any(covers(p, rel) for p in paths)
 
 
 def mentions(name: str) -> re.Pattern[str]:
@@ -46,7 +50,7 @@ def mentions(name: str) -> re.Pattern[str]:
 
 def stale_mentions(root: Path) -> list[str]:
     """One message per tracked file that names an old name where its entry does not allow it."""
-    entries = load_register(root)
+    entries = [(e, mentions(e["old"])) for e in load_register(root)]
     problems = []
     for rel in tracked_files(root):
         if rel == REGISTER or allowed(rel, HISTORY):
@@ -55,8 +59,8 @@ def stale_mentions(root: Path) -> list[str]:
             text = (root / rel).read_text(encoding="utf-8")
         except (UnicodeDecodeError, IsADirectoryError, FileNotFoundError):
             continue
-        for e in entries:
-            if allowed(rel, tuple(e["allowed_paths"])) or not mentions(e["old"]).search(text):
+        for e, pattern in entries:
+            if allowed(rel, tuple(e["allowed_paths"])) or not pattern.search(text):
                 continue
             problems.append(
                 f"{rel}: names {e['old']}, which {REGISTER} records as a {e['kind']} "
@@ -78,12 +82,12 @@ def test_register_entries_are_well_formed() -> None:
         for key in ("old", "replacement", "release"):
             assert isinstance(e[key], str) and e[key], f"{where}: {key} must be a non-empty string"
         assert re.fullmatch(r"\d+\.\d+\.\d+(-[a-z]+\.\d+)?", e["release"]), f"{where}: release must be a version"
+        assert e["old"] != e["replacement"], f"{where}: replacement must differ from old"
         assert e["old"] not in seen, f"{where}: recorded twice"
         seen.add(e["old"])
         assert isinstance(e["allowed_paths"], list), f"{where}: allowed_paths must be a list"
         for p in e["allowed_paths"]:
-            exists = any(f.startswith(p) for f in tracked) if p.endswith("/") else p in tracked
-            assert exists, f"{where}: allowed path {p} is not tracked"
+            assert any(covers(p, f) for f in tracked), f"{where}: allowed path {p} is not tracked"
 
 
 def test_no_old_name_outside_history_and_its_allowed_paths() -> None:
@@ -99,7 +103,7 @@ def fixture_repo(tmp: Path) -> tuple[Path, dict]:
     return tmp, load_register(tmp)[0]
 
 
-def commit(root: Path, files: dict[str, str]) -> None:
+def add_files(root: Path, files: dict[str, str]) -> None:
     for rel, text in files.items():
         (root / rel).parent.mkdir(parents=True, exist_ok=True)
         (root / rel).write_text(text, encoding="utf-8")
@@ -109,7 +113,7 @@ def commit(root: Path, files: dict[str, str]) -> None:
 def test_a_mention_outside_the_allowed_paths_fails_naming_the_file_and_entry() -> None:
     with tempfile.TemporaryDirectory() as d:
         root, entry = fixture_repo(Path(d))
-        commit(root, {"README.md": f"Set `{entry['old']}` to `true`.\n"})
+        add_files(root, {"README.md": f"Set `{entry['old']}` to `true`.\n"})
         problems = stale_mentions(root)
         assert len(problems) == 1, problems
         assert problems[0].startswith("README.md: "), problems
@@ -130,7 +134,7 @@ def test_a_mention_inside_history_or_the_allowed_paths_passes() -> None:
         }
         for p in entry["allowed_paths"]:
             files[p + "x.md" if p.endswith("/") else p] = f"{old}\n"
-        commit(root, files)
+        add_files(root, files)
         assert stale_mentions(root) == []
 
 

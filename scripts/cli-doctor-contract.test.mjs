@@ -1133,14 +1133,7 @@ describe("review fixes (PR #78)", () => {
     });
     const newNames = Object.values(RENAMED_VARIABLES);
     const oldNames = Object.keys(RENAMED_VARIABLES);
-    assert.deepEqual(oldNames.sort(), [
-      "CLAUDE_MODEL_AUDIT",
-      "CLAUDE_MODEL_IMPLEMENT",
-      "CLAUDE_MODEL_PLAN",
-      "CLAUDE_MODEL_REVIEW",
-      "CLAUDE_MODEL_REVIEW_RESPONSE",
-      "CLAUDE_PIPELINE_ENABLED",
-    ]);
+    // Which names are renamed is the Deprecation register's: see its own suite below.
 
     // Every old name set, the new master switch set too: one warning per old name.
     const r = checkVariables({
@@ -2195,11 +2188,11 @@ function registerEntries(text) {
     const where = `${REGISTER}:${i + 1}`;
     if (/^\s*(#.*)?$/.test(line)) return;
     let m;
-    if ((m = line.match(/^- (\w+): (\S+)$/))) {
+    if ((m = line.match(/^- (\w+): ([^\s[{]\S*)$/))) {
       entry = { [m[1]]: m[2] };
       entries.push(entry);
       list = null;
-    } else if (entry && (m = line.match(/^ {2}(\w+): (\S+)$/))) {
+    } else if (entry && (m = line.match(/^ {2}(\w+): ([^\s[{]\S*)$/))) {
       entry[m[1]] = m[2];
       list = null;
     } else if (entry && (m = line.match(/^ {2}(\w+):$/))) {
@@ -2292,6 +2285,10 @@ describe("doctor's rename map and the Deprecation register", () => {
   it("a register line outside its shape fails rather than being misread", () => {
     assert.throws(
       () => registerEntries("- kind: variable\n  old: [A, B]\n"),
+      /docs\/deprecations\.yml:2: not in the register's shape/,
+    );
+    assert.throws(
+      () => registerEntries("- kind: variable\n  allowed_paths: []\n"),
       /docs\/deprecations\.yml:2: not in the register's shape/,
     );
   });
