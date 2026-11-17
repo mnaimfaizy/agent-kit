@@ -240,6 +240,10 @@ _Avoid_: fixer, review bot
 One unresolved review thread a configured reviewer started. Written alone, **Finding** means this; a security finding (the Threat pack's) and an **Upstream Finding** keep their qualifiers.
 _Avoid_: comment, issue (for a review point), review finding
 
+**Review report**:
+The reviewer's tracking comment on a pull request: an index of its Findings, one entry per thread, under the three axes. It holds no finding of its own.
+_Avoid_: review summary, summary findings
+
 **Work list**:
 The findings one round is given.
 _Avoid_: backlog, queue
