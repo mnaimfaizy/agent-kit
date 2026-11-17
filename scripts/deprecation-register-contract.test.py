@@ -13,6 +13,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 
 import yaml
@@ -43,27 +44,66 @@ def allowed(rel: str, paths: tuple[str, ...]) -> bool:
     return any(covers(p, rel) for p in paths)
 
 
-# The characters that continue a name of each kind, (before, after) it, so a
-# longer name is not a mention: A_B is not in A_B_C, needs-info is not in
-# needs-info-extra or agent:needs-info, plan is not in agent-plan-reusable.yml,
-# docs/a.md is not in my-docs/a.md or docs/a.md-x. A variable may follow a dot
-# (`vars.NAME`), and a path a slash (`../docs/a.md`).
-NAME_CHARS = {
-    "variable": ("A-Za-z0-9_", "A-Za-z0-9_"),
-    "input": ("A-Za-z0-9_-", "A-Za-z0-9_-"),
-    "label": ("A-Za-z0-9_:-", "A-Za-z0-9_:-"),
-    "command": ("A-Za-z0-9_-", "A-Za-z0-9_-"),
-    "path": ("A-Za-z0-9_.-", "A-Za-z0-9_/-"),
+# How a name of each kind is written, so a longer or different name is not a
+# mention of the old one: (characters inside a name before it, characters
+# inside a name after it, joiners before, joiners after). A joiner continues
+# the name only when a name character is on its far side: `needs-info:x` and
+# `agent:needs-info` are other labels, but `needs-info: x` (a YAML key or
+# prose) names needs-info, and a dot that ends a sentence ends the name.
+# A variable or input may follow a dot (`vars.NAME`, `inputs.name`). A command
+# may follow a bare slash (`/plan`), not a path (`scripts/plan`).
+NAME_RULES = {
+    "variable": ("A-Za-z0-9_", "A-Za-z0-9_", "", "."),
+    "input": ("A-Za-z0-9_-", "A-Za-z0-9_-", "", "."),
+    "label": ("A-Za-z0-9_-", "A-Za-z0-9_-", ":", ":."),
+    "command": ("A-Za-z0-9_-", "A-Za-z0-9_-", "./", "./"),
+    "path": ("A-Za-z0-9_.-", "A-Za-z0-9_-", "/", "./"),
 }
-assert set(NAME_CHARS) == KINDS
+assert set(NAME_RULES) == KINDS
+# Prefixes that still name the old one: a search qualifier (`label:needs-info`),
+# a relative link (`../docs/a.md`), and a GitHub file URL (`/blob/main/docs/a.md`).
+NAMING_PREFIX = {
+    "label": re.compile(r"(?<![A-Za-z0-9_-])label:$"),
+    "path": re.compile(r"((?<![A-Za-z0-9_.-])(\.\.?/)+|/(blob|tree|raw)/[^/\s]+/)$"),
+}
 
 
-def mentions(kind: str, name: str) -> re.Pattern[str]:
+def mentions(kind: str, old: str) -> Callable[[str], bool]:
+    """Whether a text names `old` whole, as a name of `kind` is written."""
     # An unknown kind is reported by the shape check; scan it as a command meanwhile.
-    before, after = NAME_CHARS.get(kind, NAME_CHARS["command"])
-    # A dot then a name character continues it too (plan.md, a.md.bak); a dot
-    # that ends a sentence does not.
-    return re.compile(rf"(?<![{before}]){re.escape(name)}(?![{after}]|\.[A-Za-z0-9_])")
+    before, after, join_before, join_after = NAME_RULES.get(kind, NAME_RULES["command"])
+    # A folder (`docs/a/`) is named by anything below it, or by itself with or without the slash.
+    folder = kind == "path" and old.endswith("/")
+    stem = old[:-1] if folder else old
+    in_before, in_after = re.compile(f"[{before}]"), re.compile(f"[{after}]")
+    naming_prefix = NAMING_PREFIX.get(kind)
+
+    def continued_before(prefix: str) -> bool:
+        if not prefix:
+            return False
+        if in_before.fullmatch(prefix[-1]):
+            return True
+        if prefix[-1] in join_before and len(prefix) > 1 and in_before.fullmatch(prefix[-2]):
+            return not (naming_prefix and naming_prefix.search(prefix))
+        return False
+
+    def continued_after(suffix: str) -> bool:
+        if not suffix or (folder and suffix[0] == "/"):
+            return False
+        if in_after.fullmatch(suffix[0]):
+            return True
+        return suffix[0] in join_after and len(suffix) > 1 and bool(in_after.fullmatch(suffix[1]))
+
+    pattern = re.compile(re.escape(stem))
+
+    def named(text: str) -> bool:
+        return any(
+            not continued_before(text[max(0, m.start() - 200) : m.start()])
+            and not continued_after(text[m.end() : m.end() + 2])
+            for m in pattern.finditer(text)
+        )
+
+    return named
 
 
 def stale_mentions(root: Path) -> list[str]:
@@ -77,8 +117,8 @@ def stale_mentions(root: Path) -> list[str]:
             text = (root / rel).read_text(encoding="utf-8")
         except (UnicodeDecodeError, IsADirectoryError, FileNotFoundError):
             continue
-        for e, pattern in entries:
-            if allowed(rel, tuple(e["allowed_paths"])) or not pattern.search(text):
+        for e, named in entries:
+            if allowed(rel, tuple(e["allowed_paths"])) or not named(text):
                 continue
             entry = f"(entry `{e['kind']}: {e['old']}`)"
             if e["replacement"] is None:
@@ -218,39 +258,98 @@ def test_a_mention_inside_history_or_the_allowed_paths_passes() -> None:
         assert stale_mentions(root) == []
 
 
-# One old name per kind of boundary, each beside a longer live name.
-KINDS_ENTRIES = "".join(
-    f"- kind: {kind}\n  old: {old}\n  replacement: null\n  release: 1.0.0-beta.8\n  allowed_paths: []\n"
-    for kind, old in [
-        ("variable", "OLD_VAR"),
-        ("label", "needs-info"),
-        ("command", "plan"),
-        ("path", "docs/old.md"),
-    ]
-)
+# For each kind, an old name, text that names something longer or different
+# (not a mention), and text that names the old one (a mention).
+BOUNDARY_CASES = [
+    (
+        "variable",
+        "OLD_VAR",
+        ["`OLD_VAR_X`", "`XOLD_VAR`", "`MY_OLD_VAR`", "`OLD_VAR.x`"],
+        ["`vars.OLD_VAR`", "${{ vars.OLD_VAR }}", "Set $OLD_VAR.", "OLD_VAR: true", "-OLD_VAR"],
+    ),
+    (
+        "input",
+        "old-input",
+        ["`old-input-x`", "`x-old-input`", "`old_input`", "`old-input.x`"],
+        ["`inputs.old-input`", "      old-input: true", "Pass old-input."],
+    ),
+    (
+        "label",
+        "needs-info",
+        ["`needs-info-extra`", "`x-needs-info`", "`needs-info:x`", "`agent:needs-info`", "`needs-info.x`"],
+        [
+            "needs-info: x",
+            "  needs-info: agent-info",
+            "`label:needs-info`",
+            "--label needs-info",
+            "the label needs-info.",
+            '"needs-info"',
+        ],
+    ),
+    (
+        "label",
+        "agent:review",
+        ["`agent:review-response`", "`agent:reviewer`", "`x-agent:review`", "`my:agent:review`"],
+        ["--add-label agent:review", "the `agent:review` label.", "agent:review: start"],
+    ),
+    (
+        "command",
+        "plan",
+        ["agent-plan-reusable.yml", "plan.md", "`plan-x`", "`--plan`", "scripts/plan", "x.plan", "`plan/x`"],
+        ["Run `plan`.", "/plan", "plan: true", "agent-kit plan --help", "Run plan."],
+    ),
+    (
+        "path",
+        "docs/old.md",
+        [
+            "docs/old.md.bak",
+            "docs/old.mdx",
+            "docs/old.md-x",
+            "my-docs/old.md",
+            "cli/docs/old.md",
+            "docs/old.md/x",
+            ".docs/old.md",
+        ],
+        [
+            "[a](../docs/old.md)",
+            "[a](./docs/old.md#part)",
+            "[a](/docs/old.md)",
+            "Read docs/old.md.",
+            "`docs/old.md`",
+            "https://github.com/o/r/blob/main/docs/old.md",
+            "https://github.com/o/r/blob/" + "0" * 40 + "/docs/old.md",
+        ],
+    ),
+    (
+        "path",
+        "docs/oldir/",
+        ["docs/oldir2/a.md", "docs/oldir.md", "x/docs/oldir/a.md", "docs/oldir-x/"],
+        ["docs/oldir/a.md", "[a](../docs/oldir/a.md)", "`docs/oldir/`", "`docs/oldir`", "docs/oldir."],
+    ),
+]
 
 
-def test_a_longer_name_of_any_kind_is_not_a_mention_of_the_old_one() -> None:
+def test_only_a_whole_old_name_of_each_kind_is_a_mention() -> None:
+    register = "".join(
+        f"- kind: {kind}\n  old: {old}\n  replacement: null\n  release: 1.0.0-beta.8\n  allowed_paths: []\n"
+        for kind, old, _, _ in BOUNDARY_CASES
+    )
+    files, expected = {}, set()
+    for i, (kind, old, live, stale) in enumerate(BOUNDARY_CASES):
+        for j, text in enumerate(live):
+            files[f"live-{i}-{j}.md"] = f"{text}\n"
+        for j, text in enumerate(stale):
+            files[f"stale-{i}-{j}.md"] = f"{text}\n"
+            expected.add(f"stale-{i}-{j}.md: names the {kind} {old}")
     with tempfile.TemporaryDirectory() as d:
-        root, _ = fixture_repo(Path(d), KINDS_ENTRIES)
-        add_files(
-            root,
-            {
-                "live.md": (
-                    "`OLD_VAR_X`, `needs-info-extra`, `x-needs-info`, `needs-info:x`, "
-                    "agent-plan-reusable.yml, plan.md, `plan-x`, "
-                    "docs/old.md.bak, docs/old.mdx, docs/old.md-x, my-docs/old.md\n"
-                ),
-                "stale.md": "`vars.OLD_VAR`, `needs-info`. Run `plan`. Read [it](../docs/old.md).\n",
-            },
-        )
-        problems = stale_mentions(root)
-        assert [p.split(",")[0] for p in problems] == [
-            "stale.md: names the variable OLD_VAR",
-            "stale.md: names the label needs-info",
-            "stale.md: names the command plan",
-            "stale.md: names the path docs/old.md",
-        ], problems
+        root, _ = fixture_repo(Path(d), register)
+        add_files(root, files)
+        found = {p.split(", which")[0] for p in stale_mentions(root)}
+    wrong = sorted(f"{f.split(':')[0]} ({files[f.split(':')[0]].strip()!r}): {f}" for f in found - expected)
+    missed = sorted(f"{f.split(':')[0]} ({files[f.split(':')[0]].strip()!r}): {f}" for f in expected - found)
+    assert not wrong and not missed, (
+        "flagged but not a mention:\n" + "\n".join(wrong) + "\nmissed:\n" + "\n".join(missed)
+    )
 
 
 if __name__ == "__main__":
@@ -261,5 +360,5 @@ if __name__ == "__main__":
     test_a_removed_name_and_empty_allowed_paths_are_well_formed()
     test_a_replacement_equal_to_old_or_empty_is_not_well_formed()
     test_a_mention_of_a_removed_name_fails_saying_it_has_no_replacement()
-    test_a_longer_name_of_any_kind_is_not_a_mention_of_the_old_one()
+    test_only_a_whole_old_name_of_each_kind_is_a_mention()
     print("deprecation-register-contract tests passed")

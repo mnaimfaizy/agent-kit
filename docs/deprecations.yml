@@ -2,7 +2,8 @@
 #
 # Each entry:
 #   kind: variable, input, label, path or command
-#   old: the name that was removed or renamed
+#   old: the name that was removed or renamed; a folder (kind path) ends in /,
+#     and then any file below it is a mention too
 #   replacement: the name to use instead, or null when it was removed with none
 #   release: the release the change shipped in (no leading v)
 #   allowed_paths: tracked files (or folders, ending in /) that may still name
