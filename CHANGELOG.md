@@ -26,6 +26,7 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ### Fixed
 
+- Review response's `verify_commands` run inside Claude Code's sandbox, which allows writes only to the working tree and a temp directory, with no network. `uv run` fails there with exit 2, because it cannot create its cache under `~/.cache`, so the round on [#254](https://github.com/mnaimfaizy/agent-kit/pull/254) could only decline. The dogfood Caller now calls `.venv/bin/pytest` and `.venv/bin/ruff` directly, and [review-response.md](docs/review-response.md) and the example Caller say to call installed tools, not cache-writing wrappers.
 - Review response no longer fails every round at **Check git configuration after setup**. That step refuses `GIT_*` variables that setup could leave to steer git, but the step itself was given the trusted git's path as `GIT_BIN`, so the check matched its own input and stopped each round before the agent ran (seen on [#254](https://github.com/mnaimfaizy/agent-kit/pull/254)). The variable is now `TRUSTED_GIT`, and a contract test runs the check with the step's own environment. Affects v1.0.0-beta.7.
 
 ## [1.0.0-beta.7] - 2026-11-17

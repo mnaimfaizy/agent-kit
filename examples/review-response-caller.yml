@@ -58,6 +58,8 @@ jobs:
       # command. Code the job runs: never build it from issue or PR text.
       verify_commands: |
         # The agent runs this block as one `bash` script; set -e makes any failing command fail it.
+        # It runs in the agent's sandbox: no network, writes only to the working tree and a temp dir.
+        # Call the tools setup installed directly (.venv/bin/pytest, not `uv run pytest`).
         set -e
         echo "Provide Consumer verify commands here (lint/tests/typecheck)."
       # setup_commands installs your toolchain and dependencies before the
