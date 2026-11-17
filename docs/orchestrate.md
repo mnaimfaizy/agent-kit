@@ -133,7 +133,9 @@ Under the table, it lists:
 
 **The landing.** In a spec run, the plan also says how the work lands, with what each choice costs: one integration branch with one pull request at the end, or one pull request per ticket ([Spec mode](#spec-mode)). The config's `spec.landing` sets your repository's default; with `ask`, the default, the plan asks you, and your "go" names the landing. Either way the plan states it and the board records it. A run never changes its landing part way through.
 
-**One "go" approves the whole plan**: every row, and the routine writes you tick. A change to any row is a new plan, shown again.
+**Decision authority.** The plan's last line says who answers Decision Requests: `relay` (you, every one) or `autonomous` ([Autonomous runs](#autonomous-runs)), with both halves of the split listed so you see what you would hand over.
+
+**One "go" approves the whole plan**: every row, the routine writes you tick, and the Decision authority line. A change to any row is a new plan, shown again.
 
 ## A Decision Request
 

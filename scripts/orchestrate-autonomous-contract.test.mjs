@@ -95,6 +95,10 @@ describe("SKILL.md: rules and steps", () => {
     const step = section(SKILL, "### 4. Show the Dispatch Plan");
     assert.match(step, /\*\*Decision authority\*\*/);
     assert.match(step, /`go autonomous`/);
+    assert.match(
+      step,
+      /Below `verified`, the run is autonomous only on a `go autonomous` the human types/,
+    );
   });
 
   for (const [heading, phrase] of [

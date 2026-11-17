@@ -59,7 +59,7 @@ In an autonomous run, the Chief of Staff answers some Decision Requests itself (
 ### Ruling: R<n>, <one-line question>
 
 **Delegation:** <id>, for #<issue>
-**Answers:** <the Decision Request's heading, or the stall, conflict or QA result it acts on>
+**Answers:** <the Decision Request's heading, or the stall, crash, conflict or QA result it acts on>
 **Choice:** <option number and what it says>, because <reason>
 **Evidence:** <for each claim: `path:line` at a commit SHA, a file in the run folder's `evidence/`, a tracker permalink, or a Ruling id>
 **Cites:** <earlier Rulings by id, or none>
