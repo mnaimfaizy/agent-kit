@@ -324,9 +324,7 @@ def test_a_staged_script_ends_by_naming_what_failed() -> None:
                 env={"PATH": os.environ["PATH"], "STAGED": tmp, "BODY": body},
                 check=True,
             )
-            return subprocess.run(
-                ["bash", f"{tmp}/{name}.sh"], capture_output=True, text=True, check=False, cwd=tmp
-            )
+            return subprocess.run(["bash", f"{tmp}/{name}.sh"], capture_output=True, text=True, check=False, cwd=tmp)
 
     failed = staged("verify", "set -e\ntrue\necho noise\nfalse\necho never")
     assert failed.returncode == 1
