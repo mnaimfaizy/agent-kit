@@ -234,6 +234,93 @@ def test_prepare_is_safe_to_re_run_and_never_overwrites_notes() -> None:
         assert read("release-notes/v1.0.0-beta.2.md") == "Written by hand.\n"
 
 
+REGISTER = """\
+# A comment, as the real register has.
+
+- kind: variable
+  old: OLD_FLAG
+  replacement: NEW_FLAG_NAME
+  release: 1.0.0-beta.2
+  allowed_paths:
+    - cli/src/x.mjs
+- kind: input
+  old: gone_input
+  replacement: null
+  release: 1.0.0-beta.2
+  allowed_paths: []
+- kind: variable
+  old: EARLIER_FLAG
+  replacement: EARLIER_NEW
+  release: 1.0.0-beta.1
+  allowed_paths: []
+"""
+
+
+def on_main(files: dict[str, str]) -> None:
+    """Commit files to main and push them, so prepare's branch (cut from origin/main) has them."""
+    for path, text in files.items():
+        write(path, text)
+    g("add", "-A")
+    g("commit", "-qm", "fixture")
+    g("push", "-q", "origin", "main")
+
+
+def test_prepare_puts_the_release_s_register_entries_in_the_notes() -> None:
+    with sandbox():
+        on_main({"docs/deprecations.yml": REGISTER})
+        code, out = run("prepare", "--tag", "v1.0.0-beta.2", "--date", "2026-11-14")
+        assert code == 0, out
+        notes = read("release-notes/v1.0.0-beta.2.md")
+        action = notes.split("### Consumer action\n", 1)[1].split("\n### ", 1)[0]
+        assert "the old names no longer work" in action
+        table = [line for line in action.splitlines() if line.lstrip().startswith("|")]
+        assert table == [
+            "  | Kind     | Old          | New                          |",
+            "  | -------- | ------------ | ---------------------------- |",
+            "  | variable | `OLD_FLAG`   | `NEW_FLAG_NAME`              |",
+            "  | input    | `gone_input` | Removed, with no replacement |",
+        ], table
+        assert "EARLIER_FLAG" not in notes, "an entry for another release is not in these notes"
+        # The maintainer still finishes the notes around the table.
+        assert action.count(release.NOTES_MARKER) == 1 and notes.count(release.NOTES_MARKER) >= 3
+        assert "{{" not in notes
+
+
+def test_prepare_writes_no_table_without_entries_for_the_release() -> None:
+    with sandbox():
+        # No register at all: the seed repository has none.
+        assert run("prepare", "--tag", "v1.0.0-beta.2", "--date", "2026-11-14")[0] == 0
+        without = read("release-notes/v1.0.0-beta.2.md")
+    with sandbox():
+        # A register whose entries are all for other releases.
+        on_main({"docs/deprecations.yml": REGISTER.replace("release: 1.0.0-beta.2", "release: 1.0.0-beta.1")})
+        assert run("prepare", "--tag", "v1.0.0-beta.2", "--date", "2026-11-14")[0] == 0
+        assert read("release-notes/v1.0.0-beta.2.md") == without
+    assert "|" not in without and "no longer work" not in without
+    assert "### Consumer action\n\n- TODO(release-notes): what a Consumer must do" in without
+
+
+def test_prepare_never_adds_the_table_to_existing_notes() -> None:
+    with sandbox():
+        on_main({"docs/deprecations.yml": REGISTER, "release-notes/v1.0.0-beta.2.md": "Written by hand.\n"})
+        code, out = run("prepare", "--tag", "v1.0.0-beta.2", "--date", "2026-11-14")
+        assert code == 0, out
+        assert "release-notes/v1.0.0-beta.2.md: exists; left as is." in out
+        assert read("release-notes/v1.0.0-beta.2.md") == "Written by hand.\n"
+
+
+def test_prepare_refuses_a_register_outside_its_shape_before_writing() -> None:
+    with sandbox():
+        on_main(
+            {"docs/deprecations.yml": REGISTER.replace("  release: 1.0.0-beta.2\n", "  release: '1.0.0-beta.2'\n", 1)}
+        )
+        code, out = run("prepare", "--tag", "v1.0.0-beta.2", "--date", "2026-11-14")
+        assert code == 1
+        assert "docs/deprecations.yml:6: not in the register's shape" in out, out
+        assert not Path("release-notes/v1.0.0-beta.2.md").exists()
+        assert "## [Unreleased]\n\n### Added" in read("CHANGELOG.md"), "nothing is written before the refusal"
+
+
 def test_prepare_commits_only_finished_notes_and_can_open_the_pr() -> None:
     with sandbox() as fake:
         assert run("prepare", "--tag", "v1.0.0-beta.2")[0] == 0
@@ -664,6 +751,10 @@ def test_cutting_doc_describes_the_two_step_flow() -> None:
 if __name__ == "__main__":
     test_prepare_writes_the_release_prep_branch_and_pushes_nothing()
     test_prepare_is_safe_to_re_run_and_never_overwrites_notes()
+    test_prepare_puts_the_release_s_register_entries_in_the_notes()
+    test_prepare_writes_no_table_without_entries_for_the_release()
+    test_prepare_never_adds_the_table_to_existing_notes()
+    test_prepare_refuses_a_register_outside_its_shape_before_writing()
     test_prepare_commits_only_finished_notes_and_can_open_the_pr()
     test_prepare_refuses_a_branch_that_exists_only_on_origin()
     test_bump_leaves_pre_releases_prose_and_tooling_of_a_stable_tag_alone()
