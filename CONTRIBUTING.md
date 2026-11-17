@@ -75,7 +75,7 @@ The tests are contracts, not unit tests: they pin behavior a Consumer depends on
 
 ## Dogfood flows
 
-`dogfood-security-audit.yml` and `dogfood-agent-pipeline.yml` run this repository's own reusable workflows from the same commit (`uses: ./…`), so changes are exercised before they are tagged. Both stay off until you enable them.
+`dogfood-security-audit.yml`, `dogfood-agent-pipeline.yml` and `dogfood-review-response.yml` run this repository's own reusable workflows from the same commit (`uses: ./…`), so changes are exercised before they are tagged. All three stay off until you enable them.
 
 One-time setup:
 
@@ -86,27 +86,39 @@ gh secret set AGENT_KIT_ADVISORIES_TOKEN           # fine-grained PAT: Repositor
 gh secret set AGENT_KIT_DEPENDABOT_ALERTS_TOKEN    # optional; fine-grained PAT: Dependabot alerts R
 
 # Labels
-gh label create "agent:plan"      --color 1D76DB --description "Agent-kit: plan this issue"
-gh label create "agent:implement" --color 0E8A16 --description "Agent-kit: implement the Verified plan"
-gh label create "agent:review"    --color 5319E7 --description "Agent-kit: review this PR"
-gh label create "agent:audit"     --color B60205 --description "Agent-kit: security audit this PR"
+gh label create "agent:plan"           --color 1D76DB --description "Agent-kit: plan this issue"
+gh label create "agent:implement"      --color 0E8A16 --description "Agent-kit: implement the Verified plan"
+gh label create "agent:review"         --color 5319E7 --description "Agent-kit: review this PR"
+gh label create "agent:audit"          --color B60205 --description "Agent-kit: security audit this PR"
+gh label create "agent:address-review" --color FBCA04 --description "Agent-kit: answer the review on this PR"
 
 # Turn on
 gh variable set CLAUDE_SECURITY_AUDIT_ENABLED --body true
 gh variable set CLAUDE_AGENT_FLOW_ENABLED --body true
+gh variable set CLAUDE_REVIEW_RESPONSE_ENABLED --body true
 
 # Optional: model and effort for every dogfood run (defaults: claude-opus-5-5,
 # no --effort), and a per-Stage override, CLAUDE_<STAGE>_MODEL or
-# CLAUDE_<STAGE>_EFFORT with PLAN, IMPLEMENT, REVIEW or SECURITY_AUDIT.
+# CLAUDE_<STAGE>_EFFORT with PLAN, IMPLEMENT, REVIEW, REVIEW_RESPONSE or
+# SECURITY_AUDIT.
 # CLAUDE_<STAGE>_ENABLED=false turns one Agent flow Stage off.
 gh variable set CLAUDE_MODEL --body claude-opus-5-5
 gh variable set CLAUDE_SECURITY_AUDIT_MODEL --body claude-fable-5-2
 gh variable set CLAUDE_PLAN_EFFORT --body low
+
+# Optional: auto mode (needs CLAUDE_REVIEW_RESPONSE_ENABLED=true as well: the
+# review's handoff does not check it, so without it each review with findings
+# dispatches a run that skips). A dogfood review that leaves findings hands off
+# to dogfood-review-response.yml, at most two rounds per PR. Unset is manual:
+# apply agent:address-review yourself.
+gh variable set CLAUDE_REVIEW_RESPONSE_MODE --body auto
 ```
 
 Also: install the [Claude GitHub App](https://github.com/apps/claude) on the repository (implementer) (see [getting-started §7](docs/getting-started.md#7-prepare-the-security-audit) for the audit). Review [security/threat-model.md](security/threat-model.md) before the first audit; it is a draft.
 
-The Allowlist in both dogfood Callers is `mnaimfaizy`; edit it to add maintainers.
+The Allowlist in every dogfood Caller is `mnaimfaizy`; edit it to add maintainers. For Review response, also edit `response_allowlist_actors` in `dogfood-agent-pipeline.yml`'s review job, so it stays equal to `dogfood-review-response.yml`'s `allowlist_actors`.
+
+The dogfood Review response refuses many of this repository's pull requests, by design. Its gate refuses one that changes a protected path: a file named `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`, `.mcp.json`, `.claude.json` or `.gitmodules`, anything under `.claude/`, `.agents/skills/` or `.husky/` at any depth, or a Kit-owned path (`.github/agent-runtime/`, `.github/agent-pipeline/`, `.github/security-audit/`, `.github/agent-review-response/` and every skill in [kit-owned-paths.txt](kit-owned-paths.txt)). The list is `PROTECTED_FILES`, `PROTECTED_DIRS_ANY_DEPTH`, `PROTECTED_ROOT_DIRS` and `KIT_OWNED_PATHS` in [review-response.mjs](.github/agent-review-response/review-response.mjs); check there if this paragraph and the script disagree. The agent also cannot change `.github/workflows`, so it declines a finding that needs one. Rounds here mostly cover docs, `cli/`, `scripts/` and `examples/` pull requests; a refusal is not a bug. The round reads its trusted script, hooks and skill from `main`, so a change to them is exercised only after it merges.
 
 ## Branch protection
 
