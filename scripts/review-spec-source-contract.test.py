@@ -93,6 +93,9 @@ def run_brief(
     head = git("rev-parse", "HEAD")
     skill = repo / "SKILL.md"
     skill.write_text("# skill\n", encoding="utf-8")
+    open_threads = tmp_path / "open-threads.md"
+    no_threads = "You have no review threads on this pull request: every finding is new.\n"
+    open_threads.write_text(no_threads, encoding="utf-8")
 
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -123,6 +126,7 @@ def run_brief(
         "MARKER": PLAN_MARKER,
         "TRUSTED_SPEC_AUTHORS": trusted,
         "SKILL_PATH": str(skill),
+        "OPEN_THREADS": str(open_threads),
     }
     result = subprocess.run(
         [bash(), "-c", step(BRIEF_STEP)["run"]], env=env, cwd=repo, capture_output=True, text=True, check=False

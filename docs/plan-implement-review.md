@@ -53,6 +53,9 @@ Implement reads only a Verified plan comment that:
 
 - on-demand review of a pull request (`pr_number`, `head_sha`, `base_sha`, `base_ref`)
 - report three axes: Standards, Spec, Correctness
+- every finding, on all three axes and nits included, is an inline review thread, anchored on the changed line that causes it ([ADR 0011](adr/0011-every-review-finding-is-a-thread.md)); a finding about an unchanged line or a missing file goes on the changed line that causes it and names the real location in its first sentence, and one with no fitting line goes on the first changed line of the most relevant changed file
+- the tracking comment is the **Review report**: under each axis, one entry per thread, linking it, and no finding of its own. After the reviewer, a trusted step checks every entry against the pull request's review comments; an entry that links no thread the reviewer started there fails the review job, naming the entry, and the Handoff does not start
+- on re-review, the reviewer's brief lists its open threads with their latest Verdict (read only from the Review responder's marked replies; no reply text reaches it). It posts no second thread for a finding, stays silent on a Verdict it accepts, and disputes one in its report's `## Replies` section, which a trusted step posts on the thread, putting it back on the next Work list
 - Spec axis uses a Verified plan when the PR (or `issue_number`) names one
 - without a Verified plan, the Spec axis uses the latest issue comment that starts with `<!-- agent-kit-brief -->` and is written by a login in `trusted_spec_authors` (empty by default, which turns this off; logins match exactly, and an invalid value fails the review); a triage agent brief can carry the marker to become the spec
 - no push or product execution, no auto-fix

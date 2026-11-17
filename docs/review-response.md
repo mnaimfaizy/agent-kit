@@ -18,7 +18,7 @@ One run is one **Response round** per pull request you name:
 
 1. It reads the optional config, `address-pr-review.config.{yml,yaml,json}` at the repository root (keys `reviewer_logins`, `working_dir`, `worktree`, `commit_command`, `push_command`; see [ADAPTER.md](../.claude/skills/address-pr-review/ADAPTER.md)). A problem in the config stops the run, with its line.
 2. It refuses a pull request that is closed or comes from a fork, and records the head as the round's start.
-3. It builds the **Work list**: unresolved threads whose first comment a login in `reviewer_logins` wrote (default `github-actions`), oldest first, outdated threads included, at most 20. It says how many were left for the next round. It also shows top-level comments and requested-changes reviews by trusted people, and asks whether each one is a finding.
+3. It builds the **Work list**: unresolved threads whose first comment a login in `reviewer_logins` wrote (default `github-actions`), oldest first, outdated threads included, at most 20. The kit's own reviewer posts every finding as such a thread, so in CI the Work list covers every finding of its review ([ADR 0011](adr/0011-every-review-finding-is-a-thread.md)); its tracking comment, the Review report, only links them. It says how many were left for the next round. It also shows top-level comments and requested-changes reviews by trusted people, and asks whether each one is a finding.
 4. Each finding gets a provisional Verdict. A finding with no single clear fix (more than one reasonable fix, a behaviour change nobody asked for, work for its own issue, a finding it thinks is wrong) goes into **one batched question** with a recommendation.
 5. It fixes in a `git worktree` under `working_dir` (default `tmp/address-pr-review`, which must be gitignored), so your checkout never moves. One commit per fixed finding, after the checks that cover it.
 6. It shows you one batch: the commits, every reply in full, and which threads it will resolve. Nothing is pushed or posted until you confirm.
@@ -147,6 +147,7 @@ The flow keeps no state of its own. GitHub's thread state is the memory:
 
 - A **resolved** thread drops out.
 - Every reply a round posts ends with a verdict marker (`<!-- address-pr-review verdict=fixed -->`). A thread whose last trusted comment (the reviewer's, an Allowlist maintainer's, or the round's own) carries one is **answered**: it stays off the Work list until the reviewer or a maintainer replies again.
+- On the next review, the kit's reviewer reads each open thread's Verdict. It stays silent on one it accepts; on one it disputes, it replies (without a marker), which puts the thread back on the Work list.
 - A finding that an earlier round reported `fixed` and is still open **persists**: the reviewer or a maintainer did not accept the fix. In CI it is declined with that note and never tried a second time; run by a person, it goes to the batched question.
 - In CI nobody can answer the batched question, so a finding that would go into it is **declined**, with the question and the agent's recommendation in its reply. Your reply on that thread is the answer, next round.
 
