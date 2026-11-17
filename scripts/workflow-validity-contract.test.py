@@ -5,7 +5,6 @@ workflow file" and records a 0s failed run on every push to this repository.
 """
 
 import re
-import subprocess
 from pathlib import Path
 
 import yaml
@@ -225,40 +224,6 @@ def test_callers_read_model_and_effort_from_repository_variables() -> None:
         )
 
 
-# ADR 0009 dropped these with no fallback.
-REMOVED_VARIABLES = (
-    "CLAUDE_PIPELINE_ENABLED",
-    "CLAUDE_MODEL_PLAN",
-    "CLAUDE_MODEL_IMPLEMENT",
-    "CLAUDE_MODEL_REVIEW",
-    "CLAUDE_MODEL_REVIEW_RESPONSE",
-    "CLAUDE_MODEL_AUDIT",
-)
-
-
-def test_no_old_variable_names_outside_history_and_rename_map() -> None:
-    files = subprocess.run(["git", "ls-files"], cwd=ROOT, capture_output=True, text=True, check=True).stdout.split()
-    # History, the ADR that records the rename, the tests, and doctor's rename map.
-    allowed = (
-        "release-notes/",
-        "CHANGELOG.md",
-        ".github/workflows-archive/",
-        "docs/adr/",
-        "scripts/",
-        "cli/src/checks/secrets-and-variables.mjs",
-    )
-    for rel in files:
-        if rel.startswith(allowed):
-            continue
-        path = ROOT / rel
-        try:
-            text = path.read_text(encoding="utf-8")
-        except (UnicodeDecodeError, IsADirectoryError, FileNotFoundError):
-            continue
-        for name in REMOVED_VARIABLES:
-            assert not re.search(rf"\b{name}\b", text), f"{rel}: still names {name}"
-
-
 if __name__ == "__main__":
     test_reusable_secrets_avoid_reserved_names()
     test_reusable_secret_references_are_declared()
@@ -268,5 +233,4 @@ if __name__ == "__main__":
     test_callers_grant_what_the_called_jobs_request()
     test_callers_default_to_kill_switch_on()
     test_callers_read_model_and_effort_from_repository_variables()
-    test_no_old_variable_names_outside_history_and_rename_map()
     print("workflow-validity-contract tests passed")

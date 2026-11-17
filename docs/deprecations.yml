@@ -1,0 +1,57 @@
+# The Deprecation register (ADR 0010): each removed or renamed name, once.
+#
+# Each entry:
+#   kind: variable, input, label, path or command
+#   old: the name that was removed or renamed
+#   replacement: the name to use instead
+#   release: the release the change shipped in (no leading v)
+#   allowed_paths: tracked files (or folders, ending in /) that may still name `old`
+#
+# History (docs/adr/, CHANGELOG.md, release-notes/) may always name an old
+# name. scripts/deprecation-register-contract.test.py fails on any other
+# mention, and scripts/cli-doctor-contract.test.mjs checks that doctor's rename
+# map (RENAMED_VARIABLES) equals the variable entries.
+
+# ADR 0009: every Stage setting is CLAUDE_<STAGE>_<SETTING> (#246).
+- kind: variable
+  old: CLAUDE_PIPELINE_ENABLED
+  replacement: CLAUDE_AGENT_FLOW_ENABLED
+  release: 1.0.0-beta.8
+  allowed_paths:
+    - cli/src/checks/secrets-and-variables.mjs
+    - scripts/cli-doctor-contract.test.mjs
+- kind: variable
+  old: CLAUDE_MODEL_PLAN
+  replacement: CLAUDE_PLAN_MODEL
+  release: 1.0.0-beta.8
+  allowed_paths:
+    - cli/src/checks/secrets-and-variables.mjs
+    - scripts/cli-doctor-contract.test.mjs
+- kind: variable
+  old: CLAUDE_MODEL_IMPLEMENT
+  replacement: CLAUDE_IMPLEMENT_MODEL
+  release: 1.0.0-beta.8
+  allowed_paths:
+    - cli/src/checks/secrets-and-variables.mjs
+    - scripts/cli-doctor-contract.test.mjs
+- kind: variable
+  old: CLAUDE_MODEL_REVIEW
+  replacement: CLAUDE_REVIEW_MODEL
+  release: 1.0.0-beta.8
+  allowed_paths:
+    - cli/src/checks/secrets-and-variables.mjs
+    - scripts/cli-doctor-contract.test.mjs
+- kind: variable
+  old: CLAUDE_MODEL_REVIEW_RESPONSE
+  replacement: CLAUDE_REVIEW_RESPONSE_MODEL
+  release: 1.0.0-beta.8
+  allowed_paths:
+    - cli/src/checks/secrets-and-variables.mjs
+    - scripts/cli-doctor-contract.test.mjs
+- kind: variable
+  old: CLAUDE_MODEL_AUDIT
+  replacement: CLAUDE_SECURITY_AUDIT_MODEL
+  release: 1.0.0-beta.8
+  allowed_paths:
+    - cli/src/checks/secrets-and-variables.mjs
+    - scripts/cli-doctor-contract.test.mjs
