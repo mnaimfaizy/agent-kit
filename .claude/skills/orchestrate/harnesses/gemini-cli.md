@@ -7,6 +7,7 @@
 - **Headless QA:** none: `-p` does not run a skill command.
 - **Facts from:** `google-gemini/gemini-cli` v0.68.0 and its docs, read on 2026-11-14. Gemini CLI was not run with a prompt. Since 2026-06-18 it serves only paid API keys and Code Assist licences; free and Google AI Pro or Ultra accounts moved to Antigravity ([antigravity.md](antigravity.md)).
 - **Executors:** building, a headless run in a worktree the Chief of Staff makes ([HARNESSES.md](../HARNESSES.md#a-headless-run-in-a-worktree)); analysis, a sub-agent; QA, a session the human starts.
+- **Notify:** none known: the sources in **Facts from** name no way for the Chief of Staff to notify the human. A queued question waits in its session and on the board.
 
 ## Verbs
 
@@ -28,3 +29,4 @@
 
 - Whether Gemini CLI honours `disable-model-invocation`.
 - Whether `-w` worktrees, which it makes under `.gemini/worktrees/` inside the checkout, can be kept out of the Chief of Staff's checkout; until then, make the worktree by hand.
+- Whether the harness can notify the human that a question is queued, and how: record what was found.

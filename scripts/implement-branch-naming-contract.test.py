@@ -7,6 +7,7 @@ YAML, and the guardrail step's own script, run under bash.
 import os
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 import yaml
@@ -70,11 +71,26 @@ def test_guardrail_reads_inputs_only_through_env() -> None:
     assert "${{" not in guard["run"]
 
 
+def bash() -> str:
+    # The bash on PATH. Not a bare "bash": on Windows, subprocess finds
+    # System32's (WSL) before Git bash.
+    path = shutil.which("bash")
+    assert path, "bash is required to run step scripts"
+    return path
+
+
+def run_bash(script: str, **kwargs) -> subprocess.CompletedProcess:
+    # From a file, not `bash -c`: Git-for-Windows bash cuts a `-c` argument
+    # near 8,190 characters.
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "step.sh"
+        path.write_text(script, encoding="utf-8", newline="\n")
+        return subprocess.run([bash(), path.as_posix()], **kwargs)
+
+
 def run_guard(prefix: str, template: str = "") -> subprocess.CompletedProcess:
-    bash = shutil.which("bash")
-    assert bash, "bash is required to run the guardrail script"
-    return subprocess.run(
-        [bash, "-c", step(GUARD_STEP)["run"]],
+    return run_bash(
+        step(GUARD_STEP)["run"],
         env={**os.environ, "BRANCH_PREFIX": prefix, "BRANCH_NAME_TEMPLATE": template},
         capture_output=True,
         text=True,

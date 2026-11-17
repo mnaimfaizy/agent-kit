@@ -7,6 +7,7 @@
 - **Headless QA:** yes, else a session the human starts.
 - **Facts from:** antigravity.google docs, App 2.32.0 and CLI `agy` 1.5.8, read on 2026-11-14. Antigravity was not run with a prompt.
 - **Executors:** building and analysis, a sub-agent in its own worktree; QA, a headless `agy` run in a worktree the Chief of Staff makes ([HARNESSES.md](../HARNESSES.md#a-headless-run-in-a-worktree)), else a session the human starts.
+- **Notify:** none known: the sources in **Facts from** name no way for the Chief of Staff to notify the human. A queued question waits in its session and on the board.
 
 ## Verbs
 
@@ -34,3 +35,4 @@
 - Whether `invoke_subagent` takes an exact model id.
 - Whether Antigravity honours `disable-model-invocation`, and whether it reads `.claude/skills` at all.
 - Whether the human can type into a running sub-agent, which would make it a tier 1 harness.
+- Whether the harness can notify the human that a question is queued, and how: record what was found.

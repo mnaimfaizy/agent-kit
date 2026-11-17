@@ -7,6 +7,7 @@
 - **Headless QA:** yes, else a session the human starts.
 - **Facts from:** cursor.com/docs, the Subagents, Worktrees, Skills, Headless and Run modes pages, read on 2026-11-14 with Cursor 3.28; and the first run.
 - **Executors:** building and analysis, a background sub-agent in its own worktree; QA, a headless run of the Cursor CLI (`agent`), else a session the human starts.
+- **Notify:** none known: the sources in **Facts from** name no way for the Chief of Staff to notify the human. A queued question waits in its session and on the board.
 
 ## Verbs
 
@@ -34,3 +35,4 @@
 - Whether a worktree sub-agent's workspace is its worktree or the Chief of Staff's folder, and so whether its report write needs approval.
 - Whether `-p` runs `/qa-plan <n>` as the user's own invocation, and whether a headless run has a browser.
 - Which copy wins when both `~/.claude/skills` and `.claude/skills` hold `orchestrate`: Cursor loads both.
+- Whether the harness can notify the human that a question is queued, and how: record what was found.

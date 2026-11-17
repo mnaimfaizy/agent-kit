@@ -80,14 +80,9 @@ The implementer's Bash guard (`guard-implementer-push.mjs`) refuses `$`, backtic
 
 ### Review response's protected paths
 
-Review response's write hook (`confine-writes-to-worktree.mjs`) blocks edits to `.claude/settings.json`, `.claude/settings.local.json`, `.mcp.json`, `.git/` and anything outside the working tree. The other protected paths are not blocked at the edit: a commit to one fails validation in `publish`, and none of the round's commits are pushed. In short, the protected paths are:
+Review response's write hook (`confine-writes-to-worktree.mjs`) blocks edits to `.claude/settings.json`, `.claude/settings.local.json`, `.mcp.json`, `.git/` and anything outside the working tree. The other protected paths are not blocked at the edit: a commit to one fails validation in `publish`, and none of the round's commits are pushed. The protected paths are the kit's fixed list, generated from the trusted script in [Refusals and protected paths](review-response.md#refusals-and-protected-paths), plus the Caller's `extra_protected_paths`.
 
-- `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`, `.mcp.json`, `.claude.json` and `.gitmodules`;
-- `.claude/`, `.agents/skills/` and `.husky/`, at any depth;
-- `.github/agent-runtime/` and the Kit-owned paths;
-- the Caller's `extra_protected_paths`.
-
-A pull request that already changes a protected path gets no round. The full rules are in [Refusals and protected paths](review-response.md#refusals-and-protected-paths).
+A pull request that already changes a protected path gets no round. The full rules are on that page too.
 
 ### Two protected lists
 

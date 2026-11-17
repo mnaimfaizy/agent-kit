@@ -7,6 +7,7 @@
 - **Headless QA:** yes, with a browser MCP server; else a session the human starts.
 - **Facts from:** `openai/codex` rust-v0.169.0 and its docs at learn.chatgpt.com/docs, read on 2026-11-14. Codex was not run with a prompt.
 - **Executors:** building and QA, a headless run in a worktree the Chief of Staff makes ([HARNESSES.md](../HARNESSES.md#a-headless-run-in-a-worktree)); analysis, a sub-agent; QA falls back to a session the human starts.
+- **Notify:** none known: the sources in **Facts from** name no way for the Chief of Staff to notify the human. A queued question waits in its session and on the board.
 
 ## Verbs
 
@@ -30,3 +31,4 @@
 - Whether `$qa-plan` in a resumed prompt counts as the user's own invocation.
 - Whether `--approve-for-me`, or an allow rule, approves a `git push`.
 - Whether `codex queue` reaches a running `exec` run, which would let a `message` arrive while it works.
+- Whether the harness can notify the human that a question is queued, and how: record what was found.

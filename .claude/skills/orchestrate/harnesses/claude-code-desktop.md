@@ -7,6 +7,7 @@
 - **Headless QA:** none: QA is a Live Session.
 - **Facts from:** the session tools the app gives a session, as offered on 2026-11-13.
 - **Executors:** building, a Live Session; analysis, a sub-agent, or a Live Session if long; QA, a Live Session.
+- **Notify:** a `PushNotification` tool, among the session tools the app offered on 2026-11-17: send it the Delegation's id and that a question is queued. Where the tool is not offered, a queued question waits in the session and on the board.
 
 ## Verbs
 
@@ -26,3 +27,4 @@
 
 - Whether a sub-agent can be sent a follow-up message after it finishes.
 - Whether the app runs a slash command sent as a message as the user's own invocation. Try it; if the session does not run it, the human types it. Record which happened.
+- Whether a `PushNotification` reaches the human when the app is in the background or closed.

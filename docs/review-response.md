@@ -133,7 +133,18 @@ No round runs, and the pull request gets a comment saying why, on:
 
 A login not on the Allowlist that applies the label gets a comment saying so. A pull request with no unresolved findings gets "nothing to address".
 
-The **protected paths** are fixed by the kit: `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`, `.mcp.json`, `.claude.json` and `.gitmodules` at any depth; `.claude/`, `.agents/skills/` and `.husky/` at any depth; `.github/agent-runtime/`; and every Kit-owned path. They are the files that steer the agent itself, so a round would otherwise take its instructions from the change under review. Comparisons ignore case and trailing dots and spaces, as a case-insensitive checkout sees the path. `extra_protected_paths` adds plain paths from the repository root (one per line or comma-separated; no globs, `!`, `.` or `..`). Nothing can remove a path from the list.
+The **protected paths** are fixed by the kit:
+
+<!-- generated:review-response-protected-paths -->
+
+- Files named `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`, `.mcp.json`, `.claude.json` or `.gitmodules`, at any depth.
+- Anything under `.claude/`, `.agents/skills/` or `.husky/`, at any depth.
+- Anything under `.github/agent-runtime/`, from the repository root.
+- Every Kit-owned path, from the repository root: `.claude/skills/code-review/`, `.claude/skills/security-audit/`, `.claude/skills/security-finding-triage/`, `.claude/skills/security-response/`, `.claude/skills/explainer/`, `.claude/skills/instruction-drift-audit/`, `.claude/skills/qa-plan/`, `.claude/skills/manual-qa/`, `.claude/skills/plain-prose/`, `.claude/skills/orchestrate/`, `.claude/skills/address-pr-review/`, `.github/agent-runtime/`, `.github/agent-pipeline/`, `.github/security-audit/` and `.github/agent-review-response/`.
+
+<!-- /generated:review-response-protected-paths -->
+
+They are the files that steer the agent itself, so a round would otherwise take its instructions from the change under review. Comparisons ignore case and trailing dots and spaces, as a case-insensitive checkout sees the path. `extra_protected_paths` adds plain paths from the repository root (one per line or comma-separated; no globs, `!`, `.` or `..`). Nothing can remove a path from the list.
 
 A round never commits to a protected path or to `.github/workflows/` either: the job token cannot push a workflow change. A finding that needs one is declined. One commit that breaks this rule fails validation, and none of the round's commits are pushed.
 

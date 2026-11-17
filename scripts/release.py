@@ -66,6 +66,13 @@ LOCKFILE = re.compile(r"(?:^|/)(?:package-lock\.json|npm-shrinkwrap\.json|uv\.lo
 STATUS_LINE = re.compile(r"(\*\*Status:\*\* pre-release \(`)([^`]+)(`\))")
 STAGE_RANK = {"alpha": 0, "beta": 1, "rc": 2, "": 3}
 STAGE_WORD = {"alpha": "alpha", "beta": "beta", "rc": "release candidate", "": "stable release"}
+# The Deprecation register (ADR 0010). Its entries for the tag go into the new notes' Consumer action.
+REGISTER = "docs/deprecations.yml"
+# Its own line; a blank line after it goes too, so no entries leave no gap.
+DEPRECATIONS_SLOT = re.compile(r"\{\{DEPRECATIONS\}\}\n\n?")
+# A plain value, or `null` (removed with no replacement). Quoted, flow and other null spellings
+# (`~`, `Null`) are outside the register's shape, as scripts/cli-doctor-contract.test.mjs reads it.
+REGISTER_SCALAR = re.compile(r"(?!(?:Null|NULL)$)[^\s\[{'\"~]\S*")
 
 
 class ReleaseError(Exception):
@@ -349,10 +356,93 @@ def move_unreleased(text: str, version: str, date: str) -> tuple[str, bool]:
     return text[: heading.end()] + "\n" + section + ("\n" + tail if tail else ""), True
 
 
-def notes_from_template(tag: str) -> str:
+def register_entries(text: str, where: str) -> list[dict[str, str | None]]:
+    """The register's entries, read strictly in its fixed shape: this tool has no YAML parser."""
+    entries: list[dict[str, str | None]] = []
+    entry: dict | None = None
+    in_list = False
+
+    def scalar(value: str) -> str | None:
+        return None if value == "null" else value
+
+    for number, line in enumerate(text.split("\n"), 1):
+        if re.fullmatch(r"\s*(#.*)?", line):
+            continue
+        top = re.fullmatch(r"- (\w+): (\S+)", line)
+        field = re.fullmatch(r"  (\w+): (\S+)", line)
+        item = re.fullmatch(r"    - (\S+)", line)
+        if top and REGISTER_SCALAR.fullmatch(top[2]):
+            entry = {top[1]: scalar(top[2])}
+            entries.append(entry)
+            in_list = False
+        elif entry is not None and field and REGISTER_SCALAR.fullmatch(field[2]):
+            entry[field[1]] = scalar(field[2])
+            in_list = False
+        elif entry is not None and line in ("  allowed_paths: []", "  allowed_paths:"):
+            in_list = line.endswith(":")
+        elif in_list and item and REGISTER_SCALAR.fullmatch(item[1]):
+            # Checked, not kept: the notes need no allowed paths.
+            continue
+        else:
+            raise ReleaseError(
+                f"{REGISTER}:{number}: not in the register's shape: {line!r}."
+                f" Fix it {where} (the comment at the top of the register gives the shape), then re-run."
+            )
+    for entry in entries:
+        missing = [key for key in ("kind", "old", "replacement", "release") if key not in entry]
+        if missing:
+            raise ReleaseError(
+                f"{REGISTER}: the entry for {entry.get('old')!r} has no {', '.join(missing)}."
+                f" Fix it {where}, then re-run."
+            )
+    return entries
+
+
+def deprecations_block(entries: list[dict[str, str | None]], tag: str) -> str:
+    """The Consumer action bullet with the old-to-new table for the tag's register entries, or ''.
+    Padded as prettier pads a table, so the notes pass the format check as written."""
+    rows = [
+        [
+            str(e["kind"]),
+            f"`{e['old']}`",
+            f"`{e['replacement']}`" if e["replacement"] else "Removed, with no replacement",
+        ]
+        for e in entries
+        if e["release"] == tag[1:]
+    ]
+    if not rows:
+        return ""
+    widths = [max(len(row[i]) for row in [["Kind", "Old", "New"], *rows]) for i in range(3)]
+
+    def line(cells: list[str]) -> str:
+        return "  | " + " | ".join(cell.ljust(width) for cell, width in zip(cells, widths, strict=True)) + " |\n"
+
+    return (
+        f"- **Renamed and removed names (required).** These changed in {tag}, and the old names no longer"
+        " work, with no fallback. Replace each one in your Callers, repository variables and settings:\n\n"
+        + line(["Kind", "Old", "New"])
+        + line(["-" * width for width in widths])
+        + "".join(line(row) for row in rows)
+        + "\n"
+    )
+
+
+def read_register(rev: str | None) -> list[dict[str, str | None]]:
+    """The register at `rev`, or in the working tree when `rev` is None. No register: no entries."""
+    if rev is None:
+        path = Path(REGISTER)
+        text = path.read_text(encoding="utf-8") if path.is_file() else ""
+    else:
+        text = head_file(REGISTER, rev) or ""
+    # A fresh run reads the default branch's register; a re-run, the release branch's.
+    return register_entries(text, "on the default branch" if rev else "on this branch")
+
+
+def notes_from_template(tag: str, entries: list[dict[str, str | None]]) -> str:
     parsed = parse_tag(tag)
     assert parsed is not None
     text = NOTES_TEMPLATE.read_text(encoding="utf-8")
+    text = DEPRECATIONS_SLOT.sub(lambda _: deprecations_block(entries, tag), text, count=1)
     for key, value in {
         "{{TAG}}": tag,
         "{{VERSION}}": tag[1:],
@@ -409,6 +499,7 @@ def prepare(args: argparse.Namespace) -> int:
         if not git_ok("merge-base", "--is-ancestor", f"refs/remotes/{REMOTE}/{base}", "HEAD"):
             raise ReleaseError(f"{branch} is behind {REMOTE}/{base}. Rebase it first: git rebase {REMOTE}/{base}")
         print(f"On {branch} already; re-running the prepare steps.")
+        entries = read_register(None)
     else:
         if git("status", "--porcelain"):
             raise ReleaseError("The working tree has changes. Commit or stash them, then re-run.")
@@ -424,6 +515,8 @@ def prepare(args: argparse.Namespace) -> int:
             )
         # Refuse an empty [Unreleased] before writing anything, the branch included.
         move_unreleased(git("show", f"{base_sha}:CHANGELOG.md"), tag[1:], "check")
+        # And a register this tool cannot read, since the notes are written last.
+        entries = read_register(base_sha)
         git("switch", "--quiet", "--no-track", "-c", branch, base_sha)
         print(f"Created {branch} from {REMOTE}/{base} ({base_sha[:12]}).")
 
@@ -470,7 +563,7 @@ def prepare(args: argparse.Namespace) -> int:
         print(f"{notes.as_posix()}: exists; left as is.")
     elif notes_required_for_tag(tag):
         notes.parent.mkdir(exist_ok=True)
-        write_file(notes, notes_from_template(tag))
+        write_file(notes, notes_from_template(tag, entries))
         print(f"{notes.as_posix()}: written from the template. Replace every {NOTES_MARKER} line.")
     else:
         print(f"{notes.as_posix()}: optional for alpha; not written.")
@@ -625,9 +718,9 @@ def ci_problem(sha: str) -> str | None:
     return None
 
 
-def head_file(path: str) -> str | None:
+def head_file(path: str, rev: str = "HEAD") -> str | None:
     done = subprocess.run(
-        ["git", "show", f"HEAD:{path}"], capture_output=True, text=True, encoding="utf-8", check=False
+        ["git", "show", f"{rev}:{path}"], capture_output=True, text=True, encoding="utf-8", check=False
     )
     return done.stdout if done.returncode == 0 else None
 
