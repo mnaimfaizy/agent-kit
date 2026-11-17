@@ -48,6 +48,7 @@ Don't install a Kit-owned skill with `npx skills` in a Consumer: [Install indivi
   - `implementer.settings.json`: settings that run the read hook, write hook, and push guard. Implement.
   - `confine-writes-to-worktree.mjs`: PreToolUse hook that keeps writes in the worktree and out of `.git/`. Implement.
   - `guard-implementer-push.mjs`: PreToolUse hook that refuses any push except the expected one. Implement.
+  - `review-threads.mjs`: the review job's trusted thread script: lists the reviewer's open threads with their Verdicts for its brief, checks that every Review report entry links a thread, and posts the reviewer's replies. Review.
   - `check-git-config.mjs`: allowlist check of the checkout's git config and hooks, run before and after the agent. Implement.
 - `.github/security-audit/` (prompt and the publish/email scripts the audit stages from a trusted commit)
 - `.github/agent-pipeline/` (planner and implementer contracts, and the draft-PR fallback script)
