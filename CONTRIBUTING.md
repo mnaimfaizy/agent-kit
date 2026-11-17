@@ -18,17 +18,18 @@ On Windows, work in Git Bash. `.gitattributes` forces LF working copies; a CRLF 
 
 Everything CI runs, locally:
 
-| Check                    | Command                                                               |
-| ------------------------ | --------------------------------------------------------------------- |
-| Python contract tests    | `uv run pytest`                                                       |
-| Node contract tests      | `npm test` (also runs every `.claude/skills/*/*.test.mjs` suite)      |
-| Release snapshot paths   | `uv run python scripts/verify_release_snapshot.py`                    |
-| Workflow reference fresh | `uv run python scripts/gen_workflow_reference.py --check`             |
-| Python lint / format     | `uv run ruff check .` · `uv run ruff format --check .`                |
-| Markdown / YAML / JSON   | `npx prettier --check .` (fix: `npm run format`)                      |
-| Shell                    | `shellcheck` on `git ls-files '*.sh'` (pre-commit bundles it)         |
-| Workflows                | `actionlint` (pre-commit bundles it; CI uses the digest-pinned image) |
-| All lint hooks at once   | `uv run pre-commit run --all-files`                                   |
+| Check                    | Command                                                                             |
+| ------------------------ | ----------------------------------------------------------------------------------- |
+| Python contract tests    | `uv run pytest`                                                                     |
+| Node contract tests      | `npm test` (also runs every `.claude/skills/*/*.test.mjs` suite)                    |
+| Release snapshot paths   | `uv run python scripts/verify_release_snapshot.py`                                  |
+| Workflow reference fresh | `uv run python scripts/gen_workflow_reference.py --check`                           |
+| Generated blocks fresh   | `uv run python scripts/gen_doc_blocks.py --check` (also runs under `uv run pytest`) |
+| Python lint / format     | `uv run ruff check .` · `uv run ruff format --check .`                              |
+| Markdown / YAML / JSON   | `npx prettier --check .` (fix: `npm run format`)                                    |
+| Shell                    | `shellcheck` on `git ls-files '*.sh'` (pre-commit bundles it)                       |
+| Workflows                | `actionlint` (pre-commit bundles it; CI uses the digest-pinned image)               |
+| All lint hooks at once   | `uv run pre-commit run --all-files`                                                 |
 
 CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs three jobs on every PR and push to `main`: **Tests**, **Lint and format**, **Internal links**. External links are checked weekly by [links.yml](.github/workflows/links.yml), which opens a tracking issue on failure.
 
@@ -48,6 +49,7 @@ CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs three jobs on eve
 | `examples/`                                  | Caller templates, setup presets, Threat pack skeletons, QA config and Hazard pack templates, and an `orchestrate` config. |
 | `scripts/*.test.py`, `*.test.mjs`            | Contract tests.                                                                                                           |
 | `scripts/gen_workflow_reference.py`          | Generates `docs/reference.md` from the workflows.                                                                         |
+| `scripts/gen_doc_blocks.py`, `doc-facts.mjs` | Write the Generated blocks in the docs from their Doc facts ([how](#docs-that-are-generated-and-how-to-add-one)).         |
 | `security/`                                  | This repository's own Threat pack (dogfood audit).                                                                        |
 
 ## Contract tests
@@ -65,6 +67,35 @@ The tests are contracts, not unit tests: they pin behavior a Consumer depends on
   ```
 
 - New shipped path? Add it to `scripts/release-snapshot-manifest.txt`.
+
+## Docs that are generated, and how to add one
+
+A list or table in the docs that has one source in code (a **Doc fact**, such as the Review response protected paths) is a **Generated block** ([ADR 0010](docs/adr/0010-doc-facts-are-generated-and-renames-are-registered.md)). It sits inside the page that explains it, between two markers that name the fact, and the prose around it stays hand-written:
+
+```markdown
+<!-- generated:<fact> -->
+
+(written by the generator; do not edit by hand)
+
+<!-- /generated:<fact> -->
+```
+
+Changed a Doc fact's source? Regenerate every block with one command. It rewrites only the text between markers, then runs prettier on the pages it changed:
+
+```bash
+uv run python scripts/gen_doc_blocks.py
+```
+
+`generated-blocks-contract.test.py` runs the same script with `--check` under `uv run pytest`, so a stale block fails the Tests job and names the page, the block and that command. The script reads the gated docs: `README.md`, `CONTRIBUTING.md`, `GLOSSARY.md`, `AGENTS.md`, `cli/README.md`, and the Markdown under `docs/` and `examples/` apart from `docs/adr/`, `docs/research/` and `docs/agents/`.
+
+To add a new kind of Doc fact, in the pull request that introduces the list:
+
+1. Write a renderer in [scripts/gen_doc_blocks.py](scripts/gen_doc_blocks.py) that returns the block's Markdown, and add it to `FACTS` under the fact's name (lowercase words and hyphens). Write output prettier leaves as it is.
+2. Read the source where it lives. A fact held in a JavaScript constant goes in [scripts/doc-facts.mjs](scripts/doc-facts.mjs), which imports the module and prints the constants as JSON (it can read a constant the module does not export; the module must do no work at import time); the renderer reads it from `sources.js`. A fact in another file, such as YAML, is read in Python: add a reader to `Sources`. Never parse JavaScript from Python.
+3. Put the empty markers where the list belongs, replacing any hand-written copy, and run the command above.
+4. Add a case to `generated-blocks-contract.test.py` that changes the source in a temporary copy and asserts the check fails, like the protected-paths case.
+
+The check also fails, naming the page, on an unknown fact name, a mistyped marker, a marker with no partner or one block opened inside another, and on a fact in `FACTS` that no page holds. Running the generator does not fix those, and it writes no page until they are gone: correct the marker by hand.
 
 ## Action and dependency pins
 
@@ -118,7 +149,18 @@ Also: install the [Claude GitHub App](https://github.com/apps/claude) on the rep
 
 The Allowlist in every dogfood Caller is `mnaimfaizy`; edit it to add maintainers. For Review response, also edit `response_allowlist_actors` in `dogfood-agent-pipeline.yml`'s review job, so it stays equal to `dogfood-review-response.yml`'s `allowlist_actors`.
 
-The dogfood Review response refuses many of this repository's pull requests, by design. Its gate refuses one that changes a protected path: a file named `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`, `.mcp.json`, `.claude.json` or `.gitmodules`, anything under `.claude/`, `.agents/skills/` or `.husky/` at any depth, or a Kit-owned path (`.github/agent-runtime/`, `.github/agent-pipeline/`, `.github/security-audit/`, `.github/agent-review-response/` and every skill in [kit-owned-paths.txt](kit-owned-paths.txt)). The list is `PROTECTED_FILES`, `PROTECTED_DIRS_ANY_DEPTH`, `PROTECTED_ROOT_DIRS` and `KIT_OWNED_PATHS` in [review-response.mjs](.github/agent-review-response/review-response.mjs); check there if this paragraph and the script disagree. The agent also cannot change `.github/workflows`, so it declines a finding that needs one. Rounds here mostly cover docs, `cli/`, `scripts/` and `examples/` pull requests; a refusal is not a bug. The round reads its trusted script, hooks and skill from `main`, so a change to them is exercised only after it merges.
+The dogfood Review response refuses many of this repository's pull requests, by design. Its gate refuses one that changes a protected path:
+
+<!-- generated:review-response-protected-paths -->
+
+- Files named `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`, `.mcp.json`, `.claude.json` or `.gitmodules`, at any depth.
+- Anything under `.claude/`, `.agents/skills/` or `.husky/`, at any depth.
+- Anything under `.github/agent-runtime/`, from the repository root.
+- Every Kit-owned path, from the repository root: `.claude/skills/code-review/`, `.claude/skills/security-audit/`, `.claude/skills/security-finding-triage/`, `.claude/skills/security-response/`, `.claude/skills/explainer/`, `.claude/skills/instruction-drift-audit/`, `.claude/skills/qa-plan/`, `.claude/skills/manual-qa/`, `.claude/skills/plain-prose/`, `.claude/skills/orchestrate/`, `.claude/skills/address-pr-review/`, `.github/agent-runtime/`, `.github/agent-pipeline/`, `.github/security-audit/` and `.github/agent-review-response/`.
+
+<!-- /generated:review-response-protected-paths -->
+
+The list is generated from `PROTECTED_FILES`, `PROTECTED_DIRS_ANY_DEPTH`, `PROTECTED_ROOT_DIRS` and `KIT_OWNED_PATHS` in [review-response.mjs](.github/agent-review-response/review-response.mjs) ([how](#docs-that-are-generated-and-how-to-add-one)); `KIT_OWNED_PATHS` is kept equal to [kit-owned-paths.txt](kit-owned-paths.txt). The agent also cannot change `.github/workflows`, so it declines a finding that needs one. Rounds here mostly cover docs, `cli/`, `scripts/` and `examples/` pull requests; a refusal is not a bug. The round reads its trusted script, hooks and skill from `main`, so a change to them is exercised only after it merges.
 
 ## Branch protection
 
