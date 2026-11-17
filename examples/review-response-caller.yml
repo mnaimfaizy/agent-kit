@@ -43,7 +43,8 @@ jobs:
       kill_switch: ${{ vars.CLAUDE_REVIEW_RESPONSE_ENABLED != 'true' }}
       # Exactly `auto` accepts the review handoff's dispatch; unset is manual.
       response_mode: ${{ vars.CLAUDE_REVIEW_RESPONSE_MODE || 'manual' }}
-      model: ${{ vars.CLAUDE_MODEL_REVIEW_RESPONSE || vars.CLAUDE_MODEL || 'claude-opus-5' }}
+      model: ${{ vars.CLAUDE_REVIEW_RESPONSE_MODEL || vars.CLAUDE_MODEL || 'claude-opus-5-5' }}
+      effort: ${{ vars.CLAUDE_REVIEW_RESPONSE_EFFORT || vars.CLAUDE_EFFORT || '' }}
       # Who may start a round with the label, and whose thread replies are
       # Maintainer guidance. Nobody else's reply reaches the agent.
       allowlist_actors: '["your-github-login"]'

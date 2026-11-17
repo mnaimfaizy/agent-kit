@@ -152,41 +152,48 @@ Skip if you only use plan → implement → review.
 
 ## 8. Turn the flows on (Kill switch variables)
 
-Callers read their **Kill switch** from repository variables and stay off until the variable is exactly `true`:
+Callers read every Stage setting from repository variables named `CLAUDE_<STAGE>_<SETTING>`, with the Stage tokens `PLAN`, `IMPLEMENT`, `REVIEW`, `REVIEW_RESPONSE` and `SECURITY_AUDIT` ([ADR 0009](adr/0009-stage-settings-resolve-in-the-caller.md)). A flow's **Kill switch** keeps it off until the variable is exactly `true`:
 
-| Variable                         | Enables                   |
-| -------------------------------- | ------------------------- |
-| `CLAUDE_SECURITY_AUDIT_ENABLED`  | security audit            |
-| `CLAUDE_PIPELINE_ENABLED`        | plan → implement → review |
-| `CLAUDE_REVIEW_RESPONSE_ENABLED` | Review response           |
+| Variable                         | Enables                                       |
+| -------------------------------- | --------------------------------------------- |
+| `CLAUDE_AGENT_FLOW_ENABLED`      | the Agent flow: plan → implement → review     |
+| `CLAUDE_SECURITY_AUDIT_ENABLED`  | security audit                                |
+| `CLAUDE_REVIEW_RESPONSE_ENABLED` | Review response (not under the master switch) |
 
 ```bash
+gh variable set CLAUDE_AGENT_FLOW_ENABLED --body true
 gh variable set CLAUDE_SECURITY_AUDIT_ENABLED --body true
-gh variable set CLAUDE_PIPELINE_ENABLED --body true
 gh variable set CLAUDE_REVIEW_RESPONSE_ENABLED --body true
+```
+
+Inside the Agent flow, each Stage also has its own switch, `CLAUDE_PLAN_ENABLED`, `CLAUDE_IMPLEMENT_ENABLED` and `CLAUDE_REVIEW_ENABLED`. Unset counts as on; only `false` turns that Stage off (GitHub compares these values without regard to case, so `False` does too, and `TRUE` counts as `true` for a flow's switch). A Stage runs only when the master switch is `true` and its own switch is not `false`, so the plan job passes `kill_switch: ${{ vars.CLAUDE_AGENT_FLOW_ENABLED != 'true' || vars.CLAUDE_PLAN_ENABLED == 'false' }}`. For example, to keep plan and review but have a person write the code:
+
+```bash
+gh variable set CLAUDE_IMPLEMENT_ENABLED --body false
 ```
 
 `CLAUDE_REVIEW_RESPONSE_MODE` (optional) set to exactly `auto` lets a finished review start a Review response round on its own; unset, a person applies the label. See [Review response](review-response.md#manual-and-auto-mode).
 
-Set a variable to anything else (or delete it) to stop a flow instantly without a commit.
+Set a flow's switch to anything but `true` (or delete it) to stop it instantly without a commit.
 
-**Model (optional).** Each flow reads its own repository variable first, then the shared `CLAUDE_MODEL`, then `claude-opus-5`. For example, the plan job passes `model: ${{ vars.CLAUDE_MODEL_PLAN || vars.CLAUDE_MODEL || 'claude-opus-5' }}`. Change a model at any time, with no commit needed:
+**Model and effort (optional).** Each Stage reads its own variable first, then the shared one. A model falls back to `claude-opus-5-5`. With no effort set, `--effort` is left off and the model's own default applies. For example, the plan job passes `model: ${{ vars.CLAUDE_PLAN_MODEL || vars.CLAUDE_MODEL || 'claude-opus-5-5' }}` and `effort: ${{ vars.CLAUDE_PLAN_EFFORT || vars.CLAUDE_EFFORT || '' }}`. Change either at any time, with no commit needed:
 
-| Variable                       | Flow                                       |
-| ------------------------------ | ------------------------------------------ |
-| `CLAUDE_MODEL_PLAN`            | plan                                       |
-| `CLAUDE_MODEL_IMPLEMENT`       | implement                                  |
-| `CLAUDE_MODEL_REVIEW`          | review                                     |
-| `CLAUDE_MODEL_AUDIT`           | security audit                             |
-| `CLAUDE_MODEL_REVIEW_RESPONSE` | Review response                            |
-| `CLAUDE_MODEL`                 | any flow above whose own variable is unset |
+| Stage           | Model                          | Effort                          |
+| --------------- | ------------------------------ | ------------------------------- |
+| plan            | `CLAUDE_PLAN_MODEL`            | `CLAUDE_PLAN_EFFORT`            |
+| implement       | `CLAUDE_IMPLEMENT_MODEL`       | `CLAUDE_IMPLEMENT_EFFORT`       |
+| review          | `CLAUDE_REVIEW_MODEL`          | `CLAUDE_REVIEW_EFFORT`          |
+| Review response | `CLAUDE_REVIEW_RESPONSE_MODEL` | `CLAUDE_REVIEW_RESPONSE_EFFORT` |
+| security audit  | `CLAUDE_SECURITY_AUDIT_MODEL`  | `CLAUDE_SECURITY_AUDIT_EFFORT`  |
+| any Stage above | `CLAUDE_MODEL`                 | `CLAUDE_EFFORT`                 |
 
 ```bash
 gh variable set CLAUDE_MODEL --body claude-opus-5-5
-gh variable set CLAUDE_MODEL_AUDIT --body claude-fable-5-1
+gh variable set CLAUDE_SECURITY_AUDIT_MODEL --body claude-fable-5-2
+gh variable set CLAUDE_PLAN_EFFORT --body low
 ```
 
-Delete a flow's variable to fall back to `CLAUDE_MODEL`, and delete that to fall back to `claude-opus-5`.
+Effort is one of `low`, `medium`, `high`, `xhigh` or `max`, and a model is a plain model id. The run fails before the agent starts if either is anything else, and the error names the input. Whether a model supports a given effort level is up to Claude Code; if it refuses, the workflow log says why. Delete a Stage's variable to fall back to the shared one, and delete that to fall back to the default.
 
 ## 9. First run
 

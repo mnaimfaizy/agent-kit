@@ -17,7 +17,7 @@ Restore is mutually exclusive with Claude callers:
 
 Kill-switch names intentionally differ:
 
-- Claude path: `CLAUDE_PIPELINE_ENABLED`, `CLAUDE_SECURITY_AUDIT_ENABLED`
+- Claude path: `CLAUDE_AGENT_FLOW_ENABLED`, `CLAUDE_SECURITY_AUDIT_ENABLED`
 - Copilot archive path: `AGENT_KIT_COPILOT_PIPELINE_ENABLED`, `AGENT_KIT_COPILOT_SECURITY_AUDIT_ENABLED`
 
 This separation prevents silently enabling both generations.

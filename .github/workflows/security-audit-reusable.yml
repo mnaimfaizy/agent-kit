@@ -79,10 +79,15 @@ on:
         type: string
         default: ""
       model:
-        description: "Claude model id. Defaults to claude-opus-5."
+        description: "Claude model id, such as claude-opus-5-5. A plain id only: letters, digits and `. _ : @ / [ ] -`; anything else fails the run before the agent starts."
         required: false
         type: string
-        default: "claude-opus-5"
+        default: "claude-opus-5-5"
+      effort:
+        description: "Claude Code effort level: `low`, `medium`, `high`, `xhigh` or `max`. Empty leaves `--effort` off, so the model's own default applies; anything else fails the run before the agent starts."
+        required: false
+        type: string
+        default: ""
       trigger_label:
         description: "Optional PR label to remove after a pr-mode run."
         required: false
@@ -146,6 +151,29 @@ jobs:
       BASE_REF: ${{ inputs.base_ref }}
       REPO: ${{ github.repository }}
     steps:
+      - name: Check model and effort inputs
+        # Both values are pasted into claude_args, so a space or a newline in
+        # either would add Claude Code flags. Refuse anything but a plain value
+        # before the agent starts. The values are never echoed back.
+        env:
+          MODEL: ${{ inputs.model }}
+          EFFORT: ${{ inputs.effort }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          model_pattern='^[A-Za-z0-9][]A-Za-z0-9._:@/[-]*$'
+          if ! [[ "$MODEL" =~ $model_pattern ]]; then
+            echo "::error title=Invalid model input::The model input is not a plain model id (letters, digits and . _ : @ / [ ] -)."
+            exit 1
+          fi
+          case "$EFFORT" in
+            "" | low | medium | high | xhigh | max) ;;
+            *)
+              echo "::error title=Invalid effort input::The effort input must be empty or one of low, medium, high, xhigh, max."
+              exit 1
+              ;;
+          esac
+
       - name: Gate
         id: gate
         env:
@@ -688,6 +716,7 @@ jobs:
           # pick up a changed project permission rule.
           claude_args: |
             --model ${{ inputs.model }}
+            ${{ inputs.effort != '' && format('--effort {0}', inputs.effort) || '' }}
             --max-turns 100
             --allowedTools "${{ steps.tools.outputs.allowed }}"
             --disallowedTools "Read(./.git/**),Edit(./.github/agent-runtime/**),Edit(./.claude/**),Edit(./.mcp.json),Bash,Agent,ScheduleWakeup,CronCreate,RemoteTrigger,SendMessage,Workflow,Monitor,PushNotification"

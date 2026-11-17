@@ -45,6 +45,7 @@ import {
   checkSecrets,
   checkVariables,
   deriveRequirements,
+  RENAMED_VARIABLES,
 } from "../cli/src/checks/secrets-and-variables.mjs";
 import { main } from "../cli/src/cli.mjs";
 import { formatReport, guarded, LOCAL_ONLY_CHECKS, runDoctor } from "../cli/src/doctor.mjs";
@@ -124,8 +125,8 @@ jobs:
   plan:
     uses: ${KIT}/.github/workflows/agent-plan-reusable.yml@${tag} # pinned
     with:
-      kill_switch: \${{ vars.CLAUDE_PIPELINE_ENABLED != 'true' }}
-      model: \${{ vars.CLAUDE_MODEL_PLAN || vars.CLAUDE_MODEL || 'claude-opus-5' }}
+      kill_switch: \${{ vars.CLAUDE_AGENT_FLOW_ENABLED != 'true' || vars.CLAUDE_PLAN_ENABLED == 'false' }}
+      model: \${{ vars.CLAUDE_PLAN_MODEL || vars.CLAUDE_MODEL || 'claude-opus-5-5' }}
       trigger_label: "agent:plan"
     secrets:
       claude_code_oauth_token: \${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -210,7 +211,7 @@ const RULESETS = {
 const ALL_GOOD = {
   "repos/acme/app/actions/secrets": ["CLAUDE_CODE_OAUTH_TOKEN"],
   "repos/acme/app/actions/organization-secrets": [],
-  "repos/acme/app/actions/variables": ["CLAUDE_PIPELINE_ENABLED"],
+  "repos/acme/app/actions/variables": ["CLAUDE_AGENT_FLOW_ENABLED"],
   "repos/acme/app/actions/organization-variables": [],
   "repos/acme/app/labels": ["agent:plan", "bug"],
   "orgs/acme/installations": ["claude all"],
@@ -444,8 +445,37 @@ describe("secret and variable derivation", () => {
       false,
       "the Kill switch variable is required",
     );
-    assert.equal(byName.CLAUDE_MODEL_AUDIT, true);
+    assert.equal(byName.CLAUDE_SECURITY_AUDIT_MODEL, true);
     assert.equal(byName.CLAUDE_MODEL, true);
+    assert.equal(byName.CLAUDE_SECURITY_AUDIT_EFFORT, true);
+    assert.equal(byName.CLAUDE_EFFORT, true);
+  });
+
+  it("the Agent flow's master switch is required; its Stage switches are optional", () => {
+    const caller = {
+      path: "pipeline.yml",
+      ...parseCaller(readRepo("examples/plan-implement-review-caller.yml")),
+    };
+    const byName = Object.fromEntries(caller.variables.map((v) => [v.name, v.optional]));
+    assert.equal(byName.CLAUDE_AGENT_FLOW_ENABLED, false);
+    for (const stage of ["PLAN", "IMPLEMENT", "REVIEW"]) {
+      assert.equal(byName[`CLAUDE_${stage}_ENABLED`], true, stage);
+      assert.equal(byName[`CLAUDE_${stage}_MODEL`], true, stage);
+      assert.equal(byName[`CLAUDE_${stage}_EFFORT`], true, stage);
+    }
+    const required = deriveRequirements([caller], reusable).variables.filter((v) => !v.optional);
+    assert.deepEqual(
+      required.map((v) => v.name),
+      ["CLAUDE_AGENT_FLOW_ENABLED"],
+    );
+  });
+
+  it("parser: only a == 'false' test makes a read optional", () => {
+    const refs = variableRefs(
+      "a: ${{ vars.A == 'false' }}\nb: ${{ vars.B == 'falsey' }}\nc: ${{ vars.C != 'false' }}\n",
+    );
+    const byName = Object.fromEntries(refs.map((v) => [v.name, v.optional]));
+    assert.deepEqual(byName, { A: true, B: false, C: false });
   });
 
   it("handles secrets: inherit, undeclared secrets and a required secret the Caller drops", () => {
@@ -1023,8 +1053,8 @@ describe("review fixes (PR #78)", () => {
   });
 
   it("parser: a || fallback on the next line keeps the variable optional", () => {
-    const refs = variableRefs("model: ${{ vars.CLAUDE_MODEL_PLAN\n  || 'claude-opus-5' }}\n");
-    assert.deepEqual(refs, [{ name: "CLAUDE_MODEL_PLAN", optional: true }]);
+    const refs = variableRefs("model: ${{ vars.CLAUDE_PLAN_MODEL\n  || 'claude-opus-5-5' }}\n");
+    assert.deepEqual(refs, [{ name: "CLAUDE_PLAN_MODEL", optional: true }]);
   });
 
   it("parser: flow-mapping, anchor and alias secrets are reported as unreadable, not failed", () => {
@@ -1092,6 +1122,91 @@ describe("review fixes (PR #78)", () => {
     );
   });
 
+  it("variables: an old name still set while the Caller reads its replacement warns, naming it", () => {
+    const listedAs = (names) => ({ getLines: () => names });
+    const reads = (names) => ({
+      variables: names.map((name) => ({
+        name,
+        optional: name !== "CLAUDE_AGENT_FLOW_ENABLED",
+        where: ["c.yml"],
+      })),
+    });
+    const newNames = Object.values(RENAMED_VARIABLES);
+    const oldNames = Object.keys(RENAMED_VARIABLES);
+    assert.deepEqual(oldNames.sort(), [
+      "CLAUDE_MODEL_AUDIT",
+      "CLAUDE_MODEL_IMPLEMENT",
+      "CLAUDE_MODEL_PLAN",
+      "CLAUDE_MODEL_REVIEW",
+      "CLAUDE_MODEL_REVIEW_RESPONSE",
+      "CLAUDE_PIPELINE_ENABLED",
+    ]);
+
+    // Every old name set, the new master switch set too: one warning per old name.
+    const r = checkVariables({
+      github: listedAs([...oldNames, "CLAUDE_AGENT_FLOW_ENABLED"]),
+      repo: "acme/app",
+      ownerType: "User",
+      requirements: reads(newNames),
+    });
+    assert.equal(r.status, "warn", JSON.stringify(r));
+    for (const [oldName, newName] of Object.entries(RENAMED_VARIABLES)) {
+      assert.ok(
+        r.details.some(
+          (d) => d.startsWith(`renamed: ${oldName} is still set`) && d.includes(newName),
+        ),
+        `${oldName} -> ${newName}: ${r.details.join("\n")}`,
+      );
+    }
+    assert.ok(
+      r.fix.includes("gh variable set CLAUDE_PLAN_MODEL --repo acme/app"),
+      r.fix.join("\n"),
+    );
+    assert.ok(!r.fix.some((f) => f.includes("CLAUDE_AGENT_FLOW_ENABLED")), "already set");
+    // Every old name gets a delete command, after every set command.
+    const deletes = oldNames.map((name) => `gh variable delete ${name} --repo acme/app`);
+    for (const d of deletes) assert.ok(r.fix.includes(d), `${d}: ${r.fix.join("\n")}`);
+    const lastSet = Math.max(...r.fix.map((f, i) => (f.includes(" set ") ? i : -1)));
+    const firstDelete = r.fix.findIndex((f) => f.includes(" delete "));
+    assert.ok(lastSet < firstDelete, r.fix.join("\n"));
+
+    // The new name already set: the warning still prints the delete command.
+    const both = checkVariables({
+      github: listedAs(["CLAUDE_MODEL_PLAN", "CLAUDE_PLAN_MODEL"]),
+      repo: "acme/app",
+      ownerType: "User",
+      requirements: reads(["CLAUDE_PLAN_MODEL"]),
+    });
+    assert.equal(both.status, "warn");
+    assert.deepEqual(both.fix, ["gh variable delete CLAUDE_MODEL_PLAN --repo acme/app"]);
+
+    // The old master switch alone: the new one is missing, so the check fails and says why.
+    const f = checkVariables({
+      github: listedAs(["CLAUDE_PIPELINE_ENABLED"]),
+      repo: "acme/app",
+      ownerType: "User",
+      requirements: reads(["CLAUDE_AGENT_FLOW_ENABLED"]),
+    });
+    assert.equal(f.status, "fail");
+    assert.match(
+      f.details.join("\n"),
+      /renamed: CLAUDE_PIPELINE_ENABLED .*CLAUDE_AGENT_FLOW_ENABLED/,
+    );
+    assert.deepEqual(f.fix, [
+      "gh variable set CLAUDE_AGENT_FLOW_ENABLED --repo acme/app --body true",
+      "gh variable delete CLAUDE_PIPELINE_ENABLED --repo acme/app",
+    ]);
+
+    // An old name the Callers no longer read a replacement of is not flagged.
+    const quiet = checkVariables({
+      github: listedAs(["CLAUDE_MODEL_PLAN", "CLAUDE_AGENT_FLOW_ENABLED"]),
+      repo: "acme/app",
+      ownerType: "User",
+      requirements: reads(["CLAUDE_AGENT_FLOW_ENABLED"]),
+    });
+    assert.equal(quiet.status, "pass", JSON.stringify(quiet));
+  });
+
   it("messages: printed gh variable commands paste cleanly", () => {
     const r = checkVariables({
       github: { getLines: () => [] },
@@ -1099,13 +1214,13 @@ describe("review fixes (PR #78)", () => {
       ownerType: "User",
       requirements: {
         variables: [
-          { name: "CLAUDE_PIPELINE_ENABLED", optional: false, where: ["c.yml"] },
+          { name: "CLAUDE_AGENT_FLOW_ENABLED", optional: false, where: ["c.yml"] },
           { name: "OTHER", optional: false, where: ["c.yml"] },
         ],
       },
     });
     assert.deepEqual(r.fix, [
-      "gh variable set CLAUDE_PIPELINE_ENABLED --repo acme/app --body true",
+      "gh variable set CLAUDE_AGENT_FLOW_ENABLED --repo acme/app --body true",
       "gh variable set OTHER --repo acme/app",
     ]);
     for (const f of r.fix) assert.doesNotMatch(f, /[<>]/);
@@ -1795,7 +1910,7 @@ jobs:
       actions: write
     uses: ${KIT}/.github/workflows/agent-review-reusable.yml@${TAG}
     with:
-      kill_switch: \${{ vars.CLAUDE_PIPELINE_ENABLED != 'true' }}
+      kill_switch: \${{ vars.CLAUDE_AGENT_FLOW_ENABLED != 'true' }}
       trigger_label: "agent:review"
 ${lines.map((l) => `      ${l}\n`).join("")}    secrets:
       claude_code_oauth_token: \${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -1808,7 +1923,7 @@ ${lines.map((l) => `      ${l}\n`).join("")}    secrets:
   const ROUTES = {
     ...ALL_GOOD,
     "repos/acme/app/actions/variables": [
-      "CLAUDE_PIPELINE_ENABLED",
+      "CLAUDE_AGENT_FLOW_ENABLED",
       "CLAUDE_REVIEW_RESPONSE_ENABLED",
     ],
     "repos/acme/app/labels": ["agent:plan", "agent:review", "agent:address-review"],
@@ -1855,13 +1970,13 @@ ${lines.map((l) => `      ${l}\n`).join("")}    secrets:
   it("variables: CLAUDE_REVIEW_RESPONSE_ENABLED is the required Kill switch; the mode is optional", () => {
     const { byId } = doctor({
       ...ROUTES,
-      "repos/acme/app/actions/variables": ["CLAUDE_PIPELINE_ENABLED"],
+      "repos/acme/app/actions/variables": ["CLAUDE_AGENT_FLOW_ENABLED"],
     });
     const variables = byId("variables");
     assert.equal(variables.status, "fail", JSON.stringify(variables));
     const details = variables.details.join("\n");
     assert.match(details, /not set: CLAUDE_REVIEW_RESPONSE_ENABLED .*the Kill switch/);
-    assert.doesNotMatch(details, /CLAUDE_REVIEW_RESPONSE_MODE|CLAUDE_MODEL_REVIEW_RESPONSE/);
+    assert.doesNotMatch(details, /CLAUDE_REVIEW_RESPONSE_MODE|CLAUDE_REVIEW_RESPONSE_MODEL/);
     assert.ok(
       variables.fix.includes(
         "gh variable set CLAUDE_REVIEW_RESPONSE_ENABLED --repo acme/app --body true",

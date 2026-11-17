@@ -44,8 +44,9 @@ jobs:
       (github.event_name == 'workflow_dispatch' && inputs.mode == 'plan')
     uses: mnaimfaizy/agent-kit/.github/workflows/agent-plan-reusable.yml@v1.0.0-beta.7
     with:
-      kill_switch: ${{ vars.CLAUDE_PIPELINE_ENABLED != 'true' }}
-      model: ${{ vars.CLAUDE_MODEL_PLAN || vars.CLAUDE_MODEL || 'claude-opus-5' }}
+      kill_switch: ${{ vars.CLAUDE_AGENT_FLOW_ENABLED != 'true' || vars.CLAUDE_PLAN_ENABLED == 'false' }}
+      model: ${{ vars.CLAUDE_PLAN_MODEL || vars.CLAUDE_MODEL || 'claude-opus-5-5' }}
+      effort: ${{ vars.CLAUDE_PLAN_EFFORT || vars.CLAUDE_EFFORT || '' }}
       allowlist_actors: '["your-github-login"]'
       trigger_label: "agent:plan"
       issue_number: ${{ github.event_name == 'issues' && github.event.issue.number || inputs.issue_number }}
@@ -59,8 +60,9 @@ jobs:
       (github.event_name == 'workflow_dispatch' && inputs.mode == 'implement')
     uses: mnaimfaizy/agent-kit/.github/workflows/agent-implement-reusable.yml@v1.0.0-beta.7
     with:
-      kill_switch: ${{ vars.CLAUDE_PIPELINE_ENABLED != 'true' }}
-      model: ${{ vars.CLAUDE_MODEL_IMPLEMENT || vars.CLAUDE_MODEL || 'claude-opus-5' }}
+      kill_switch: ${{ vars.CLAUDE_AGENT_FLOW_ENABLED != 'true' || vars.CLAUDE_IMPLEMENT_ENABLED == 'false' }}
+      model: ${{ vars.CLAUDE_IMPLEMENT_MODEL || vars.CLAUDE_MODEL || 'claude-opus-5-5' }}
+      effort: ${{ vars.CLAUDE_IMPLEMENT_EFFORT || vars.CLAUDE_EFFORT || '' }}
       allowlist_actors: '["your-github-login"]'
       trigger_label: "agent:implement"
       issue_number: ${{ github.event_name == 'issues' && github.event.issue.number || inputs.issue_number }}
@@ -104,8 +106,9 @@ jobs:
       actions: write
     uses: mnaimfaizy/agent-kit/.github/workflows/agent-review-reusable.yml@v1.0.0-beta.7
     with:
-      kill_switch: ${{ vars.CLAUDE_PIPELINE_ENABLED != 'true' }}
-      model: ${{ vars.CLAUDE_MODEL_REVIEW || vars.CLAUDE_MODEL || 'claude-opus-5' }}
+      kill_switch: ${{ vars.CLAUDE_AGENT_FLOW_ENABLED != 'true' || vars.CLAUDE_REVIEW_ENABLED == 'false' }}
+      model: ${{ vars.CLAUDE_REVIEW_MODEL || vars.CLAUDE_MODEL || 'claude-opus-5-5' }}
+      effort: ${{ vars.CLAUDE_REVIEW_EFFORT || vars.CLAUDE_EFFORT || '' }}
       allowlist_actors: '["your-github-login"]'
       trigger_label: "agent:review"
       pr_number: ${{ github.event_name == 'pull_request' && github.event.pull_request.number || inputs.pr_number }}

@@ -78,7 +78,7 @@ The Agent-kit reusable workflow provides the job body; the Consumer controls pol
 
 1. Copy the Caller pattern from `examples/plan-implement-review-caller.yml`.
 2. Pin reusable workflow `uses:` references to a release tag for stable adoption.
-3. Set your label names, allowlist, and Kill switch policy in the Caller (the example reads the `CLAUDE_PIPELINE_ENABLED` repository variable).
+3. Set your label names, allowlist, and Kill switch policy in the Caller (the example reads the `CLAUDE_AGENT_FLOW_ENABLED` master switch and one Stage switch per job; see [getting-started §8](getting-started.md#8-turn-the-flows-on-kill-switch-variables)).
 4. Provide your own verify commands in the implement caller input.
 
 ### Plan-implement-review caller-owned contract surface

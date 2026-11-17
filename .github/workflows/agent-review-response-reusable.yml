@@ -89,10 +89,15 @@ on:
         type: string
         default: ""
       model:
-        description: "Claude model id. Defaults to claude-opus-5."
+        description: "Claude model id, such as claude-opus-5-5. A plain id only: letters, digits and `. _ : @ / [ ] -`; anything else fails the run before the agent starts."
         required: false
         type: string
-        default: "claude-opus-5"
+        default: "claude-opus-5-5"
+      effort:
+        description: "Claude Code effort level: `low`, `medium`, `high`, `xhigh` or `max`. Empty leaves `--effort` off, so the model's own default applies; anything else fails the run before the agent starts."
+        required: false
+        type: string
+        default: ""
     secrets:
       claude_code_oauth_token:
         description: "Subscription OAuth token from `claude setup-token`."
@@ -133,6 +138,29 @@ jobs:
       allowlist: ${{ steps.check.outputs.allowlist }}
       reviewer_logins: ${{ steps.check.outputs.reviewer_logins }}
     steps:
+      - name: Check model and effort inputs
+        # Both values are pasted into claude_args, so a space or a newline in
+        # either would add Claude Code flags. Refuse anything but a plain value
+        # before the agent starts. The values are never echoed back.
+        env:
+          MODEL: ${{ inputs.model }}
+          EFFORT: ${{ inputs.effort }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          model_pattern='^[A-Za-z0-9][]A-Za-z0-9._:@/[-]*$'
+          if ! [[ "$MODEL" =~ $model_pattern ]]; then
+            echo "::error title=Invalid model input::The model input is not a plain model id (letters, digits and . _ : @ / [ ] -)."
+            exit 1
+          fi
+          case "$EFFORT" in
+            "" | low | medium | high | xhigh | max) ;;
+            *)
+              echo "::error title=Invalid effort input::The effort input must be empty or one of low, medium, high, xhigh, max."
+              exit 1
+              ;;
+          esac
+
       - name: Gate
         id: check
         env:
@@ -655,6 +683,7 @@ jobs:
             It holds your instructions and the review findings to address.
           claude_args: |
             --model ${{ inputs.model }}
+            ${{ inputs.effort != '' && format('--effort {0}', inputs.effort) || '' }}
             --max-turns 150
             --allowedTools "${{ steps.tools.outputs.allowed }}"
             --disallowedTools "Read(./.git/**),Edit(./.git/**),Edit(./.github/workflows/**),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git push:*),Bash(gh:*),WebFetch,WebSearch,Agent,ScheduleWakeup,CronCreate,RemoteTrigger,SendMessage,Workflow,Monitor,PushNotification"

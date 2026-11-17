@@ -115,6 +115,7 @@ def test_the_caller_contract() -> None:
         "ci_workflow",
         "response_mode",
         "model",
+        "effort",
     }
     assert contract["inputs"]["pr_number"]["required"] is True
     assert contract["inputs"]["trigger_label"]["default"] == "agent:address-review"
