@@ -32,6 +32,14 @@ _Avoid_: wrapper, trigger workflow
 A supported end-to-end automation shipped as reusable workflows plus their prompts and helpers: security audit, or plan → implement → review.
 _Avoid_: pipeline (alone), feature
 
+**Agent flow**:
+The First-class flow plan → implement → review, behind one master Kill switch. Not the security audit or Review response, though agents run those too.
+_Avoid_: pipeline, agent pipeline
+
+**Stage**:
+One agent run of a First-class flow with its own model, effort and Kill switch: plan, implement, review, review response, or security audit.
+_Avoid_: step, phase, pipeline
+
 **Portable skill**:
 An agent skill vendored in Agent-kit that a Consumer copies into `.claude/skills/` unchanged, and that a Skill installer may install on its own.
 _Avoid_: kit skill, core skill
@@ -74,7 +82,7 @@ _Avoid_: channel, track
 ### Gates and trust
 
 **Kill switch**:
-A Consumer-owned control that, when on, makes a First-class flow do nothing.
+A Consumer-owned control that, when on, makes a First-class flow or one Stage of it do nothing.
 _Avoid_: feature flag, toggle
 
 **Allowlist**:
