@@ -7,6 +7,7 @@
 - [ ] `uv run pytest` and `npm test` pass locally
 - [ ] `uv run pre-commit run --all-files` is clean
 - [ ] Caller-facing change (inputs, secrets, permissions)? Examples and docs updated, and CHANGELOG `[Unreleased]` notes it
+- [ ] Removed or renamed something? Added to the Deprecation register (`docs/deprecations.yml`)
 - [ ] New shipped path? Added to `scripts/release-snapshot-manifest.txt`
 - [ ] New doc page, Kit-owned path, CLI command or release stage? `README.md` says so (`scripts/readme-freshness-contract.test.py` checks)
 - [ ] Security-relevant? Checked against `docs/security-model.md` (Public-log rule, Verified plan, read confinement)
