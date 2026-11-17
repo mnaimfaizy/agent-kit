@@ -134,12 +134,18 @@ Every input and secret is listed in the [workflow reference](reference.md).
 
 ## 6. Create trigger labels
 
+These are the labels `agent-kit init` prints, for the flows you choose:
+
+<!-- generated:trigger-labels -->
+
 ```bash
-gh label create "agent:plan"      --color 1D76DB --description "Agent-kit: plan this issue"
-gh label create "agent:implement" --color 0E8A16 --description "Agent-kit: implement the Verified plan"
-gh label create "agent:review"    --color 5319E7 --description "Agent-kit: review this PR"
+gh label create "agent:plan"           --color 1D76DB --description "Agent-kit: plan this issue"
+gh label create "agent:implement"      --color 0E8A16 --description "Agent-kit: implement the Verified plan"
+gh label create "agent:review"         --color 5319E7 --description "Agent-kit: review this PR"
 gh label create "agent:address-review" --color FBCA04 --description "Agent-kit: answer the review on this PR"
 ```
+
+<!-- /generated:trigger-labels -->
 
 Each run removes its label when it finishes, so adding it again re-runs the stage.
 

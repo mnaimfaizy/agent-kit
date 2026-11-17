@@ -115,15 +115,30 @@ One-time setup:
 gh secret set CLAUDE_CODE_OAUTH_TOKEN              # from `claude setup-token`
 gh secret set AGENT_KIT_ADVISORIES_TOKEN           # fine-grained PAT: Repository security advisories RW
 gh secret set AGENT_KIT_DEPENDABOT_ALERTS_TOKEN    # optional; fine-grained PAT: Dependabot alerts R
+```
 
-# Labels
+The Trigger labels, the same ones `agent-kit init` prints for a Consumer:
+
+<!-- generated:trigger-labels -->
+
+```bash
 gh label create "agent:plan"           --color 1D76DB --description "Agent-kit: plan this issue"
 gh label create "agent:implement"      --color 0E8A16 --description "Agent-kit: implement the Verified plan"
 gh label create "agent:review"         --color 5319E7 --description "Agent-kit: review this PR"
-gh label create "agent:audit"          --color B60205 --description "Agent-kit: security audit this PR"
 gh label create "agent:address-review" --color FBCA04 --description "Agent-kit: answer the review on this PR"
+```
 
-# Turn on
+<!-- /generated:trigger-labels -->
+
+The dogfood audit also runs on a pull request when it gets `agent:audit`, a label only this repository uses ([dogfood-security-audit.yml](.github/workflows/dogfood-security-audit.yml)):
+
+```bash
+gh label create "agent:audit" --color B60205 --description "Agent-kit: security audit this PR"
+```
+
+Then turn the flows on:
+
+```bash
 gh variable set CLAUDE_SECURITY_AUDIT_ENABLED --body true
 gh variable set CLAUDE_AGENT_FLOW_ENABLED --body true
 gh variable set CLAUDE_REVIEW_RESPONSE_ENABLED --body true

@@ -20,9 +20,17 @@ from gen_doc_blocks import DOC_PAGES, DOC_TREES, FIX_COMMAND  # noqa: E402 - nee
 
 GENERATOR = ROOT / "scripts" / "gen_doc_blocks.py"
 # Every Doc fact's source, copied with the docs so the copy can be regenerated.
-FACT_SOURCES = [".github/agent-review-response"]
+# cli/src/tags.mjs, imported by init.mjs, reads cli/package.json when it loads.
+FACT_SOURCES = [".github/agent-review-response", "cli/src", "cli/package.json"]
 REVIEW_RESPONSE_SCRIPT = Path(".github/agent-review-response/review-response.mjs")
+INIT_SCRIPT = Path("cli/src/init.mjs")
 PROTECTED_BLOCK = "review-response-protected-paths"
+LABELS_BLOCK = "trigger-labels"
+# Each fact this test names, and the pages that hold its block.
+BLOCK_PAGES = {
+    PROTECTED_BLOCK: ["docs/review-response.md", "CONTRIBUTING.md"],
+    LABELS_BLOCK: ["docs/getting-started.md", "CONTRIBUTING.md"],
+}
 
 
 def check(root: Path) -> subprocess.CompletedProcess[str]:
@@ -37,12 +45,12 @@ def check(root: Path) -> subprocess.CompletedProcess[str]:
 def copy_repo(dest: Path) -> Path:
     """The files the generator reads: the gated docs and each fact's source."""
     root = dest / "repo"
-    for path in DOC_PAGES:
-        if (ROOT / path).exists():
+    for path in [*DOC_PAGES, *DOC_TREES, *FACT_SOURCES]:
+        if (ROOT / path).is_dir():
+            shutil.copytree(ROOT / path, root / path)
+        elif (ROOT / path).exists():
             (root / path).parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(ROOT / path, root / path)
-    for folder in [*DOC_TREES, *FACT_SOURCES]:
-        shutil.copytree(ROOT / folder, root / folder)
     return root
 
 
@@ -51,10 +59,11 @@ def test_every_block_on_disk_matches_its_source() -> None:
     assert result.returncode == 0, f"Generated blocks are stale:\n{result.stderr}"
 
 
-def test_protected_paths_block_is_in_both_pages() -> None:
-    marker = f"<!-- generated:{PROTECTED_BLOCK} -->"
-    for page in ["docs/review-response.md", "CONTRIBUTING.md"]:
-        assert marker in (ROOT / page).read_text(encoding="utf-8"), f"{page} has no {PROTECTED_BLOCK} block"
+def test_each_block_is_in_its_pages() -> None:
+    for fact, pages in BLOCK_PAGES.items():
+        for page in pages:
+            text = (ROOT / page).read_text(encoding="utf-8")
+            assert f"<!-- generated:{fact} -->" in text, f"{page} has no {fact} block"
 
 
 def test_check_names_a_stale_block_and_the_fix() -> None:
@@ -87,6 +96,29 @@ def test_a_new_protected_path_without_regenerating_fails() -> None:
     assert result.returncode == 1, f"--check passed after a protected path was added:\n{result.stdout}"
     for page in ["docs/review-response.md", "CONTRIBUTING.md"]:
         assert f"{page}: generated:{PROTECTED_BLOCK}" in result.stderr, result.stderr
+
+
+def test_a_changed_init_label_without_regenerating_fails() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = copy_repo(Path(tmp))
+        script = root / INIT_SCRIPT
+        text = script.read_text(encoding="utf-8")
+        anchor = '["agent:review", "5319E7", "Agent-kit: review this PR"]'
+        assert anchor in text, "init's agent:review label changed shape; update this test"
+        script.write_text(text.replace(anchor, '["agent:review", "C5DEF5", "Agent-kit: review this PR"]'), "utf-8")
+
+        result = check(root)
+
+    assert result.returncode == 1, f"--check passed after an init label's colour changed:\n{result.stdout}"
+    for page in BLOCK_PAGES[LABELS_BLOCK]:
+        assert f"{page}: generated:{LABELS_BLOCK} is stale" in result.stderr, result.stderr
+
+
+def test_the_label_block_holds_inits_labels() -> None:
+    text = (ROOT / "docs" / "getting-started.md").read_text(encoding="utf-8")
+    block = text.split(f"<!-- generated:{LABELS_BLOCK} -->")[1].split(f"<!-- /generated:{LABELS_BLOCK} -->")[0]
+    assert 'gh label create "agent:address-review" --color FBCA04' in block, block
+    assert '--description "Agent-kit: answer the review on this PR"' in block, block
 
 
 def test_a_broken_marker_fails_and_names_it() -> None:
@@ -150,9 +182,11 @@ def test_a_marker_problem_stops_the_write_before_any_page_changes() -> None:
 
 if __name__ == "__main__":
     test_every_block_on_disk_matches_its_source()
-    test_protected_paths_block_is_in_both_pages()
+    test_each_block_is_in_its_pages()
     test_check_names_a_stale_block_and_the_fix()
     test_a_new_protected_path_without_regenerating_fails()
+    test_a_changed_init_label_without_regenerating_fails()
+    test_the_label_block_holds_inits_labels()
     test_a_broken_marker_fails_and_names_it()
     test_an_empty_source_list_is_rendered_not_a_crash()
     test_a_marker_problem_stops_the_write_before_any_page_changes()

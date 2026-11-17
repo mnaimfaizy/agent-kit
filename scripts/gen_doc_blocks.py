@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -86,9 +87,26 @@ def review_response_protected_paths(sources: Sources) -> str:
     return "\n".join(line.format(_code(items, conjunction)) for items, line, conjunction in bullets if items)
 
 
+def _sh(value: str) -> str:
+    """A shell word, double-quoted as the docs write them unless that would expand something."""
+    return f'"{value}"' if not set(value) & set('"\\$`!') else shlex.quote(value)
+
+
+def trigger_labels(sources: Sources) -> str:
+    labels = sources.js["trigger-labels"]
+    width = max((len(_sh(label["name"])) for label in labels), default=0)
+    lines = [
+        f"gh label create {_sh(label['name']).ljust(width)} --color {label['color']}"
+        f" --description {_sh(label['description'])}"
+        for label in labels
+    ]
+    return "\n".join(["```bash", *lines, "```"])
+
+
 # Each fact's name, as its markers spell it, and the function that writes its block.
 FACTS: dict[str, Callable[[Sources], str]] = {
     "review-response-protected-paths": review_response_protected_paths,
+    "trigger-labels": trigger_labels,
 }
 
 
