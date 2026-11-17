@@ -3,6 +3,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 import yaml
@@ -237,9 +238,20 @@ def audit_step(name: str) -> dict:
 
 
 def bash() -> str:
+    # The bash on PATH. Not a bare "bash": on Windows, subprocess finds
+    # System32's (WSL) before Git bash.
     path = shutil.which("bash")
     assert path, "bash is required to run step scripts"
     return path
+
+
+def run_bash(script: str, **kwargs) -> subprocess.CompletedProcess:
+    # From a file, not `bash -c`: Git-for-Windows bash cuts a `-c` argument
+    # near 8,190 characters.
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "step.sh"
+        path.write_text(script, encoding="utf-8", newline="\n")
+        return subprocess.run([bash(), path.as_posix()], **kwargs)
 
 
 def execution_file(tmp_path: Path, final: str) -> Path:
@@ -269,8 +281,8 @@ def run_collect(tmp_path: Path, report: str | None, execution: Path | None) -> t
         "GITHUB_ENV": str(tmp_path / "github_env"),
         "GITHUB_OUTPUT": str(github_output),
     }
-    result = subprocess.run(
-        [bash(), "-c", audit_step("Collect transcript")["run"]],
+    result = run_bash(
+        audit_step("Collect transcript")["run"],
         env=env,
         capture_output=True,
         text=True,

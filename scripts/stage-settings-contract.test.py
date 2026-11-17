@@ -7,6 +7,7 @@ parsed as YAML, and the input check step's own script, run under bash.
 import os
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 import yaml
@@ -71,11 +72,26 @@ def test_agent_passes_effort_only_when_set() -> None:
         assert sum("inputs.effort" in a for a in args) == 1, name
 
 
+def bash() -> str:
+    # The bash on PATH. Not a bare "bash": on Windows, subprocess finds
+    # System32's (WSL) before Git bash.
+    path = shutil.which("bash")
+    assert path, "bash is required to run step scripts"
+    return path
+
+
+def run_bash(script: str, **kwargs) -> subprocess.CompletedProcess:
+    # From a file, not `bash -c`: Git-for-Windows bash cuts a `-c` argument
+    # near 8,190 characters.
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "step.sh"
+        path.write_text(script, encoding="utf-8", newline="\n")
+        return subprocess.run([bash(), path.as_posix()], **kwargs)
+
+
 def run_check(name: str, model: str, effort: str) -> subprocess.CompletedProcess:
-    bash = shutil.which("bash")
-    assert bash, "bash is required to run the check script"
-    return subprocess.run(
-        [bash, "-c", check_step(name)["run"]],
+    return run_bash(
+        check_step(name)["run"],
         env={**os.environ, "MODEL": model, "EFFORT": effort},
         capture_output=True,
         text=True,
