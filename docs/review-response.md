@@ -137,6 +137,8 @@ The **protected paths** are fixed by the kit: `CLAUDE.md`, `CLAUDE.local.md`, `A
 
 A round never commits to a protected path or to `.github/workflows/` either: the job token cannot push a workflow change. A finding that needs one is declined. One commit that breaks this rule fails validation, and none of the round's commits are pushed.
 
+The implementer's list differs from this one: see [Agent limits](plan-implement-review.md#agent-limits).
+
 ## Steer a finding
 
 Reply on the finding's thread. On the next round, a reply by a login in the Caller's `allowlist_actors` reaches the agent as **Maintainer guidance** for that finding only: "use the second option", "this is intended, decline it", "fix it in the helper instead". Replies by anyone else are dropped before the agent sees them, whatever they say: anyone can reply on a public pull request. With an empty `allowlist_actors`, no reply is guidance. The reviewer's own follow-up replies on its threads reach the agent as part of the Finding.

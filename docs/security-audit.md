@@ -19,6 +19,8 @@ The reusable job supports:
 - credentialed scripts staged outside the workspace and checked by digest
 - Read/Grep/Glob confined to the workspace
 
+What the audit agent can and cannot change or run: [Agent limits](plan-implement-review.md#agent-limits).
+
 `pr` mode requires `head_sha`, `base_sha`, `base_ref`, and `pr_number`. The job restores instructions and `.github/agent-runtime/` from the base before the agent starts. `scan_command` runs in `full` mode only. `full` mode audits the commit the run was dispatched on and refuses a `head_sha` or `base_sha`: to audit a pull request, use `pr` mode.
 
 The preflight checks the advisories token is live, then sends an empty body to the create-advisory endpoint. GitHub checks authorization first, so a token that may create advisories gets a validation error (422), which passes, and one that may not gets 403 or 404, which fails the run before the agent starts. Nothing is created.
