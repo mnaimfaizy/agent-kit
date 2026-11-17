@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -29,6 +30,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
+
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 DOC_FACTS_SCRIPT = ROOT / "scripts" / "doc-facts.mjs"
@@ -42,6 +45,34 @@ EXEMPT_TREES = ["docs/adr", "docs/research", "docs/agents"]
 MARKER = re.compile(r"<!-- (/?)generated:([a-z0-9-]+) -->")
 # Anything a marker was meant to be, so a mistyped one is reported, not skipped.
 LOOSE_MARKER = re.compile(r"<!--\s*/?\s*generated\s*:[^>]*-->", re.IGNORECASE)
+
+# The example Callers, whose jobs pass each Stage's settings as GitHub expressions.
+CALLERS = "examples/*-caller.yml"
+EXPRESSION = re.compile(r"\$\{\{\s*(.*?)\s*\}\}")
+VARIABLE = re.compile(r"vars\.([A-Z0-9_]+)")
+LITERAL = re.compile(r"'([^']*)'")
+SWITCH_TERM = re.compile(r"vars\.([A-Z0-9_]+) (!=|==) '(true|false)'")
+OWN_MODEL = re.compile(r"CLAUDE_([A-Z0-9_]+)_MODEL")
+# How the docs name each Stage token; a new token is written in lowercase words.
+STAGE_NAMES = {"REVIEW_RESPONSE": "Review response", "SECURITY_AUDIT": "security audit"}
+
+
+@dataclass(frozen=True)
+class Fallback:
+    """A setting read as `vars.A || vars.B || 'x'`: the variables in order, then the literal default, if any."""
+
+    variables: tuple[str, ...]
+    default: str | None
+
+
+@dataclass
+class Stage:
+    """One Stage as an example Caller sets it up: its Kill switch terms and its fallback chains."""
+
+    name: str
+    switch: list[tuple[str, bool]]  # (variable, True if it must be `true`, False if it must not be `false`)
+    model: Fallback
+    effort: Fallback
 
 
 class Sources:
@@ -62,6 +93,63 @@ class Sources:
         if result.returncode != 0:
             raise SystemExit(f"scripts/doc-facts.mjs failed:\n{result.stderr}")
         return json.loads(result.stdout)
+
+    @cached_property
+    def stages(self) -> list[Stage]:
+        """Each Stage, from every example Caller job that passes a `model`, in file and job order."""
+        stages: list[Stage] = []
+        for path in sorted(self.root.glob(CALLERS)):
+            label = path.relative_to(self.root).as_posix()
+            caller = yaml.safe_load(path.read_text(encoding="utf-8"))
+            jobs = caller.get("jobs") if isinstance(caller, dict) else None
+            if not isinstance(jobs, dict):
+                raise SystemExit(f"{label}: has no jobs mapping, so no Stage can be read from it")
+            for job_name, job in jobs.items():
+                settings = (job or {}).get("with") or {}
+                if "model" not in settings:
+                    continue
+                stage = _stage(settings, f"{label}: job {job_name}")
+                if any(seen.name == stage.name for seen in stages):
+                    raise SystemExit(f"{label}: job {job_name} sets up the {stage.name} Stage a second time")
+                stages.append(stage)
+        return stages
+
+
+def _expression(settings: dict, key: str, where: str) -> str:
+    match = EXPRESSION.fullmatch(str(settings.get(key, "")).strip())
+    if not match:
+        raise SystemExit(f"{where}: {key} is not one ${{{{ ... }}}} expression, so no block can be written from it")
+    return match.group(1)
+
+
+def _fallback(settings: dict, key: str, where: str) -> Fallback:
+    """`vars.A || vars.B || 'x'`, which must start with a variable."""
+    terms = [term.strip() for term in _expression(settings, key, where).split("||")]
+    default = LITERAL.fullmatch(terms[-1])
+    variables = [VARIABLE.fullmatch(term) for term in (terms[:-1] if default else terms)]
+    if not variables or not all(variables):
+        raise SystemExit(
+            f"{where}: {key} is {' || '.join(terms)!r}; the generator reads only vars.NAME || ... || 'default'"
+        )
+    return Fallback(tuple(match.group(1) for match in variables), default.group(1) if default else None)
+
+
+def _stage(settings: dict, where: str) -> Stage:
+    switch = []
+    for term in _expression(settings, "kill_switch", where).split("||"):
+        match = SWITCH_TERM.fullmatch(term.strip())
+        if not match or (match.group(2), match.group(3)) not in {("!=", "true"), ("==", "false")}:
+            raise SystemExit(
+                f"{where}: kill_switch has {term.strip()!r}; the generator reads only"
+                " vars.NAME != 'true' or vars.NAME == 'false', joined by ||"
+            )
+        switch.append((match.group(1), match.group(2) == "!="))
+    model, effort = _fallback(settings, "model", where), _fallback(settings, "effort", where)
+    token = OWN_MODEL.fullmatch(model.variables[0])
+    if not token:
+        raise SystemExit(f"{where}: model should read the Stage's own CLAUDE_<STAGE>_MODEL first")
+    name = STAGE_NAMES.get(token.group(1), token.group(1).lower().replace("_", " "))
+    return Stage(name, switch, model, effort)
 
 
 def _code(items: list[str], conjunction: str = "and") -> str:
@@ -86,9 +174,71 @@ def review_response_protected_paths(sources: Sources) -> str:
     return "\n".join(line.format(_code(items, conjunction)) for items, line, conjunction in bullets if items)
 
 
+def _table(header: list[str], rows: list[list[str]]) -> str:
+    """A Markdown table, padded as prettier pads it."""
+    widths = [max(len(cells[at]) for cells in [header, *rows]) for at in range(len(header))]
+
+    def line(cells: list[str]) -> str:
+        return "| " + " | ".join(cell.ljust(width) for cell, width in zip(cells, widths, strict=True)) + " |"
+
+    return "\n".join([line(header), line(["-" * width for width in widths]), *map(line, rows)])
+
+
+def stage_kill_switches(sources: Sources) -> str:
+    def condition(variable: str, must_be_true: bool) -> str:
+        return f"`{variable}` is `true`" if must_be_true else f"`{variable}` is not `false`"
+
+    rows = [[stage.name, " and ".join(condition(*term) for term in stage.switch)] for stage in sources.stages]
+    return _table(["Stage", "Runs when"], rows)
+
+
+def stage_model_and_effort(sources: Sources) -> str:
+    stages = sources.stages
+    # Every Stage reads its own variable, then the same shared ones, then the same default.
+    for setting in ("model", "effort"):
+        tails = {(getattr(stage, setting).variables[1:], getattr(stage, setting).default) for stage in stages}
+        if len(tails) > 1:
+            raise SystemExit(
+                f"The example Callers' {setting} settings fall back differently ({sorted(map(str, tails))});"
+                " the stage-model-and-effort block shows one shared fallback, so make them agree"
+            )
+
+    def shared(fallback: Fallback) -> str:
+        return ", then ".join(f"`{variable}`" for variable in fallback.variables[1:]) or "none"
+
+    def default(fallback: Fallback) -> str:
+        return f"`{fallback.default}`" if fallback.default else "none"
+
+    rows = [[stage.name, f"`{stage.model.variables[0]}`", f"`{stage.effort.variables[0]}`"] for stage in stages]
+    if stages:
+        first = stages[0]
+        rows.append(["any Stage above", shared(first.model), shared(first.effort)])
+        rows.append(["neither set", default(first.model), default(first.effort)])
+    return _table(["Stage", "Model", "Effort"], rows)
+
+
+def _shell_word(value: str) -> str:
+    """A shell word, double-quoted as the docs write them unless that would expand something."""
+    return f'"{value}"' if not set(value) & set('"\\$`!') else shlex.quote(value)
+
+
+def trigger_labels(sources: Sources) -> str:
+    labels = sources.js["trigger-labels"]
+    width = max((len(_shell_word(label["name"])) for label in labels), default=0)
+    lines = [
+        f"gh label create {_shell_word(label['name']).ljust(width)} --color {label['color']}"
+        f" --description {_shell_word(label['description'])}"
+        for label in labels
+    ]
+    return "\n".join(["```bash", *lines, "```"])
+
+
 # Each fact's name, as its markers spell it, and the function that writes its block.
 FACTS: dict[str, Callable[[Sources], str]] = {
     "review-response-protected-paths": review_response_protected_paths,
+    "trigger-labels": trigger_labels,
+    "stage-kill-switches": stage_kill_switches,
+    "stage-model-and-effort": stage_model_and_effort,
 }
 
 
