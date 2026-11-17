@@ -178,7 +178,7 @@ gh variable set CLAUDE_SECURITY_AUDIT_ENABLED --body true
 gh variable set CLAUDE_REVIEW_RESPONSE_ENABLED --body true
 ```
 
-Inside the Agent flow, each Stage also has its own switch, as the table shows. Unset counts as on; only `false` turns that Stage off (GitHub compares these values without regard to case, so `False` does too, and `TRUE` counts as `true` for a flow's switch). For example, to keep plan and review but have a person write the code:
+The Agent flow's master switch is `CLAUDE_AGENT_FLOW_ENABLED`, and each of its Stages also has its own switch, as the table shows; Review response is not under the master switch. Unset counts as on; only `false` turns that Stage off (GitHub compares these values without regard to case, so `False` does too, and `TRUE` counts as `true` for a flow's switch). For example, to keep plan and review but have a person write the code:
 
 ```bash
 gh variable set CLAUDE_IMPLEMENT_ENABLED --body false
