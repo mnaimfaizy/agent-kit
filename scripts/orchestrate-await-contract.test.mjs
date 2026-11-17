@@ -8,7 +8,7 @@
  */
 
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -71,7 +71,10 @@ describe("await: an event plus a heartbeat", () => {
   it("HARNESSES.md gives every harness without a scheduler the foreground watch, and tier 3 none", () => {
     const waiting = section(HARNESSES, "## Waiting: an event and a heartbeat");
     assert.match(waiting, /foreground watch/);
-    assert.match(section(HARNESSES, "## Tiers"), /no heartbeat/);
+    const tier3 = section(HARNESSES, "## Tiers")
+      .split("\n")
+      .find((l) => l.startsWith("- `await`: the human says"));
+    assert.match(tier3, /There is no heartbeat/);
   });
 
   it("DESIGN.md says why: a wake-up is a turn-end, not a finished report", () => {
@@ -103,6 +106,22 @@ describe("SKILL.md: the heartbeat", () => {
       "logs one line",
     ])
       assert.ok(step6.includes(phrase), `step 6 says "${phrase}"`);
+  });
+
+  it("step 6 logs what it handled, and on a foreground watch runs the watch again instead of ending the turn", () => {
+    assert.match(
+      step6,
+      /logs the time and size of each `report\.md` and `decisions\.md` it handles/,
+    );
+    assert.match(step6, /on a foreground watch, runs the watch again/);
+    assert.match(step6, /`foreground watch` in place of an id/);
+  });
+
+  it("step 4 puts what a harness file's verbs ask for into the Dispatch Plan", () => {
+    assert.match(
+      section(SKILL, "### 4. Show the Dispatch Plan"),
+      /each check or reminder a harness file's verbs say the Dispatch Plan gives/,
+    );
   });
 
   it("step 6 checks every running Delegation on each wake-up, not only the one quoted", () => {
@@ -210,7 +229,19 @@ describe("harnesses/claude-code-cli.md", () => {
   it("`await` names the process's end and the `CronCreate` heartbeat", () => {
     const wait = awaitBullet(CLI);
     assert.match(wait, /`CronCreate`/);
+    assert.match(wait, /plain-text prompt/);
+    assert.match(wait, /7 days/);
+    assert.match(wait, /re-arms/);
   });
+});
+
+describe("every harness file", () => {
+  for (const file of readdirSync(join(root, SKILL_DIR, "harnesses")).filter((f) =>
+    f.endsWith(".md"),
+  ))
+    it(`${file}: \`await\` names its heartbeat`, () => {
+      assert.match(awaitBullet(read(`${SKILL_DIR}/harnesses/${file}`)), /heartbeat/);
+    });
 });
 
 describe("harnesses/cursor.md", () => {
