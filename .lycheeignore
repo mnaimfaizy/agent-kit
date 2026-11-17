@@ -1,4 +1,5 @@
-# URLs the weekly external-link check (links.yml) skips. One regex per line.
+# URLs lychee skips. One regex per line. Every lychee run reads this file on
+# its own; it matters for the weekly external-link check (links.yml).
 
 # npmjs.com package pages return 403 Forbidden to automated clients, so lychee
 # reports them as broken although they work in a browser. The packages were
