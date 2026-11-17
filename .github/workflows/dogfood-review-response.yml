@@ -1,0 +1,75 @@
+name: Dogfood review response
+
+# Agent-kit answering the code review on its own PRs, from this commit (local
+# ref). Off until the repository variable CLAUDE_REVIEW_RESPONSE_ENABLED is
+# "true" and CLAUDE_CODE_OAUTH_TOKEN exists. Setup: CONTRIBUTING.md →
+# "Dogfood flows".
+#
+# The round reads its trusted script, hooks and skill from the default
+# branch, so a change to them is exercised only after it merges. The gate
+# refuses a PR that changes a protected path (agent instruction files and the
+# Kit-owned paths), so most rounds here cover docs, cli/, scripts/ and
+# examples/ PRs.
+
+on:
+  # Manual mode: a person on the Allowlist applies agent:address-review.
+  pull_request:
+    types: [labeled]
+  # Auto mode only: the dogfood review's handoff job dispatches this file on
+  # main with pr_number. The gate refuses every other dispatch, a person's
+  # "Run workflow" included, so this trigger is safe to keep.
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "Pull request number (set by the review handoff)"
+        required: true
+
+# What agent-review-response-reusable.yml's jobs request. Only its publish
+# job, on a fresh runner with trusted code, holds the writes; the job that
+# runs the agent gets contents: read and pull-requests: read.
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+jobs:
+  respond:
+    # Fork pull requests are refused by the gate anyway (a fork run gets no
+    # secrets); skipping them here starts no run at all.
+    if: |
+      (github.event_name == 'pull_request' &&
+        github.event.label.name == 'agent:address-review' &&
+        github.event.pull_request.head.repo.full_name == github.repository) ||
+      github.event_name == 'workflow_dispatch'
+    uses: ./.github/workflows/agent-review-response-reusable.yml
+    with:
+      kill_switch: ${{ vars.CLAUDE_REVIEW_RESPONSE_ENABLED != 'true' }}
+      # Exactly `auto` accepts the review handoff's dispatch; unset is manual.
+      response_mode: ${{ vars.CLAUDE_REVIEW_RESPONSE_MODE || 'manual' }}
+      model: ${{ vars.CLAUDE_REVIEW_RESPONSE_MODEL || vars.CLAUDE_MODEL || 'claude-opus-5-5' }}
+      effort: ${{ vars.CLAUDE_REVIEW_RESPONSE_EFFORT || vars.CLAUDE_EFFORT || '' }}
+      # Who may start a round with the label, and whose thread replies are
+      # Maintainer guidance. Keep equal to response_allowlist_actors in
+      # dogfood-agent-pipeline.yml.
+      allowlist_actors: '["mnaimfaizy"]'
+      trigger_label: "agent:address-review"
+      pr_number: ${{ github.event_name == 'pull_request' && github.event.pull_request.number || inputs.pr_number }}
+      # reviewer_logins is left at its default, github-actions (the kit's own
+      # reviewer); keep it equal to response_reviewer_logins in
+      # dogfood-agent-pipeline.yml.
+      setup_commands: |
+        pipx install uv==0.11.23
+        uv sync --locked
+        npm ci
+      verify_commands: |
+        set -e
+        uv run pytest
+        npm test
+        uv run ruff check .
+        uv run ruff format --check .
+        npx prettier --check .
+      # A push made with the job token does not start CI on its own: start
+      # the held run of this workflow for the pushed commit.
+      ci_workflow: .github/workflows/ci.yml
+    secrets:
+      claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
