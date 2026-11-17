@@ -107,7 +107,15 @@ describe("SKILL.md: rules and steps", () => {
 
   it("says who updates a Ruling line once its Delegation has ended, and which Rulings concern a row", () => {
     const auto = section(SKILL, "## Autonomous runs");
-    assert.match(auto, /A Ruling \*\*concerns\*\* the Delegation/);
+    assert.match(
+      auto,
+      /A Ruling \*\*concerns\*\* a branch and its pull request, not one Delegation/,
+    );
+    assert.match(auto, /every Delegation that works on that branch, before or after it: a restart/);
+    assert.match(
+      section(SKILL, "### 7. Verify each report"),
+      /or in the verified report of an earlier Delegation on the same branch/,
+    );
     assert.match(auto, /who drafts the edit to that pull request's body as a write as the human/);
     assert.match(section(SKILL, "### 10. Close out"), /pull request's body shows each Ruling/);
   });
