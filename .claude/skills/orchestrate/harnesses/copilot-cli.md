@@ -7,6 +7,7 @@
 - **Headless QA:** yes, with a Playwright MCP server; else a session the human starts.
 - **Facts from:** docs.github.com/copilot and the Copilot CLI changelog up to 1.0.112, read on 2026-11-14. `--worktree` needs 1.0.85 or later; before it, the flag is experimental. Copilot was not run with a prompt.
 - **Executors:** building and QA, a headless run in its own worktree; analysis, a `task` sub-agent; QA falls back to a session the human starts.
+- **Notify:** none known: the sources in **Facts from** name no way for the Chief of Staff to notify the human. A queued question waits in its session and on the board.
 
 ## Verbs
 
@@ -30,3 +31,4 @@
 - Whether `-p "/qa-plan <n>"` runs the skill as the user's own invocation.
 - Whether a headless run can drive a browser for `manual-qa`.
 - The field names of the final record in the JSON output.
+- Whether the harness can notify the human that a question is queued, and how: record what was found.

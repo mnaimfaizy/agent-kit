@@ -7,6 +7,7 @@
 - **Headless QA:** yes, else a session the human starts.
 - **Facts from:** `claude --help`, version 2.1.312, on 2026-11-13.
 - **Executors:** building, a headless run; analysis, a sub-agent, or a headless run; QA, a headless run, else a session the human starts.
+- **Notify:** none known: the sources in **Facts from** name no way for the Chief of Staff to notify the human. A queued question waits in its session and on the board.
 
 ## Verbs
 
@@ -28,3 +29,4 @@
 - The permission mode a headless run needs to commit and push without asking (`--permission-mode`).
 - Whether `-p` runs a slash command as the user's own invocation.
 - Whether a headless run can drive the browser `manual-qa` needs.
+- Whether the harness can notify the human that a question is queued, and how: record what was found.
