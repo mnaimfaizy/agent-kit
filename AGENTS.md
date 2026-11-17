@@ -18,4 +18,4 @@ Single-context: one `GLOSSARY.md` and `docs/adr/` at the repo root. See `docs/ag
 
 ### Docs map
 
-Which doc pages describe each code area, read by the `code-review` skill's docs-impact check. See `docs/agents/docs-map.md`.
+Doc pages for each code area. See `docs/agents/docs-map.md`.

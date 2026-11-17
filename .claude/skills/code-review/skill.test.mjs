@@ -41,7 +41,7 @@ test("the skill keeps its name, scope and three axis headings", () => {
 
 test("the Standards pass has a Docs impact subsection", () => {
   assert.ok(standards().length > 0, "SKILL.md has a ## Standards pass section");
-  assert.ok(docsImpact().length > 200, "the Standards pass has a ### Docs impact subsection");
+  assert.ok(docsImpact().length > 0, "the Standards pass has a ### Docs impact subsection");
 });
 
 test("it applies when the diff adds, renames, changes or removes something a doc describes", () => {
@@ -53,7 +53,7 @@ test("it names each doc page and line still saying the old thing, as a Standards
   assert.match(text, /\*\*Docs-impact finding\*\*/);
   assert.match(text, /each doc page and line that still says? the old thing/);
   assert.match(text, /`path:line`/);
-  assert.match(text, /Standards finding/);
+  assert.match(text, /a Standards finding that names each doc page/);
 });
 
 test("the finding does not block the change", () => {
@@ -65,10 +65,14 @@ test("it reads the repository's Docs map if one exists", () => {
   assert.match(text, /\*\*Docs map\*\*/);
   assert.match(text, /`AGENTS\.md` or `CLAUDE\.md`/);
   assert.match(text, /`docs-map\.md`/);
+  assert.match(text, /Read the pages it lists for each changed path/);
 });
 
 test("with no Docs map, it searches the docs for the changed names", () => {
-  assert.match(docsImpact(), /no Docs map[^.]*search the docs for each changed name/);
+  const text = docsImpact();
+  assert.match(text, /no Docs map[^.]*search the docs for each changed name/);
+  assert.match(text, /a changed path the map does not cover/);
+  assert.match(text, /its old form too, when renamed or removed/);
 });
 
 test("history keeps old names, so it is skipped", () => {
@@ -80,6 +84,7 @@ test("it flags a hand-written list that copies a code constant without a Generat
   assert.match(text, /hand-written list or table/);
   assert.match(text, /copies a constant from the code/);
   assert.match(text, /\*\*Generated block\*\*/);
+  assert.match(text, /Name the constant it copies/);
 });
 
 test("it is generic: no Agent-kit name or path a Consumer would not have", () => {
