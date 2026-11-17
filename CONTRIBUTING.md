@@ -66,6 +66,42 @@ The tests are contracts, not unit tests: they pin behavior a Consumer depends on
 
 - New shipped path? Add it to `scripts/release-snapshot-manifest.txt`.
 
+## Docs that are generated, and how to add one
+
+A list or table in the docs that has one source in code (a **Doc fact**, such as the Review response protected paths) is a **Generated block** ([ADR 0010](docs/adr/0010-doc-facts-are-generated-and-renames-are-registered.md)). It sits inside the page that explains it, between two markers that name the fact, and the prose around it stays hand-written:
+
+```markdown
+<!-- generated:<fact> -->
+
+(written by the generator; do not edit by hand)
+
+<!-- /generated:<fact> -->
+```
+
+Changed a Doc fact's source? Regenerate every block with one command. It rewrites only the text between markers, then runs prettier on the pages it changed:
+
+```bash
+uv run python scripts/gen_doc_blocks.py
+```
+
+`generated-blocks-contract.test.py` runs the same script with `--check` under `uv run pytest`, so a stale block fails the Tests job and names the page, the block and that command. The script reads the gated docs: `README.md`, `CONTRIBUTING.md`, `GLOSSARY.md`, `AGENTS.md`, `cli/README.md`, and the Markdown under `docs/` and `examples/` apart from `docs/adr/`, `docs/research/` and `docs/agents/`.
+
+To add a new kind of Doc fact, in the pull request that introduces the list:
+
+1. Write a renderer in [scripts/gen_doc_blocks.py](scripts/gen_doc_blocks.py) that returns the block's Markdown, and add it to `FACTS` under the fact's name (lowercase words and hyphens). Write output prettier leaves as it is.
+2. Read the source where it lives. A fact held in a JavaScript constant goes in [scripts/doc-facts.mjs](scripts/doc-facts.mjs), which imports the module and prints the constants as JSON (it can read a constant the module does not export); the renderer reads it from `sources.js`. Never parse JavaScript from Python.
+3. Put the empty markers where the list belongs, replacing any hand-written copy, and run the command above.
+4. Add a case to `generated-blocks-contract.test.py` that changes the source in a temporary copy and asserts the check fails, like the protected-paths case.
+
+The check also fails on an unknown fact name, a marker with no partner, and a fact in `FACTS` that no page holds.
+
+## Action and dependency pins
+
+- Every `uses:` in `.github/workflows/` is pinned to a full commit SHA with a `# vX.Y.Z` comment. Dependabot bumps them weekly.
+- `anthropics/claude-code-action` is excluded from Dependabot and asserted by the contract tests. To bump it: read its release notes, update the SHA in all five reusable workflows and in `CLAUDE_ACTION_SHA` in the tests, and note it in the CHANGELOG. Also re-check the implement workflow's "Check branch naming inputs" step against the new version's branch naming (`validateBranchName`'s pattern, the default name and its 50-character cut, the fallback to default naming when a template's branch exists, and empty path-segment collapsing), and update the step and its tests if any of these changed. Then add the new SHA to `BUN_FOR_ACTION` in `scripts/bun-install-contract.test.py`, with the `bun-version` from that commit's `action.yml`. If the Bun version changed, update `BUN_VERSION`, `NPM_SHA256`, `RELEASE_SHA256` and the release asset id in the "Install Bun" step of all five reusable workflows. The npm registry publishes no SHA-256 (`dist.shasum` is SHA-1 and `dist.integrity` is base64 SHA-512). So download the tarball given as `dist.tarball` at `registry.npmjs.org/@oven/bun-linux-x64/<version>`, check it against `dist.integrity` (`openssl dgst -sha512 -binary <file> | openssl base64 -A` must print the text after its `sha512-` prefix), and record its `sha256sum` as `NPM_SHA256`. Take `RELEASE_SHA256` from that release's `SHASUMS256.txt`, and the asset id of `bun-linux-x64.zip` from `gh api repos/oven-sh/bun/releases/tags/bun-v<version>`.
+- The actionlint image in `ci.yml` is pinned by digest; update the tag and digest together.
+- Keep `.pre-commit-config.yaml` hook versions in step with `uv.lock` (ruff) and CI.
+
 ## Dogfood flows
 
 `dogfood-security-audit.yml`, `dogfood-agent-pipeline.yml` and `dogfood-review-response.yml` run this repository's own reusable workflows from the same commit (`uses: ./…`), so changes are exercised before they are tagged. All three stay off until you enable them.
@@ -122,7 +158,7 @@ The dogfood Review response refuses many of this repository's pull requests, by 
 
 <!-- /generated:review-response-protected-paths -->
 
-The list is generated from `PROTECTED_FILES`, `PROTECTED_DIRS_ANY_DEPTH`, `PROTECTED_ROOT_DIRS` and `KIT_OWNED_PATHS` in [review-response.mjs](.github/agent-review-response/review-response.mjs). The agent also cannot change `.github/workflows`, so it declines a finding that needs one. Rounds here mostly cover docs, `cli/`, `scripts/` and `examples/` pull requests; a refusal is not a bug. The round reads its trusted script, hooks and skill from `main`, so a change to them is exercised only after it merges.
+The list is generated from `PROTECTED_FILES`, `PROTECTED_DIRS_ANY_DEPTH`, `PROTECTED_ROOT_DIRS` and `KIT_OWNED_PATHS` in [review-response.mjs](.github/agent-review-response/review-response.mjs) ([how](#docs-that-are-generated-and-how-to-add-one)). The agent also cannot change `.github/workflows`, so it declines a finding that needs one. Rounds here mostly cover docs, `cli/`, `scripts/` and `examples/` pull requests; a refusal is not a bug. The round reads its trusted script, hooks and skill from `main`, so a change to them is exercised only after it merges.
 
 ## Branch protection
 

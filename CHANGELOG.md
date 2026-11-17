@@ -8,6 +8,7 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ### Added
 
+- Maintainer tooling: Generated blocks ([#256](https://github.com/mnaimfaizy/agent-kit/issues/256), [ADR 0010](docs/adr/0010-doc-facts-are-generated-and-renames-are-registered.md)). `scripts/gen_doc_blocks.py` rewrites the text between `<!-- generated:<fact> -->` and `<!-- /generated:<fact> -->` markers in the docs from each Doc fact's source, then runs prettier; `--check` fails `uv run pytest`, naming the stale block and the fix command. The first block is the Review response protected paths, read from `review-response.mjs`'s constants, and replaces the hand-written lists in [review-response.md](docs/review-response.md#refusals-and-protected-paths) and CONTRIBUTING's dogfood section. No Consumer action.
 - Review response takes an optional `format_commands` input: a Caller-owned formatter, such as `npx prettier --write .`, that the agent may run on its edits before the checks. It is staged and allowed as one exact command, like `verify_commands`, and runs in the same sandbox. Without it, the round on [#254](https://github.com/mnaimfaizy/agent-kit/pull/254) could not re-pad a Markdown table by hand, and declined the fix. **Consumer action** if your checks run prettier (or another formatter that does not read `.git/info/exclude`): add `/review-response-brief.md` and `/review-response.json` to its ignore file. The kit writes the brief to the workspace root, and it is not prettier-clean, so `prettier --check .` fails every round.
 
 ### Changed
