@@ -36,12 +36,14 @@ function section(text, heading) {
   return next < 0 ? rest : rest.slice(0, next);
 }
 
-/** The `- \`await\`:` bullet of a harness file's Verbs section, with any lines indented under it. */
+/** The `- \`await\`:` bullet of a harness file's Verbs section, up to the next top-level bullet. */
 function awaitBullet(text) {
   const verbs = section(text, "## Verbs");
-  const match = /^- `await`:.*(?:\n {2,}.*)*/m.exec(verbs);
-  assert.ok(match, "the Verbs section has an `await` bullet");
-  return match[0];
+  const start = verbs.search(/^- `await`:/m);
+  assert.ok(start >= 0, "the Verbs section has an `await` bullet");
+  const rest = verbs.slice(start);
+  const end = rest.indexOf("\n- ");
+  return end < 0 ? rest : rest.slice(0, end);
 }
 
 /** A report form: the fenced block whose first line starts with `heading`. */
@@ -120,7 +122,10 @@ describe("SKILL.md: the heartbeat", () => {
 
 describe("RUN.md", () => {
   it("the board records the heartbeat", () => {
-    assert.match(section(RUN, "## Board"), /Heartbeat: </);
+    // The board's example opens with a `# Run` heading inside its fence, which ends `section`.
+    const board = RUN.slice(RUN.indexOf("\n## Board\n"), RUN.indexOf("\n## States\n"));
+    assert.match(board, /^Heartbeat: </m);
+    assert.match(board, /^The `Heartbeat` line/m);
   });
 
   it("`--resume` re-arms the heartbeat", () => {
@@ -161,7 +166,7 @@ describe("harnesses/claude-code-desktop.md", () => {
   });
 
   it("`await` arms the app's wake-up, a `notify_when_idle` subscription and a `CronCreate` heartbeat", () => {
-    assert.match(wait, /continues the Chief of Staff/);
+    assert.match(wait, /continues the idle Chief of Staff/);
     assert.match(wait, /`notify_when_idle`/);
     assert.match(wait, /`CronCreate`/);
     assert.match(wait, /`\*\/10 \* \* \* \*`/);
