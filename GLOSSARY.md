@@ -165,7 +165,7 @@ _Avoid_: test report, QA results
 The `orchestrate` Portable skill; why it is a core plus a per-repository config: [ADR 0004](docs/adr/0004-orchestrate-is-a-core-plus-a-config.md). The skill's [`DESIGN.md`](.claude/skills/orchestrate/DESIGN.md#glossary) carries the same definitions, word for word, so the skill keeps them when it is installed alone; `scripts/orchestrate-glossary-contract.test.py` keeps the two the same. "Live Session" is always written in full: a **Session** alone is a QA term.
 
 **Chief of Staff**:
-The session that runs `orchestrate`: it analyses the work, proposes the Dispatch Plan, hands out each Delegation, relays every Decision Request and verifies every report, and never builds a Delegation's work or merges.
+The session that runs `orchestrate`: it analyses the work, proposes the Dispatch Plan, hands out each Delegation, relays every Decision Request (or, in an autonomous run, makes a Ruling on those it may) and verifies every report, and never builds a Delegation's work or merges.
 _Avoid_: orchestrator, coordinator, lead agent
 
 **Delegation**:
@@ -193,8 +193,20 @@ The eight items every Delegation's brief carries: what to read first, the goal a
 _Avoid_: brief template, prompt template
 
 **Decision Request**:
-A question a Delegation cannot settle from its brief, raised to the human through the Chief of Staff, self-contained, with options, evidence and a recommendation.
+A question a Delegation cannot settle from its brief, raised to the human through the Chief of Staff (or, in an autonomous run, answered by a Ruling), self-contained, with options, evidence and a recommendation.
 _Avoid_: question, escalation, blocker
+
+**Ruling**:
+A Decision Request the Chief of Staff answers itself in an autonomous run, because the human handed it that kind at "go" and the evidence it cites picks one option; it stands until the Ruling Review.
+_Avoid_: auto-decision, CoS decision, judgement
+
+**Ruling Ledger**:
+The ordered list of every Ruling in a run, each with its question, options, choice and evidence, kept in the run folder for the Ruling Review.
+_Avoid_: decision log, audit log
+
+**Ruling Review**:
+The human's pass over a run's Ruling Ledger, in which each Ruling ends upheld or overturned; overturning one sends every Ruling that cited it back for review.
+_Avoid_: sign-off, approval
 
 **Dispatch Plan**:
 The one table the Chief of Staff shows before any Delegation starts, giving each one's scope, Executor, model and wave, with the kinds of routine write the human may approve; one "go" approves it whole.
@@ -209,7 +221,7 @@ The account of a finished run, offered after the human merges, for the issue tha
 _Avoid_: wrap-up, final report
 
 **Ready to Merge**:
-A Delegation whose CI is green, whose review is settled, whose QA requirement is met on its current head and whose branch merges cleanly; the only Delegations the closing list names.
+A Delegation whose CI is green, whose review is settled, whose QA requirement is met on its current head, whose Rulings are upheld and whose branch merges cleanly; the only Delegations the closing list names.
 _Avoid_: done, mergeable, green
 
 ### Review response

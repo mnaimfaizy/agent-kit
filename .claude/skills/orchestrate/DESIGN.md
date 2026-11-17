@@ -6,7 +6,7 @@ Why the skill is shaped the way it is. The skill carries this file so its rules 
 
 These are word for word the definitions in Agent-kit's root glossary, where a contract test keeps the two the same.
 
-**Chief of Staff**: The session that runs `orchestrate`: it analyses the work, proposes the Dispatch Plan, hands out each Delegation, relays every Decision Request and verifies every report, and never builds a Delegation's work or merges.
+**Chief of Staff**: The session that runs `orchestrate`: it analyses the work, proposes the Dispatch Plan, hands out each Delegation, relays every Decision Request (or, in an autonomous run, makes a Ruling on those it may) and verifies every report, and never builds a Delegation's work or merges.
 
 **Delegation**: One piece of a run, an issue to build, an issue to analyse, or a pull request head to QA, handed to one Executor with one brief.
 
@@ -20,7 +20,13 @@ These are word for word the definitions in Agent-kit's root glossary, where a co
 
 **Brief Contract**: The eight items every Delegation's brief carries: what to read first, the goal and what done means, phases with explicit stop points, scope fences, the repository's command routes, the rules for writes, the Decision Request form, and the Delegation's report and log files.
 
-**Decision Request**: A question a Delegation cannot settle from its brief, raised to the human through the Chief of Staff, self-contained, with options, evidence and a recommendation.
+**Decision Request**: A question a Delegation cannot settle from its brief, raised to the human through the Chief of Staff (or, in an autonomous run, answered by a Ruling), self-contained, with options, evidence and a recommendation.
+
+**Ruling**: A Decision Request the Chief of Staff answers itself in an autonomous run, because the human handed it that kind at "go" and the evidence it cites picks one option; it stands until the Ruling Review.
+
+**Ruling Ledger**: The ordered list of every Ruling in a run, each with its question, options, choice and evidence, kept in the run folder for the Ruling Review.
+
+**Ruling Review**: The human's pass over a run's Ruling Ledger, in which each Ruling ends upheld or overturned; overturning one sends every Ruling that cited it back for review.
 
 **Dispatch Plan**: The one table the Chief of Staff shows before any Delegation starts, giving each one's scope, Executor, model and wave, with the kinds of routine write the human may approve; one "go" approves it whole.
 
@@ -28,7 +34,7 @@ These are word for word the definitions in Agent-kit's root glossary, where a co
 
 **Run Summary**: The account of a finished run, offered after the human merges, for the issue that groups the run's work.
 
-**Ready to Merge**: A Delegation whose CI is green, whose review is settled, whose QA requirement is met on its current head and whose branch merges cleanly; the only Delegations the closing list names.
+**Ready to Merge**: A Delegation whose CI is green, whose review is settled, whose QA requirement is met on its current head, whose Rulings are upheld and whose branch merges cleanly; the only Delegations the closing list names.
 
 ## A core plus a config
 
@@ -63,6 +69,14 @@ An Executor knows only its brief. Each of the eight items closes a gap a Delegat
 ## Decision Requests are self-contained
 
 The human answering a question is often away from the Delegation that asked it, and may answer from a phone. A question that says "see above" makes them open the session, read its context and reconstruct the choice. So a Decision Request carries its own context, options, evidence and a recommendation: the human can answer from it alone, and the recommendation means the answer can be one word. The answer is recorded where a reviewer of the pull request will see it, because a reviewer who cannot see why the work went one way will ask the same question again.
+
+## Rulings, under review
+
+A long run with the human away stalls on every question, and most of the questions are ones the evidence already answers: how to build within a settled issue, which branch merges first, whether a QA FAIL is the change or the stack. So in a run the human starts with `go autonomous`, the Chief of Staff answers those itself, as Rulings, and the human reviews each one before anything merges.
+
+The line between what it may rule on and what stays the human's is reversibility. A Ruling's result is a commit on an unmerged branch, which an overturn undoes with another commit. A wider scope fence, an accepted FAIL, a write in the human's name, or a choice among an analysis Delegation's options cannot be taken back by the review, or changes what the human approved at "go". So those still wait for the human, and only their own Delegation waits with them.
+
+A Ruling needs evidence that picks one option, cited so that it can still be checked after the branch has moved, because the review happens after the run and "it seemed reasonable" cannot be reviewed. The Ruling Review comes before Ready to Merge, because an overturn before the merge costs a commit, and after it a new issue. A Ruling that cited an overturned one is reviewed again, not overturned with it, because it may stand on other evidence. Authority is not ticked per kind, as routine writes are: one fixed split keeps the plan to one checklist until a run shows it needs more.
 
 ## Verify every report
 
