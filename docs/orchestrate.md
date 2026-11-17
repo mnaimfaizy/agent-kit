@@ -20,7 +20,7 @@ It does:
 - read each issue and place it by its triage role: only a `ready-for-agent` issue gets a building Delegation; `needs-triage` and `needs-info` get an analysis Delegation that produces evidence and options and builds nothing;
 - keep two Delegations that touch the same files, or hold the same named shared resource, out of the same wave, and start a Delegation that waits on another only once that one is merged (or, in a spec run on an integration branch, landed there);
 - write each Executor a brief that carries the eight items of the Brief Contract; a building brief ends with a code review of its own diff, fixes for what it found, then the final commit, and an analysis brief stops after its evidence and options;
-- relay every question to you whole. A Delegation may push its own branch, open its own pull request and reply on its own review; every other write in your name (an issue comment, a new issue, a label, closing an issue) comes to you as a draft for your yes, unless you approved that kind of routine write in the Dispatch Plan;
+- relay every question to you whole, or, in an [autonomous run](#autonomous-runs) you start with `go autonomous`, answer the kinds you hand over itself, as Rulings you review before anything is Ready to Merge. A Delegation may push its own branch, open its own pull request and reply on its own review; every other write in your name (an issue comment, a new issue, a label, closing an issue) comes to you as a draft for your yes, unless you approved that kind of routine write in the Dispatch Plan;
 - tell you only what it has checked: a report is a claim, and each line is checked against the branch, the pull request, CI and the config's re-gate commands;
 - nudge a stalled Delegation once, then raise it to you; keep a crashed Delegation's branch and worktree as its handoff;
 - find conflicts between finished branches with `git merge-tree` before it gives you a merge order;
@@ -58,15 +58,16 @@ Any Companion skill the config names (to implement, to triage, to review) must b
 
 Every form runs from the root of the repository the issues belong to.
 
-| Invocation                      | What it does                                                                                                                                               |
-| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/orchestrate #12 #34`          | A run for these issues. The skill reads the config, analyses each issue, shows the Dispatch Plan, and waits for your "go".                                 |
-| `/orchestrate #12 #34 go`       | The same, but the run starts as soon as the plan is shown, unless analysis raised a Decision Request: then it waits for the answer and your "go".          |
-| `/orchestrate --spec 50 [go]`   | A run for the spec `#50` and the work it holds, in dependency order ([Spec mode](#spec-mode)). `--spec` takes one issue number and nothing else but `go`.  |
-| `/orchestrate --status [<run>]` | Prints the board of the run named, or of the latest run, with each open Decision Request in full. It reads nothing else and changes nothing.               |
-| `/orchestrate --resume <run>`   | Continues a run from its folder, after a usage limit, a closed laptop or a pause for merges. It checks every Delegation against git and the tracker first. |
+| Invocation                                 | What it does                                                                                                                                                                                      |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/orchestrate #12 #34`                     | A run for these issues. The skill reads the config, analyses each issue, shows the Dispatch Plan, and waits for your "go".                                                                        |
+| `/orchestrate #12 #34 go`                  | The same, but the run starts as soon as the plan is shown, unless analysis raised a Decision Request: then it waits for the answer and your "go".                                                 |
+| `/orchestrate #12 #34 go autonomous`       | The same as with `go`, with the Dispatch Plan's **Decision authority** line filled in as `autonomous` ([Autonomous runs](#autonomous-runs)). Without `go`, the plan waits for your "go" as usual. |
+| `/orchestrate --spec 50 [go] [autonomous]` | A run for the spec `#50` and the work it holds, in dependency order ([Spec mode](#spec-mode)). `--spec` takes one issue number and nothing else but `go` and `autonomous`.                        |
+| `/orchestrate --status [<run>]`            | Prints the board of the run named, or of the latest run, with each open Decision Request in full. It reads nothing else and changes nothing.                                                      |
+| `/orchestrate --resume <run>`              | Continues a run from its folder, after a usage limit, a closed laptop or a pause for merges. It checks every Delegation against git and the tracker first.                                        |
 
-Any other argument, or a mix of these forms, stops the run before anything is read, with the list of forms this version knows. `<run>` is the run folder's name, such as `2026-11-13-12-34` or `2026-11-13-spec-50` ([Run state](#run-state)).
+`autonomous` is taken once, last, after `go` when both are given, and only in a run for issues or a spec. Any other argument, or a mix of these forms, stops the run before anything is read, with the list of forms this version knows. `<run>` is the run folder's name, such as `2026-11-13-12-34` or `2026-11-13-spec-50` ([Run state](#run-state)).
 
 ## Harnesses
 
@@ -95,7 +96,7 @@ With `executors` in the config, one kind of Delegation runs on another harness's
 9. **QA each finished head**, where the config requires it ([below](#qa)).
 10. **Close out.** It prints the Ready to Merge list, the merge order, the merge commands when the config names one, and what is not on the list and why. After you say you have merged, it offers a **Run Summary** on the umbrella issue the run's issues share, if they share one, posted only on your yes, and offers to resume the run if Delegations are parked behind the merges.
 
-A Delegation is Ready to Merge only when every check on its head has passed, its review is settled, its QA requirement is met on its current head and its branch merges cleanly.
+A Delegation is Ready to Merge only when every check on its head has passed, its review is settled, its QA requirement is met on its current head, its Rulings are upheld (in an autonomous run) and its branch merges cleanly.
 
 ## QA
 
@@ -155,6 +156,37 @@ When a Delegation cannot settle a question from its brief and the documents it r
 
 When you answer, the Chief of Staff sends the answer to the Delegation and records it where the config's `decisions.to` says: by default, the Delegation adds it to its own pull request's body, so a reviewer can see why the work went that way. The Chief of Staff raises its own questions in the same form: an issue with no triage role, a conflict between finished branches, a stalled or crashed Delegation, a write in your name.
 
+## Autonomous runs
+
+A long run with you away stalls on every question. Most of them the evidence already answers: how to build within a settled issue, which branch merges first, whether a QA FAIL is the change or the stack. In an **autonomous run**, the Chief of Staff answers those itself, as **Rulings**, and you review each one before anything is Ready to Merge. Why: [ADR 0008](adr/0008-orchestrate-may-rule-under-review.md).
+
+**Turning it on.** The Dispatch Plan has a **Decision authority** line: `relay`, where every question comes to you, or `autonomous`. Answer the plan with `go autonomous` to turn it on for this run, or add `autonomous` to the invocation to fill the line in. There is no config key: how far you trust a run is your call each time. On a harness below `verified`, the run is autonomous only when you type `go autonomous` after seeing the plan, which then says that Rulings will be made on a harness whose limits are not fully known.
+
+**What it rules on, and what stays yours.** The split is fixed, all or nothing:
+
+| The Chief of Staff rules on                                                       | You keep                                          |
+| --------------------------------------------------------------------------------- | ------------------------------------------------- |
+| A building Delegation's question about how to do the work within its issue's goal | Widening a scope fence                            |
+| A stalled or crashed Delegation: nudge it, or restart it from its branch          | Accepting a QA FAIL, or waiving a manual scenario |
+| The merge order between conflicting branches                                      | An analysis Delegation's options                  |
+| A QA FAIL: send it back, or run QA again                                          | Any write in your name not approved as routine    |
+| The delivery of a QA Plan                                                         | Everything under Authority                        |
+
+**The evidence bar.** It rules only when its evidence picks one option, and cites it so you can check it after the run: `path:line` at a commit SHA, command output saved in the run folder, a tracker permalink, or an earlier Ruling by its id. When the evidence is split, or an option cannot be undone by a later commit, the question comes to you. A question it may not rule on stops only its own Delegation; the rest of the run goes on, the question waits for you on the board, and the Chief of Staff notifies you where the harness can.
+
+**Where Rulings are kept.** Each Ruling has a run-wide id, `R1`, `R2`, and goes into the run's **Ruling Ledger**, `rulings.md` in the run folder, with its question, options, choice and reason, evidence and the Rulings it cites. It is also recorded where `decisions.to` says, labelled "Chief of Staff ruling, not yet reviewed": by default, a line in the Delegation's pull request body. Each Delegation's report maps its commits to the Rulings they followed, and the Chief of Staff checks that map like every other claim.
+
+**The Ruling Review.** At close-out, each Delegation with a Ruling you have not reviewed is listed as `awaiting Ruling Review`, and the ledger is shown grouped by Delegation, each Ruling with the commits that followed from it. Answer per Ruling, or all at once:
+
+```text
+upheld: R1 R2; overturned: R3 → option 2
+uphold all
+```
+
+You can also answer at any time during the run, in the Chief of Staff's session. `--status` prints the ledger, and `--resume` opens with the Rulings still awaiting review. Once every Ruling for a Delegation is upheld, it is Ready to Merge, and the merge order is printed.
+
+An overturned Ruling becomes an ordinary answer from you: it goes to the Delegation (or to a new one started from its branch), the rework is a push, and the new head is verified and QA'd again. Every Ruling that cited the overturned one is marked **needs re-review** and comes back to you; it is not overturned with it. The pull request's Ruling line is updated to upheld or overturned, and the Run Summary lists every Ruling with its verdict. In a spec run on an integration branch, the integration branch's pull request waits for the Ruling Review, and an overturn for a ticket that has already landed is fixed by a fix Delegation on that branch.
+
 ## Run state
 
 A run keeps its state in a folder of its own inside the config's `run_dir` (default `tmp/orchestrate`). Keep `run_dir` gitignored: nothing in a run folder is committed, because a brief or a log can quote issue text and command output you have not chosen to publish.
@@ -164,6 +196,8 @@ A run keeps its state in a folder of its own inside the config's `run_dir` (defa
   board.md                  the board: one row per Delegation
   activity.md               the Chief of Staff's Activity Log
   answers.json              your answers in chat, when the config did not say
+  rulings.md                the Ruling Ledger, in an autonomous run
+  evidence/                 command output a Ruling cites
   delegations/<id>/
     brief.md                the brief, as started
     activity.md             the Delegation's Activity Log
@@ -173,11 +207,11 @@ A run keeps its state in a folder of its own inside the config's `run_dir` (defa
 
 - **`<run>`** is the date and the issue numbers, `2026-11-13-12-34`, or the date and the spec, `2026-11-13-spec-50`, with `.2`, `.3` added for a second run with the same name.
 - **A Delegation's `<id>`** is `d<issue>`, such as `d12`. A phase of a spec with no tickets is `d<spec>-p<k>`, a fix on an integration branch is `d<spec>-fix<k>`, and a QA Delegation is `d<issue>-qa`, then `-qa2`, `-qa3`.
-- **The board** has one row per Delegation: its issue, kind, Executor, the handle that reaches it, model, wave, branch, pull request, state and open Decision Requests. Its states run from `planned` through `running`, `waiting`, `reported`, `verified` and `ready to merge` to `merged`, with `parked`, `sent back`, `stalled`, `crashed`, `analysed`, `landed` and `dropped` for the other ends, and `passed`, `failed` and `void` for a QA Delegation ([RUN.md](../.claude/skills/orchestrate/RUN.md#states)).
+- **The board** has one row per Delegation: its issue, kind, Executor, the handle that reaches it, model, wave, branch, pull request, state and open Decision Requests. Its states run from `planned` through `running`, `waiting`, `reported`, `verified` and `ready to merge` to `merged`, with `parked`, `sent back`, `stalled`, `crashed`, `analysed`, `landed`, `awaiting Ruling Review` and `dropped` for the other ends, and `passed`, `failed` and `void` for a QA Delegation ([RUN.md](../.claude/skills/orchestrate/RUN.md#states)).
 - **Each Activity Log** is append-only: the time, what was done, and why. It is never rewritten.
 - **A Delegation works in its own worktree or clone**, and writes its report and Decision Requests by absolute path into the Chief of Staff's run folder. An Executor in a clone that cannot reach the run folder ends its turn with its report or Decision Request as its last message, and the Chief of Staff writes it into the folder.
 
-`--status` prints the board. `--resume <run>` reads the config again, then checks every Delegation not `merged` or `dropped` against git, the tracker, CI and its Executor, updates the board to what it found, starts each parked Delegation whose wait is over, and goes on with the loop.
+`--status` prints the board, and in an autonomous run the Ruling Ledger. `--resume <run>` reads the config again, then checks every Delegation not `merged` or `dropped` against git, the tracker, CI and its Executor, updates the board to what it found, starts each parked Delegation whose wait is over, and goes on with the loop.
 
 ## Spec mode
 
