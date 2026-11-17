@@ -2180,3 +2180,119 @@ ${lines.map((l) => `      ${l}\n`).join("")}    secrets:
     assert.deepEqual(parseCaller("on:\n  workflow_dispatch:\njobs: {}\n").dispatchInputs, []);
   });
 });
+
+// ADR 0010: doctor keeps its rename map as a constant (the CLI has no YAML
+// parser), and that constant must equal the Deprecation register's variable
+// entries. The register keeps one fixed shape, so a strict line reader is
+// enough here; it throws on any line outside that shape rather than guess.
+const REGISTER = "docs/deprecations.yml";
+
+function registerEntries(text) {
+  const entries = [];
+  let entry = null;
+  let list = null;
+  text.split("\n").forEach((line, i) => {
+    const where = `${REGISTER}:${i + 1}`;
+    if (/^\s*(#.*)?$/.test(line)) return;
+    let m;
+    if ((m = line.match(/^- (\w+): (\S+)$/))) {
+      entry = { [m[1]]: m[2] };
+      entries.push(entry);
+      list = null;
+    } else if (entry && (m = line.match(/^ {2}(\w+): (\S+)$/))) {
+      entry[m[1]] = m[2];
+      list = null;
+    } else if (entry && (m = line.match(/^ {2}(\w+):$/))) {
+      list = entry[m[1]] = [];
+    } else if (list && (m = line.match(/^ {4}- (\S+)$/))) {
+      list.push(m[1]);
+    } else {
+      throw new Error(`${where}: not in the register's shape: ${JSON.stringify(line)}`);
+    }
+  });
+  return entries;
+}
+
+// One message per rename that doctor's map and the register disagree on.
+function renameMapDisagreements(map, registerText) {
+  const register = Object.fromEntries(
+    registerEntries(registerText)
+      .filter((e) => e.kind === "variable")
+      .map((e) => [e.old, e.replacement]),
+  );
+  const problems = [];
+  for (const [oldName, newName] of Object.entries(register)) {
+    if (!(oldName in map))
+      problems.push(`${REGISTER} renames ${oldName}, but RENAMED_VARIABLES does not`);
+    else if (map[oldName] !== newName)
+      problems.push(
+        `${oldName}: ${REGISTER} says ${newName}, RENAMED_VARIABLES says ${map[oldName]}`,
+      );
+  }
+  for (const oldName of Object.keys(map)) {
+    if (!(oldName in register))
+      problems.push(`RENAMED_VARIABLES renames ${oldName}, but ${REGISTER} does not`);
+  }
+  return problems;
+}
+
+describe("doctor's rename map and the Deprecation register", () => {
+  const entry = (kind, oldName, replacement) =>
+    [
+      `- kind: ${kind}`,
+      `  old: ${oldName}`,
+      `  replacement: ${replacement}`,
+      `  release: 1.0.0-beta.8`,
+      `  allowed_paths:`,
+      `    - cli/src/checks/secrets-and-variables.mjs`,
+      "",
+    ].join("\n");
+
+  it("RENAMED_VARIABLES equals the register's variable entries", () => {
+    assert.deepEqual(renameMapDisagreements(RENAMED_VARIABLES, readRepo(REGISTER)), []);
+  });
+
+  it("reads the register's six #246 renames", () => {
+    const vars = registerEntries(readRepo(REGISTER)).filter((e) => e.kind === "variable");
+    assert.equal(vars.length, 6);
+    assert.deepEqual(vars[0], {
+      kind: "variable",
+      old: "CLAUDE_PIPELINE_ENABLED",
+      replacement: "CLAUDE_AGENT_FLOW_ENABLED",
+      release: "1.0.0-beta.8",
+      allowed_paths: [
+        "cli/src/checks/secrets-and-variables.mjs",
+        "scripts/cli-doctor-contract.test.mjs",
+      ],
+    });
+  });
+
+  it("a variable rename in the register but not in doctor's map is reported", () => {
+    const text = readRepo(REGISTER) + entry("variable", "CLAUDE_OLD_THING", "CLAUDE_NEW_THING");
+    assert.deepEqual(renameMapDisagreements(RENAMED_VARIABLES, text), [
+      `${REGISTER} renames CLAUDE_OLD_THING, but RENAMED_VARIABLES does not`,
+    ]);
+  });
+
+  it("a rename in doctor's map but not in the register is reported", () => {
+    const map = { ...RENAMED_VARIABLES, CLAUDE_OLD_THING: "CLAUDE_NEW_THING" };
+    assert.deepEqual(renameMapDisagreements(map, readRepo(REGISTER)), [
+      `RENAMED_VARIABLES renames CLAUDE_OLD_THING, but ${REGISTER} does not`,
+    ]);
+  });
+
+  it("a different replacement is reported, and entries of other kinds are not doctor's", () => {
+    const map = { ...RENAMED_VARIABLES, CLAUDE_PIPELINE_ENABLED: "CLAUDE_WRONG" };
+    const text = readRepo(REGISTER) + entry("label", "agent:old", "agent:new");
+    assert.deepEqual(renameMapDisagreements(map, text), [
+      `CLAUDE_PIPELINE_ENABLED: ${REGISTER} says CLAUDE_AGENT_FLOW_ENABLED, RENAMED_VARIABLES says CLAUDE_WRONG`,
+    ]);
+  });
+
+  it("a register line outside its shape fails rather than being misread", () => {
+    assert.throws(
+      () => registerEntries("- kind: variable\n  old: [A, B]\n"),
+      /docs\/deprecations\.yml:2: not in the register's shape/,
+    );
+  });
+});
