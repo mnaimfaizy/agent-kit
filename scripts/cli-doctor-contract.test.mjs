@@ -2180,6 +2180,11 @@ ${lines.map((l) => `      ${l}\n`).join("")}    secrets:
 // enough here; it throws on any line outside that shape rather than guess.
 const REGISTER = "docs/deprecations.yml";
 
+// A plain value, or `null` (an entry removed with no replacement). Quoted,
+// flow and other null spellings (`~`, `Null`) are outside the shape.
+const SCALAR = /^(?!(?:Null|NULL)$)[^\s[{'"~]\S*$/;
+const scalar = (value) => (value === "null" ? null : value);
+
 function registerEntries(text) {
   const entries = [];
   let entry = null;
@@ -2188,16 +2193,19 @@ function registerEntries(text) {
     const where = `${REGISTER}:${i + 1}`;
     if (/^\s*(#.*)?$/.test(line)) return;
     let m;
-    if ((m = line.match(/^- (\w+): ([^\s[{]\S*)$/))) {
-      entry = { [m[1]]: m[2] };
+    if ((m = line.match(/^- (\w+): (\S+)$/)) && SCALAR.test(m[2])) {
+      entry = { [m[1]]: scalar(m[2]) };
       entries.push(entry);
       list = null;
-    } else if (entry && (m = line.match(/^ {2}(\w+): ([^\s[{]\S*)$/))) {
-      entry[m[1]] = m[2];
+    } else if (entry && (m = line.match(/^ {2}(\w+): (\S+)$/)) && SCALAR.test(m[2])) {
+      entry[m[1]] = scalar(m[2]);
       list = null;
-    } else if (entry && (m = line.match(/^ {2}(\w+):$/))) {
-      list = entry[m[1]] = [];
-    } else if (list && (m = line.match(/^ {4}- (\S+)$/))) {
+    } else if (entry && line === "  allowed_paths: []") {
+      entry.allowed_paths = [];
+      list = null;
+    } else if (entry && line === "  allowed_paths:") {
+      list = entry.allowed_paths = [];
+    } else if (list && (m = line.match(/^ {4}- (\S+)$/)) && SCALAR.test(m[1])) {
       list.push(m[1]);
     } else {
       throw new Error(`${where}: not in the register's shape: ${JSON.stringify(line)}`);
@@ -2210,7 +2218,8 @@ function registerEntries(text) {
 function renameMapDisagreements(map, registerText) {
   const register = Object.fromEntries(
     registerEntries(registerText)
-      .filter((e) => e.kind === "variable")
+      // A variable removed with no replacement is not a rename doctor can name.
+      .filter((e) => e.kind === "variable" && e.replacement !== null)
       .map((e) => [e.old, e.replacement]),
   );
   const problems = [];
@@ -2282,14 +2291,49 @@ describe("doctor's rename map and the Deprecation register", () => {
     ]);
   });
 
+  it("reads a removed entry (replacement: null) and an empty allowed_paths", () => {
+    const text = [
+      "- kind: variable",
+      "  old: CLAUDE_GONE",
+      "  replacement: null",
+      "  release: 1.0.0-beta.8",
+      "  allowed_paths: []",
+      "",
+    ].join("\n");
+    assert.deepEqual(registerEntries(text), [
+      {
+        kind: "variable",
+        old: "CLAUDE_GONE",
+        replacement: null,
+        release: "1.0.0-beta.8",
+        allowed_paths: [],
+      },
+    ]);
+  });
+
+  it("a variable removed with no replacement is not one of doctor's renames", () => {
+    const text = readRepo(REGISTER) + entry("variable", "CLAUDE_GONE", "null");
+    assert.deepEqual(renameMapDisagreements(RENAMED_VARIABLES, text), []);
+    const map = { ...RENAMED_VARIABLES, CLAUDE_GONE: "CLAUDE_NEW_THING" };
+    assert.deepEqual(renameMapDisagreements(map, text), [
+      `RENAMED_VARIABLES renames CLAUDE_GONE, but ${REGISTER} does not`,
+    ]);
+  });
+
   it("a register line outside its shape fails rather than being misread", () => {
-    assert.throws(
-      () => registerEntries("- kind: variable\n  old: [A, B]\n"),
-      /docs\/deprecations\.yml:2: not in the register's shape/,
-    );
-    assert.throws(
-      () => registerEntries("- kind: variable\n  allowed_paths: []\n"),
-      /docs\/deprecations\.yml:2: not in the register's shape/,
-    );
+    for (const line of [
+      "  old: [A, B]",
+      "  allowed_paths: [a.md]",
+      "  replacement: ~",
+      "  replacement: Null",
+      '  replacement: "X"',
+      "  replacement:",
+    ]) {
+      assert.throws(
+        () => registerEntries(`- kind: variable\n${line}\n`),
+        /docs\/deprecations\.yml:2: not in the register's shape/,
+        line,
+      );
+    }
   });
 });

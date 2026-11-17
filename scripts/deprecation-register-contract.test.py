@@ -62,32 +62,70 @@ def stale_mentions(root: Path) -> list[str]:
         for e, pattern in entries:
             if allowed(rel, tuple(e["allowed_paths"])) or not pattern.search(text):
                 continue
+            entry = f"(entry `{e['kind']}: {e['old']}`)"
+            if e["replacement"] is None:
+                change, fix = f"removed in {e['release']} with no replacement {entry}", "Drop the mention"
+            else:
+                change, fix = f"renamed to {e['replacement']} in {e['release']} {entry}", f"Use {e['replacement']}"
             problems.append(
-                f"{rel}: names {e['old']}, which {REGISTER} records as a {e['kind']} "
-                f"renamed to {e['replacement']} in {e['release']} (entry `{e['kind']}: {e['old']}`). "
-                f"Use {e['replacement']}, or add {rel} to that entry's allowed_paths if it must keep the old name."
+                f"{rel}: names the {e['kind']} {e['old']}, which {REGISTER} records as {change}. "
+                f"{fix}, or add {rel} to that entry's allowed_paths if it must keep the old name."
             )
     return problems
 
 
-def test_register_entries_are_well_formed() -> None:
-    entries = load_register(ROOT)
-    assert isinstance(entries, list) and entries, f"{REGISTER}: must be a non-empty list of entries"
-    tracked = set(tracked_files(ROOT))
+def register_problems(entries: object, tracked: set[str]) -> list[str]:
+    """One message per entry that is not in the register's shape."""
+    if not isinstance(entries, list) or not entries:
+        return [f"{REGISTER}: must be a non-empty list of entries"]
+    problems = []
     seen = set()
     for e in entries:
-        where = f"{REGISTER}: entry {e.get('old')!r}"
-        assert set(e) == KEYS, f"{where}: keys must be exactly {sorted(KEYS)}, got {sorted(e)}"
-        assert e["kind"] in KINDS, f"{where}: kind must be one of {sorted(KINDS)}"
-        for key in ("old", "replacement", "release"):
-            assert isinstance(e[key], str) and e[key], f"{where}: {key} must be a non-empty string"
-        assert re.fullmatch(r"\d+\.\d+\.\d+(-[a-z]+\.\d+)?", e["release"]), f"{where}: release must be a version"
-        assert e["old"] != e["replacement"], f"{where}: replacement must differ from old"
-        assert e["old"] not in seen, f"{where}: recorded twice"
+        where = f"{REGISTER}: entry {e.get('old')!r}" if isinstance(e, dict) else f"{REGISTER}: entry {e!r}"
+        if not isinstance(e, dict) or set(e) != KEYS:
+            problems.append(f"{where}: keys must be exactly {sorted(KEYS)}")
+            continue
+        if e["kind"] not in KINDS:
+            problems.append(f"{where}: kind must be one of {sorted(KINDS)}")
+        for key in ("old", "release"):
+            if not isinstance(e[key], str) or not e[key]:
+                problems.append(f"{where}: {key} must be a non-empty string")
+        # null: removed with no successor. Otherwise the name to use instead.
+        r = e["replacement"]
+        if r is not None and (not isinstance(r, str) or not r or r == e["old"]):
+            problems.append(f"{where}: replacement must be null (removed) or a name other than old")
+        if not re.fullmatch(r"\d+\.\d+\.\d+(-[a-z]+\.\d+)?", str(e["release"])):
+            problems.append(f"{where}: release must be a version")
+        if e["old"] in seen:
+            problems.append(f"{where}: recorded twice")
         seen.add(e["old"])
-        assert isinstance(e["allowed_paths"], list), f"{where}: allowed_paths must be a list"
-        for p in e["allowed_paths"]:
-            assert any(covers(p, f) for f in tracked), f"{where}: allowed path {p} is not tracked"
+        if not isinstance(e["allowed_paths"], list):
+            problems.append(f"{where}: allowed_paths must be a list")
+            continue
+        problems += [
+            f"{where}: allowed path {p} is not tracked"
+            for p in e["allowed_paths"]
+            if not any(covers(p, f) for f in tracked)
+        ]
+    return problems
+
+
+def test_register_entries_are_well_formed() -> None:
+    problems = register_problems(load_register(ROOT), set(tracked_files(ROOT)))
+    assert not problems, "\n".join(problems)
+
+
+def test_a_removed_name_and_empty_allowed_paths_are_well_formed() -> None:
+    entries = yaml.safe_load(REMOVED_ENTRY)
+    assert register_problems(entries, set()) == []
+
+
+def test_a_replacement_equal_to_old_or_empty_is_not_well_formed() -> None:
+    for replacement in ("OLD_FIXTURE_NAME", "''"):
+        entries = yaml.safe_load(REMOVED_ENTRY.replace("replacement: null", f"replacement: {replacement}"))
+        assert register_problems(entries, set()) == [
+            f"{REGISTER}: entry 'OLD_FIXTURE_NAME': replacement must be null (removed) or a name other than old"
+        ], replacement
 
 
 def test_no_old_name_outside_history_and_its_allowed_paths() -> None:
@@ -95,10 +133,23 @@ def test_no_old_name_outside_history_and_its_allowed_paths() -> None:
     assert not problems, "\n".join(problems)
 
 
-def fixture_repo(tmp: Path) -> tuple[Path, dict]:
-    """A throwaway git repository holding the real register; returns it and the register's first entry."""
+# A name removed with no successor, allowed nowhere outside history.
+REMOVED_ENTRY = """\
+- kind: input
+  old: OLD_FIXTURE_NAME
+  replacement: null
+  release: 1.0.0-beta.8
+  allowed_paths: []
+"""
+
+
+def fixture_repo(tmp: Path, register: str | None = None) -> tuple[Path, dict]:
+    """A throwaway git repository holding the real register (or `register`); returns it and its first entry."""
     (tmp / "docs").mkdir()
-    shutil.copy(ROOT / REGISTER, tmp / REGISTER)
+    if register is None:
+        shutil.copy(ROOT / REGISTER, tmp / REGISTER)
+    else:
+        (tmp / REGISTER).write_text(register, encoding="utf-8")
     subprocess.run(["git", "init", "-q"], cwd=tmp, check=True)
     return tmp, load_register(tmp)[0]
 
@@ -119,6 +170,17 @@ def test_a_mention_outside_the_allowed_paths_fails_naming_the_file_and_entry() -
         assert problems[0].startswith("README.md: "), problems
         assert f"entry `{entry['kind']}: {entry['old']}`" in problems[0], problems
         assert entry["replacement"] in problems[0], problems
+
+
+def test_a_mention_of_a_removed_name_fails_saying_it_has_no_replacement() -> None:
+    with tempfile.TemporaryDirectory() as d:
+        root, entry = fixture_repo(Path(d), REMOVED_ENTRY)
+        add_files(root, {"README.md": "Set `OLD_FIXTURE_NAME`.\n", "CHANGELOG.md": "- Removed `OLD_FIXTURE_NAME`.\n"})
+        assert stale_mentions(root) == [
+            f"README.md: names the input OLD_FIXTURE_NAME, which {REGISTER} records as removed in 1.0.0-beta.8 "
+            "with no replacement (entry `input: OLD_FIXTURE_NAME`). Drop the mention, or add README.md to that "
+            "entry's allowed_paths if it must keep the old name."
+        ]
 
 
 def test_a_mention_inside_history_or_the_allowed_paths_passes() -> None:
@@ -143,4 +205,7 @@ if __name__ == "__main__":
     test_no_old_name_outside_history_and_its_allowed_paths()
     test_a_mention_outside_the_allowed_paths_fails_naming_the_file_and_entry()
     test_a_mention_inside_history_or_the_allowed_paths_passes()
+    test_a_removed_name_and_empty_allowed_paths_are_well_formed()
+    test_a_replacement_equal_to_old_or_empty_is_not_well_formed()
+    test_a_mention_of_a_removed_name_fails_saying_it_has_no_replacement()
     print("deprecation-register-contract tests passed")
