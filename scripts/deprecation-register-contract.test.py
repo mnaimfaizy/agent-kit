@@ -43,14 +43,32 @@ def allowed(rel: str, paths: tuple[str, ...]) -> bool:
     return any(covers(p, rel) for p in paths)
 
 
-def mentions(name: str) -> re.Pattern[str]:
-    # A whole name: A_B does not match inside A_B_C.
-    return re.compile(rf"(?<![A-Za-z0-9_]){re.escape(name)}(?![A-Za-z0-9_])")
+# The characters that continue a name of each kind, (before, after) it, so a
+# longer name is not a mention: A_B is not in A_B_C, needs-info is not in
+# needs-info-extra or agent:needs-info, plan is not in agent-plan-reusable.yml,
+# docs/a.md is not in my-docs/a.md or docs/a.md-x. A variable may follow a dot
+# (`vars.NAME`), and a path a slash (`../docs/a.md`).
+NAME_CHARS = {
+    "variable": ("A-Za-z0-9_", "A-Za-z0-9_"),
+    "input": ("A-Za-z0-9_-", "A-Za-z0-9_-"),
+    "label": ("A-Za-z0-9_:-", "A-Za-z0-9_:-"),
+    "command": ("A-Za-z0-9_-", "A-Za-z0-9_-"),
+    "path": ("A-Za-z0-9_.-", "A-Za-z0-9_/-"),
+}
+assert set(NAME_CHARS) == KINDS
+
+
+def mentions(kind: str, name: str) -> re.Pattern[str]:
+    # An unknown kind is reported by the shape check; scan it as a command meanwhile.
+    before, after = NAME_CHARS.get(kind, NAME_CHARS["command"])
+    # A dot then a name character continues it too (plan.md, a.md.bak); a dot
+    # that ends a sentence does not.
+    return re.compile(rf"(?<![{before}]){re.escape(name)}(?![{after}]|\.[A-Za-z0-9_])")
 
 
 def stale_mentions(root: Path) -> list[str]:
     """One message per tracked file that names an old name where its entry does not allow it."""
-    entries = [(e, mentions(e["old"])) for e in load_register(root)]
+    entries = [(e, mentions(e["kind"], e["old"])) for e in load_register(root)]
     problems = []
     for rel in tracked_files(root):
         if rel == REGISTER or allowed(rel, HISTORY):
@@ -200,6 +218,41 @@ def test_a_mention_inside_history_or_the_allowed_paths_passes() -> None:
         assert stale_mentions(root) == []
 
 
+# One old name per kind of boundary, each beside a longer live name.
+KINDS_ENTRIES = "".join(
+    f"- kind: {kind}\n  old: {old}\n  replacement: null\n  release: 1.0.0-beta.8\n  allowed_paths: []\n"
+    for kind, old in [
+        ("variable", "OLD_VAR"),
+        ("label", "needs-info"),
+        ("command", "plan"),
+        ("path", "docs/old.md"),
+    ]
+)
+
+
+def test_a_longer_name_of_any_kind_is_not_a_mention_of_the_old_one() -> None:
+    with tempfile.TemporaryDirectory() as d:
+        root, _ = fixture_repo(Path(d), KINDS_ENTRIES)
+        add_files(
+            root,
+            {
+                "live.md": (
+                    "`OLD_VAR_X`, `needs-info-extra`, `x-needs-info`, `needs-info:x`, "
+                    "agent-plan-reusable.yml, plan.md, `plan-x`, "
+                    "docs/old.md.bak, docs/old.mdx, docs/old.md-x, my-docs/old.md\n"
+                ),
+                "stale.md": "`vars.OLD_VAR`, `needs-info`. Run `plan`. Read [it](../docs/old.md).\n",
+            },
+        )
+        problems = stale_mentions(root)
+        assert [p.split(",")[0] for p in problems] == [
+            "stale.md: names the variable OLD_VAR",
+            "stale.md: names the label needs-info",
+            "stale.md: names the command plan",
+            "stale.md: names the path docs/old.md",
+        ], problems
+
+
 if __name__ == "__main__":
     test_register_entries_are_well_formed()
     test_no_old_name_outside_history_and_its_allowed_paths()
@@ -208,4 +261,5 @@ if __name__ == "__main__":
     test_a_removed_name_and_empty_allowed_paths_are_well_formed()
     test_a_replacement_equal_to_old_or_empty_is_not_well_formed()
     test_a_mention_of_a_removed_name_fails_saying_it_has_no_replacement()
+    test_a_longer_name_of_any_kind_is_not_a_mention_of_the_old_one()
     print("deprecation-register-contract tests passed")
