@@ -93,7 +93,7 @@ In an autonomous run, `rulings.md` is the run's Ruling Ledger: every Ruling, in 
 **Choice:** <option number>, because <reason>
 **Evidence:** <for each claim: `path:line` at a commit SHA, a file under `evidence/`, a tracker permalink, or a Ruling id>
 **Cites:** <earlier Rulings by id, or none>
-**Commits:** <each commit that followed from it, from the Delegation's verified report, or none yet>
+**Commits:** <each commit that followed from it, from the Delegation's verified report; or, where none exists, read from the branch (`git log <merge-base>..<head>`) and its Activity Log, each marked `(read from the branch, not reported)`; or none yet>
 **Verdict:** <unreviewed | upheld | overturned → option <k> | needs re-review>, <date, and the human's words when they gave one>
 ```
 

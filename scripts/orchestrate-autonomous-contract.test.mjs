@@ -171,6 +171,7 @@ describe("RUN.md", () => {
     for (const verdict of ["`unreviewed`", "`upheld`", "`overturned`", "`needs re-review`"])
       assert.ok(ledger.includes(verdict), `ledger verdict ${verdict}`);
     assert.match(ledger, /\*\*Cites:\*\*/);
+    assert.match(ledger, /^\*\*Commits:\*\* .*`\(read from the branch, not reported\)`/m);
   });
 
   it("prints the ledger on `--status`, and opens `--resume` with the Rulings awaiting review", () => {
