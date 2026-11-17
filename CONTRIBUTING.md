@@ -89,11 +89,11 @@ uv run python scripts/gen_doc_blocks.py
 To add a new kind of Doc fact, in the pull request that introduces the list:
 
 1. Write a renderer in [scripts/gen_doc_blocks.py](scripts/gen_doc_blocks.py) that returns the block's Markdown, and add it to `FACTS` under the fact's name (lowercase words and hyphens). Write output prettier leaves as it is.
-2. Read the source where it lives. A fact held in a JavaScript constant goes in [scripts/doc-facts.mjs](scripts/doc-facts.mjs), which imports the module and prints the constants as JSON (it can read a constant the module does not export); the renderer reads it from `sources.js`. Never parse JavaScript from Python.
+2. Read the source where it lives. A fact held in a JavaScript constant goes in [scripts/doc-facts.mjs](scripts/doc-facts.mjs), which imports the module and prints the constants as JSON (it can read a constant the module does not export; the module must do no work at import time); the renderer reads it from `sources.js`. A fact in another file, such as YAML, is read in Python: add a reader to `Sources`. Never parse JavaScript from Python.
 3. Put the empty markers where the list belongs, replacing any hand-written copy, and run the command above.
 4. Add a case to `generated-blocks-contract.test.py` that changes the source in a temporary copy and asserts the check fails, like the protected-paths case.
 
-The check also fails on an unknown fact name, a marker with no partner, and a fact in `FACTS` that no page holds.
+The check also fails, naming the page, on an unknown fact name, a mistyped marker, a marker with no partner or one block opened inside another, and on a fact in `FACTS` that no page holds. Running the generator does not fix those: correct the marker by hand.
 
 ## Action and dependency pins
 
@@ -158,7 +158,7 @@ The dogfood Review response refuses many of this repository's pull requests, by 
 
 <!-- /generated:review-response-protected-paths -->
 
-The list is generated from `PROTECTED_FILES`, `PROTECTED_DIRS_ANY_DEPTH`, `PROTECTED_ROOT_DIRS` and `KIT_OWNED_PATHS` in [review-response.mjs](.github/agent-review-response/review-response.mjs) ([how](#docs-that-are-generated-and-how-to-add-one)). The agent also cannot change `.github/workflows`, so it declines a finding that needs one. Rounds here mostly cover docs, `cli/`, `scripts/` and `examples/` pull requests; a refusal is not a bug. The round reads its trusted script, hooks and skill from `main`, so a change to them is exercised only after it merges.
+The list is generated from `PROTECTED_FILES`, `PROTECTED_DIRS_ANY_DEPTH`, `PROTECTED_ROOT_DIRS` and `KIT_OWNED_PATHS` in [review-response.mjs](.github/agent-review-response/review-response.mjs) ([how](#docs-that-are-generated-and-how-to-add-one)); `KIT_OWNED_PATHS` is kept equal to [kit-owned-paths.txt](kit-owned-paths.txt). The agent also cannot change `.github/workflows`, so it declines a finding that needs one. Rounds here mostly cover docs, `cli/`, `scripts/` and `examples/` pull requests; a refusal is not a bug. The round reads its trusted script, hooks and skill from `main`, so a change to them is exercised only after it merges.
 
 ## Branch protection
 

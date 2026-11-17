@@ -14,8 +14,13 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts"))
+
+from gen_doc_blocks import DOC_PAGES, DOC_TREES, FIX_COMMAND  # noqa: E402 - needs the sys.path entry above
+
 GENERATOR = ROOT / "scripts" / "gen_doc_blocks.py"
-FIX_COMMAND = "uv run python scripts/gen_doc_blocks.py"
+# Every Doc fact's source, copied with the docs so the copy can be regenerated.
+FACT_SOURCES = [".github/agent-review-response"]
 REVIEW_RESPONSE_SCRIPT = Path(".github/agent-review-response/review-response.mjs")
 PROTECTED_BLOCK = "review-response-protected-paths"
 
@@ -32,11 +37,11 @@ def check(root: Path) -> subprocess.CompletedProcess[str]:
 def copy_repo(dest: Path) -> Path:
     """The files the generator reads: the gated docs and each fact's source."""
     root = dest / "repo"
-    for path in ["README.md", "CONTRIBUTING.md", "GLOSSARY.md", "AGENTS.md", "cli/README.md"]:
+    for path in DOC_PAGES:
         if (ROOT / path).exists():
             (root / path).parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(ROOT / path, root / path)
-    for folder in ["docs", "examples", ".github/agent-review-response"]:
+    for folder in [*DOC_TREES, *FACT_SOURCES]:
         shutil.copytree(ROOT / folder, root / folder)
     return root
 
@@ -84,19 +89,28 @@ def test_a_new_protected_path_without_regenerating_fails() -> None:
         assert f"{page}: generated:{PROTECTED_BLOCK}" in result.stderr, result.stderr
 
 
-def test_an_unknown_or_unclosed_block_fails() -> None:
+def test_a_broken_marker_fails_and_names_it() -> None:
+    known = PROTECTED_BLOCK
+    cases = {
+        "an unknown fact": ("<!-- generated:no-such-fact -->\n\n<!-- /generated:no-such-fact -->", "no-such-fact"),
+        "no closing marker": (f"<!-- generated:{known} -->", "no closing"),
+        "a closing marker alone": (f"<!-- /generated:{known} -->", "no opening"),
+        "a second opening inside a block": (
+            f"<!-- generated:{known} -->\n<!-- generated:{known} -->\n<!-- /generated:{known} -->",
+            "inside another block",
+        ),
+        "a mistyped marker": (f"<!--generated: {known}-->", "not a well-formed marker"),
+    }
     with tempfile.TemporaryDirectory() as tmp:
         root = copy_repo(Path(tmp))
         page = root / "docs" / "getting-started.md"
         original = page.read_text(encoding="utf-8")
-        opening, closing = "<!-- generated:no-such-fact -->", "<!-- /generated:no-such-fact -->"
-        page.write_text(f"{original}\n{opening}\n\n{closing}\n", encoding="utf-8")
-        unknown = check(root)
-        page.write_text(f"{original}\n<!-- generated:{PROTECTED_BLOCK} -->\n", encoding="utf-8")
-        unclosed = check(root)
-
-    assert unknown.returncode == 1 and "no-such-fact" in unknown.stderr, unknown.stderr
-    assert unclosed.returncode == 1 and "no closing" in unclosed.stderr, unclosed.stderr
+        for name, (markers, expected) in cases.items():
+            page.write_text(f"{original}\n{markers}\n", encoding="utf-8")
+            result = check(root)
+            assert result.returncode == 1, f"{name}: --check passed:\n{result.stdout}"
+            assert "docs/getting-started.md" in result.stderr and expected in result.stderr, f"{name}:\n{result.stderr}"
+            assert FIX_COMMAND not in result.stderr, f"{name}: the fix command cannot fix a marker:\n{result.stderr}"
 
 
 if __name__ == "__main__":
@@ -104,5 +118,5 @@ if __name__ == "__main__":
     test_protected_paths_block_is_in_both_pages()
     test_check_names_a_stale_block_and_the_fix()
     test_a_new_protected_path_without_regenerating_fails()
-    test_an_unknown_or_unclosed_block_fails()
+    test_a_broken_marker_fails_and_names_it()
     print("generated-blocks-contract tests passed")

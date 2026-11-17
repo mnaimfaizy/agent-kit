@@ -14,17 +14,19 @@ running scripts/doc-facts.mjs, which prints them as JSON.
 Usage:
   uv run python scripts/gen_doc_blocks.py          # rewrite every block, then run prettier on the pages
   uv run python scripts/gen_doc_blocks.py --check  # exit 1, naming each stale block, if any is out of date
-  ... --root <dir>                                 # a repository other than this one (the tests use a copy)
+  ... --root <dir>   # a repository other than this one (the tests use a copy); the fact readers stay this one's
 """
 
 from __future__ import annotations
 
+import argparse
 import json
 import re
 import shutil
 import subprocess
 import sys
 from collections.abc import Callable
+from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
 
@@ -37,8 +39,9 @@ DOC_PAGES = ["README.md", "CONTRIBUTING.md", "GLOSSARY.md", "AGENTS.md", "cli/RE
 DOC_TREES = ["docs", "examples"]
 EXEMPT_TREES = ["docs/adr", "docs/research", "docs/agents"]
 
-OPEN = re.compile(r"<!-- generated:([a-z0-9-]+) -->")
-CLOSE = re.compile(r"<!-- /generated:([a-z0-9-]+) -->")
+MARKER = re.compile(r"<!-- (/?)generated:([a-z0-9-]+) -->")
+# Anything a marker was meant to be, so a mistyped one is reported, not skipped.
+LOOSE_MARKER = re.compile(r"<!--\s*/?\s*generated\s*:[^>]*-->", re.IGNORECASE)
 
 
 class Sources:
@@ -99,55 +102,74 @@ def doc_pages(root: Path) -> list[Path]:
     return pages
 
 
-def rewrite(text: str, label: str, sources: Sources) -> tuple[str, list[str], list[str]]:
-    """The page with every block rewritten, the facts it holds, and its problems."""
-    out, facts, problems, at = [], [], [], 0
-    for opening in OPEN.finditer(text):
-        if opening.start() < at:
+@dataclass
+class Block:
+    """One Generated block: its fact, and where its text sits between the markers."""
+
+    fact: str
+    start: int
+    end: int
+
+
+def parse(text: str, label: str) -> tuple[list[Block], list[str]]:
+    """The page's blocks, and each marker problem in it, by page."""
+    blocks, problems, opened = [], [], None
+    for marker in LOOSE_MARKER.finditer(text):
+        exact = MARKER.fullmatch(marker.group(0))
+        if not exact:
+            problems.append(
+                f"{label}: {marker.group(0)} is not a well-formed marker"
+                " (write <!-- generated:<fact> --> and <!-- /generated:<fact> -->)"
+            )
             continue
-        fact = opening.group(1)
-        closing = re.compile(rf"<!-- /generated:{re.escape(fact)} -->").search(text, opening.end())
-        if not closing:
-            problems.append(f"{label}: generated:{fact} has no closing <!-- /generated:{fact} --> marker")
-            continue
-        if fact not in FACTS:
-            problems.append(f"{label}: generated:{fact} is not a known fact ({', '.join(sorted(FACTS))})")
-            continue
-        facts.append(fact)
-        out += [text[at : opening.end()], "\n\n", FACTS[fact](sources).strip(), "\n\n"]
-        at = closing.start()
-    out.append(text[at:])
-    opened = [m.group(1) for m in OPEN.finditer(text)]
-    for closing in CLOSE.finditer(text):
-        if closing.group(1) not in opened:
-            problems.append(f"{label}: <!-- /generated:{closing.group(1)} --> has no opening marker")
-    return "".join(out), facts, problems
+        closing, fact = exact.group(1) == "/", exact.group(2)
+        if not closing and opened:
+            problems.append(f"{label}: generated:{fact} opens inside another block (generated:{opened[0]})")
+        elif not closing:
+            opened = (fact, marker.end())
+        elif not opened or opened[0] != fact:
+            problems.append(f"{label}: <!-- /generated:{fact} --> has no opening marker")
+        else:
+            if fact in FACTS:
+                blocks.append(Block(fact, opened[1], marker.start()))
+            else:
+                problems.append(f"{label}: generated:{fact} is not a known fact ({', '.join(sorted(FACTS))})")
+            opened = None
+    if opened:
+        problems.append(f"{label}: generated:{opened[0]} has no closing <!-- /generated:{opened[0]} --> marker")
+    return blocks, problems
 
 
 def run(root: Path, check: bool) -> int:
     sources = Sources(root)
-    problems, changed, seen = [], [], set()
+    problems, stale, changed, seen = [], [], [], set()
     for page in doc_pages(root):
         label = page.relative_to(root).as_posix()
         text = page.read_text(encoding="utf-8")
-        new, facts, page_problems = rewrite(text, label, sources)
+        blocks, page_problems = parse(text, label)
         problems += page_problems
-        seen.update(facts)
-        if page_problems or new == text:
+        seen.update(block.fact for block in blocks)
+        if page_problems:
+            continue
+        wanted = {block.fact: FACTS[block.fact](sources).strip() for block in blocks}
+        page_stale = [block for block in blocks if text[block.start : block.end].strip() != wanted[block.fact]]
+        if not page_stale:
             continue
         if check:
-            current, wanted = blocks(text), blocks(new)
-            for fact in facts:
-                if current.get(fact) != wanted.get(fact):
-                    problems.append(f"{label}: generated:{fact} is stale")
-        else:
-            page.write_text(new, encoding="utf-8", newline="\n")
-            changed.append(label)
+            stale += [f"{label}: generated:{block.fact} is stale" for block in page_stale]
+            continue
+        out, at = [], 0
+        for block in blocks:
+            out += [text[at : block.start], "\n\n", wanted[block.fact], "\n\n"]
+            at = block.end
+        page.write_text("".join(out) + text[at:], encoding="utf-8", newline="\n")
+        changed.append(label)
     for fact in sorted(set(FACTS) - seen):
         problems.append(f"generated:{fact} appears in no doc page; add its block where the fact is described")
-    if problems:
-        print("\n".join(problems), file=sys.stderr)
-        print(f"Run: {FIX_COMMAND}", file=sys.stderr)
+    if problems or stale:
+        print("\n".join(problems + stale), file=sys.stderr)
+        if stale:
+            print(f"Run: {FIX_COMMAND}", file=sys.stderr)
         return 1
     if check:
         print(f"Generated blocks are up to date ({', '.join(sorted(seen))})")
@@ -159,17 +181,6 @@ def run(root: Path, check: bool) -> int:
     return 0
 
 
-def blocks(text: str) -> dict[str, str]:
-    """Each block's text by fact, blank lines at its edges dropped. One fact's blocks in a page are joined."""
-    found: dict[str, str] = {}
-    for opening in OPEN.finditer(text):
-        fact = opening.group(1)
-        closing = re.compile(rf"<!-- /generated:{re.escape(fact)} -->").search(text, opening.end())
-        if closing:
-            found[fact] = found.get(fact, "") + text[opening.end() : closing.start()].strip() + "\n"
-    return found
-
-
 def prettier(root: Path, pages: list[str]) -> None:
     npx = shutil.which("npx")
     if not npx:
@@ -179,10 +190,11 @@ def prettier(root: Path, pages: list[str]) -> None:
 
 
 def main(argv: list[str]) -> int:
-    root = ROOT
-    if "--root" in argv:
-        root = Path(argv[argv.index("--root") + 1]).resolve()
-    return run(root, check="--check" in argv)
+    parser = argparse.ArgumentParser(description="Write every Generated block in the docs from its Doc fact's source.")
+    parser.add_argument("--check", action="store_true", help="exit 1, naming each stale block, instead of writing")
+    parser.add_argument("--root", type=Path, default=ROOT, help="the repository to read and write (default: this one)")
+    args = parser.parse_args(argv)
+    return run(args.root.resolve(), check=args.check)
 
 
 if __name__ == "__main__":

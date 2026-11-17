@@ -7,37 +7,43 @@
  *
  * Each fact imports the real module and reads its constants. A constant the
  * module does not export is read from a second import of the same file, under
- * a `?expose` URL that a module `load` hook ends with an `export { ... }` of
- * the missing names. The module itself is not changed, and once it exports a
- * name the hook is not needed for it.
+ * a `?expose=A,B` URL that a module `load` hook ends with `export { A, B };`.
+ * The module itself is not changed, and once it exports a name the hook is
+ * not needed for it. That second import runs the module again, so a fact's
+ * module must do no work at import time beyond defining things (a `main`
+ * behind an `import.meta.url` guard, as review-response.mjs has, is fine).
  */
-import { registerHooks } from "node:module";
+import * as nodeModule from "node:module";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const root = resolve(process.argv[2] ?? ".");
 
+// One hook for every fact: a module imported under `?expose=A,B` ends with
+// `export { A, B };`. Any other import passes through untouched.
+if (typeof nodeModule.registerHooks !== "function") {
+  throw new Error(
+    `scripts/doc-facts.mjs needs Node 22.15 or later (module.registerHooks); this is ${process.version}`,
+  );
+}
+nodeModule.registerHooks({
+  load(url, context, next) {
+    const result = next(url, context);
+    const names = url.startsWith("file:") ? new URL(url).searchParams.get("expose") : null;
+    return names ? { ...result, source: `${result.source}\nexport { ${names} };\n` } : result;
+  },
+});
+
 async function constants(relativePath, names) {
   const url = pathToFileURL(resolve(root, relativePath)).href;
   const module = await import(url);
   const missing = names.filter((name) => !(name in module));
-  if (missing.length === 0) return pick(module, names);
-  const exposed = `${url}?expose`;
-  const tail = `\nexport { ${missing.join(", ")} };\n`;
-  registerHooks({
-    load(requested, context, next) {
-      const result = next(requested, context);
-      return requested === exposed ? { ...result, source: String(result.source) + tail } : result;
-    },
-  });
-  return pick({ ...module, ...(await import(exposed)) }, names);
-}
-
-function pick(module, names) {
+  const exposed = missing.length ? await import(`${url}?expose=${missing.join(",")}`) : {};
   return Object.fromEntries(
     names.map((name) => {
-      if (!(name in module)) throw new Error(`${name} is not defined`);
-      return [name, [...module[name]]];
+      const value = name in module ? module[name] : exposed[name];
+      if (value === undefined) throw new Error(`${relativePath} defines no ${name}`);
+      return [name, value instanceof Set ? [...value] : value];
     }),
   );
 }
