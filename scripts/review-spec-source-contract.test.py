@@ -9,6 +9,7 @@ import json
 import os
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 import yaml
@@ -55,9 +56,20 @@ SECRET = "SPEC-SECRET-91c2"
 
 
 def bash() -> str:
+    # The bash on PATH. Not a bare "bash": on Windows, subprocess finds
+    # System32's (WSL) before Git bash.
     path = shutil.which("bash")
     assert path, "bash is required to run step scripts"
     return path
+
+
+def run_bash(script: str, **kwargs) -> subprocess.CompletedProcess:
+    # From a file, not `bash -c`: Git-for-Windows bash cuts a `-c` argument
+    # near 8,190 characters.
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "step.sh"
+        path.write_text(script, encoding="utf-8", newline="\n")
+        return subprocess.run([bash(), path.as_posix()], **kwargs)
 
 
 def comment(login: str, body: str) -> dict:
@@ -128,9 +140,7 @@ def run_brief(
         "SKILL_PATH": str(skill),
         "OPEN_THREADS": str(open_threads),
     }
-    result = subprocess.run(
-        [bash(), "-c", step(BRIEF_STEP)["run"]], env=env, cwd=repo, capture_output=True, text=True, check=False
-    )
+    result = run_bash(step(BRIEF_STEP)["run"], env=env, cwd=repo, capture_output=True, text=True, check=False)
     brief_file = repo / "review-brief.md"
     brief = brief_file.read_text(encoding="utf-8") if brief_file.exists() else ""
     return result, brief

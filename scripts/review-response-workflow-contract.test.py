@@ -24,6 +24,7 @@ The script itself is covered by review-response-contract.test.mjs.
 
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -103,6 +104,23 @@ def run_steps(data: dict) -> list[tuple[str, dict]]:
 def code(text: str) -> str:
     """A run block without its comment lines."""
     return "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
+
+
+def bash() -> str:
+    # The bash on PATH. Not a bare "bash": on Windows, subprocess finds
+    # System32's (WSL) before Git bash.
+    path = shutil.which("bash")
+    assert path, "bash is required to run step scripts"
+    return path
+
+
+def run_bash(script: str, **kwargs) -> subprocess.CompletedProcess:
+    # From a file, not `bash -c`: Git-for-Windows bash cuts a `-c` argument
+    # near 8,190 characters.
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "step.sh"
+        path.write_text(script, encoding="utf-8", newline="\n")
+        return subprocess.run([bash(), path.as_posix()], **kwargs)
 
 
 def test_the_caller_contract() -> None:
@@ -292,8 +310,8 @@ def test_the_steering_check_passes_on_its_own_environment() -> None:
 
     def run(extra: dict) -> subprocess.CompletedProcess:
         env = {**base, **{name: "x" for name in given}, **extra}
-        return subprocess.run(
-            ["bash", "-c", "set -euo pipefail\n" + block.group(0)],
+        return run_bash(
+            "set -euo pipefail\n" + block.group(0),
             env=env,
             capture_output=True,
             text=True,
@@ -320,12 +338,12 @@ def test_a_staged_script_ends_by_naming_what_failed() -> None:
 
     def staged(name: str, body: str) -> subprocess.CompletedProcess:
         with tempfile.TemporaryDirectory() as tmp:
-            subprocess.run(
-                ["bash", "-c", f'set -euo pipefail\n{found.group(0)}\nstage_script {name} "$BODY"'],
+            run_bash(
+                f'set -euo pipefail\n{found.group(0)}\nstage_script {name} "$BODY"',
                 env={"PATH": os.environ["PATH"], "STAGED": tmp, "BODY": body},
                 check=True,
             )
-            return subprocess.run(["bash", f"{tmp}/{name}.sh"], capture_output=True, text=True, check=False, cwd=tmp)
+            return subprocess.run([bash(), f"{tmp}/{name}.sh"], capture_output=True, text=True, check=False, cwd=tmp)
 
     def last(result: subprocess.CompletedProcess) -> str:
         return result.stdout.strip().splitlines()[-1]

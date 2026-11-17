@@ -204,6 +204,23 @@ PR = "7"
 THREAD = "https://github.com/o/r/pull/7#discussion_r"
 
 
+def bash() -> str:
+    # The bash on PATH. Not a bare "bash": on Windows, subprocess finds
+    # System32's (WSL) before Git bash.
+    path = shutil.which("bash")
+    assert path, "bash is required to run step scripts"
+    return path
+
+
+def run_bash(script: str, **kwargs) -> subprocess.CompletedProcess:
+    # From a file, not `bash -c`: Git-for-Windows bash cuts a `-c` argument
+    # near 8,190 characters.
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "step.sh"
+        path.write_text(script, encoding="utf-8", newline="\n")
+        return subprocess.run([bash(), path.as_posix()], **kwargs)
+
+
 def tracking_comment(standards: str) -> dict:
     body = "\n".join(
         [
@@ -246,7 +263,9 @@ def run_report_step(standards: str) -> subprocess.CompletedProcess:
             **os.environ,
             "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
             "FIXTURES": str(fixtures),
-            "RUNNER_TEMP": str(tmp_path / "runner"),
+            # Forward slashes: GNU sha256sum escapes a name with a backslash
+            # (a Windows path), which breaks the step's hash check.
+            "RUNNER_TEMP": (tmp_path / "runner").as_posix(),
             "GITHUB_RUN_ID": RUN_ID,
             "GITHUB_REPOSITORY": "o/r",
             "GITHUB_SERVER_URL": "https://github.com",
@@ -254,9 +273,7 @@ def run_report_step(standards: str) -> subprocess.CompletedProcess:
             "PR": PR,
             "SCRIPT_SHA256": hashlib.sha256(SCRIPT.read_bytes()).hexdigest(),
         }
-        return subprocess.run(
-            ["bash", "-c", step(REPORT_STEP)["run"]], env=env, capture_output=True, text=True, check=False
-        )
+        return run_bash(step(REPORT_STEP)["run"], env=env, capture_output=True, text=True, check=False)
 
 
 def test_the_report_step_passes_when_every_entry_links_its_thread() -> None:
