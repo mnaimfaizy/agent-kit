@@ -33,7 +33,7 @@ Nothing in a run folder is committed. A brief or a log can quote issue text and 
 
 Started <date>. Plan approved <date>. Approved routine writes: <list, or none>. Decision authority: <relay, or autonomous>.
 
-Heartbeat: <id, interval, made <time>; or none yet, deleted <time>, or none on tier 3>.
+Heartbeat: <id, interval, made <time>; `foreground watch`, where the harness has no scheduler; or none yet, deleted <time>, or none on tier 3>.
 
 Spec #<n>, <shape>. Landing: <landing>. Integration branch: <name> at <SHA>, pushed: <no, or why>.
 

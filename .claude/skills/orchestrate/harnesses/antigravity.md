@@ -13,7 +13,7 @@
 
 - `spawn`, for building: ask for a sub-agent (`invoke_subagent`) with workspace `branch`, so it gets a worktree of its own, and a brief whose first step is `git switch -c <branch>`. Straight after `spawn`, check that its working directory is not the Chief of Staff's checkout. The handle is its name and conversation id.
 - `message`: send to the sub-agent by id; that wakes it if idle, and interrupts it if running.
-- `await`: end the turn on its result message; if that does not wake the Chief of Staff, a `/schedule` timer keyed on the sub-agent's id.
+- `await`: the sub-agent's result message. The heartbeat is the foreground watch ([HARNESSES.md](../HARNESSES.md#waiting-an-event-and-a-heartbeat)): while a Delegation runs, the Chief of Staff does not end its turn, and the result message is one more change the watch sees. A `/schedule` timer keyed on the sub-agent's id may replace the watch once a run shows that it fires in an idle Chief of Staff and re-arms itself (check before use).
 - `report`: the absolute path, which needs a `write_file(<run folder>)` allow rule; else the result message.
 - Analysis: the `research` sub-agent, which is read-only, or `self` with workspace `branch` for anything that runs code.
 - A QA Delegation: `agy -p "<brief>" --model <model> --output-format json --add-dir <run folder>` in the worktree, then `agy -p "/qa-plan <n>" --conversation <id>`, and later `/manual-qa <plan file>`; print mode expands skill commands. Else a session the human starts in that worktree.
@@ -32,6 +32,7 @@
 
 - Where a sub-agent's worktree is made, and what its branch is named.
 - Whether a sub-agent's result wakes an idle Chief of Staff.
+- Whether a `/schedule` timer fires in an idle Chief of Staff and re-arms itself, so that it can be the heartbeat in place of the foreground watch.
 - Whether `invoke_subagent` takes an exact model id.
 - Whether Antigravity honours `disable-model-invocation`, and whether it reads `.claude/skills` at all.
 - Whether the human can type into a running sub-agent, which would make it a tier 1 harness.

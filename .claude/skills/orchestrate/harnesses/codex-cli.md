@@ -13,7 +13,7 @@
 
 - `spawn`: `codex exec -C <worktree> -m <model> --json --add-dir <run folder> "<brief>"` in the background, with stdout to `delegations/<id>/output.jsonl`. The handle is the `thread_id` in its `thread.started` event, with the process id.
 - `message`: `codex exec resume <thread_id> "<text>"` from inside the worktree, once the run has ended.
-- `await`: the process's end.
+- `await`: the process's end. The heartbeat is the foreground watch ([HARNESSES.md](../HARNESSES.md#waiting-an-event-and-a-heartbeat)): while a Delegation runs, the Chief of Staff does not end its turn, and the process's end is one more change the watch sees.
 - `report`: the report file, which `--add-dir` makes writable.
 - Analysis: a sub-agent (`spawn_agent`); `send_input` reaches it running or ended, and its end is announced. It shares the Chief of Staff's checkout.
 - A QA Delegation: a headless run, with `$qa-plan <n>` and later `$manual-qa <plan file>` sent by `resume`, and a browser through an MCP server. Else a session the human starts: a Codex desktop-app chat in that worktree, which has a browser.
