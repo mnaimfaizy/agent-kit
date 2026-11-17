@@ -70,7 +70,7 @@ The tests are contracts, not unit tests: they pin behavior a Consumer depends on
 
 ## Docs that are generated, and how to add one
 
-A list or table in the docs that has one source in code (a **Doc fact**, such as the Review response protected paths) is a **Generated block** ([ADR 0010](docs/adr/0010-doc-facts-are-generated-and-renames-are-registered.md)). It sits inside the page that explains it, between two markers that name the fact, and the prose around it stays hand-written:
+A list or table in the docs that has one source in code (a **Doc fact**, such as the Review response protected paths, the Trigger labels `init` prints, or each Stage's variables in the example Callers) is a **Generated block** ([ADR 0010](docs/adr/0010-doc-facts-are-generated-and-renames-are-registered.md)). It sits inside the page that explains it, between two markers that name the fact, and the prose around it stays hand-written:
 
 ```markdown
 <!-- generated:<fact> -->
@@ -91,9 +91,9 @@ uv run python scripts/gen_doc_blocks.py
 To add a new kind of Doc fact, in the pull request that introduces the list:
 
 1. Write a renderer in [scripts/gen_doc_blocks.py](scripts/gen_doc_blocks.py) that returns the block's Markdown, and add it to `FACTS` under the fact's name (lowercase words and hyphens). Write output prettier leaves as it is.
-2. Read the source where it lives. A fact held in a JavaScript constant goes in [scripts/doc-facts.mjs](scripts/doc-facts.mjs), which imports the module and prints the constants as JSON (it can read a constant the module does not export; the module must do no work at import time); the renderer reads it from `sources.js`. A fact in another file, such as YAML, is read in Python: add a reader to `Sources`. Never parse JavaScript from Python.
+2. Read the source where it lives. A fact held in a JavaScript constant goes in [scripts/doc-facts.mjs](scripts/doc-facts.mjs), which imports the module and prints the constants as JSON (it can read a constant the module does not export; the module must do no work at import time beyond defining things and reading its own files, as `cli/src/tags.mjs` reads `cli/package.json`); the renderer reads it from `sources.js`. A fact in another file, such as YAML, is read in Python: add a reader to `Sources`, as `Sources.stages` reads the example Callers. Never parse JavaScript from Python.
 3. Put the empty markers where the list belongs, replacing any hand-written copy, and run the command above.
-4. Add a case to `generated-blocks-contract.test.py` that changes the source in a temporary copy and asserts the check fails, like the protected-paths case.
+4. Add a case to `generated-blocks-contract.test.py` that changes the source in a temporary copy and asserts the check fails, like the protected-paths case. Add the source to the test's `FACT_SOURCES`, with any file it reads when it loads, so the copy holds it.
 
 The check also fails, naming the page, on an unknown fact name, a mistyped marker, a marker with no partner or one block opened inside another, and on a fact in `FACTS` that no page holds. Running the generator does not fix those, and it writes no page until they are gone: correct the marker by hand.
 
