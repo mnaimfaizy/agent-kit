@@ -2,7 +2,8 @@ name: Dogfood agent pipeline
 
 # Agent-kit running plan → implement → review on its own issues and PRs, from
 # this commit (local ref). Off until the repository variable
-# CLAUDE_PIPELINE_ENABLED is "true" and CLAUDE_CODE_OAUTH_TOKEN exists.
+# CLAUDE_AGENT_FLOW_ENABLED is "true" and CLAUDE_CODE_OAUTH_TOKEN exists. A Stage
+# switch (CLAUDE_PLAN_ENABLED, _IMPLEMENT_, _REVIEW_) set to "false" turns one off.
 # Setup: CONTRIBUTING.md → "Dogfood flows".
 
 on:
@@ -22,8 +23,9 @@ jobs:
     if: ${{ github.event_name == 'issues' && github.event.label.name == 'agent:plan' }}
     uses: ./.github/workflows/agent-plan-reusable.yml
     with:
-      kill_switch: ${{ vars.CLAUDE_PIPELINE_ENABLED != 'true' }}
-      model: ${{ vars.CLAUDE_MODEL_PLAN || vars.CLAUDE_MODEL || 'claude-opus-5' }}
+      kill_switch: ${{ vars.CLAUDE_AGENT_FLOW_ENABLED != 'true' || vars.CLAUDE_PLAN_ENABLED == 'false' }}
+      model: ${{ vars.CLAUDE_PLAN_MODEL || vars.CLAUDE_MODEL || 'claude-opus-5-5' }}
+      effort: ${{ vars.CLAUDE_PLAN_EFFORT || vars.CLAUDE_EFFORT || '' }}
       allowlist_actors: '["mnaimfaizy"]'
       trigger_label: "agent:plan"
       issue_number: ${{ format('{0}', github.event.issue.number) }}
@@ -34,8 +36,9 @@ jobs:
     if: ${{ github.event_name == 'issues' && github.event.label.name == 'agent:implement' }}
     uses: ./.github/workflows/agent-implement-reusable.yml
     with:
-      kill_switch: ${{ vars.CLAUDE_PIPELINE_ENABLED != 'true' }}
-      model: ${{ vars.CLAUDE_MODEL_IMPLEMENT || vars.CLAUDE_MODEL || 'claude-opus-5' }}
+      kill_switch: ${{ vars.CLAUDE_AGENT_FLOW_ENABLED != 'true' || vars.CLAUDE_IMPLEMENT_ENABLED == 'false' }}
+      model: ${{ vars.CLAUDE_IMPLEMENT_MODEL || vars.CLAUDE_MODEL || 'claude-opus-5-5' }}
+      effort: ${{ vars.CLAUDE_IMPLEMENT_EFFORT || vars.CLAUDE_EFFORT || '' }}
       allowlist_actors: '["mnaimfaizy"]'
       trigger_label: "agent:implement"
       issue_number: ${{ format('{0}', github.event.issue.number) }}
@@ -66,8 +69,9 @@ jobs:
       actions: write
     uses: ./.github/workflows/agent-review-reusable.yml
     with:
-      kill_switch: ${{ vars.CLAUDE_PIPELINE_ENABLED != 'true' }}
-      model: ${{ vars.CLAUDE_MODEL_REVIEW || vars.CLAUDE_MODEL || 'claude-opus-5' }}
+      kill_switch: ${{ vars.CLAUDE_AGENT_FLOW_ENABLED != 'true' || vars.CLAUDE_REVIEW_ENABLED == 'false' }}
+      model: ${{ vars.CLAUDE_REVIEW_MODEL || vars.CLAUDE_MODEL || 'claude-opus-5-5' }}
+      effort: ${{ vars.CLAUDE_REVIEW_EFFORT || vars.CLAUDE_EFFORT || '' }}
       allowlist_actors: '["mnaimfaizy"]'
       # Without a Verified plan, grade Spec against a maintainer brief: an issue
       # comment that starts with <!-- agent-kit-brief --> by a listed login.

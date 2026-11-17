@@ -457,7 +457,7 @@ export function manualSteps({ flows, tag, kitRepo, serverUrl }) {
   step(
     "Last, after you have reviewed and pushed the Callers, turn the flows on (Kill switch variables):",
     ...(pipeline
-      ? [command("gh", "variable", "set", "CLAUDE_PIPELINE_ENABLED", "--body", "true")]
+      ? [command("gh", "variable", "set", "CLAUDE_AGENT_FLOW_ENABLED", "--body", "true")]
       : []),
     ...(audit
       ? [command("gh", "variable", "set", "CLAUDE_SECURITY_AUDIT_ENABLED", "--body", "true")]

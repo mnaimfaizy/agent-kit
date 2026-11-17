@@ -218,6 +218,21 @@ export function checkSecrets({ github, repo, ownerType, requirements }) {
   );
 }
 
+/**
+ * Variables ADR 0009 renamed, old name to new. The Callers have no fallback to
+ * an old name, so one still set does nothing once the Caller reads the new one.
+ */
+export const RENAMED_VARIABLES = {
+  CLAUDE_PIPELINE_ENABLED: "CLAUDE_AGENT_FLOW_ENABLED",
+  CLAUDE_MODEL_PLAN: "CLAUDE_PLAN_MODEL",
+  CLAUDE_MODEL_IMPLEMENT: "CLAUDE_IMPLEMENT_MODEL",
+  CLAUDE_MODEL_REVIEW: "CLAUDE_REVIEW_MODEL",
+  CLAUDE_MODEL_REVIEW_RESPONSE: "CLAUDE_REVIEW_RESPONSE_MODEL",
+  CLAUDE_MODEL_AUDIT: "CLAUDE_SECURITY_AUDIT_MODEL",
+};
+
+const killSwitch = (name) => /_ENABLED$/.test(name);
+
 export function checkVariables({ github, repo, ownerType, requirements }) {
   const ID = "variables";
   const TITLE = "Repository variables the Callers read are set";
@@ -227,26 +242,56 @@ export function checkVariables({ github, repo, ownerType, requirements }) {
   } catch (err) {
     return result(ID, TITLE, "skip", `Could not list repository variables: ${err.message}`);
   }
+  const isSet = (name) => listed.names.has(name.toUpperCase());
   const required = requirements.variables.filter((v) => !v.optional && !isProvided(v.name));
-  const missing = required.filter((v) => !listed.names.has(v.name.toUpperCase()));
-  if (missing.length === 0) {
+  const missing = required.filter((v) => !isSet(v.name));
+  // An old name still set while a Caller reads its replacement: the value is ignored.
+  const read = new Map(requirements.variables.map((v) => [v.name.toUpperCase(), v]));
+  const renamed = Object.entries(RENAMED_VARIABLES)
+    .filter(([oldName, newName]) => isSet(oldName) && read.has(newName))
+    .map(([oldName, newName]) => ({ oldName, newName, v: read.get(newName) }));
+  if (missing.length === 0 && renamed.length === 0) {
     return result(ID, TITLE, "pass", `All ${required.length} required variable(s) are set.`);
   }
-  const killSwitch = (name) => /_ENABLED$/.test(name);
-  const details = missing.map(
-    (v) =>
-      `not set: ${v.name} (${v.where.join(", ")})` +
-      (killSwitch(v.name) ? " — the Kill switch: the flow never runs until it is set to true" : ""),
-  );
-  if (listed.orgNote) details.push(listed.orgNote);
+  const details = [
+    ...missing.map(
+      (v) =>
+        `not set: ${v.name} (${v.where.join(", ")})` +
+        (killSwitch(v.name)
+          ? " — the Kill switch: the flow never runs until it is set to true"
+          : ""),
+    ),
+    ...renamed.map(
+      ({ oldName, newName, v }) =>
+        `renamed: ${oldName} is still set, but the Callers read ${newName} (${v.where.join(", ")}). ` +
+        `${oldName} is ignored: ` +
+        (isSet(newName)
+          ? `${newName} is set too, so delete ${oldName}.`
+          : `set ${newName} to its value, then delete ${oldName}.`),
+    ),
+  ];
+  if (listed.orgNote && missing.length) details.push(listed.orgNote);
   // The Kill switch takes true; for anything else, gh prompts for the value.
+  const toSet = [
+    ...missing.map((v) => v.name),
+    ...renamed.filter((r) => !isSet(r.newName)).map((r) => r.newName),
+  ].filter((name, i, all) => all.indexOf(name) === i);
   const { fix, notes } = splitFixes(
-    missing.map((v) =>
-      setCommand("variable", v.name, repo, killSwitch(v.name) ? ["--body", "true"] : []),
+    toSet.map((name) =>
+      setCommand("variable", name, repo, killSwitch(name) ? ["--body", "true"] : []),
     ),
   );
-  return result(ID, TITLE, "fail", `${missing.length} required variable(s) missing.`, {
-    details: [...details, ...notes],
-    fix,
-  });
+  if (missing.length) {
+    return result(ID, TITLE, "fail", `${missing.length} required variable(s) missing.`, {
+      details: [...details, ...notes],
+      fix,
+    });
+  }
+  return result(
+    ID,
+    TITLE,
+    "warn",
+    `${renamed.length} renamed variable(s) still set under the old name.`,
+    { details: [...details, ...notes], fix },
+  );
 }

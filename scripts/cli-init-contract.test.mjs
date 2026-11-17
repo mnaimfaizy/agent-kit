@@ -243,7 +243,7 @@ describe("init: both flows from flags", () => {
       "$ gh secret set AGENT_KIT_ADVISORIES_TOKEN",
       "$ gh label create agent:plan --color 1D76DB --description 'Agent-kit: plan this issue'",
       "$ gh api 'repos/{owner}/{repo}/rulesets'",
-      "$ gh variable set CLAUDE_PIPELINE_ENABLED --body true",
+      "$ gh variable set CLAUDE_AGENT_FLOW_ENABLED --body true",
       "$ gh variable set CLAUDE_SECURITY_AUDIT_ENABLED --body true",
     ]) {
       assert.ok(res.text.includes(line), line);
@@ -307,7 +307,7 @@ describe("init: choices", () => {
     assert.ok(existsSync(join(dir, "docs/security/findings-ledger.md")));
     assert.equal(existsSync(join(dir, ".security")), false);
     assert.equal(existsSync(join(dir, ".github/workflows/agent-pipeline.yml")), false);
-    assert.doesNotMatch(res.text, /gh label create|CLAUDE_PIPELINE_ENABLED/);
+    assert.doesNotMatch(res.text, /gh label create|CLAUDE_AGENT_FLOW_ENABLED/);
   });
 
   it("--preset none leaves the commented setup_commands block", async () => {
@@ -631,7 +631,7 @@ describe("init: the review-response flow", () => {
     assert.match(res.text, /blob\/v1\.0\.0-alpha\.13\/docs\/review-response\.md#auto-mode/);
     assert.doesNotMatch(
       res.text,
-      /agent:plan|CLAUDE_PIPELINE_ENABLED|AGENT_KIT_ADVISORIES_TOKEN|apps\/claude/,
+      /agent:plan|CLAUDE_AGENT_FLOW_ENABLED|AGENT_KIT_ADVISORIES_TOKEN|apps\/claude/,
     );
   });
 

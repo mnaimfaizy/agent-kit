@@ -35,13 +35,13 @@ Run by a person, guidance counts only from thread replies by `OWNER`, `MEMBER` o
 | Trusted script     | `.github/agent-review-response/review-response.mjs` (Kit-owned)                                                                                                                        |
 | Skill              | `.claude/skills/address-pr-review/` (Kit-owned)                                                                                                                                        |
 | Trigger label      | `agent:address-review` on a pull request (`trigger_label`), consumed by the gate                                                                                                       |
-| Kill switch        | `CLAUDE_REVIEW_RESPONSE_ENABLED`: the flow runs only when it is `true`                                                                                                                 |
+| Kill switch        | `CLAUDE_REVIEW_RESPONSE_ENABLED`: the flow runs only when it is `true`, whatever the Agent flow's switch says                                                                          |
 | Mode               | `CLAUDE_REVIEW_RESPONSE_MODE`: exactly `auto` turns on [auto mode](#auto-mode); anything else, or unset, is manual                                                                     |
-| Model              | `CLAUDE_MODEL_REVIEW_RESPONSE`, then `CLAUDE_MODEL`, then `claude-opus-5`                                                                                                              |
+| Model and effort   | `CLAUDE_REVIEW_RESPONSE_MODEL`, then `CLAUDE_MODEL`, then `claude-opus-5-5`; `CLAUDE_REVIEW_RESPONSE_EFFORT`, then `CLAUDE_EFFORT`, then none                                          |
 | Secret             | `CLAUDE_CODE_OAUTH_TOKEN`, from `claude setup-token`. GitHub access is the job token throughout: no Claude GitHub App, no personal access token.                                       |
 | Caller permissions | `contents: write`, `pull-requests: write`, `actions: write`. Only the publish job holds all three (the gate holds `pull-requests: write`); the job that runs the agent gets read-only. |
 
-The Caller owns its toolchain and checks, the same way the implement Caller does: `setup_commands` (copy a [setup preset](../examples/setup-presets/)) runs before the agent, and `verify_commands` are the checks the agent runs before each fix commit, its only build command. Both are code the job runs: never build them from issue or pull request text. The other inputs are `allowlist_actors`, `reviewer_logins`, `extra_protected_paths`, `ci_workflow` and `model`; [reference.md](reference.md#review-response) has each one.
+The Caller owns its toolchain and checks, the same way the implement Caller does: `setup_commands` (copy a [setup preset](../examples/setup-presets/)) runs before the agent, and `verify_commands` are the checks the agent runs before each fix commit, its only build command. Both are code the job runs: never build them from issue or pull request text. The other inputs are `allowlist_actors`, `reviewer_logins`, `extra_protected_paths`, `ci_workflow`, `model` and `effort`; [reference.md](reference.md#review-response) has each one.
 
 ### What a round does
 

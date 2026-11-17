@@ -6,6 +6,24 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** each Stage gets its own model, effort and Kill switch, all named `CLAUDE_<STAGE>_<SETTING>` ([#246](https://github.com/mnaimfaizy/agent-kit/issues/246), [ADR 0009](docs/adr/0009-stage-settings-resolve-in-the-caller.md)). The Stage tokens are `PLAN`, `IMPLEMENT`, `REVIEW`, `REVIEW_RESPONSE` and `SECURITY_AUDIT`. A model resolves as the Stage's variable, then `CLAUDE_MODEL`, then `claude-opus-5-5`; effort as the Stage's variable, then `CLAUDE_EFFORT`, then nothing, which leaves `--effort` off. The Agent flow's master switch is now `CLAUDE_AGENT_FLOW_ENABLED` (must be exactly `true`), and each of its Stages also has a switch, `CLAUDE_PLAN_ENABLED`, `CLAUDE_IMPLEMENT_ENABLED` and `CLAUDE_REVIEW_ENABLED`, that only `false` turns off. `CLAUDE_SECURITY_AUDIT_ENABLED` and `CLAUDE_REVIEW_RESPONSE_ENABLED` are unchanged, and Review response is not under the master switch. The old names are dropped, with no fallback:
+
+  | Old                            | New                            |
+  | ------------------------------ | ------------------------------ |
+  | `CLAUDE_PIPELINE_ENABLED`      | `CLAUDE_AGENT_FLOW_ENABLED`    |
+  | `CLAUDE_MODEL_PLAN`            | `CLAUDE_PLAN_MODEL`            |
+  | `CLAUDE_MODEL_IMPLEMENT`       | `CLAUDE_IMPLEMENT_MODEL`       |
+  | `CLAUDE_MODEL_REVIEW`          | `CLAUDE_REVIEW_MODEL`          |
+  | `CLAUDE_MODEL_REVIEW_RESPONSE` | `CLAUDE_REVIEW_RESPONSE_MODEL` |
+  | `CLAUDE_MODEL_AUDIT`           | `CLAUDE_SECURITY_AUDIT_MODEL`  |
+
+  Until `CLAUDE_AGENT_FLOW_ENABLED` is set, the Agent flow stays off.
+
+- All five reusable workflows take a new `effort` input (default `""`, which passes no `--effort`), and the `model` input defaults to `claude-opus-5-5`. A new first step, **Check model and effort inputs**, fails the run before the agent starts when `effort` is anything but `low`, `medium`, `high`, `xhigh` or `max`, or `model` is not a plain model id, since both are pasted into `claude_args`. The error names the input.
+- `agent-kit init` prints `CLAUDE_AGENT_FLOW_ENABLED` for the Agent flow's Kill switch. `agent-kit doctor` treats a Stage switch as optional, and warns about each renamed variable still set while the Callers read its replacement, naming the replacement.
+
 ## [1.0.0-beta.7] - 2026-11-17
 
 Seventh beta on the `1.0.0` line, classed **Major** (per [docs/releases.md](docs/releases.md)), for one required new permission: every review Caller's job (the one that `uses:` `agent-review-reusable.yml`) must now grant `actions: write`, even in manual mode, or the review stops running (the **Consumer action** in the auto mode entry below, from [#130](https://github.com/mnaimfaizy/agent-kit/issues/130)). The rest is additive: a third First-class flow, Review response, with its skill (`address-pr-review`), trusted script, reusable workflow, auto mode, guide, example Caller and CLI support, all off until you turn it on; QA evidence that stands alone (Before/After runs at the merge-base, five results, Storyboards, annotated MP4s and stricter uploads); two shipped `manual-qa` drivers (`web.mjs` and `http.mjs`); and `orchestrate` harness detection.

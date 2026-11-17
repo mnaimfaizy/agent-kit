@@ -5,6 +5,7 @@ workflow file" and records a 0s failed run on every push to this repository.
 """
 
 import re
+import subprocess
 from pathlib import Path
 
 import yaml
@@ -178,39 +179,84 @@ def test_callers_grant_what_the_called_jobs_request() -> None:
                     )
 
 
-def test_callers_default_to_kill_switch_on() -> None:
-    for path in callers():
-        for job_name, job in load(path)["jobs"].items():
-            if "uses" not in job:
-                continue
-            kill = str((job.get("with") or {}).get("kill_switch", ""))
-            assert re.fullmatch(r"\$\{\{ vars\.\w+_ENABLED != 'true' \}\}", kill), (
-                f"{path.name}:{job_name}: kill_switch must read a vars.*_ENABLED repository variable"
-            )
-
-
-# Each flow has its own model variable, so one can change without the others;
-# the shared CLAUDE_MODEL still applies to any flow whose own variable is unset.
-MODEL_VARIABLE = {
-    "agent-plan-reusable.yml": "CLAUDE_MODEL_PLAN",
-    "agent-implement-reusable.yml": "CLAUDE_MODEL_IMPLEMENT",
-    "agent-review-reusable.yml": "CLAUDE_MODEL_REVIEW",
-    "agent-review-response-reusable.yml": "CLAUDE_MODEL_REVIEW_RESPONSE",
-    "security-audit-reusable.yml": "CLAUDE_MODEL_AUDIT",
+# ADR 0009: every Stage setting is CLAUDE_<STAGE>_<SETTING>.
+STAGE = {
+    "agent-plan-reusable.yml": "PLAN",
+    "agent-implement-reusable.yml": "IMPLEMENT",
+    "agent-review-reusable.yml": "REVIEW",
+    "agent-review-response-reusable.yml": "REVIEW_RESPONSE",
+    "security-audit-reusable.yml": "SECURITY_AUDIT",
 }
+# The Agent flow's Stages run only when the master switch is exactly true and
+# their own Stage switch is not false. The other flows have one switch each.
+AGENT_FLOW_STAGES = {"PLAN", "IMPLEMENT", "REVIEW"}
 
 
-def test_callers_read_model_from_repository_variable() -> None:
+def caller_jobs():
     for path in callers():
         for job_name, job in load(path)["jobs"].items():
-            if "uses" not in job:
-                continue
-            reusable = job["uses"].split("/")[-1].split("@")[0]
-            own = MODEL_VARIABLE[reusable]
-            model = str((job.get("with") or {}).get("model", ""))
-            assert re.fullmatch(rf"\$\{{\{{ vars\.{own} \|\| vars\.CLAUDE_MODEL \|\| '[a-z0-9-]+' \}}\}}", model), (
-                f"{path.name}:{job_name}: model must read vars.{own}, then vars.CLAUDE_MODEL, then a literal"
-            )
+            if "uses" in job:
+                stage = STAGE[job["uses"].split("/")[-1].split("@")[0]]
+                yield path, job_name, stage, job.get("with") or {}
+
+
+def test_callers_default_to_kill_switch_on() -> None:
+    for path, job_name, stage, inputs in caller_jobs():
+        kill = str(inputs.get("kill_switch", ""))
+        if stage in AGENT_FLOW_STAGES:
+            expected = f"${{{{ vars.CLAUDE_AGENT_FLOW_ENABLED != 'true' || vars.CLAUDE_{stage}_ENABLED == 'false' }}}}"
+        else:
+            expected = f"${{{{ vars.CLAUDE_{stage}_ENABLED != 'true' }}}}"
+        assert kill == expected, f"{path.name}:{job_name}: kill_switch must be {expected}"
+
+
+# Each Stage has its own model and effort variable, so one can change without
+# the others; the shared CLAUDE_MODEL / CLAUDE_EFFORT apply to any Stage whose
+# own variable is unset. No effort at all leaves --effort off.
+def test_callers_read_model_and_effort_from_repository_variables() -> None:
+    for path, job_name, stage, inputs in caller_jobs():
+        model = str(inputs.get("model", ""))
+        assert re.fullmatch(
+            rf"\$\{{\{{ vars\.CLAUDE_{stage}_MODEL \|\| vars\.CLAUDE_MODEL \|\| '[a-z0-9-]+' \}}\}}", model
+        ), f"{path.name}:{job_name}: model must read vars.CLAUDE_{stage}_MODEL, then vars.CLAUDE_MODEL, then a literal"
+        effort = str(inputs.get("effort", ""))
+        assert effort == f"${{{{ vars.CLAUDE_{stage}_EFFORT || vars.CLAUDE_EFFORT || '' }}}}", (
+            f"{path.name}:{job_name}: effort must read vars.CLAUDE_{stage}_EFFORT, then vars.CLAUDE_EFFORT, then ''"
+        )
+
+
+# ADR 0009 dropped these with no fallback.
+REMOVED_VARIABLES = (
+    "CLAUDE_PIPELINE_ENABLED",
+    "CLAUDE_MODEL_PLAN",
+    "CLAUDE_MODEL_IMPLEMENT",
+    "CLAUDE_MODEL_REVIEW",
+    "CLAUDE_MODEL_REVIEW_RESPONSE",
+    "CLAUDE_MODEL_AUDIT",
+)
+
+
+def test_no_old_variable_names_outside_the_release_notes() -> None:
+    files = subprocess.run(["git", "ls-files"], cwd=ROOT, capture_output=True, text=True, check=True).stdout.split()
+    # History, the ADR that records the rename, the tests, and doctor's rename map.
+    allowed = (
+        "release-notes/",
+        "CHANGELOG.md",
+        ".github/workflows-archive/",
+        "docs/adr/",
+        "scripts/",
+        "cli/src/checks/secrets-and-variables.mjs",
+    )
+    for rel in files:
+        if rel.startswith(allowed):
+            continue
+        path = ROOT / rel
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, IsADirectoryError, FileNotFoundError):
+            continue
+        for name in REMOVED_VARIABLES:
+            assert not re.search(rf"\b{name}\b", text), f"{rel}: still names {name}"
 
 
 if __name__ == "__main__":
@@ -221,5 +267,6 @@ if __name__ == "__main__":
     test_callers_match_reusable_contract()
     test_callers_grant_what_the_called_jobs_request()
     test_callers_default_to_kill_switch_on()
-    test_callers_read_model_from_repository_variable()
+    test_callers_read_model_and_effort_from_repository_variables()
+    test_no_old_variable_names_outside_the_release_notes()
     print("workflow-validity-contract tests passed")

@@ -71,10 +71,15 @@ on:
         type: string
         default: ""
       model:
-        description: "Claude model id. Defaults to claude-opus-5."
+        description: "Claude model id, such as claude-opus-5-5. A plain id only: letters, digits and `. _ : @ / [ ] -`; anything else fails the run before the agent starts."
         required: false
         type: string
-        default: "claude-opus-5"
+        default: "claude-opus-5-5"
+      effort:
+        description: "Claude Code effort level: `low`, `medium`, `high`, `xhigh` or `max`. Empty leaves `--effort` off, so the model's own default applies; anything else fails the run before the agent starts."
+        required: false
+        type: string
+        default: ""
     secrets:
       claude_code_oauth_token:
         description: "Subscription OAuth token from `claude setup-token`."
@@ -99,6 +104,29 @@ jobs:
     outputs:
       branch: ${{ steps.branch.outputs.branch }}
     steps:
+      - name: Check model and effort inputs
+        # Both values are pasted into claude_args, so a space or a newline in
+        # either would add Claude Code flags. Refuse anything but a plain value
+        # before the agent starts. The values are never echoed back.
+        env:
+          MODEL: ${{ inputs.model }}
+          EFFORT: ${{ inputs.effort }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          model_pattern='^[A-Za-z0-9][]A-Za-z0-9._:@/[-]*$'
+          if ! [[ "$MODEL" =~ $model_pattern ]]; then
+            echo "::error title=Invalid model input::The model input is not a plain model id (letters, digits and . _ : @ / [ ] -)."
+            exit 1
+          fi
+          case "$EFFORT" in
+            "" | low | medium | high | xhigh | max) ;;
+            *)
+              echo "::error title=Invalid effort input::The effort input must be empty or one of low, medium, high, xhigh, max."
+              exit 1
+              ;;
+          esac
+
       - name: Enforce allowlist (optional)
         env:
           ALLOWLIST: ${{ inputs.allowlist_actors }}
@@ -439,6 +467,7 @@ jobs:
           # rather than replacing it, so the commit path stays intact.
           claude_args: |
             --model ${{ inputs.model }}
+            ${{ inputs.effort != '' && format('--effort {0}', inputs.effort) || '' }}
             --max-turns 200
             --allowedTools "${{ steps.tools.outputs.allowed }}"
             --disallowedTools "Read(./.git/**),Edit(./.git/**),Edit(./.claude/settings.json),Edit(./.claude/settings.local.json),Edit(./.mcp.json),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(gh pr create:*),Edit(./.github/workflows/**),Edit(./.github/actions/**),ScheduleWakeup,CronCreate,RemoteTrigger,SendMessage,Workflow,Monitor,PushNotification"

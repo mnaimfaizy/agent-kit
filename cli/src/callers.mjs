@@ -111,14 +111,17 @@ export function secretNames(value) {
 
 /**
  * Every `vars.X` a file reads. A variable is optional when every read of it
- * falls back with `||` (as the model variables do); otherwise it is required
- * (the Kill switch variables: unset means the flow never runs). The `||` may
- * follow closing parentheses, and may sit on the next line of a multi-line
- * expression.
+ * falls back with `||` (as the model variables do) or only tests `== 'false'`
+ * (a Stage switch: unset means on); otherwise it is required (the Kill switch
+ * variables: unset means the flow never runs). The `||` may follow closing
+ * parentheses, and may sit on the next line of a multi-line expression.
  */
 export function variableRefs(text) {
   const refs = new Map();
-  const re = new RegExp(`vars\\.(${NAME})((?:\\s*\\))*\\s*\\|\\|)?`, "g");
+  const re = new RegExp(
+    `vars\\.(${NAME})((?:\\s*\\))*\\s*\\|\\||\\s*==\\s*'false'(?![\\w']))?`,
+    "g",
+  );
   for (const m of lines(text).join("\n").matchAll(re)) {
     const optional = Boolean(m[2]);
     const prev = refs.get(m[1]);

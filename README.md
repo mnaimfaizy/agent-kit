@@ -65,7 +65,7 @@ It copies the Kit-owned paths, writes the Caller workflows and a Threat pack ske
 
 3. **Add secrets:** `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`), plus `AGENT_KIT_ADVISORIES_TOKEN` for the audit.
 4. **Copy a Caller** from [`examples/`](examples) into `.github/workflows/`, set your login in `allowlist_actors`, and keep the `@<tag>` pin equal to step 1.
-5. **Turn it on:** set the repository variable `CLAUDE_PIPELINE_ENABLED`, `CLAUDE_SECURITY_AUDIT_ENABLED` and/or `CLAUDE_REVIEW_RESPONSE_ENABLED` to `true`.
+5. **Turn it on:** set the repository variable `CLAUDE_AGENT_FLOW_ENABLED`, `CLAUDE_SECURITY_AUDIT_ENABLED` and/or `CLAUDE_REVIEW_RESPONSE_ENABLED` to `true`.
 
 ## The CLI
 
