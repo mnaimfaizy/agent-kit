@@ -98,6 +98,8 @@ def test_the_brief_describes_the_review_report_as_an_index() -> None:
         "Under each of ## Standards, ## Spec and ## Correctness, write one top-level list item per thread",
         "- [path:line](<the thread's html_url>) — one-line summary",
         "An axis with no findings says so in a sentence, not a list item.",
+        "What you checked or confirmed, and anything else that is not a thread, "
+        "goes in prose under those headings, never as a list item",
         "do not rerank across them",
     ]:
         assert needle in brief, f"the brief must say {needle!r}"
