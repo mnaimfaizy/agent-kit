@@ -478,10 +478,13 @@ jobs:
 
           - [path:line](<the thread's html_url>) — one-line summary
 
-          An axis with no findings says so in a sentence, not a list item. Keep
-          the three axes separate and do not rerank across them. A trusted check
-          after you finish fails the review when a list item under those
-          headings does not link a thread you started on this pull request.
+          An axis with no findings says so in a sentence, not a list item. What
+          you checked or confirmed, and anything else that is not a thread, goes
+          in prose under those headings, never as a list item, not even under
+          "No findings". Keep the three axes separate and do not rerank across
+          them. A trusted check after you finish fails the review when a list
+          item under those headings does not link a thread you started on this
+          pull request.
 
           Re-review. The threads below are yours, from earlier reviews:
           1. Never post a new thread for a finding one of them already holds,
