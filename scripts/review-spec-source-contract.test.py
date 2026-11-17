@@ -94,7 +94,8 @@ def run_brief(
     skill = repo / "SKILL.md"
     skill.write_text("# skill\n", encoding="utf-8")
     open_threads = tmp_path / "open-threads.md"
-    open_threads.write_text("You have no open review threads on this pull request.\n", encoding="utf-8")
+    no_threads = "You have no review threads on this pull request: every finding is new.\n"
+    open_threads.write_text(no_threads, encoding="utf-8")
 
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()

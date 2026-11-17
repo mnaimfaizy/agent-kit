@@ -483,8 +483,9 @@ jobs:
           after you finish fails the review when a list item under those
           headings does not link a thread you started on this pull request.
 
-          Re-review. The open threads below are yours, from earlier reviews:
-          1. Never post a new thread for a finding one of them already holds.
+          Re-review. The threads below are yours, from earlier reviews:
+          1. Never post a new thread for a finding one of them already holds,
+             resolved or not.
           2. A thread with verdict null has not been answered yet: leave it
              alone, with no reply. List it in the report if it still applies.
           3. A thread whose verdict you agree with: stay silent. No reply, and
@@ -495,8 +496,8 @@ jobs:
           5. A thread with replied_after_verdict true already has your
              disagreement, not yet answered: leave it alone, and list it in the
              report.
-          Resolved threads are left out of the list: they are settled. If a
-          problem one of them was about is back, post a new thread for it.
+          A thread with resolved true is settled: ignore it. No reply, and
+          leave it out of the report.
 
           The inline-comment tool cannot reply on a thread, so a reply is posted
           for you, after the check, from a section that follows the three axes:
@@ -508,7 +509,7 @@ jobs:
           ```
 
           Leave the section out when you have no reply. Nothing else belongs in
-          it, and a reply goes only on a listed thread with a verdict.
+          it, and a reply goes only on a listed open thread with a verdict.
           RULES
             echo
             cat "$OPEN_THREADS"

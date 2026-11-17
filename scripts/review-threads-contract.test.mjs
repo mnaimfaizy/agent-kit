@@ -12,7 +12,7 @@ import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import {
   checkReport,
-  openThreads,
+  reviewerThreads,
   planReplies,
   renderOpenThreads,
 } from "../.github/agent-runtime/review-threads.mjs";
@@ -50,7 +50,7 @@ const marked = (verdict, prose = "Prose from the responder.") =>
 describe("open threads in the reviewer's brief", () => {
   it("lists the reviewer's unresolved threads with their latest Verdict", () => {
     const root = comment(bot, "Missing null check.");
-    const [only] = openThreads([
+    const [only] = reviewerThreads([
       thread({ root, replies: [comment(bot, marked("fixed")), comment(bot, marked("declined"))] }),
     ]);
     assert.deepEqual(only, {
@@ -68,12 +68,12 @@ describe("open threads in the reviewer's brief", () => {
     const fromPerson = comment(maintainer, marked("addressed"));
     const markerNotLast = comment(bot, `${marked("addressed")}\n\ntrailing text`);
     const unmarked = comment(bot, "I think this is fine.");
-    const [only] = openThreads([thread({ replies: [fromPerson, markerNotLast, unmarked] })]);
+    const [only] = reviewerThreads([thread({ replies: [fromPerson, markerNotLast, unmarked] })]);
     assert.equal(only.verdict, null);
   });
 
   it("lets no reply text reach the brief", () => {
-    const listed = openThreads([
+    const listed = reviewerThreads([
       thread({
         replies: [
           comment(bot, marked("declined", "RESPONDER-PROSE")),
@@ -90,20 +90,21 @@ describe("open threads in the reviewer's brief", () => {
   });
 
   it("flags a thread the reviewer already replied on after its Verdict", () => {
-    const [only] = openThreads([
+    const [only] = reviewerThreads([
       thread({ replies: [comment(bot, marked("declined")), comment(bot, "I disagree: …")] }),
     ]);
     assert.equal(only.verdict, "declined");
     assert.equal(only.replied_after_verdict, true);
   });
 
-  it("leaves out resolved threads and threads someone else started", () => {
-    const listed = openThreads([
+  it("marks resolved threads, and leaves out threads someone else started", () => {
+    const listed = reviewerThreads([
       thread({ resolved: true }),
       thread({ root: comment(otherBot, "Their finding.") }),
       thread({ root: comment(maintainer, "A person's comment.") }),
     ]);
-    assert.deepEqual(listed, []);
+    assert.equal(listed.length, 1);
+    assert.equal(listed[0].resolved, true);
   });
 
   it("uses the Review responder's verdict marker, not a shape of its own", () => {
@@ -112,6 +113,18 @@ describe("open threads in the reviewer's brief", () => {
     const pattern = (text) =>
       /const VERDICT_MARKER_LINE = (\/.+\/);/.exec(text)?.[1] ?? "missing in one script";
     assert.equal(pattern(kit), pattern(responder));
+  });
+
+  it("makes agent text safe exactly as the Review responder does", () => {
+    const responder = readRepo(".github/agent-review-response/review-response.mjs");
+    const kit = readRepo(".github/agent-runtime/review-threads.mjs");
+    const sanitizer = (text) =>
+      /function publicText\(text\) \{\n([\s\S]*?)\n\}/
+        .exec(text)?.[1]
+        .replace(/\\u200b|\u200b/g, "ZWSP") ?? "missing in one script";
+    const cap = (text) => /const MAX_REPLY_CHARS = (\d+);/.exec(text)?.[1];
+    assert.equal(sanitizer(kit), sanitizer(responder));
+    assert.equal(cap(kit), cap(responder));
   });
 });
 
@@ -259,16 +272,22 @@ describe("the reviewer's replies on a Verdict it disagrees with", () => {
         { comment_id: 11, reply: "Disagree: still broken." },
         { comment_id: 12, reply: "No verdict yet." },
         { comment_id: 13, reply: "Already disagreed." },
-        { comment_id: 99, reply: "Not an open thread." },
+        { comment_id: 99, reply: "Not a thread." },
+        { comment_id: 14, reply: "Resolved." },
         { comment_id: 11, reply: "A second reply to the same thread." },
       ],
-      [open(11, "declined"), open(12, null), open(13, "addressed", true)],
+      [
+        open(11, "declined"),
+        open(12, null),
+        open(13, "addressed", true),
+        { ...open(14, "declined"), resolved: true },
+      ],
     );
     assert.deepEqual(
       plan.post.map((p) => p.comment_id),
       [11],
     );
-    assert.equal(plan.refused.length, 4);
+    assert.equal(plan.refused.length, 5);
   });
 
   it("cannot forge a verdict marker or mention anyone", () => {
@@ -301,6 +320,6 @@ describe("the open-threads block", () => {
   });
 
   it("says so when there are none", () => {
-    assert.match(renderOpenThreads([]), /no open review threads/);
+    assert.match(renderOpenThreads([]), /no review threads/);
   });
 });

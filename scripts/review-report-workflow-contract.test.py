@@ -106,11 +106,11 @@ def test_the_brief_describes_the_review_report_as_an_index() -> None:
 def test_the_brief_sets_the_re_review_rules() -> None:
     brief = flat(step(BRIEF_STEP)["run"])
     for needle in [
-        "Never post a new thread for a finding one of them already holds.",
+        "Never post a new thread for a finding one of them already holds, resolved or not.",
         "verdict null has not been answered yet: leave it alone, with no reply.",
         "A thread whose verdict you agree with: stay silent.",
         "A thread whose verdict you disagree with: say why in the report's Replies section",
-        "Resolved threads are left out of the list",
+        "A thread with resolved true is settled: ignore it.",
         "## Replies",
     ]:
         assert needle in brief, f"the brief must say {needle!r}"
