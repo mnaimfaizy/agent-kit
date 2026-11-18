@@ -352,7 +352,7 @@ def skip(reason: str) -> None:
 
 
 def installed_prettier(root: Path, env: Mapping[str, str]) -> Path | None:
-    """The repository's prettier, or None after a skip. In CI (`CI` set) it fails instead of skipping,
+    """The repository's prettier, or None after a skip. In CI (`CI` is `true` or `1`) it fails instead of skipping,
     so a Tests job without `npm ci` cannot hide the notes check (#295)."""
     # On Windows, npm's .bin/prettier is a POSIX shell shim that subprocess cannot start; use its .cmd.
     prettier = root / "node_modules" / ".bin" / ("prettier.cmd" if os.name == "nt" else "prettier")
