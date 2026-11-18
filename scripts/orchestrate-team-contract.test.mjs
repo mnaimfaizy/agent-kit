@@ -184,3 +184,66 @@ describe("TEAM.md: the Shared Board row", () => {
     assert.doesNotMatch(TEAM, /does not give the row's form yet/);
   });
 });
+
+describe("TEAM.md: when a row and its state label are written", () => {
+  const states = section(TEAM, "### States and labels");
+  const when = section(TEAM, "### When a row is written");
+  const COARSE = ["planned", "parked", "running", "waiting", "ready to merge", "merged"];
+  /** Every state RUN.md's States table names. */
+  const RUN_STATES = [
+    ...section(read(`${SKILL_DIR}/RUN.md`), "## States").matchAll(/^\| `([a-z][a-zA-Z ]*)` +\|/gm),
+  ].map((m) => m[1]);
+  /** TEAM.md's mapping: fine state → its cells. */
+  const mapping = new Map(
+    [...states.matchAll(/^\| `([a-z][a-zA-Z ]*)` +\| ([^|]+?) +\| ([^|]+?) +\|$/gm)].map((m) => [
+      m[1],
+      { coarse: m[2], headline: m[3] },
+    ]),
+  );
+
+  it("maps every state a run's board can hold, and only those", () => {
+    assert.ok(RUN_STATES.length >= 18, "RUN.md's states are read");
+    assert.deepEqual(
+      RUN_STATES.filter((s) => !mapping.has(s)),
+      [],
+      "RUN.md states with no mapping",
+    );
+    assert.deepEqual(
+      [...mapping.keys()].filter((s) => !RUN_STATES.includes(s)),
+      [],
+      "mapped states RUN.md does not have",
+    );
+  });
+
+  it("maps each state onto one of the six coarse states, or says why it has none", () => {
+    for (const [fine, { coarse }] of mapping)
+      assert.ok(
+        COARSE.some((c) => coarse === `\`${c}\``) || /^none/.test(coarse),
+        `${fine} → ${coarse}`,
+      );
+    for (const c of COARSE)
+      assert.ok(
+        [...mapping.values()].some((v) => v.coarse === `\`${c}\``),
+        `some state is ${c}`,
+      );
+  });
+
+  it("parks a ticket blocked by a teammate's ticket, and waits on the human", () => {
+    assert.equal(mapping.get("parked").coarse, "`parked`");
+    assert.equal(mapping.get("waiting").coarse, "`waiting`");
+    assert.equal(mapping.get("ready to merge").coarse, "`ready to merge`");
+  });
+
+  it("writes only on a change, only this teammate's own tickets, under the routine write approved at go", () => {
+    assert.match(when, /only when/);
+    assert.match(when, /nothing changed, nothing is written/i);
+    assert.match(when, /only on this teammate's own tickets/);
+    assert.match(when, /"Shared Board: row comment and state labels on my assigned tickets"/);
+  });
+
+  it("changes the label only when the coarse state does, and keeps the row as the record when it is dropped", () => {
+    assert.match(states, /only when the coarse state changes/);
+    assert.match(states, /`set-state`/);
+    assert.match(states, /the row comment stays the record/);
+  });
+});

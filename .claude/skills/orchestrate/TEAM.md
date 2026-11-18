@@ -127,3 +127,60 @@ Updated <YYYY-MM-DD HH:MMZ>.
 | Updated              | The time of the row's last change, in UTC. Readers tell a row's age from it: nothing in the row says whether the run is alive.                                                                                                                                                              |
 | Footer               | Says who keeps the row, and that a person's edit is overwritten on the next write.                                                                                                                                                                                                          |
 | Marker               | Hidden when the comment is rendered: the ticket's number, this run's id (its run folder's name) and the author's login. The `row` operation finds a row by it.                                                                                                                              |
+
+### States and labels
+
+A ticket's fine state is the state of its building or analysis Delegation on the local board ([RUN.md](RUN.md#states)); a QA Delegation's own states show on its ticket's row only as milestones. Its coarse state is one of the six that `team.labels` names, and its headline is the sentence below, with the row's own fields filled in:
+
+| Fine state               | Coarse state                                             | Headline                                                                                              |
+| ------------------------ | -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `planned`                | `planned`                                                | Planned in @<login>'s Team Run, not started yet.                                                      |
+| `parked`                 | `parked`                                                 | Parked until #<blocker> is merged, then built on the default branch as it is then.                    |
+| `running`                | `running`                                                | Being built on `<branch>`, with no pull request yet; or, once there is one, #<pr> is being worked on. |
+| `waiting`                | `waiting`                                                | Waiting on @<login> to answer <k> question(s); work on it is paused until then.                       |
+| `reported`               | `running`                                                | Its work is reported, and @<login>'s Chief of Staff is checking it.                                   |
+| `sent back`              | `running`                                                | Sent back to be fixed after its check.                                                                |
+| `verified`               | `running`                                                | #<pr> is checked and waits on its QA.                                                                 |
+| `stalled`                | `waiting`                                                | Stalled, and raised to @<login>.                                                                      |
+| `crashed`                | `waiting`                                                | Its session ended without a report; its branch is kept, and it waits to be restarted from it.         |
+| `analysed`               | `waiting`                                                | Its options are with @<login>, waiting on a choice.                                                   |
+| `landed`                 | none: a Team Run has no integration branch               | Never shown.                                                                                          |
+| `passed`                 | none: a QA Delegation's state, a milestone on its ticket | Never shown.                                                                                          |
+| `failed`                 | none: a QA Delegation's state, a milestone on its ticket | Never shown.                                                                                          |
+| `void`                   | none: a QA Delegation's state, a milestone on its ticket | Never shown.                                                                                          |
+| `awaiting Ruling Review` | `waiting`                                                | Waiting on @<login> to review <N> Ruling(s) before it can merge.                                      |
+| `ready to merge`         | `ready to merge`                                         | Ready to merge: #<pr> passed every check and merges cleanly into the default branch.                  |
+| `merged`                 | `merged`                                                 | Done: #<pr> was merged on <YYYY-MM-DD>.                                                               |
+| `dropped`                | none: its state label is removed                         | Taken out of @<login>'s Team Run; nobody runs it here now.                                            |
+
+The state label changes only when the coarse state changes, with the `set-state` operation: it adds the coarse state's label and removes any other of the six the ticket carries, so the ticket carries exactly one. A `dropped` ticket's label is removed, and its last row write says it was dropped. A state label the repository does not have, because the human said no to creating it ([Missing state labels](#missing-state-labels)), is not written, and the row is written as usual.
+
+`set-state` reads the ticket's labels back after each write. A tracker can drop a label change silently: GitHub does, with no error, when the teammate has no Triage or Write access. When the read-back does not show the new label, the label write did not hold, and the row comment stays the record. Log it once in the Activity Log, and put `Shared Board labels: not held, <why>` on the board, under the `Team Run:` line. It is not a Decision Request, and it is not retried until the next coarse state change.
+
+### When a row is written
+
+Rows and labels are written under the routine write "Shared Board: row comment and state labels on my assigned tickets", approved once at "go", and only on this teammate's own tickets: those the plan put in this teammate's group. Never on a teammate's ticket, an `unassigned` one, or one that needs one assignee, and never before "go" or after the run is closed.
+
+A row is written only when its text would change, so only when one of its parts changes: the fine state, a Decision Request opened or answered, the branch's head, the pull request, what it is parked on, the Rulings count, a conflict found or gone, or a new milestone. Each time, the Chief of Staff renders the row from the local board into the run folder, `shared-board/<n>.md`, and compares it with the copy it last wrote. When nothing changed, nothing is written, so a heartbeat that finds nothing new writes nothing (and `--status` writes nothing at all). The **Updated** time is part of the change, never a reason for one.
+
+The first write, right after "go", is the `planned` or `parked` row of each of this teammate's tickets, with its state label. Then:
+
+1. Read the ticket's row comments with the `row` operation. The row to edit is the one whose marker carries this run's id and this teammate's login.
+2. Write it with the `write-row` operation: edit that comment by its id, or create one when there is none, and record its comment id on the board, beside the ticket's row: `Shared Board row: #<n> comment <id>`.
+3. When the coarse state changed, write the state label with `set-state`, after the row, so a label never runs ahead of the row it mirrors.
+
+A write that fails is logged with what the tracker printed, and the run goes on; the next change writes the row again whole. The Shared Board never holds up the work.
+
+### Milestones
+
+The **Recent activity** list keeps the last `team.recent_activity` milestones (default 5), each with its time in UTC, `MM-DD HH:MMZ`. A milestone is one of these lines, with only its fields filled in:
+
+- `planned`
+- `parked on #<blocker>` and `unparked: #<blocker> merged`
+- `spawned from <branch>@<head>`
+- `reported`, `verified`, `sent back` and `stalled`
+- `pull request #<pr> opened`, and `pushed <head>`
+- `stopped on a Decision Request` and `question answered`
+- `QA passed on <head>` and `QA failed on <head>`
+- `crashed, branch kept at <head>` and `restarted from <head>`
+- `ready to merge`, `merged` and `dropped`
