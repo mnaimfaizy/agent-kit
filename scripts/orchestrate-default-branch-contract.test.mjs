@@ -232,6 +232,7 @@ describe("RUN.md", () => {
       DEFAULT_BRANCH_CHECK,
       /On `--status`, the check acts on nothing and writes nothing/,
     );
+    assert.match(DEFAULT_BRANCH_CHECK, /Once every row is checked, except on `--status`, rewrite/);
     assert.ok(
       !DEFAULT_BRANCH_CHECK.includes("left out of the passed rows"),
       "`--status` does not edit the passed list",
