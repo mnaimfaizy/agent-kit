@@ -333,4 +333,29 @@ describe("TEAM.md: ownership of a row (#318)", () => {
       /just before every row or label write/,
     );
   });
+  it("raises a Decision Request to the old owner when a running or parked ticket is assigned away: hand off, or ask for it back; nothing is stopped unasked", () => {
+    const re = section(owner, "### Reassignment");
+    assert.match(re, /running or parked/);
+    assert.match(re, /Decision Request/);
+    assert.match(re, /1\. \*\*Hand it off\*\*/);
+    assert.match(re, /2\. \*\*Ask for it back\*\*/);
+    assert.match(re, /never stopped unasked/);
+    assert.match(re, /never a Ruling/);
+  });
+
+  it("hands off in order: the branch is pushed, one final row line is written, and the local row becomes `dropped`", () => {
+    const off = section(owner, "### Hand-off");
+    const steps = [...off.matchAll(/^(\d)\. (.+)$/gm)].map((m) => [m[1], m[2]]);
+    assert.deepEqual(
+      steps.map((s) => s[0]),
+      ["1", "2", "3"],
+      "three numbered steps",
+    );
+    assert.match(steps[0][1], /pushes its branch/);
+    assert.match(steps[1][1], /handed off to @<new> at `<branch>@<head>`/);
+    assert.match(steps[1][1], /one final row write/);
+    assert.match(steps[2][1], /`dropped`/);
+    assert.match(off, /label/);
+    assert.match(section(TEAM, "### Milestones"), /`handed off to @<login> at <branch>@<head>`/);
+  });
 });
