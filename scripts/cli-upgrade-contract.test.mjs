@@ -26,7 +26,7 @@ import { PassThrough } from "node:stream";
 import { sanitizeLine } from "../cli/src/checks/result.mjs";
 import { main } from "../cli/src/cli.mjs";
 import { systemRunner } from "../cli/src/exec.mjs";
-import { parseKitOwnedPaths } from "../cli/src/kit-owned-paths.mjs";
+import { ALLOWED_SHAPE, parseKitOwnedPaths } from "../cli/src/kit-owned-paths.mjs";
 import { openKitRepo, openKitTag } from "../cli/src/kit-tag.mjs";
 import { terminalPrompt } from "../cli/src/prompt.mjs";
 import { caseCollisions, checkSafePath, fileDirConflicts } from "../cli/src/safe-paths.mjs";
@@ -776,6 +776,16 @@ describe("the shipped manifest", () => {
   // The fixtures above build their own manifests, so this is the one test that
   // holds the CLI's deletion rule to this repository's real kit-owned-paths.txt
   // (#301: a runtime folder the Python contract allowed but the CLI refused).
+  it("ALLOWED_SHAPE is the Python contract's pattern, in both directions", () => {
+    const py = readFileSync(
+      new URL("./kit-owned-paths-contract.test.py", import.meta.url),
+      "utf8",
+    ).match(/^ALLOWED_SHAPE = re\.compile\(\s*r"([^"]+)"\s*\)/m);
+    assert.ok(py, 'kit-owned-paths-contract.test.py: no ALLOWED_SHAPE = re.compile(r"...")');
+    assert.equal(ALLOWED_SHAPE.flags, "");
+    assert.equal(ALLOWED_SHAPE.source.replaceAll("\\/", "/"), py[1]);
+  });
+
   it("parses for deletion, every entry accepted", () => {
     const text = readFileSync(new URL("../kit-owned-paths.txt", import.meta.url), "utf8");
     const listed = text

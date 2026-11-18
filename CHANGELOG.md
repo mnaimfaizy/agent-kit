@@ -8,7 +8,7 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ### Fixed
 
-- `agent-kit upgrade` and `agent-kit init` no longer refuse the manifest of v1.0.0-beta.7 and later ([#301](https://github.com/mnaimfaizy/agent-kit/issues/301)). The CLI's rule for which Kit-owned paths it may delete did not allow `.github/agent-review-response/`, so every run stopped with "is not a permitted Kit-owned path" and changed nothing. A new test parses the repository's own `kit-owned-paths.txt` with that rule, so the CLI and the kit's contract test cannot drift apart again. **Consumer action:** run `upgrade` or `init` with this release's CLI; if you copied the Kit-owned paths by hand as a workaround, nothing more is needed.
+- `agent-kit upgrade` and `agent-kit init` no longer refuse the manifest of v1.0.0-beta.7 and later ([#301](https://github.com/mnaimfaizy/agent-kit/issues/301)). The CLI's rule for which Kit-owned paths it may delete did not allow `.github/agent-review-response/`, so every run stopped with "is not a permitted Kit-owned path" and changed nothing. New tests hold the CLI's rule equal to the kit's own contract test, and parse the repository's own `kit-owned-paths.txt` with it. **Consumer action:** run `upgrade` or `init` with this release's CLI; if you copied the Kit-owned paths by hand as a workaround, nothing more is needed.
 
 ## [1.0.0-beta.8] - 2026-11-18
 
