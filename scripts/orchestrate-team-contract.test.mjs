@@ -806,3 +806,15 @@ describe("RUN.md: re-asked Rulings after a lost machine", () => {
     assert.match(lost, /numbers its own Rulings from one past the highest/);
   });
 });
+
+describe("TEAM.md and the tracker files: label names as the tracker compares them", () => {
+  it("compares label names ignoring case, trimmed", () => {
+    assert.match(section(TEAM, "### Missing state labels"), /ignoring case/);
+    for (const text of [GITHUB, GITLAB])
+      assert.match(section(text, "### `set-state`"), /ignoring case/);
+  });
+
+  it("says a comma in a state label's name cannot be set on GitHub either", () => {
+    assert.match(section(GITHUB, "### `set-state`"), /comma/);
+  });
+});

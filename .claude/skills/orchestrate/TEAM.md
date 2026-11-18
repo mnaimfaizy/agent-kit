@@ -69,7 +69,7 @@ A new Team Run of a teammate whose earlier run folder is gone, after a lost mach
 
 ### Missing state labels
 
-Read the repository's labels with the `labels` operation, and compare them with the six names in `team.labels`. When any are missing, the plan lists them with one ask to create them all with the `create-label` operation. Creating a label is a write as the human, never routine: it is a Decision Request in the plan, answered with the "go" or before it, and the labels are made only on a yes. A no leaves them uncreated, says so on the board, and the run goes on: a missing label is shown as such, never made without the yes.
+Read the repository's labels with the `labels` operation, and compare them with the six names in `team.labels`, ignoring case and spaces at either end, as both trackers compare label names: a repository label `Team: Planned` is the `team: planned` label, so it is not missing. When any are missing, the plan lists them with one ask to create them all with the `create-label` operation. Creating a label is a write as the human, never routine: it is a Decision Request in the plan, answered with the "go" or before it, and the labels are made only on a yes. A no leaves them uncreated, says so on the board, and the run goes on: a missing label is shown as such, never made without the yes.
 
 ### No tickets of your own
 
@@ -161,7 +161,7 @@ A ticket's fine state is the state of its building or analysis Delegation on the
 
 The state label changes only when the coarse state changes, with the `set-state` operation: it adds the coarse state's label and removes any other of the six the ticket carries, so the ticket carries exactly one. A `dropped` ticket's label is removed, and its last row write says it was dropped, except on a hand-off, where the label is left for the new owner ([Handing a ticket off](#handing-a-ticket-off)). A state label the repository does not have, because the human said no to creating it ([Missing state labels](#missing-state-labels)), is not written, and the row is written as usual.
 
-`set-state` reads the ticket's labels back after each write, since a tracker can drop a label change silently, with no error (the tracker file says when). When the read-back does not show the new label, the label write did not hold, and the row comment stays the record. Log it once in the Activity Log, and put `Shared Board labels: not held, <why>` on the board, under the `Team Run:` line. It is not a Decision Request, and it is not retried until the next coarse state change.
+`set-state` reads the ticket's labels back after each write, since a tracker can drop a label change silently, with no error (the tracker file says when). When the read-back does not show the new label, its name compared ignoring case as in [Missing state labels](#missing-state-labels), the label write did not hold, and the row comment stays the record. Log it once in the Activity Log, and put `Shared Board labels: not held, <why>` on the board, under the `Team Run:` line. It is not a Decision Request, and it is not retried until the next coarse state change.
 
 ### When a row is written
 

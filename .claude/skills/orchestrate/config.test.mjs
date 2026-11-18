@@ -1643,6 +1643,14 @@ test("a label name given twice is found whatever its case or spacing, as GitHub 
   );
 });
 
+test("the effective `team.labels` are trimmed, so a run names and compares them as the tracker does", () => {
+  const all = TEAM_STATES.map((state) => `    ${state}: " team: ${state} "`);
+  const read = yaml("team:", "  labels:", ...all);
+  assert.deepEqual(read.problems, []);
+  const labels = effectiveConfig(read.config).team.labels;
+  for (const state of TEAM_STATES) assert.equal(labels[state], `team: ${state}`);
+});
+
 test("a remote with no host gives none: a Windows path, or an IPv6 host in brackets", () => {
   assert.deepEqual(trackerFromRemote("C:\\repos\\app"), { host: null, tracker: null });
   assert.deepEqual(trackerFromRemote("C:/repos/app"), { host: null, tracker: null });

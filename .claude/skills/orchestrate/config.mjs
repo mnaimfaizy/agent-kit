@@ -1112,7 +1112,10 @@ export function effectiveConfig(config) {
     },
     tracker: config.tracker ?? DEFAULTS.tracker,
     team: {
-      labels: isMapping(team.labels) ? { ...team.labels } : { ...DEFAULTS.team_labels },
+      // Trimmed, as the tracker trims a label name, so a run names and compares it as `check` did.
+      labels: isMapping(team.labels)
+        ? Object.fromEntries(Object.entries(team.labels).map(([k, v]) => [k, String(v).trim()]))
+        : { ...DEFAULTS.team_labels },
       recent_activity:
         team.recent_activity === undefined
           ? DEFAULTS.recent_activity
