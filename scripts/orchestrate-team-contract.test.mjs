@@ -753,3 +753,11 @@ describe("CHANGELOG.md: the Team Run entries describe the end state", () => {
     assert.doesNotMatch(unreleased, /a Team Run now reads/);
   });
 });
+
+describe("trackers/gitlab.md: citations that resolve in a Consumer", () => {
+  it("names no branch-only file, no Delegation id and no bare Agent-kit path", () => {
+    assert.doesNotMatch(GITLAB, /research\/gitlab-shared-board/);
+    assert.doesNotMatch(GITLAB, /\bd321\b/);
+    assert.doesNotMatch(GITLAB, /(?<!Agent-kit's \[)`docs\/agents\/issue-tracker\.md`/);
+  });
+});
