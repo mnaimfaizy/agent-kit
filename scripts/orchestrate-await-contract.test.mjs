@@ -25,6 +25,7 @@ const DESKTOP = read(`${SKILL_DIR}/harnesses/claude-code-desktop.md`);
 const CLI = read(`${SKILL_DIR}/harnesses/claude-code-cli.md`);
 const CURSOR = read(`${SKILL_DIR}/harnesses/cursor.md`);
 const DOCS = read("docs/orchestrate.md");
+const GLOSSARY = read("GLOSSARY.md");
 
 /** The text of a `## ` or `### ` section, from its heading to the next of the same depth or higher. */
 function section(text, heading) {
@@ -60,7 +61,12 @@ describe("await: an event plus a heartbeat", () => {
     assert.match(waiting, /primary event/);
     assert.match(waiting, /heartbeat/);
     assert.match(waiting, /"something may have changed", never "a report is final"/);
-    assert.match(waiting, /every running Delegation/);
+    assert.match(waiting, /every Delegation the run waits on/);
+    assert.match(waiting, /not only `running` ones/);
+    assert.ok(
+      !waiting.includes("every running Delegation"),
+      "the scope is not only `running` rows",
+    );
   });
 
   it("HARNESSES.md's verb table says `await` never waits on one signal alone", () => {
@@ -134,8 +140,13 @@ describe("SKILL.md: the heartbeat", () => {
     assert.match(step6, /in the form the harness file gives, a marker file included/);
   });
 
-  it("step 6 checks every running Delegation on each wake-up, not only the one quoted", () => {
-    assert.match(step6, /every running Delegation, not only the one/);
+  it("step 6 checks every Delegation the run waits on at each wake-up, not only the one quoted", () => {
+    assert.match(step6, /every Delegation the run waits on, not only the one/);
+    assert.match(step6, /compares each Delegation the run waits on/);
+    assert.ok(
+      !step6.includes("running Delegation"),
+      "step 6 does not narrow the scope to `running` rows",
+    );
   });
 
   it("step 7 verifies only a final report", () => {
@@ -270,6 +281,10 @@ describe("every harness file", () => {
       const text = read(`${SKILL_DIR}/harnesses/${file}`);
       if (!/foreground watch/.test(awaitBullet(text))) return t.skip("not on the watch");
       assert.match(section(text, "## Check before use"), /how long a foreground shell command/i);
+      assert.ok(
+        !text.includes("while a Delegation runs"),
+        "the watch's scope is every Delegation the run waits on",
+      );
     });
 });
 
@@ -282,7 +297,7 @@ describe("harnesses/cursor.md", () => {
     assert.match(wait, /60 seconds/);
     assert.match(wait, /`~\/\.cursor\/subagents\/`/);
     assert.match(wait, /10 to 15 minute/);
-    assert.match(wait, /never ends its turn while a Delegation runs/);
+    assert.match(wait, /never ends its turn while the run waits on a Delegation/);
   });
 
   it("offers a `stop`-hook heartbeat as a persistent change", () => {
@@ -306,6 +321,18 @@ describe("harnesses/cursor.md", () => {
     assert.match(check, /background shell/);
     assert.match(check, /how long a foreground shell command/i);
     assert.match(check, /`stop` hook may wait/);
+  });
+});
+
+describe("the scope of a wake-up in the glossary and the docs", () => {
+  it("the Heartbeat entry checks every Delegation the run waits on", () => {
+    const entry = GLOSSARY.split("\n**Heartbeat**:\n")[1].split("\n")[0];
+    assert.match(entry, /every Delegation the run waits on/);
+  });
+
+  it("docs and the changelog do not narrow it to running Delegations", () => {
+    assert.ok(!DOCS.includes("every running Delegation"));
+    assert.ok(!read("CHANGELOG.md").includes("every running Delegation"));
   });
 });
 
