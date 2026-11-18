@@ -1,6 +1,6 @@
 /**
- * Contract test: an `orchestrate` Team Run (spec #314, issue #316, ADR 0014
- * and ADR 0015) is written into the skill where a run reads it. The skill is
+ * Contract test: an `orchestrate` Team Run (spec #314, issues #316 to #318,
+ * ADR 0014 and ADR 0015) is written into the skill where a run reads it. The skill is
  * prose, and no code parses an invocation, so these tests pin the sentences a
  * run relies on: the `--team` invocation and its argument rule, the argument
  * hint, the line that loads TEAM.md for `--team` only, and what a Team Run's
@@ -19,6 +19,7 @@ const read = (p) => readFileSync(join(root, p), "utf8");
 const SKILL_DIR = ".claude/skills/orchestrate";
 const SKILL = read(`${SKILL_DIR}/SKILL.md`);
 const TEAM = read(`${SKILL_DIR}/TEAM.md`);
+const TRACKERS = read(`${SKILL_DIR}/TRACKERS.md`);
 
 /** The text of a `## ` or `### ` section, from its heading to the next of the same depth or higher. */
 function section(text, heading) {
@@ -315,5 +316,87 @@ describe("docs/orchestrate.md: the Shared Board", () => {
 
   it("no longer says this version writes no row or label", () => {
     assert.doesNotMatch(team, /writes no row or label yet/);
+  });
+});
+
+describe("TEAM.md: ownership of a row", () => {
+  const owner = section(TEAM, "## Ownership");
+
+  it("re-reads the ticket's assignee just before every row or label write, and writes only while this teammate is its single assignee", () => {
+    const who = section(owner, "### Who writes");
+    assert.match(who, /just before every `write-row` and every `set-state`/i);
+    assert.match(who, /`spec-tickets`/);
+    assert.match(who, /single assignee is this teammate/);
+    assert.match(section(TEAM, "### When a row is written"), /\[Who writes\]\(#who-writes\)/);
+    assert.match(
+      TRACKERS.split("\n").find((l) => l.startsWith("| `spec-tickets`")),
+      /just before every row or label write/,
+    );
+  });
+  it("raises a Decision Request to the old owner when a running or parked ticket is assigned away: hand off, or ask for it back; nothing is stopped unasked", () => {
+    const re = section(owner, "### Reassignment");
+    assert.match(re, /running or parked/);
+    assert.match(re, /Decision Request/);
+    assert.match(re, /1\. \*\*Hand it off\*\*/);
+    assert.match(re, /2\. \*\*Ask for it back\*\*/);
+    assert.match(re, /never stopped unasked/);
+    assert.match(re, /never a Ruling/);
+  });
+
+  it("hands off in order: the branch is pushed, one final row line is written, and the local row becomes `dropped`", () => {
+    const off = section(owner, "### Handing a ticket off");
+    const steps = [...off.matchAll(/^(\d)\. (.+)$/gm)].map((m) => [m[1], m[2]]);
+    assert.deepEqual(
+      steps.map((s) => s[0]),
+      ["1", "2", "3"],
+      "three numbered steps",
+    );
+    assert.match(steps[0][1], /pushes its branch/);
+    assert.match(steps[1][1], /handed off to @<new> at `<branch>@<head>`/);
+    assert.match(steps[1][1], /one final row write/);
+    assert.match(steps[2][1], /row on the local board becomes `dropped`/);
+    assert.match(off, /The state label is left as it is/);
+    assert.match(off, /`handed off to @<new>, not started`/);
+    assert.match(
+      section(TEAM, "### Milestones"),
+      /`` handed off to @<login> at `<branch>@<head>` ``, or `handed off to @<login>, not started`/,
+    );
+  });
+  it("has the new assignee's run start a new Delegation from the handed-off branch, as a crashed one's is picked up, and write a new row comment", () => {
+    const pick = section(owner, "### Picking up a handed-off ticket");
+    assert.match(pick, /new Delegation from that branch/);
+    assert.match(pick, /as a crashed Delegation's branch is picked up/);
+    assert.match(pick, /\[SKILL\.md\]\(SKILL\.md#/);
+    assert.match(pick, /\*\*new\*\* row comment/);
+    assert.match(pick, /never edits/);
+    assert.match(pick, /a row comment by another author has as its newest milestone/);
+  });
+
+  it("has readers take the current assignee's row comment, or with none, the newest one shown as stale", () => {
+    const which = section(owner, "### Which comment is the row");
+    assert.match(which, /written by the ticket's current assignee/);
+    assert.match(which, /newest/);
+    assert.match(which, /stale/);
+  });
+  it("never overwrites a row of the same author carrying another run id, and asks: resume that run, or take the row over", () => {
+    const two = section(owner, "### Two runs of one teammate");
+    assert.match(two, /another run id/);
+    assert.match(two, /never overwritten/);
+    assert.match(two, /Decision Request/);
+    assert.match(two, /1\. \*\*Resume that run\*\*/);
+    assert.match(two, /2\. \*\*Take the row over\*\*/);
+    assert.match(two, /whether or not this run has its own row there too/);
+    assert.match(two, /never a Ruling/);
+    assert.match(
+      section(TEAM, "### When a row is written"),
+      /\[Two runs of one teammate\]\(#two-runs-of-one-teammate\)/,
+    );
+  });
+
+  it("overwrites a person's edit on the next write, re-creates a deleted row, and restores a removed label on the next state change", () => {
+    const edits = section(owner, "### A person's edits");
+    assert.match(edits, /overwritten on the next write/);
+    assert.match(edits, /re-created/);
+    assert.match(edits, /restored on the next state change/);
   });
 });
