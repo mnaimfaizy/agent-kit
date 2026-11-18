@@ -1,0 +1,193 @@
+/**
+ * Contract test: `orchestrate` re-checks every Ready to Merge row against the
+ * default branch as it now is (issue #288), before the row is listed and
+ * whenever the human comes back to the run. The skill is prose, so these tests
+ * pin the sentences a run relies on: when the check runs, what it reads and
+ * what each outcome does, the re-gate on the merge result, the Decision
+ * Request's two options and who may rule, the board's Default branch line,
+ * the states, the glossary clause, the one-at-a-time merge order, and the
+ * design note on why no heartbeat is armed for it. What a sentence means is
+ * for review; these only keep it from being dropped.
+ */
+
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { describe, it } from "node:test";
+import { fileURLToPath } from "node:url";
+
+const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+const read = (p) => readFileSync(join(root, p), "utf8");
+const SKILL_DIR = ".claude/skills/orchestrate";
+const SKILL = read(`${SKILL_DIR}/SKILL.md`);
+const RUN = read(`${SKILL_DIR}/RUN.md`);
+const SPEC = read(`${SKILL_DIR}/SPEC.md`);
+const DESIGN = read(`${SKILL_DIR}/DESIGN.md`);
+const GLOSSARY = read("GLOSSARY.md");
+const CHANGELOG = read("CHANGELOG.md");
+
+/** The text of a `## `, `### ` or `#### ` section, from its heading to the next of the same depth or higher. */
+function section(text, heading) {
+  const start = text.indexOf(`\n${heading}\n`);
+  assert.ok(start >= 0, `section ${heading} exists`);
+  const depth = heading.match(/^#+/)[0].length;
+  const rest = text.slice(start + heading.length + 2);
+  const next = rest.search(new RegExp(`^#{1,${depth}} `, "m"));
+  return next < 0 ? rest : rest.slice(0, next);
+}
+
+/** One line of a Markdown table, by the backticked name in its first cell. */
+function row(table, name) {
+  const line = table.split("\n").find((l) => l.startsWith(`| \`${name}\``));
+  assert.ok(line, `row ${name} exists`);
+  return line;
+}
+
+const CHECK = section(SKILL, "#### The default-branch check");
+const STEP8 = section(SKILL, "### 8. Find conflicts between finished branches");
+const STEP9 = section(SKILL, "### 9. QA each finished head");
+const STEP10 = section(SKILL, "### 10. Close out");
+const CLAUSE =
+  "merges cleanly into the default branch as it now is, and is not behind it where the repository requires branches to be up to date, unless the human chose to merge it as it is";
+
+describe("SKILL.md: when the default-branch check runs", () => {
+  it("step 10 runs it on each Ready to Merge row before the list is printed", () => {
+    const before = STEP10.slice(0, STEP10.indexOf("Then print the Ready to Merge list"));
+    assert.match(before, /\[default-branch check\]\(#the-default-branch-check\)/);
+  });
+
+  it('runs on `--status`, `--resume` and "merged <pr>", with no heartbeat armed for it', () => {
+    assert.match(CHECK, /`--status`/);
+    assert.match(CHECK, /`--resume`/);
+    assert.match(CHECK, /"merged <pr>"/);
+    assert.match(CHECK, /No heartbeat is armed for it/);
+  });
+
+  it("step 8 and step 9 list no row the check has not passed", () => {
+    for (const [name, step] of [
+      ["step 8", STEP8],
+      ["step 9", STEP9],
+    ])
+      assert.match(
+        step,
+        /only once it has passed the \[default-branch check\]\(#the-default-branch-check\)/,
+        `${name} defers Ready to Merge to the check`,
+      );
+  });
+
+  it("step 8 writes the board's Default branch line", () => {
+    assert.match(STEP8, /`Default branch` line/);
+  });
+
+  it("the integration-branch run checks the `<integration>` row, not landed tickets", () => {
+    assert.match(CHECK, /`<integration>` row/);
+    assert.match(section(SPEC, "### On an integration branch"), /default-branch check/);
+  });
+});
+
+describe("SKILL.md: what the check reads and what each outcome does", () => {
+  it("reads `mergeStateStatus`, test-merges against the current tip, and reads the checks", () => {
+    assert.match(CHECK, /`mergeStateStatus`/);
+    assert.match(CHECK, /`git merge-tree --write-tree <tip> <head>`/);
+    assert.match(CHECK, /`gh pr checks <pr>`/);
+  });
+
+  it('a failing check sends the row back to step 7; a pending one keeps it off the list as "checks running"', () => {
+    assert.match(CHECK, /failing check[^.]*back to step 7/);
+    assert.match(CHECK, /pending[^.]*off the list[^.]*"checks running"/);
+  });
+
+  it("a `BEHIND` row or a failed re-gate is a Decision Request, and the row is `waiting`", () => {
+    assert.match(CHECK, /`BEHIND`/);
+    assert.match(CHECK, /re-gate fails/);
+    assert.match(CHECK, /`waiting`/);
+  });
+
+  it("re-gates the merge result in a detached worktree whenever the tip moved, strict rule or not", () => {
+    assert.match(CHECK, /moved since the board's `Default branch` line/);
+    assert.match(CHECK, /`git commit-tree <tree> -p <tip> -p <head>`/);
+    assert.match(CHECK, /detached worktree/);
+    assert.match(CHECK, /strict rule or not/);
+  });
+
+  it("writes the Default branch line at each check", () => {
+    assert.match(CHECK, /rewrite the board's `Default branch` line/);
+  });
+});
+
+describe("SKILL.md: the Decision Request for a row behind or failing its re-gate", () => {
+  it("offers merge as it is with the admin bypass, or the Delegation merges the default branch in", () => {
+    assert.match(CHECK, /\*\*Merge it as it is\*\*[^\n]*admin bypass/);
+    assert.match(CHECK, /\*\*The Delegation merges the default branch in\*\*/);
+    assert.match(CHECK, /new head[^\n]*step 7[^\n]*`void`/);
+  });
+
+  it("recommends (i) only when merge-tree is clean and the re-gate passed", () => {
+    assert.match(CHECK, /Recommend 1 when the merge is clean and the re-gate passed; otherwise 2/);
+  });
+
+  it("in an autonomous run, only option 2 can be a Ruling; option 1 stays the human's", () => {
+    assert.match(CHECK, /autonomous run, option 2 may be a Ruling/);
+    assert.match(CHECK, /option 1 is always the human's/);
+    const auto = section(SKILL, "## Autonomous runs");
+    assert.match(auto, /merging the default branch into a row's branch \(step 10\)/);
+    assert.match(auto, /merging a row as it is with the admin bypass/);
+  });
+});
+
+describe("SKILL.md: the merge order", () => {
+  it('says merge one at a time and say "merged <pr>" after each, under the strict rule', () => {
+    assert.match(STEP10, /merge one at a time, and say "merged <pr>" after each/);
+    assert.match(STEP10, /`BEHIND`/);
+  });
+});
+
+describe("RUN.md", () => {
+  // The board's example opens with a `# Run` heading inside its fence, which ends `section`.
+  const board = RUN.slice(RUN.indexOf("\n## Board\n"), RUN.indexOf("\n## States\n"));
+  const states = section(RUN, "## States");
+
+  it("the board form has the Default branch line straight under Heartbeat", () => {
+    assert.match(board, /^Heartbeat: .+\n\nDefault branch: <name> at <SHA>, checked <time>\.$/m);
+    assert.match(board, /^The `Default branch` line/m);
+  });
+
+  it("`ready to merge` carries the clause, and a `BEHIND` row is `waiting`", () => {
+    assert.ok(row(states, "ready to merge").includes(CLAUSE), "ready to merge has the clause");
+    assert.match(row(states, "waiting"), /`BEHIND`/);
+  });
+
+  it("`--resume` runs the check before it lists a row", () => {
+    assert.match(section(RUN, "## Resume"), /default-branch check/);
+  });
+
+  it("`--status` runs the check and changes nothing but the board's check result", () => {
+    const status = section(RUN, "## Status");
+    assert.match(status, /default-branch check/);
+    assert.match(status, /changes nothing else/);
+    assert.ok(
+      !status.includes("It reads nothing else and changes nothing."),
+      "the old rule is gone",
+    );
+  });
+});
+
+describe("the glossary and DESIGN.md", () => {
+  it("GLOSSARY's **Ready to Merge** has the clause", () => {
+    const entry = GLOSSARY.split("\n**Ready to Merge**:\n")[1].split("\n")[0];
+    assert.ok(entry.includes(CLAUSE), entry);
+  });
+
+  it("DESIGN.md says why the check runs on the human's return, not on a heartbeat", () => {
+    const why = section(DESIGN, "## The default branch, checked on the human's return");
+    assert.match(why, /heartbeat/);
+    assert.match(why, /`mergeStateStatus`/);
+  });
+});
+
+describe("CHANGELOG.md", () => {
+  it("has an [Unreleased] line for the change", () => {
+    const unreleased = CHANGELOG.split("\n## [Unreleased]\n")[1].split("\n## [")[0];
+    assert.match(unreleased, /\[#288\]/);
+  });
+});
