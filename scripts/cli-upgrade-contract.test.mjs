@@ -26,6 +26,7 @@ import { PassThrough } from "node:stream";
 import { sanitizeLine } from "../cli/src/checks/result.mjs";
 import { main } from "../cli/src/cli.mjs";
 import { systemRunner } from "../cli/src/exec.mjs";
+import { parseKitOwnedPaths } from "../cli/src/kit-owned-paths.mjs";
 import { openKitRepo, openKitTag } from "../cli/src/kit-tag.mjs";
 import { terminalPrompt } from "../cli/src/prompt.mjs";
 import { caseCollisions, checkSafePath, fileDirConflicts } from "../cli/src/safe-paths.mjs";
@@ -768,6 +769,30 @@ describe("tag reading", () => {
     const r = systemRunner("git", ["--version"], { encoding: "buffer" });
     assert.ok(Buffer.isBuffer(r.stdout));
     assert.equal(typeof systemRunner("git", ["--version"]).stdout, "string");
+  });
+});
+
+describe("the shipped manifest", () => {
+  // The fixtures above build their own manifests, so this is the one test that
+  // holds the CLI's deletion rule to this repository's real kit-owned-paths.txt
+  // (#301: a runtime folder the Python contract allowed but the CLI refused).
+  it("parses for deletion, every entry accepted", () => {
+    const text = readFileSync(new URL("../kit-owned-paths.txt", import.meta.url), "utf8");
+    const listed = text
+      .split("\n")
+      .map((l) => l.replace(/\r$/, ""))
+      .filter((l) => l && !l.startsWith("#"));
+    assert.deepEqual(parseKitOwnedPaths(text, { forDeletion: true }), listed);
+  });
+
+  it("still refuses paths upgrade may not delete", () => {
+    for (const bad of [".github/", ".github/workflows/", "docs/", ".claude/skills/", "a/../b/"]) {
+      assert.throws(
+        () => parseKitOwnedPaths(`${bad}\n`, { forDeletion: true }),
+        /is not a permitted Kit-owned path/,
+        bad,
+      );
+    }
   });
 });
 
