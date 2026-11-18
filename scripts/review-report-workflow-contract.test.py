@@ -98,8 +98,6 @@ def test_the_brief_describes_the_review_report_as_an_index() -> None:
         "Under each of ## Standards, ## Spec and ## Correctness, write one top-level list item per thread",
         "- [path:line](<the thread's html_url>) — one-line summary",
         "An axis with no findings says so in a sentence, not a list item.",
-        "What you checked or confirmed, and anything else that is not a thread, "
-        "goes in prose under those headings, never as a list item",
         "do not rerank across them",
     ]:
         assert needle in brief, f"the brief must say {needle!r}"
@@ -317,6 +315,40 @@ def test_a_re_review_listing_its_fixed_findings_unlinked_fails() -> None:
     )
     assert result.returncode != 0
     assert '"The id is now the next unused suffix." links no review thread' in result.stdout
+
+
+def test_the_brief_gives_checked_notes_a_sub_heading() -> None:
+    brief = flat(step(BRIEF_STEP)["run"])
+    for needle in [
+        "What you checked or confirmed goes last under its axis, below a ### Checked line,",
+        "Every other list item under those headings is a thread entry.",
+    ]:
+        assert needle in brief, f"the brief must say {needle!r}"
+
+
+def test_a_first_review_with_findings_and_checked_notes_passes() -> None:
+    # Run 44221159427 (#283): real thread entries, then what the reviewer
+    # checked and found fine, as a list. Under ### Checked that list is
+    # not entries.
+    result = run_report_step(
+        f"- [src/a.ts:1]({THREAD}11) — drift\n\n"
+        "### Checked\n\n"
+        "- The new test follows the naming, and npm test's glob picks it up.\n"
+        "- CHANGELOG [Unreleased] has an entry."
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "1 entries, each linking its thread" in result.stdout
+
+
+def test_a_first_review_listing_checked_notes_outside_checked_fails() -> None:
+    # The #283 shape as posted: the notes listed with no ### Checked line.
+    result = run_report_step(
+        f"- [src/a.ts:1]({THREAD}11) — drift\n\n"
+        "I checked the diff against CONTRIBUTING.md:\n"
+        "- CHANGELOG [Unreleased] has an entry."
+    )
+    assert result.returncode != 0
+    assert '"CHANGELOG [Unreleased] has an entry." links no review thread' in result.stdout
 
 
 if __name__ == "__main__":
