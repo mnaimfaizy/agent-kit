@@ -20,9 +20,34 @@ from gen_doc_blocks import DOC_PAGES, DOC_TREES, FIX_COMMAND  # noqa: E402 - nee
 
 GENERATOR = ROOT / "scripts" / "gen_doc_blocks.py"
 # Every Doc fact's source, copied with the docs so the copy can be regenerated.
-FACT_SOURCES = [".github/agent-review-response"]
+# cli/src/tags.mjs, imported by init.mjs, reads cli/package.json when it loads.
+FACT_SOURCES = [".github/agent-review-response", "cli/src", "cli/package.json"]
 REVIEW_RESPONSE_SCRIPT = Path(".github/agent-review-response/review-response.mjs")
+INIT_SCRIPT = Path("cli/src/init.mjs")
 PROTECTED_BLOCK = "review-response-protected-paths"
+LABELS_BLOCK = "trigger-labels"
+KILL_SWITCH_BLOCK = "stage-kill-switches"
+MODEL_BLOCK = "stage-model-and-effort"
+PIPELINE_CALLER = Path("examples/plan-implement-review-caller.yml")
+RESPONSE_CALLER = Path("examples/review-response-caller.yml")
+# Each fact this test names, and the pages that hold its block.
+BLOCK_PAGES = {
+    PROTECTED_BLOCK: ["docs/review-response.md", "CONTRIBUTING.md"],
+    LABELS_BLOCK: ["docs/getting-started.md", "CONTRIBUTING.md"],
+    KILL_SWITCH_BLOCK: ["docs/getting-started.md"],
+    MODEL_BLOCK: ["docs/getting-started.md"],
+}
+
+
+def block(fact: str, page: str = "docs/getting-started.md") -> str:
+    text = (ROOT / page).read_text(encoding="utf-8")
+    return text.split(f"<!-- generated:{fact} -->")[1].split(f"<!-- /generated:{fact} -->")[0]
+
+
+def edit(path: Path, old: str, new: str) -> None:
+    text = path.read_text(encoding="utf-8")
+    assert old in text, f"{path.name} no longer has {old!r}; update this test"
+    path.write_text(text.replace(old, new, 1), encoding="utf-8")
 
 
 def check(root: Path) -> subprocess.CompletedProcess[str]:
@@ -37,12 +62,12 @@ def check(root: Path) -> subprocess.CompletedProcess[str]:
 def copy_repo(dest: Path) -> Path:
     """The files the generator reads: the gated docs and each fact's source."""
     root = dest / "repo"
-    for path in DOC_PAGES:
-        if (ROOT / path).exists():
+    for path in [*DOC_PAGES, *DOC_TREES, *FACT_SOURCES]:
+        if (ROOT / path).is_dir():
+            shutil.copytree(ROOT / path, root / path)
+        elif (ROOT / path).exists():
             (root / path).parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(ROOT / path, root / path)
-    for folder in [*DOC_TREES, *FACT_SOURCES]:
-        shutil.copytree(ROOT / folder, root / folder)
     return root
 
 
@@ -51,10 +76,11 @@ def test_every_block_on_disk_matches_its_source() -> None:
     assert result.returncode == 0, f"Generated blocks are stale:\n{result.stderr}"
 
 
-def test_protected_paths_block_is_in_both_pages() -> None:
-    marker = f"<!-- generated:{PROTECTED_BLOCK} -->"
-    for page in ["docs/review-response.md", "CONTRIBUTING.md"]:
-        assert marker in (ROOT / page).read_text(encoding="utf-8"), f"{page} has no {PROTECTED_BLOCK} block"
+def test_each_block_is_in_its_pages() -> None:
+    for fact, pages in BLOCK_PAGES.items():
+        for page in pages:
+            text = (ROOT / page).read_text(encoding="utf-8")
+            assert f"<!-- generated:{fact} -->" in text, f"{page} has no {fact} block"
 
 
 def test_check_names_a_stale_block_and_the_fix() -> None:
@@ -87,6 +113,90 @@ def test_a_new_protected_path_without_regenerating_fails() -> None:
     assert result.returncode == 1, f"--check passed after a protected path was added:\n{result.stdout}"
     for page in ["docs/review-response.md", "CONTRIBUTING.md"]:
         assert f"{page}: generated:{PROTECTED_BLOCK}" in result.stderr, result.stderr
+
+
+def test_a_changed_init_label_without_regenerating_fails() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = copy_repo(Path(tmp))
+        edit(
+            root / INIT_SCRIPT,
+            '["agent:review", "5319E7", "Agent-kit: review this PR"]',
+            '["agent:review", "C5DEF5", "Agent-kit: review this PR"]',
+        )
+
+        result = check(root)
+
+    assert result.returncode == 1, f"--check passed after an init label's colour changed:\n{result.stdout}"
+    for page in BLOCK_PAGES[LABELS_BLOCK]:
+        assert f"{page}: generated:{LABELS_BLOCK} is stale" in result.stderr, result.stderr
+
+
+def test_the_label_block_holds_inits_labels() -> None:
+    labels = block(LABELS_BLOCK)
+    assert 'gh label create "agent:address-review" --color FBCA04' in labels, labels
+    assert '--description "Agent-kit: answer the review on this PR"' in labels, labels
+
+
+def test_the_stage_blocks_hold_each_stages_variables() -> None:
+    switches = block(KILL_SWITCH_BLOCK)
+    assert "`CLAUDE_AGENT_FLOW_ENABLED` is `true` and `CLAUDE_IMPLEMENT_ENABLED` is not `false`" in switches, switches
+    assert "| Review response | `CLAUDE_REVIEW_RESPONSE_ENABLED` is `true`" in switches, switches
+    models = block(MODEL_BLOCK)
+    assert "| security audit | `CLAUDE_SECURITY_AUDIT_MODEL` | `CLAUDE_SECURITY_AUDIT_EFFORT` |" in " ".join(
+        models.split()
+    ), models
+    assert "`CLAUDE_MODEL`" in models and "`CLAUDE_EFFORT`" in models and "`claude-opus-5-5`" in models, models
+
+
+def test_a_renamed_caller_variable_without_regenerating_fails() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = copy_repo(Path(tmp))
+        edit(root / PIPELINE_CALLER, "vars.CLAUDE_PLAN_EFFORT ||", "vars.CLAUDE_PLAN_THINKING ||")
+
+        result = check(root)
+
+    assert result.returncode == 1, f"--check passed after a Caller variable was renamed:\n{result.stdout}"
+    assert f"docs/getting-started.md: generated:{MODEL_BLOCK} is stale" in result.stderr, result.stderr
+    assert KILL_SWITCH_BLOCK not in result.stderr, f"only the model block should be named:\n{result.stderr}"
+
+
+def test_a_changed_kill_switch_without_regenerating_fails() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = copy_repo(Path(tmp))
+        edit(
+            root / RESPONSE_CALLER,
+            "kill_switch: ${{ vars.CLAUDE_REVIEW_RESPONSE_ENABLED != 'true' }}",
+            "kill_switch: ${{ vars.CLAUDE_AGENT_FLOW_ENABLED != 'true'"
+            " || vars.CLAUDE_REVIEW_RESPONSE_ENABLED != 'true' }}",
+        )
+
+        result = check(root)
+
+    assert result.returncode == 1, f"--check passed after a Kill switch changed:\n{result.stdout}"
+    assert f"docs/getting-started.md: generated:{KILL_SWITCH_BLOCK} is stale" in result.stderr, result.stderr
+
+
+def test_a_caller_setting_the_generator_cannot_read_fails_and_names_it() -> None:
+    cases = {
+        "kill_switch": (
+            "kill_switch: ${{ vars.CLAUDE_REVIEW_RESPONSE_ENABLED != 'true' }}",
+            "kill_switch: ${{ !vars.CLAUDE_REVIEW_RESPONSE_ENABLED }}",
+        ),
+        "effort": (
+            "effort: ${{ vars.CLAUDE_REVIEW_RESPONSE_EFFORT || vars.CLAUDE_EFFORT || '' }}",
+            "effort: ${{ 'high' }}",
+        ),
+    }
+    for key, (old, new) in cases.items():
+        with tempfile.TemporaryDirectory() as tmp:
+            root = copy_repo(Path(tmp))
+            edit(root / RESPONSE_CALLER, old, new)
+
+            result = check(root)
+
+        assert result.returncode == 1, f"--check passed on a {key} it cannot read:\n{result.stdout}"
+        assert "Traceback" not in result.stderr, result.stderr
+        assert "examples/review-response-caller.yml" in result.stderr and key in result.stderr, result.stderr
 
 
 def test_a_broken_marker_fails_and_names_it() -> None:
@@ -150,9 +260,15 @@ def test_a_marker_problem_stops_the_write_before_any_page_changes() -> None:
 
 if __name__ == "__main__":
     test_every_block_on_disk_matches_its_source()
-    test_protected_paths_block_is_in_both_pages()
+    test_each_block_is_in_its_pages()
     test_check_names_a_stale_block_and_the_fix()
     test_a_new_protected_path_without_regenerating_fails()
+    test_a_changed_init_label_without_regenerating_fails()
+    test_the_label_block_holds_inits_labels()
+    test_the_stage_blocks_hold_each_stages_variables()
+    test_a_renamed_caller_variable_without_regenerating_fails()
+    test_a_changed_kill_switch_without_regenerating_fails()
+    test_a_caller_setting_the_generator_cannot_read_fails_and_names_it()
     test_a_broken_marker_fails_and_names_it()
     test_an_empty_source_list_is_rendered_not_a_crash()
     test_a_marker_problem_stops_the_write_before_any_page_changes()

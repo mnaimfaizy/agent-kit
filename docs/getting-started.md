@@ -134,12 +134,18 @@ Every input and secret is listed in the [workflow reference](reference.md).
 
 ## 6. Create trigger labels
 
+These are the labels `agent-kit init` prints, for the flows you choose:
+
+<!-- generated:trigger-labels -->
+
 ```bash
-gh label create "agent:plan"      --color 1D76DB --description "Agent-kit: plan this issue"
-gh label create "agent:implement" --color 0E8A16 --description "Agent-kit: implement the Verified plan"
-gh label create "agent:review"    --color 5319E7 --description "Agent-kit: review this PR"
+gh label create "agent:plan"           --color 1D76DB --description "Agent-kit: plan this issue"
+gh label create "agent:implement"      --color 0E8A16 --description "Agent-kit: implement the Verified plan"
+gh label create "agent:review"         --color 5319E7 --description "Agent-kit: review this PR"
 gh label create "agent:address-review" --color FBCA04 --description "Agent-kit: answer the review on this PR"
 ```
+
+<!-- /generated:trigger-labels -->
 
 Each run removes its label when it finishes, so adding it again re-runs the stage.
 
@@ -152,13 +158,19 @@ Skip if you only use plan → implement → review.
 
 ## 8. Turn the flows on (Kill switch variables)
 
-Callers read every Stage setting from repository variables named `CLAUDE_<STAGE>_<SETTING>`, with the Stage tokens `PLAN`, `IMPLEMENT`, `REVIEW`, `REVIEW_RESPONSE` and `SECURITY_AUDIT` ([ADR 0009](adr/0009-stage-settings-resolve-in-the-caller.md)). A flow's **Kill switch** keeps it off until the variable is exactly `true`:
+Callers read every Stage setting from repository variables named `CLAUDE_<STAGE>_<SETTING>`, with the Stage tokens `PLAN`, `IMPLEMENT`, `REVIEW`, `REVIEW_RESPONSE` and `SECURITY_AUDIT` ([ADR 0009](adr/0009-stage-settings-resolve-in-the-caller.md)). Each Stage's **Kill switch** variables keep it off until every condition in its row holds:
 
-| Variable                         | Enables                                       |
-| -------------------------------- | --------------------------------------------- |
-| `CLAUDE_AGENT_FLOW_ENABLED`      | the Agent flow: plan → implement → review     |
-| `CLAUDE_SECURITY_AUDIT_ENABLED`  | security audit                                |
-| `CLAUDE_REVIEW_RESPONSE_ENABLED` | Review response (not under the master switch) |
+<!-- generated:stage-kill-switches -->
+
+| Stage           | Runs when                                                                           |
+| --------------- | ----------------------------------------------------------------------------------- |
+| plan            | `CLAUDE_AGENT_FLOW_ENABLED` is `true` and `CLAUDE_PLAN_ENABLED` is not `false`      |
+| implement       | `CLAUDE_AGENT_FLOW_ENABLED` is `true` and `CLAUDE_IMPLEMENT_ENABLED` is not `false` |
+| review          | `CLAUDE_AGENT_FLOW_ENABLED` is `true` and `CLAUDE_REVIEW_ENABLED` is not `false`    |
+| Review response | `CLAUDE_REVIEW_RESPONSE_ENABLED` is `true`                                          |
+| security audit  | `CLAUDE_SECURITY_AUDIT_ENABLED` is `true`                                           |
+
+<!-- /generated:stage-kill-switches -->
 
 ```bash
 gh variable set CLAUDE_AGENT_FLOW_ENABLED --body true
@@ -166,7 +178,7 @@ gh variable set CLAUDE_SECURITY_AUDIT_ENABLED --body true
 gh variable set CLAUDE_REVIEW_RESPONSE_ENABLED --body true
 ```
 
-Inside the Agent flow, each Stage also has its own switch, `CLAUDE_PLAN_ENABLED`, `CLAUDE_IMPLEMENT_ENABLED` and `CLAUDE_REVIEW_ENABLED`. Unset counts as on; only `false` turns that Stage off (GitHub compares these values without regard to case, so `False` does too, and `TRUE` counts as `true` for a flow's switch). A Stage runs only when the master switch is `true` and its own switch is not `false`, so the plan job passes `kill_switch: ${{ vars.CLAUDE_AGENT_FLOW_ENABLED != 'true' || vars.CLAUDE_PLAN_ENABLED == 'false' }}`. For example, to keep plan and review but have a person write the code:
+The Agent flow's master switch is `CLAUDE_AGENT_FLOW_ENABLED`, and each of its Stages also has its own switch, as the table shows; Review response is not under the master switch. Unset counts as on; only `false` turns that Stage off (GitHub compares these values without regard to case, so `False` does too, and `TRUE` counts as `true` for a flow's switch). For example, to keep plan and review but have a person write the code:
 
 ```bash
 gh variable set CLAUDE_IMPLEMENT_ENABLED --body false
@@ -176,7 +188,9 @@ gh variable set CLAUDE_IMPLEMENT_ENABLED --body false
 
 Set a flow's switch to anything but `true` (or delete it) to stop it instantly without a commit.
 
-**Model and effort (optional).** Each Stage reads its own variable first, then the shared one. A model falls back to `claude-opus-5-5`. With no effort set, `--effort` is left off and the model's own default applies. For example, the plan job passes `model: ${{ vars.CLAUDE_PLAN_MODEL || vars.CLAUDE_MODEL || 'claude-opus-5-5' }}` and `effort: ${{ vars.CLAUDE_PLAN_EFFORT || vars.CLAUDE_EFFORT || '' }}`. Change either at any time, with no commit needed:
+**Model and effort (optional).** Each Stage reads its own variable first, then the shared one, then the default in the last row. With no effort set, `--effort` is left off and the model's own default applies. Change either at any time, with no commit needed:
+
+<!-- generated:stage-model-and-effort -->
 
 | Stage           | Model                          | Effort                          |
 | --------------- | ------------------------------ | ------------------------------- |
@@ -186,6 +200,9 @@ Set a flow's switch to anything but `true` (or delete it) to stop it instantly w
 | Review response | `CLAUDE_REVIEW_RESPONSE_MODEL` | `CLAUDE_REVIEW_RESPONSE_EFFORT` |
 | security audit  | `CLAUDE_SECURITY_AUDIT_MODEL`  | `CLAUDE_SECURITY_AUDIT_EFFORT`  |
 | any Stage above | `CLAUDE_MODEL`                 | `CLAUDE_EFFORT`                 |
+| neither set     | `claude-opus-5-5`              | none                            |
+
+<!-- /generated:stage-model-and-effort -->
 
 ```bash
 gh variable set CLAUDE_MODEL --body claude-opus-5-5

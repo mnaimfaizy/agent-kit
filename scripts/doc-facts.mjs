@@ -48,11 +48,23 @@ async function constants(relativePath, names) {
   );
 }
 
+// `init` prints a `gh label create` line for each: LABELS for the Agent flow,
+// RESPONSE_LABEL for Review response.
+const { LABELS, RESPONSE_LABEL } = await constants("cli/src/init.mjs", [
+  "LABELS",
+  "RESPONSE_LABEL",
+]);
+
 const facts = {
   "review-response-protected-paths": await constants(
     ".github/agent-review-response/review-response.mjs",
     ["PROTECTED_FILES", "PROTECTED_DIRS_ANY_DEPTH", "PROTECTED_ROOT_DIRS", "KIT_OWNED_PATHS"],
   ),
+  "trigger-labels": [...LABELS, RESPONSE_LABEL].map(([name, color, description]) => ({
+    name,
+    color,
+    description,
+  })),
 };
 
 process.stdout.write(`${JSON.stringify(facts, null, 2)}\n`);
