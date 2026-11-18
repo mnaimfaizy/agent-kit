@@ -769,3 +769,33 @@ describe("trackers/github.md: `merged` once the pull request is merged", () => {
     assert.match(check, /includeClosedPrs/);
   });
 });
+
+describe("TEAM.md and RUN.md: a parked ticket picked up or restarted from a branch", () => {
+  it("is unparked from that branch, with the default branch merged in", () => {
+    const blocking = section(TEAM, "### Blocking across teammates");
+    assert.match(blocking, /picked up or restarted from a branch/);
+    assert.match(blocking, /merges the default branch into it/);
+    const parked = TEAM.split("\n").find((l) => l.startsWith("| `parked` "));
+    assert.match(parked, /or on the branch it was picked up or restarted from/);
+    assert.match(section(RUN, "## Resume"), /6\. .*picked up or restarted from a branch/);
+  });
+
+  it("records the pick-up on the board and as the new row's first milestone", () => {
+    const pick = section(TEAM, "### Picking up a handed-off ticket");
+    assert.match(pick, /the board records it beside the ticket's row/);
+    assert.match(
+      pick,
+      /Its first milestone is `` picked up from @<previous> at `<branch>@<head>` ``/,
+    );
+    assert.match(
+      section(TEAM, "### Milestones"),
+      /`` picked up from @<login> at `<branch>@<head>` ``/,
+    );
+    const status = section(section(RUN, "## Status"), "### In a Team Run");
+    assert.doesNotMatch(status, /newest milestone says so/);
+    assert.match(
+      status,
+      /picked up from @<old> at <branch>@<head>` for one of this teammate's whose board records it/,
+    );
+  });
+});
