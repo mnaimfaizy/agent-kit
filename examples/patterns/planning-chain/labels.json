@@ -1,0 +1,59 @@
+{
+  "comment": "Pattern guide skeleton: docs/patterns/planning-chain.md in Agent-kit. The planning chain's label set. Rename a label to your own vocabulary but keep its rule, then delete this key. Create each with: gh label create <name> --color <color> --description <description>. GitHub allows 100 characters in a description, so the longer rule is kept here, beside it.",
+  "labels": [
+    {
+      "name": "prd",
+      "color": "6f42c1",
+      "description": "A planned feature; its slices are its sub-issues",
+      "rule": "One per planned feature. Its body holds the assembled-branch gate, and the gate's verdict is posted on it."
+    },
+    {
+      "name": "tier:mechanical",
+      "color": "d4c5f9",
+      "description": "Slice gate tier: every mechanical criterion holds",
+      "rule": "Exactly one tier label per slice. With none, the slice is not ready."
+    },
+    {
+      "name": "tier:standard",
+      "color": "b392f0",
+      "description": "Slice gate tier: one behaviour change on one surface",
+      "rule": "Exactly one tier label per slice. With none, the slice is not ready."
+    },
+    {
+      "name": "tier:full",
+      "color": "7057ff",
+      "description": "Slice gate tier: a new module, a public contract or a high-risk area",
+      "rule": "Exactly one tier label per slice. With none, the slice is not ready."
+    },
+    {
+      "name": "afk",
+      "color": "e4e669",
+      "description": "A builder can finish this slice without a person",
+      "rule": "Exactly one of afk or hitl per slice."
+    },
+    {
+      "name": "hitl",
+      "color": "f9d0c4",
+      "description": "A person decides first; see the slice's Decision needed section",
+      "rule": "Never dispatched. Once the decision is written in the slice, a person swaps it for afk and the dispatch label."
+    },
+    {
+      "name": "ready-for-agent",
+      "color": "0075ca",
+      "description": "Dispatch label: may start once every Blocked by issue is closed",
+      "rule": "Only on an afk slice. A dispatcher starts an open slice that has it, is not integrated, and whose blockers are all closed."
+    },
+    {
+      "name": "ready-for-human",
+      "color": "0e8a16",
+      "description": "A person acts next: a hitl slice, or a slice held open",
+      "rule": "A slice whose run did not end clean is held open with this label and a comment listing what was left. Its dependents wait until a person closes it."
+    },
+    {
+      "name": "integrated",
+      "color": "c2e0c6",
+      "description": "Its commits are on the assembled branch; never dispatched again",
+      "rule": "Set on integration, whether or not the run ended clean. It is what keeps a re-run from building the slice twice."
+    }
+  ]
+}

@@ -32,6 +32,8 @@ docs/patterns/tiered-quality-gates.md
 docs/patterns/merge-train.md
 docs/patterns/sub-agent-sync.md
 docs/patterns/external-skills-registry.md
+docs/patterns/instruction-layout.md
+docs/patterns/planning-chain.md
 
 .github/workflows/security-audit-reusable.yml
 .github/workflows/agent-plan-reusable.yml
@@ -75,6 +77,8 @@ examples/patterns/tiered-quality-gates/
 examples/patterns/merge-train/
 examples/patterns/sub-agent-sync/
 examples/patterns/external-skills-registry/
+examples/patterns/instruction-layout/
+examples/patterns/planning-chain/
 
 scripts/prepare-release.sh
 scripts/cut-release.sh
