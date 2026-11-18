@@ -94,13 +94,19 @@ if [ "${#labels[@]}" -gt 0 ]; then
 fi
 
 # 4. Push. A diverged remote is refused unless the caller asks for a lease,
-# which is pinned to the remote commit observed here.
-if upstream="$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null)"; then
-  read -r behind ahead < <(git rev-list --left-right --count '@{u}...HEAD')
+# which is pinned to the remote commit observed here. Compare with the remote
+# branch of the same name, not @{u}: a branch made from origin/<base> tracks
+# the base branch, which would look like a divergence and pin the lease to
+# the wrong ref.
+upstream="origin/$branch"
+remote_ref="refs/remotes/$upstream"
+git fetch --quiet origin "$branch" 2>/dev/null || true
+if git rev-parse --verify --quiet "$remote_ref" >/dev/null; then
+  read -r behind ahead < <(git rev-list --left-right --count "$remote_ref...HEAD")
   if [ "$behind" -gt 0 ] && [ "$ahead" -gt 0 ]; then
     [ "$lease" = true ] ||
       fail "$upstream has commits this branch does not. After a rebase, run $RUNNER again with --force-with-lease. Never force-push."
-    remote_sha="$(git rev-parse '@{u}')"
+    remote_sha="$(git rev-parse "$remote_ref")"
     # TODO(adopt): refuse here when the remote holds a commit with no
     # equivalent on this branch (git cherry, plus author and subject), which
     # is someone else's work rather than a rebased copy of yours.
