@@ -1,10 +1,11 @@
 /**
- * Contract test: an `orchestrate` Team Run (spec #314, issues #316 to #318,
+ * Contract test: an `orchestrate` Team Run (spec #314, issues #316 to #319,
  * ADR 0014 and ADR 0015) is written into the skill where a run reads it. The skill is
  * prose, and no code parses an invocation, so these tests pin the sentences a
  * run relies on: the `--team` invocation and its argument rule, the argument
  * hint, the line that loads TEAM.md for `--team` only, and what a Team Run's
- * Dispatch Plan must say. What a sentence means is for review; these only keep
+ * Dispatch Plan must say, what its `--status` prints, and the observer form
+ * `--status --spec <n>`. What a sentence means is for review; these only keep
  * it from being dropped.
  */
 
@@ -524,7 +525,7 @@ describe("TEAM.md: a Team Run off GitHub", () => {
   });
 
   it("writes a merge request as `!<iid>` on GitLab where the row says `#<pr>`", () => {
-    assert.match(section(TEAM, "### The row"), /`!<iid>`.*`#<pr>`|`#<pr>`.*`!<iid>`/);
+    assert.match(section(TEAM, "### The row"), /`!<mr>`.*`#<pr>`|`#<pr>`.*`!<mr>`/);
   });
 });
 
