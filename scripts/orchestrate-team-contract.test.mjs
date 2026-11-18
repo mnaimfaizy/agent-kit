@@ -761,3 +761,11 @@ describe("trackers/gitlab.md: citations that resolve in a Consumer", () => {
     assert.doesNotMatch(GITLAB, /(?<!Agent-kit's \[)`docs\/agents\/issue-tracker\.md`/);
   });
 });
+
+describe("trackers/github.md: `merged` once the pull request is merged", () => {
+  it("records that a merged pull request is still listed, with `state` `MERGED`", () => {
+    const check = section(GITHUB, "## Check before use");
+    assert.match(check, /merged pull request is still listed/);
+    assert.match(check, /includeClosedPrs/);
+  });
+});
