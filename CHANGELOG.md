@@ -6,6 +6,8 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
+## [1.0.0-beta.8] - 2026-11-18
+
 ### Added
 
 - In a `go autonomous` `orchestrate` run, QA runs from the brief ([#289](https://github.com/mnaimfaizy/agent-kit/issues/289), [ADR 0013](docs/adr/0013-in-an-autonomous-orchestrate-run-the-qa-skills-run-from-the-brief.md)): on a `target: stack` plan, the QA session follows `qa-plan` and then `manual-qa` from the paths its brief gives, and you type neither command. Each QA skill gains a "Run from an autonomous brief" section listing every step where it waits on you and what replaces the wait: delivery and the subject issue are Rulings, "Add the test" goes back to the building Delegation, nothing is uploaded, and the report posts only if you approved that write. A `target: url` plan stays typed by you, and its QA Delegation waits while the run goes on. In every run, the QA readiness question is now asked once, in the Dispatch Plan, and saved to the run folder as `qa-readiness.json`; `qa-plan` takes it with the new `--answers <file>` (`/qa-plan <n> --answers <file>`, and `adapter.mjs check --for plan --answers <file>`), shows "Readiness answers reused from <file>: <values>" in the draft, and does not offer to save a config again. In a plain `go` run you are given the exact command to type, with `--answers` when the run has an answers file. The QA skills stay user-invoked. **Consumer action:** none.
