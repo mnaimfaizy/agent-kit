@@ -63,8 +63,8 @@ Started 2026-11-07 09:10. Default branch: main@a8aa57e, checked 18:40.
 
 | Advisory            | Created    | Rows | State | CVE          | Fork clone                    | Next                                  |
 | ------------------- | ---------- | ---- | ----- | ------------ | ----------------------------- | ------------------------------------- |
-| GHSA-hg89-9pp4-v549 | 2026-10-12 | 4    | draft | not requested | D:\Projects\agent-kit-ghsa-hg89 | wait: 3 rows not final               |
-| GHSA-h5h6-4v46-73f9 | 2026-11-07 | 1    | draft | not requested | D:\Projects\agent-kit-ghsa-h5h6 | wait: 1 row not final                |
+| GHSA-hg89-9pp4-v549 | 2026-10-12 | 4    | draft | not requested | ../agent-kit-ghsa-hg89 | wait: 3 rows not final               |
+| GHSA-h5h6-4v46-73f9 | 2026-11-07 | 1    | draft | not requested | ../agent-kit-ghsa-h5h6 | wait: 1 row not final                |
 | GHSA-xmp7-9gg5-9fv9 | 2026-11-02 | 1    | draft | —            | —                             | close once hg89 is final (duplicate)  |
 | 4 clean-run drafts  |            | 0    | draft | —            | —                             | you: close? (w2rc, 8q87, j2vx, 3gqg)  |
 ```
