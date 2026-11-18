@@ -678,3 +678,59 @@ describe("docs/orchestrate.md: resuming a Team Run, and a lost machine", () => {
     assert.match(res, /not yet reviewed/);
   });
 });
+
+// ── PR #340 review fixes (d314-fix1) ─────────────────────────────────────────
+
+const GITHUB = read(`${SKILL_DIR}/trackers/github.md`);
+const GLOSSARY = read("GLOSSARY.md");
+const CHANGELOG = read("CHANGELOG.md");
+const {
+  DEFAULTS,
+  TRACKERS: TRACKER_VALUES,
+  TRACKER_HOSTS,
+  TEAM_STATES,
+} = await import("../.claude/skills/orchestrate/config.mjs");
+
+describe("docs/orchestrate.md: the Team Run's facts match the skill", () => {
+  it("links both tracker files in the skill-files list", () => {
+    const files = DOC.slice(0, DOC.indexOf("\n## What it does"));
+    assert.match(files, /\(\.\.\/\.claude\/skills\/orchestrate\/trackers\/github\.md\)/);
+    assert.match(files, /\(\.\.\/\.claude\/skills\/orchestrate\/trackers\/gitlab\.md\)/);
+    assert.match(files, /on GitHub and on GitLab/);
+  });
+
+  it("says `--spec` takes `--team` beside `go` and `autonomous`", () => {
+    const row = DOC.split("\n").find((l) => l.startsWith("| `/orchestrate --spec 50 [go]"));
+    assert.match(row, /nothing else but `--team`, `go` and `autonomous`/);
+  });
+
+  it("lists `shared-board/<n>.md` in the Run state layout", () => {
+    assert.match(
+      fenced(section(DOC, "## Run state"), "text"),
+      /^ {2}shared-board\/<n>\.md +in a Team Run/m,
+    );
+  });
+
+  it("gives the `tracker` values and detected hosts as config.mjs holds them", () => {
+    const row = DOC.split("\n").find((l) => l.startsWith("| `tracker` "));
+    const values = [...row.matchAll(/`([a-z]+)`/g)].map((m) => m[1]).filter((v) => v !== "tracker");
+    assert.deepEqual(values, [...TRACKER_VALUES]);
+    const hosts = (text) => [...new Set(text.match(/\b[a-z]+\.com\b/g))].sort();
+    assert.deepEqual(hosts(row), Object.keys(TRACKER_HOSTS).sort());
+    const find = section(DOC, "## Team Run")
+      .split("\n")
+      .find((l) => /finds the tracker/.test(l));
+    assert.deepEqual(hosts(find), Object.keys(TRACKER_HOSTS).sort());
+  });
+
+  it("gives the `team` defaults as config.mjs holds them", () => {
+    const row = DOC.split("\n").find((l) => l.startsWith("| `team` "));
+    assert.match(row, new RegExp(`\\(default ${DEFAULTS.recent_activity}\\)`));
+    const board = section(section(DOC, "## Team Run"), "### The Shared Board");
+    const listed = [...board.split("\n\n")[0].matchAll(/`(team: [a-z ]+)`/g)].map((m) => m[1]);
+    assert.deepEqual(
+      listed,
+      TEAM_STATES.map((state) => DEFAULTS.team_labels[state]),
+    );
+  });
+});
