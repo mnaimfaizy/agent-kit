@@ -19,6 +19,7 @@ const read = (p) => readFileSync(join(root, p), "utf8");
 const SKILL_DIR = ".claude/skills/orchestrate";
 const SKILL = read(`${SKILL_DIR}/SKILL.md`);
 const TEAM = read(`${SKILL_DIR}/TEAM.md`);
+const TRACKERS = read(`${SKILL_DIR}/TRACKERS.md`);
 
 /** The text of a `## ` or `### ` section, from its heading to the next of the same depth or higher. */
 function section(text, heading) {
@@ -315,5 +316,21 @@ describe("docs/orchestrate.md: the Shared Board", () => {
 
   it("no longer says this version writes no row or label", () => {
     assert.doesNotMatch(team, /writes no row or label yet/);
+  });
+});
+
+describe("TEAM.md: ownership of a row (#318)", () => {
+  const owner = section(TEAM, "## Ownership");
+
+  it("re-reads the ticket's assignee just before every row or label write, and writes only while this teammate is its single assignee", () => {
+    const who = section(owner, "### Who writes");
+    assert.match(who, /just before every `write-row` and every `set-state`/i);
+    assert.match(who, /`spec-tickets`/);
+    assert.match(who, /single assignee is this teammate/);
+    assert.match(section(TEAM, "### When a row is written"), /\[Who writes\]\(#who-writes\)/);
+    assert.match(
+      TRACKERS.split("\n").find((l) => l.startsWith("| `spec-tickets`")),
+      /just before every row or label write/,
+    );
   });
 });

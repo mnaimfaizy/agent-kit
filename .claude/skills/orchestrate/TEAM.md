@@ -165,7 +165,7 @@ Rows and labels are written under the routine write "Shared Board: row comment a
 
 A row is written only when its text would change, so only when one of its parts changes: the fine state, a Decision Request opened or answered, the branch's head, the pull request, what it is parked on, the Rulings count, a conflict found or gone, or a new milestone. Each time, the Chief of Staff renders the row from the local board into the run folder, `shared-board/<n>.md`, and compares it with the copy it last wrote. When nothing changed, nothing is written, so a heartbeat that finds nothing new writes nothing (and `--status` writes nothing at all). The **Updated** time is part of the change, never a reason for one.
 
-The first write, right after "go", is the `planned` or `parked` row of each of this teammate's tickets, with its state label. Then:
+The first write, right after "go", is the `planned` or `parked` row of each of this teammate's tickets, with its state label. Each write, that one included, is made only while the ticket's single assignee is this teammate, re-read just before it ([Who writes](#who-writes)). Then:
 
 1. Read the ticket's row comments with the `row` operation. The row to edit is the one whose marker carries this run's id and this teammate's login.
 2. Write it with the `write-row` operation: edit that comment by its id, or create one when there is none, and record its comment id on the board, beside the ticket's row: `Shared Board row: #<n> comment <id>`.
@@ -189,6 +189,16 @@ The **Recent activity** list keeps the last `team.recent_activity` milestones (d
 - `crashed, branch kept at <head>` and `restarted from <head>`
 - `ready to merge`, `merged` and `dropped`
 - `handed off to @<login> at <branch>@<head>`, the old owner's last milestone when a ticket is reassigned
+
+## Ownership
+
+A ticket's row has one writer: the Chief of Staff of its current assignee ([ADR 0014](https://github.com/mnaimfaizy/agent-kit/blob/main/docs/adr/0014-a-team-runs-shared-board-is-one-single-writer-row-per-ticket.md)). Neither tracker locks a comment or a label against a second writer, so the rules below keep any two runs from ever writing the same row: a teammate's, and another run of this teammate's own. People change things mid-run, by reassigning a ticket or editing its row, and none of that is ever answered by stopping work unasked.
+
+### Who writes
+
+Just before every `write-row` and every `set-state`, the Chief of Staff re-reads the ticket's assignees with the `spec-tickets` operation, and writes only while the ticket's single assignee is this teammate. The assignee read at "go", or at the last write, is never enough: the tracker's assignee is the only sign of whose ticket it is, and the human sets it at any time. It also re-reads them each time it wakes, on an `await` event or a heartbeat, so a ticket that has no row change pending is not reassigned unseen.
+
+When the re-read shows any other assignees, nothing is written on the ticket, neither the row nor its label, and the work is not stopped: the ticket has been assigned away ([Reassignment](#reassignment)). Writing resumes only when a re-read shows this teammate as its single assignee again. The one write made on a ticket assigned away is the hand-off's last row write, on the human's yes ([Hand-off](#hand-off)).
 
 ## Conflicts with a teammate's branch
 
