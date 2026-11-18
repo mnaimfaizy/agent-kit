@@ -31,14 +31,15 @@
 // CLI (run from the repository root; `--repo <dir>` points elsewhere)
 //   node config.mjs check [--answers <file.json>]
 //       the config's path, its problems, the effective values (defaults
-//       applied, answers merged in) and readiness: what the run still needs
-//       to ask for, and notes to say. Prints JSON; exits 1 on any problem,
-//       2 on bad usage.
+//       applied, answers merged in), the harness and tracker reports, and
+//       readiness: what the run still needs to ask for, and notes to say.
+//       Prints JSON; exits 1 on any problem, 2 on bad usage.
 //   node config.mjs where orchestrate [--repo <dir>]
 //       whether this copy of the skill is the repository's own, or the
 //       repository has its own copy to load instead (`whichCopy`). Prints
 //       JSON; exits 0, 2 on bad usage.
 
+import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -197,6 +198,41 @@ export function harnessCandidates(env = process.env) {
 export const SPEC_KEYS = /** @type {const} */ (["landing", "integration_branch"]);
 export const LANDINGS = /** @type {const} */ (["ask", "integration-branch", "per-ticket"]);
 
+/** `tracker`'s values: detected from the git remote's host, or pinned (TEAM.md). */
+export const TRACKERS = /** @type {const} */ (["detect", "github", "gitlab"]);
+/** The hosts detection knows. Any other host, a self-hosted GitLab included, needs the pin. */
+export const TRACKER_HOSTS = Object.freeze({ "github.com": "github", "gitlab.com": "gitlab" });
+export const TEAM_KEYS = /** @type {const} */ (["labels", "recent_activity"]);
+/** A Team Run's six coarse states, each mirrored by one state label on a ticket. */
+export const TEAM_STATES = /** @type {const} */ ([
+  "planned",
+  "parked",
+  "running",
+  "waiting",
+  "ready_to_merge",
+  "merged",
+]);
+
+/**
+ * The tracker a git remote's URL points to, read from its host:
+ * `https://github.com/o/r.git`, `git@gitlab.com:g/r.git`, `ssh://git@host/r`.
+ * A host detection does not know, or a URL with no host (a local path), gives
+ * `tracker: null`, and the run asks the human; it never guesses.
+ *
+ * @param {string | null | undefined} url
+ * @returns {{host: string | null, tracker: "github" | "gitlab" | null}}
+ */
+export function trackerFromRemote(url) {
+  const text = typeof url === "string" ? url.trim() : "";
+  const host = (
+    /^[a-z][a-z0-9+.-]*:\/\/(?:[^@/]*@)?([^/:]+)/i.exec(text)?.[1] ??
+    /^(?:[^@/:]+@)?([^/:]+):(?!\/)/.exec(text)?.[1] ??
+    ""
+  ).toLowerCase();
+  if (host === "") return { host: null, tracker: null };
+  return { host, tracker: Object.hasOwn(TRACKER_HOSTS, host) ? TRACKER_HOSTS[host] : null };
+}
+
 /** CONFIG.md's defaults. A key with no default here is asked for, or left to the harness. */
 export const DEFAULTS = Object.freeze({
   run_dir: "tmp/orchestrate",
@@ -207,6 +243,11 @@ export const DEFAULTS = Object.freeze({
   review_workflow: "detect",
   landing: "ask",
   integration_branch: "orchestrate/spec-<n>",
+  tracker: "detect",
+  recent_activity: 5,
+  team_labels: Object.freeze(
+    Object.fromEntries(TEAM_STATES.map((state) => [state, `team: ${state.replaceAll("_", " ")}`])),
+  ),
 });
 
 /**
@@ -804,6 +845,46 @@ export const SECTIONS = {
       if (problem) sink.add("spec.integration_branch", problem);
     }
   },
+  tracker(sink, value) {
+    if (!TRACKERS.includes(value)) sink.add("tracker", `expected one of: ${TRACKERS.join(", ")}`);
+  },
+  team(sink, value) {
+    if (!isMapping(value)) return sink.add("team", "expected a mapping");
+    unknownKeys(sink, value, "team", TEAM_KEYS);
+    if (
+      given(sink, value, "recent_activity", "team.recent_activity") &&
+      !isCount(value.recent_activity)
+    )
+      sink.add("team.recent_activity", "expected a whole number of 1 or more");
+    if (!given(sink, value, "labels", "team.labels")) return;
+    const labels = value.labels;
+    if (!isMapping(labels))
+      return sink.add("team.labels", "expected a mapping of the six states to label names");
+    unknownKeys(sink, labels, "team.labels", TEAM_STATES);
+    // All six or none: a run that mirrors states in labels needs a name for each.
+    const names = new Map();
+    for (const state of TEAM_STATES) {
+      const path = `team.labels.${state}`;
+      if (!Object.hasOwn(labels, state)) {
+        sink.add(
+          path,
+          "missing: give a label name for each of the six states, or leave `labels` out",
+        );
+        continue;
+      }
+      if (!given(sink, labels, state, path)) continue;
+      if (!nonEmpty(labels[state])) {
+        sink.add(path, "expected a label name");
+        continue;
+      }
+      if (names.has(labels[state]))
+        sink.add(
+          path,
+          `\`${labels[state]}\` is also the label for \`${names.get(labels[state])}\``,
+        );
+      else names.set(labels[state], state);
+    }
+  },
 };
 
 /**
@@ -1000,6 +1081,7 @@ export function effectiveConfig(config) {
   const decisions = section("decisions");
   const ready = section("ready_to_merge");
   const spec = section("spec");
+  const team = section("team");
   return {
     run_dir: config.run_dir ?? DEFAULTS.run_dir,
     read_first: Array.isArray(config.read_first) ? config.read_first : null,
@@ -1024,6 +1106,14 @@ export function effectiveConfig(config) {
     spec: {
       landing: spec.landing ?? DEFAULTS.landing,
       integration_branch: spec.integration_branch ?? DEFAULTS.integration_branch,
+    },
+    tracker: config.tracker ?? DEFAULTS.tracker,
+    team: {
+      labels: isMapping(team.labels) ? { ...team.labels } : { ...DEFAULTS.team_labels },
+      recent_activity:
+        team.recent_activity === undefined
+          ? DEFAULTS.recent_activity
+          : Number(team.recent_activity),
     },
   };
 }
@@ -1291,6 +1381,7 @@ export function main(argv, io = {}) {
     effective: loaded.problems.length ? null : effectiveConfig(loaded.config),
     qa_config: loaded.qaConfig,
     harness: harnessReport(loaded, io.env ?? process.env),
+    tracker: trackerReport(loaded, (io.remote ?? (() => gitRemote(repo)))()),
     readiness: readiness(loaded),
   };
   return { code: loaded.problems.length ? 1 : 0, out: `${JSON.stringify(result, null, 2)}\n` };
@@ -1309,6 +1400,37 @@ function harnessReport(loaded, env) {
     executors: effective?.executors ?? null,
     levels: Object.fromEntries(Object.entries(HARNESSES).map(([id, h]) => [id, h.level])),
   };
+}
+
+/**
+ * What a Team Run needs to find its tracker (TEAM.md): the value the config
+ * pins (null for `detect`), the git remote's host, and the tracker that host
+ * points to. A pin that disagrees with `detected` is the human's question.
+ */
+function trackerReport(loaded, remote) {
+  const effective = loaded.problems.length ? null : effectiveConfig(loaded.config);
+  const pinned = effective && effective.tracker !== "detect" ? effective.tracker : null;
+  const { host, tracker } = trackerFromRemote(remote);
+  return { pinned, remote_host: host, detected: tracker };
+}
+
+/**
+ * The URL of the repository's remote: `origin`, or the only remote when
+ * there is one under another name. Null when there is none, or git fails.
+ */
+function gitRemote(repo) {
+  const git = (...args) =>
+    execFileSync("git", ["-C", repo, ...args], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  try {
+    const remotes = git("remote").split(/\r?\n/).filter(Boolean);
+    const name = remotes.includes("origin") ? "origin" : remotes.length === 1 ? remotes[0] : null;
+    return name === null ? null : git("remote", "get-url", name);
+  } catch {
+    return null;
+  }
 }
 
 const real = (path) => {

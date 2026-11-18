@@ -38,6 +38,8 @@ import {
   parseConfig,
   readConfig,
   readiness,
+  TEAM_STATES,
+  trackerFromRemote,
   whichCopy,
 } from "./config.mjs";
 
@@ -165,6 +167,18 @@ test("each key's default, with an empty config", () => {
     decisions: { to: "pull-request", marker: null },
     ready_to_merge: { review: "settled", qa: "none", qa_labels: [], review_workflow: "detect" },
     spec: { landing: "ask", integration_branch: "orchestrate/spec-<n>" },
+    tracker: "detect",
+    team: {
+      labels: {
+        planned: "team: planned",
+        parked: "team: parked",
+        running: "team: running",
+        waiting: "team: waiting",
+        ready_to_merge: "team: ready to merge",
+        merged: "team: merged",
+      },
+      recent_activity: 5,
+    },
   });
   assert.equal(DEFAULTS.run_dir, "tmp/orchestrate");
 });
@@ -707,7 +721,7 @@ test("JSON: each problem is named with its line, like YAML's", () => {
     "}",
   ].join("\n");
   assert.deepEqual(json(text).problems, [
-    "line 3: `routs`: unknown key (CONFIG.md documents: run_dir, read_first, routes, regate, skills, triage_labels, models, harness, executors, limits, decisions, ready_to_merge, spec)",
+    "line 3: `routs`: unknown key (CONFIG.md documents: run_dir, read_first, routes, regate, skills, triage_labels, models, harness, executors, limits, decisions, ready_to_merge, spec, tracker, team)",
     "line 10: `read_first[1]`: expected a relative path inside the repository",
     "line 6: `routes.push`: unknown key (CONFIG.md documents: commit, pull_request, merge)",
     "line 5: `routes.commit`: expected a non-empty string",
@@ -1468,4 +1482,142 @@ test("`executors.qa` naming a harness whose headless run cannot carry QA is a pr
     );
     assert.deepEqual(yaml("harness: cursor", `executors: { build: ${id} }`).problems, []);
   }
+});
+
+// ── Team Run: `tracker` and `team` ──────────────────────────────────────────
+
+test("the tracker is detected from the remote's host: github.com, gitlab.com, or none", () => {
+  for (const url of [
+    "https://github.com/acme/app.git",
+    "git@github.com:acme/app.git",
+    "ssh://git@github.com/acme/app",
+    "https://user@GitHub.com/acme/app",
+  ])
+    assert.deepEqual(trackerFromRemote(url), { host: "github.com", tracker: "github" }, url);
+  for (const url of ["https://gitlab.com/acme/app.git", "git@gitlab.com:group/sub/app.git"])
+    assert.deepEqual(trackerFromRemote(url), { host: "gitlab.com", tracker: "gitlab" }, url);
+  assert.deepEqual(trackerFromRemote("https://git.acme.internal/acme/app.git"), {
+    host: "git.acme.internal",
+    tracker: null,
+  });
+  assert.deepEqual(trackerFromRemote("git@code.acme.dev:acme/app.git"), {
+    host: "code.acme.dev",
+    tracker: null,
+  });
+  assert.deepEqual(trackerFromRemote("/srv/git/app.git"), { host: null, tracker: null });
+  assert.deepEqual(trackerFromRemote(null), { host: null, tracker: null });
+});
+
+test("`tracker` takes detect, github or gitlab, the same in YAML and JSON", () => {
+  for (const value of ["detect", "github", "gitlab"]) {
+    const fromYaml = yaml(`tracker: ${value}`);
+    const fromJson = json(JSON.stringify({ tracker: value }));
+    assert.deepEqual([fromYaml.problems, fromJson.problems], [[], []], value);
+    assert.equal(effectiveConfig(fromYaml.config).tracker, value);
+  }
+  assert.match(
+    yaml("tracker: jira").problems.join("\n"),
+    /^line 1: `tracker`: expected one of: detect, github, gitlab$/,
+  );
+  assert.match(yaml("tracker:").problems.join("\n"), /`tracker`: no value/);
+});
+
+test("check prints the tracker report: the pinned value, the remote's host and the detected tracker", () => {
+  const files = { "orchestrate.config.yml": [...READY_BASE, "tracker: gitlab"].join("\n") };
+  const report = (remote, config = files) =>
+    JSON.parse(
+      main(["check"], {
+        read: reader(config),
+        exists: () => true,
+        cwd: "/repo",
+        env: {},
+        remote: () => remote,
+      }).out,
+    ).tracker;
+  assert.deepEqual(report("git@github.com:acme/app.git"), {
+    pinned: "gitlab",
+    remote_host: "github.com",
+    detected: "github",
+  });
+  const detect = { "orchestrate.config.yml": READY_BASE.join("\n") };
+  assert.deepEqual(report("https://gitlab.com/acme/app", detect), {
+    pinned: null,
+    remote_host: "gitlab.com",
+    detected: "gitlab",
+  });
+  assert.deepEqual(report(null, detect), { pinned: null, remote_host: null, detected: null });
+});
+
+test("the six coarse states, in order", () => {
+  assert.deepEqual(TEAM_STATES, [
+    "planned",
+    "parked",
+    "running",
+    "waiting",
+    "ready_to_merge",
+    "merged",
+  ]);
+});
+
+test("a `team` section reads the same in YAML and JSON, and an empty one takes the defaults", () => {
+  const labels = Object.fromEntries(TEAM_STATES.map((state) => [state, `ok:${state}`]));
+  const fromYaml = yaml(
+    "team:",
+    "  labels:",
+    ...TEAM_STATES.map((state) => `    ${state}: ok:${state}`),
+    "  recent_activity: 3",
+  );
+  const fromJson = json(JSON.stringify({ team: { labels, recent_activity: 3 } }));
+  assert.deepEqual([fromYaml.problems, fromJson.problems], [[], []]);
+  assert.deepEqual(effectiveConfig(fromYaml.config).team, { labels, recent_activity: 3 });
+  assert.deepEqual(effectiveConfig(fromJson.config).team, { labels, recent_activity: 3 });
+  const empty = yaml("team: {}");
+  assert.deepEqual(empty.problems, []);
+  assert.deepEqual(effectiveConfig(empty.config).team, effectiveConfig({}).team);
+});
+
+test("`team` problems: an unknown key, a missing state, a label name given twice, a bad count", () => {
+  const all = TEAM_STATES.map((state) => `    ${state}: "team: ${state}"`);
+  const problems = (...lines) => yaml("team:", ...lines).problems.join("\n");
+  assert.match(problems("  colours: red"), /^line 2: `team\.colours`: unknown key/);
+  assert.match(
+    problems("  labels:", ...all.filter((line) => !line.includes("merged:"))),
+    /`team\.labels\.merged`: missing: give a label name for each of the six states/,
+  );
+  assert.match(
+    problems("  labels:", ...all, "    shipped: done"),
+    /`team\.labels\.shipped`: unknown key/,
+  );
+  assert.match(
+    problems(
+      "  labels:",
+      ...all.map((line) => (line.includes("merged:") ? '    merged: "team: planned"' : line)),
+    ),
+    /line 8: `team\.labels\.merged`: `team: planned` is also the label for `planned`/,
+  );
+  assert.match(
+    problems("  recent_activity: 0"),
+    /`team\.recent_activity`: expected a whole number of 1 or more/,
+  );
+  assert.match(
+    problems("  labels: team"),
+    /`team\.labels`: expected a mapping of the six states to label names/,
+  );
+});
+
+test("the `tracker` and `team` keys add nothing the readiness check asks for or notes", () => {
+  const base = readiness(readConfig(reader({ "orchestrate.config.yml": READY_BASE.join("\n") })));
+  const team = readiness(
+    readConfig(
+      reader({
+        "orchestrate.config.yml": [
+          ...READY_BASE,
+          "tracker: github",
+          "team:",
+          "  recent_activity: 2",
+        ].join("\n"),
+      }),
+    ),
+  );
+  assert.deepEqual(team, base);
 });
