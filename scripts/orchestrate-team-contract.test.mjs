@@ -277,3 +277,20 @@ describe("TEAM.md: blocking, conflicts and Rulings across teammates", () => {
     );
   });
 });
+
+describe("TEAM.md: what stays local", () => {
+  it("keeps the run folder's contents off the Shared Board", () => {
+    const local = section(TEAM, "## What stays local");
+    for (const kept of [
+      "briefs",
+      "reports",
+      "full Decision Requests and their answers",
+      "Ruling Ledger",
+      "evidence",
+      "Activity Log",
+      "QA Plans and QA Reports",
+    ])
+      assert.ok(local.includes(kept), `${kept} stays local`);
+    assert.match(local, /publishes only the row and the state label/);
+  });
+});
