@@ -65,6 +65,8 @@ SKILL.md step 4, with SPEC.md's additions, changed as follows. What is not named
 
 The board records the three lists beside the plan's rows.
 
+A new Team Run of a teammate whose earlier run folder is gone, after a lost machine, finds their old rows carrying the old run id: its plan asks to take each row over, restarts each unfinished ticket from its branch head, and asks again about each Ruling of the old run not yet reviewed ([RUN.md](RUN.md#after-a-lost-machine)). On `--resume`, a ticket newly assigned to this teammate is shown in an amended Dispatch Plan of its own ([RUN.md](RUN.md#resuming-a-team-run)).
+
 ### Missing state labels
 
 Read the repository's labels with the `labels` operation, and compare them with the six names in `team.labels`. When any are missing, the plan lists them with one ask to create them all with the `create-label` operation. Creating a label is a write as the human, never routine: it is a Decision Request in the plan, answered with the "go" or before it, and the labels are made only on a yes. A no leaves them uncreated, says so on the board, and the run goes on: a missing label is shown as such, never made without the yes.
@@ -198,7 +200,7 @@ A ticket's row has one writer: the Chief of Staff of its current assignee ([ADR 
 
 ### Who writes
 
-Just before every `write-row` and every `set-state`, the Chief of Staff re-reads the ticket's assignees with the `spec-tickets` operation, and writes only while the ticket's single assignee is this teammate. The assignee read at "go", or at the last write, is never enough: the tracker's assignee is the only sign of whose ticket it is, and the human sets it at any time. It also re-reads them each time it wakes, on an `await` event or a heartbeat, so a ticket that has no row change pending is not reassigned unseen.
+Just before every `write-row` and every `set-state`, the Chief of Staff re-reads the ticket's assignees with the `spec-tickets` operation, and writes only while the ticket's single assignee is this teammate. The assignee read at "go", or at the last write, is never enough: the tracker's assignee is the only sign of whose ticket it is, and the human sets it at any time. It also re-reads them each time it wakes, on an `await` event or a heartbeat, and on `--resume` ([RUN.md](RUN.md#resuming-a-team-run)), so a ticket that has no row change pending is not reassigned unseen.
 
 When the re-read shows any other assignees, or none, nothing is written on the ticket, neither the row nor its label, and the work is not stopped: the ticket has been assigned away ([Reassignment](#reassignment)). Writing resumes only when a re-read shows this teammate as its single assignee again. The one write made on a ticket assigned away is the hand-off's last row write, on the human's yes ([Handing a ticket off](#handing-a-ticket-off)).
 
@@ -225,7 +227,7 @@ The state label is left as it is, not removed as for another `dropped` ticket: i
 
 ### Picking up a handed-off ticket
 
-A ticket newly assigned to this teammate is planned by their own run: in the Dispatch Plan of a new Team Run, or in the amended Dispatch Plan `--resume` shows for it ([RUN.md](RUN.md#resume)). Before it is planned, read its row comments with the `row` operation. When a row comment by another author has as its newest milestone `` handed off to @<this login> at `<branch>@<head>` `` (the newest such comment, when there are several), its author is the previous owner, and the plan says, beside the ticket, `` picked up from @<previous> at `<branch>@<head>` ``, and on "go" the Chief of Staff starts a new Delegation from that branch, as a crashed Delegation's branch is picked up ([SKILL.md](SKILL.md#6-run-the-loop)): it fetches the branch from the remote, the new Delegation works on it from that head, and its brief says the branch carries the previous owner's work, to be read before it builds on it. The Executor and model are this run's own choice. When the remote's head of that branch is not the head the milestone names, or the milestone says `not started`, the plan says so, and the Delegation starts from the head the remote has, or from the default branch for `not started`.
+A ticket newly assigned to this teammate is planned by their own run: in the Dispatch Plan of a new Team Run, or in the amended Dispatch Plan `--resume` shows for it ([RUN.md](RUN.md#resuming-a-team-run)). Before it is planned, read its row comments with the `row` operation. When a row comment by another author has as its newest milestone `` handed off to @<this login> at `<branch>@<head>` `` (the newest such comment, when there are several), its author is the previous owner, and the plan says, beside the ticket, `` picked up from @<previous> at `<branch>@<head>` ``, and on "go" the Chief of Staff starts a new Delegation from that branch, as a crashed Delegation's branch is picked up ([SKILL.md](SKILL.md#6-run-the-loop)): it fetches the branch from the remote, the new Delegation works on it from that head, and its brief says the branch carries the previous owner's work, to be read before it builds on it. The Executor and model are this run's own choice. When the remote's head of that branch is not the head the milestone names, or the milestone says `not started`, the plan says so, and the Delegation starts from the head the remote has, or from the default branch for `not started`.
 
 A ticket that has another author's row but none handed off to this teammate, because the previous owner's run never answered, is a Decision Request in the plan: the plan names the newest such row's author, branch, head and age, and asks whether to start from that branch as the remote has it or from the default branch. Recommend the branch when the remote has it.
 
@@ -242,7 +244,7 @@ One teammate can have two Team Runs on one spec: a second session started by mis
 1. **Resume that run**: this run drops the ticket, writing nothing on the tracker, and the human carries it on with `--resume` of the run named in the row, where its run folder is.
 2. **Take the row over**: from now on this run writes the ticket's row with this run's id in its marker: its own row comment when it has one, or else that comment, edited by its id. The other run, if it still runs, finds a row with an id not its own at its next write, and asks the same question there, so neither ever overwrites the other unasked.
 
-Recommend resuming that run when its run folder is on this machine and not closed, and taking the row over when it is not, as after a lost machine. With several such rows, the newest is the one taken over; the older stay as they are.
+Recommend resuming that run when its run folder is on this machine and not closed, and taking the row over when it is not, as after a lost machine ([RUN.md](RUN.md#after-a-lost-machine)). With several such rows, the newest is the one taken over; the older stay as they are.
 
 ### A person's edits
 

@@ -573,6 +573,89 @@ describe("RUN.md: what a Team Run adds to the run folder and the board", () => {
   });
 });
 
+describe("RUN.md: `--resume` of a Team Run", () => {
+  const resume = () => section(RUN, "## Resume");
+  const team = () => section(resume(), "### Resuming a Team Run");
+
+  it("reconciles with the Shared Board after the existing step 3, without renumbering the steps", () => {
+    const step3 = resume()
+      .split("\n")
+      .find((l) => l.startsWith("3. "));
+    assert.match(step3, /\[Resuming a Team Run\]\(#resuming-a-team-run\)/);
+    assert.deepEqual(
+      [
+        ...resume()
+          .split("\n### ")[0]
+          .matchAll(/^(\d)\. /gm),
+      ].map((m) => m[1]),
+      ["1", "2", "3", "4", "5", "6"],
+    );
+  });
+
+  it("re-reads the assignee of every ticket in the run and in the spec", () => {
+    assert.match(team(), /every ticket in the run and in the spec/);
+    assert.match(team(), /`spec-tickets`/);
+  });
+
+  it("raises the hand-off Decision Request for a ticket assigned away while paused", () => {
+    assert.match(team(), /assigned away while (the run was )?paused/i);
+    assert.match(team(), /\[TEAM\.md\]\(TEAM\.md#reassignment\)/);
+    assert.match(team(), /hand it off/i);
+  });
+
+  it("shows a newly assigned ticket as an amended Dispatch Plan for just those tickets, needing its own go", () => {
+    assert.match(team(), /never added silently/);
+    assert.match(team(), /amended Dispatch Plan/);
+    assert.match(team(), /its own "go"/);
+    assert.match(team(), /\[TEAM\.md\]\(TEAM\.md#picking-up-a-handed-off-ticket\)/);
+  });
+
+  it("raises the take-over Decision Request for a row of another run id, and re-creates a deleted row on the next write", () => {
+    assert.match(team(), /another run id/);
+    assert.match(team(), /\[TEAM\.md\]\(TEAM\.md#two-runs-of-one-teammate\)/);
+    assert.match(team(), /re-created on the next write/);
+    assert.match(team(), /\[TEAM\.md\]\(TEAM\.md#a-persons-edits\)/);
+  });
+
+  it("leaves a run without a `Team Run:` line as it was", () => {
+    assert.match(team(), /without a `Team Run:` line/);
+  });
+});
+
+describe("RUN.md: a new Team Run after a lost machine", () => {
+  const lost = () => section(section(RUN, "## Resume"), "### After a lost machine");
+
+  it("starts a new Team Run, which raises take the row over for each row carrying the old run id", () => {
+    assert.match(lost(), /run folder is gone/);
+    assert.match(lost(), /new Team Run/);
+    assert.match(lost(), /\*\*Take the row over\*\*/);
+    assert.match(lost(), /each (of their rows|row) carrying the old run id/);
+  });
+
+  it("restarts each unfinished ticket as a new Delegation from its branch head", () => {
+    assert.match(lost(), /unfinished ticket/);
+    assert.match(lost(), /new Delegation from its branch head/);
+    assert.match(lost(), /as a crashed Delegation's branch is picked up/);
+  });
+
+  it("treats every unreviewed Ruling line on the teammate's pull requests as an open question for the human again", () => {
+    assert.match(lost(), /Chief of Staff ruling, not yet reviewed/);
+    assert.match(lost(), /open question for the human again/);
+    assert.match(lost(), /never a Ruling/);
+  });
+
+  it("is pointed to from TEAM.md, where a new Team Run plans", () => {
+    assert.match(
+      section(TEAM, "## The Dispatch Plan"),
+      /\[RUN\.md\]\(RUN\.md#after-a-lost-machine\)/,
+    );
+    assert.match(
+      section(TEAM, "### Two runs of one teammate"),
+      /\[RUN\.md\]\(RUN\.md#after-a-lost-machine\)/,
+    );
+  });
+});
+
 describe("trackers/gitlab.md: `spec-tickets` after TEAM.md reads it", () => {
   it("no longer says a run reads the spec's tickets there only until TEAM.md says so", () => {
     assert.doesNotMatch(GITLAB, /Until TEAM\.md says so/);
@@ -580,5 +663,18 @@ describe("trackers/gitlab.md: `spec-tickets` after TEAM.md reads it", () => {
       section(GITLAB, "### `spec-tickets`"),
       /\[TEAM\.md\]\(\.\.\/TEAM\.md#whose-tickets\)/,
     );
+  });
+});
+
+describe("docs/orchestrate.md: resuming a Team Run, and a lost machine", () => {
+  const DOC = read("docs/orchestrate.md");
+
+  it("says what `--resume` reconciles and how to carry on after a lost machine", () => {
+    const res = section(section(DOC, "## Team Run"), "### Resuming a Team Run");
+    assert.match(res, /`\/orchestrate --resume <run>`/);
+    assert.match(res, /amended Dispatch Plan/);
+    assert.match(res, /lost/);
+    assert.match(res, /take (the|your old) rows? over/);
+    assert.match(res, /not yet reviewed/);
   });
 });
