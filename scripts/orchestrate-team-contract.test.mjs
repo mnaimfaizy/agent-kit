@@ -527,3 +527,19 @@ describe("TEAM.md: a Team Run off GitHub", () => {
     assert.match(section(TEAM, "### The row"), /`!<iid>`.*`#<pr>`|`#<pr>`.*`!<iid>`/);
   });
 });
+
+describe("docs/orchestrate.md: watching a Team Run, and reassignment", () => {
+  const DOC = read("docs/orchestrate.md");
+
+  it("lists `--status --spec <n>` with the invocations", () => {
+    assert.match(section(DOC, "## Invocations"), /\| `\/orchestrate --status --spec 50` +\|/);
+  });
+
+  it("shows both forms of `--status` in a Team Run", () => {
+    const watch = section(section(DOC, "## Team Run"), "### Watching a Team Run");
+    assert.match(watch, /`\/orchestrate --status`/);
+    assert.match(watch, /`\/orchestrate --status --spec <n>`/);
+    assert.match(fenced(watch, "text"), /^Next moves: /m);
+    assert.match(watch, /writes nothing/);
+  });
+});

@@ -68,9 +68,10 @@ Every form runs from the root of the repository the issues belong to.
 | `/orchestrate --spec 50 [go] [autonomous]`        | A run for the spec `#50` and the work it holds, in dependency order ([Spec mode](#spec-mode)). `--spec` takes one issue number and nothing else but `go` and `autonomous`.                                                                                                    |
 | `/orchestrate --spec 50 --team [go] [autonomous]` | A **Team Run** of the spec `#50`: you build only the spec's tickets assigned to you alone, while each teammate runs their own ([Team Run](#team-run)). `go` and `autonomous` are yours alone.                                                                                 |
 | `/orchestrate --status [<run>]`                   | Prints the board of the run named, or of the latest run, with each open Decision Request in full. It first runs the default-branch check on each Ready to Merge row, then prints what it finds and writes nothing, so it is safe to run beside a live Chief of Staff session. |
+| `/orchestrate --status --spec 50`                 | Prints the Shared Board of the Team Run on spec `#50` from the tracker alone, for someone with no run of their own: a reviewer, the spec's owner, a teammate with no tickets ([Watching a Team Run](#watching-a-team-run)). It writes nothing.                                |
 | `/orchestrate --resume <run>`                     | Continues a run from its folder, after a usage limit, a closed laptop or a pause for merges. It checks every Delegation against git and the tracker first.                                                                                                                    |
 
-`--team` is taken only with `--spec <n>`, once, straight after the number. `autonomous` is taken once, last, after `go` when both are given, and only in a run for issues or a spec. Any other argument, or a mix of these forms, stops the run before anything is read, with the list of forms this version knows. `<run>` is the run folder's name, such as `2026-11-13-12-34` or `2026-11-13-spec-50` ([Run state](#run-state)).
+`--team` is taken only with `--spec <n>`, once, straight after the number. `--status --spec <n>` takes one issue number and nothing else. `autonomous` is taken once, last, after `go` when both are given, and only in a run for issues or a spec. Any other argument, or a mix of these forms, stops the run before anything is read, with the list of forms this version knows. `<run>` is the run folder's name, such as `2026-11-13-12-34` or `2026-11-13-spec-50` ([Run state](#run-state)).
 
 ## Harnesses
 
@@ -278,7 +279,7 @@ Your Dispatch Plan then:
 - asks once, when any of the six state labels (`team.labels`) are missing from the repository, whether to create them: a write in your name, never routine;
 - has its own **Decision authority** line: `go` or `go autonomous` is yours, and each teammate chooses their own.
 
-With no ticket assigned to you alone, the plan says so, shows the lists, and points you to `/orchestrate --status`. Your briefs, Activity Logs, evidence and Ruling Ledger stay in your own run folder: the **Shared Board** on the tracker is a projection of it, carrying only what is written for publication ([ADR 0014](adr/0014-a-team-runs-shared-board-is-one-single-writer-row-per-ticket.md), [ADR 0015](adr/0015-the-shared-board-is-a-published-projection-of-each-local-run-folder.md)).
+With no ticket assigned to you alone, the plan says so, shows the lists, and points you to `/orchestrate --status`, or `/orchestrate --status --spec <n>` ([Watching a Team Run](#watching-a-team-run)). Your briefs, Activity Logs, evidence and Ruling Ledger stay in your own run folder: the **Shared Board** on the tracker is a projection of it, carrying only what is written for publication ([ADR 0014](adr/0014-a-team-runs-shared-board-is-one-single-writer-row-per-ticket.md), [ADR 0015](adr/0015-the-shared-board-is-a-published-projection-of-each-local-run-folder.md)).
 
 ### The Shared Board
 
@@ -318,6 +319,32 @@ Updated 2026-11-18 10:01Z.
 - **Blocked by a teammate's ticket:** your ticket is `parked`, and its row says on what, until that ticket's pull request is merged.
 - **A conflict with a teammate's branch** is shown on the row, not settled: your Chief of Staff rules only on your own branches. The first one merged wins, and the other merges the default branch in and re-gates.
 - **Rulings:** in a `go autonomous` run, a Ruling line in a pull request names whose Chief of Staff made it, as in `R2 (@sam's Chief of Staff ruling, not yet reviewed)`. Only you review your own Chief of Staff's Rulings.
+
+### Watching a Team Run
+
+`/orchestrate --status` in your Team Run prints your own board as in any run, with each open Decision Request in full and, in an autonomous run, your Ruling Ledger. Then it prints the whole spec from the tracker, as a blocking tree in merge order:
+
+```text
+Team Run · spec #253 · github, as @sam · read 2026-11-18 10:05Z · blocking tree, in merge order
+
+Each teammate's last write: @alex 09:50Z, 15m ago (run 2026-11-17-spec-253) · @sam 10:01Z, 4m ago (this run)
+
+#255 merged           @alex          #271   changed 13h ago
+ └─ #258 running      @sam           none   changed 7m ago    yours
+#256 ready to merge   @alex          #272   changed 15m ago   merging it unparks #259
+ └─ #259 parked       @sam           none   changed 35m ago   yours; picked up from @alex at claude/issue-259-stage-variables@3f1e2aa
+#257 waiting          @sam           #270   changed 4m ago    yours; 1 question waits on @sam
+#260 no row yet       unassigned     none                     nobody runs it
+#261 no row yet       @alex @sam     none                     needs one assignee
+
+Next moves: @alex merges #272 · @sam answers 1 question on #257 · someone assigns #260 · #261 needs one assignee
+```
+
+Each ticket sits under the blocker that merges last, so you see who waits on whom. Each line gives its state, assignee, pull request and how long ago its row last changed. Your teammates' rows follow the tree, each as its status card shows it, then the `unassigned` and needs-one-assignee tickets and any hand-off in progress. "Next moves" closes it: who merges, answers, reviews, picks up or assigns next.
+
+`/orchestrate --status --spec <n>` prints the same from the tracker alone, for anyone with read access and no run of their own: a reviewer, the spec's owner, a teammate with no tickets. It needs no run folder and makes none. It has no rows marked yours, no default-branch check and no Ruling Ledger, since those live in each teammate's own run.
+
+Each form writes nothing: no board, row, label or file. Neither says whether a teammate's run is alive: a row's age is only when it last changed, and an old row may be a run waiting on its human as easily as one that has stopped.
 
 ### On GitLab
 
