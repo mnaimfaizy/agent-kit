@@ -103,6 +103,9 @@ const AXIS_HEADING = /^##\s+(Standards|Spec|Correctness)\s*$/;
 const SECTION_END = /^#{1,2}\s/;
 const FENCE = /^\s*(```|~~~)/;
 const ENTRY = /^(?:[-*+]|\d+[.)])\s+(.*)$/;
+/** A sub-heading under an axis; one starting "Checked" holds what the reviewer checked, not entries. */
+const SUB_HEADING = /^#{3,6}\s/;
+const CHECKED_HEADING = /^#{3,6}\s+checked\b/i;
 const THREAD_LINK = /(https?:\/\/[^\s()<>]+)\/pull\/(\d+)#discussion_r(\d+)/;
 
 /** An entry as a problem names it: short, on one line. */
@@ -142,7 +145,8 @@ function sections(body) {
 /**
  * Check a Review report against the pull request's review comments (REST
  * `pulls/{n}/comments`). An entry is a top-level list item under one of the
- * three axis headings. Each must link, as
+ * three axis headings, outside a `### Checked` sub-heading (what the reviewer
+ * checked and found fine, which may be a list). Each must link, as
  * `<server>/<repository>/pull/<n>#discussion_r<id>`, the first comment of a
  * review thread on this pull request whose author is the reviewer. Authorship
  * is read from the API, never from the report's text.
@@ -162,8 +166,10 @@ export function checkReport(body, reviewComments, { serverUrl, repository, pr })
       problems.push(`The report has no "## ${axis}" heading.`);
       continue;
     }
+    let checked = false;
     for (const { line, fenced } of section.lines) {
-      const entry = fenced ? null : ENTRY.exec(line);
+      if (!fenced && SUB_HEADING.test(line)) checked = CHECKED_HEADING.test(line);
+      const entry = fenced || checked ? null : ENTRY.exec(line);
       if (!entry) continue;
       entries += 1;
       const why = entryProblem(entry[1], { byId, here, pr: Number(pr) });

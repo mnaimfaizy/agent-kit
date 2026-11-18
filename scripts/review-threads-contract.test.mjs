@@ -218,6 +218,23 @@ describe("the Review report check", () => {
     assert.deepEqual(checkReport(body, COMMENTS, WHERE).problems, []);
   });
 
+  it("skips the list under an axis's ### Checked line, and only there", () => {
+    // Run 44221159427 (#283): thread entries, then what the reviewer checked
+    // and found fine, as a list.
+    const body = report(
+      `- [src/a.ts:10](${link(11)}) — drift\n\n### Checked\n\n- CHANGELOG has an entry.\n- The test glob picks it up.`,
+      "No findings.\n\n### checked and found fine\n- Nothing to check.",
+      `- [src/b.ts:3](${link(12)}) — off by one\n\n### Notes\n- An unlinked item after another sub-heading.`,
+    );
+    const result = checkReport(body, COMMENTS, WHERE);
+    assert.equal(result.entries, 3);
+    assert.equal(result.problems.length, 1);
+    assert.match(
+      result.problems[0],
+      /^Correctness: "An unlinked item after another sub-heading\."/,
+    );
+  });
+
   it("fails when an axis heading is missing", () => {
     const body = report("No findings.", "No findings.", "No findings.").replace(
       "## Spec",
