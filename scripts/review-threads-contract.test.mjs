@@ -235,6 +235,19 @@ describe("the Review report check", () => {
     );
   });
 
+  it("skips the list under an axis's ### Fixed line, as under ### Checked", () => {
+    // Run 44251348204 (#298): a re-review's fixed findings, listed.
+    const body = report(
+      `- [src/a.ts:10](${link(11)}) — new drift\n\n### Fixed\n\n- The null placeholder is gone.\n\n### Checked\n\n- The tests cover it.`,
+      "No findings.\n\n#### fixed in this head\n- The parent line is gone.",
+      "No findings.\n\nThe head fixes both earlier findings:\n- An unlinked fix with no ### Fixed line.",
+    );
+    const result = checkReport(body, COMMENTS, WHERE);
+    assert.equal(result.entries, 2);
+    assert.equal(result.problems.length, 1);
+    assert.match(result.problems[0], /^Correctness: "An unlinked fix with no ### Fixed line\."/);
+  });
+
   it("fails when an axis heading is missing", () => {
     const body = report("No findings.", "No findings.", "No findings.").replace(
       "## Spec",

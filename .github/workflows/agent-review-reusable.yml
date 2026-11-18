@@ -478,21 +478,24 @@ jobs:
 
           - [path:line](<the thread's html_url>) — one-line summary
 
-          An axis with no findings says so in a sentence, not a list item. What
-          you checked or confirmed goes last under its axis, below a ### Checked
-          line, as a list or in prose. Every other list item under those headings
-          is a thread entry. Keep the three axes separate and do not rerank
-          across them. A trusted check after you finish fails the review when an
-          entry does not link a thread you started on this pull request.
+          An axis with no findings says so in a sentence, not a list item.
+          Earlier findings the head has fixed go under their axis, below a
+          ### Fixed line, as a list or in prose. What you checked or confirmed
+          goes last under its axis, below a ### Checked line, as a list or in
+          prose. Every other list item under those headings is a thread entry,
+          so a list of fixes or confirmations anywhere else fails the check.
+          Keep the three axes separate and do not rerank across them. A
+          trusted check after you finish fails the review when an entry does
+          not link a thread you started on this pull request.
 
           Re-review. The threads below are yours, from earlier reviews:
           1. Never post a new thread for a finding one of them already holds,
              resolved or not.
           2. A thread with verdict null has not been answered yet: leave it
              alone, with no reply. List it in the report if the head still
-             has its finding. If the head fixed it, leave it out of the
-             lists: say so in one sentence of prose, never as a list item
-             per fixed thread.
+             has its finding. If the head fixed it, it is not an entry: say
+             so below its axis's ### Fixed line, never as a list item anywhere
+             else.
           3. A thread whose verdict you agree with: stay silent. No reply, and
              leave it out of the report.
           4. A thread whose verdict you disagree with: say why in the report's
