@@ -554,3 +554,31 @@ describe("docs/orchestrate.md: watching a Team Run, and reassignment", () => {
     assert.match(board, /overwritten/);
   });
 });
+
+const GITLAB = read(`${SKILL_DIR}/trackers/gitlab.md`);
+
+describe("RUN.md: what a Team Run adds to the run folder and the board", () => {
+  it("lists `shared-board/<n>.md` in the Layout", () => {
+    const layout = fenced(section(RUN, "## Layout"), "text");
+    assert.match(layout, /^ {2}shared-board\/<n>\.md +.*Team Run/m);
+  });
+
+  it("lists the `Team Run:`, `Shared Board labels:` and `Shared Board row:` lines on the Board", () => {
+    // The board's own form opens with `# Run <run>`, which ends section() early.
+    const board = RUN.slice(RUN.indexOf("\n## Board\n"), RUN.indexOf("\n## States\n"));
+    assert.match(fenced(board, "markdown"), /^Team Run: <tracker>, as <login>/m);
+    assert.match(board, /`Shared Board labels:`/);
+    assert.match(board, /`Shared Board row: #<n> comment <id>`/);
+    assert.match(board, /\[TEAM\.md\]\(TEAM\.md#/);
+  });
+});
+
+describe("trackers/gitlab.md: `spec-tickets` after TEAM.md reads it", () => {
+  it("no longer says a run reads the spec's tickets there only until TEAM.md says so", () => {
+    assert.doesNotMatch(GITLAB, /Until TEAM\.md says so/);
+    assert.match(
+      section(GITLAB, "### `spec-tickets`"),
+      /\[TEAM\.md\]\(\.\.\/TEAM\.md#whose-tickets\)/,
+    );
+  });
+});

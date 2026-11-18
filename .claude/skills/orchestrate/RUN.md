@@ -15,6 +15,7 @@ A run lives in its own folder inside the config's `run_dir`, which is gitignored
   qa-readiness-<base>.json  the same, for a pull request with another base branch, once the human has answered for it
   rulings.md                the Ruling Ledger, in an autonomous run
   evidence/                 command output a Ruling cites, one file each: R<n>-<k>.txt
+  shared-board/<n>.md       in a Team Run, ticket <n>'s Shared Board row as this run last wrote it
   delegations/<id>/
     brief.md                the brief, as spawned
     activity.md             the Delegation's Activity Log
@@ -25,6 +26,8 @@ A run lives in its own folder inside the config's `run_dir`, which is gitignored
 ```
 
 `<run>` is the date and the issue numbers, `2026-11-13-12-34`, with `.2`, `.3` added when that folder is already there (a dot, so a second run for #12 is never read as a run for #12 and #2). A spec run's `<run>` is the date and the spec, `2026-11-13-spec-50`, with the same `.2`. A Delegation's `<id>` is `d<issue>`, `d12`; a second Delegation for the same issue adds `-2`, a third `-3`, and so on: the next suffix not yet used in the run, so a restart never reuses a folder. A phase of a spec with no tickets is `d<spec>-p<k>`, `d50-p2` for its second phase ([SPEC.md](SPEC.md#phases)), and a fix Delegation on an integration branch is `d<spec>-fix<k>`. A QA Delegation is `d<issue>-qa` for the first QA of that issue's pull request, then `d<issue>-qa2`, `-qa3` for each later one, on a new head or the same one.
+
+A Team Run adds `shared-board/`, holding the copy of each of this teammate's ticket rows as last written: a row is written only when its new rendering differs from that copy, and `--status` reads a row's age from it ([TEAM.md](TEAM.md#when-a-row-is-written)).
 
 Nothing in a run folder is committed. A brief or a log can quote issue text and command output the human has not chosen to publish.
 
@@ -43,6 +46,10 @@ Default branch: <name> at <SHA>, checked <time>; passed: <Delegation>@<head>, â€
 
 Spec #<n>, <shape>. Landing: <landing>. Integration branch: <name> at <SHA>, pushed: <no, or why>.
 
+Team Run: <tracker>, as <login>. Support Level: <level>.
+
+Shared Board labels: not held, <why>.
+
 | Delegation | Issue | Kind     | Executor     | Handle   | Model | Wave      | Branch | Pull request | State    | Decision Requests |
 | ---------- | ----- | -------- | ------------ | -------- | ----- | --------- | ------ | ------------ | -------- | ----------------- |
 | d12        | #12   | building | Live Session | <handle> | <m>   | 1         | <b>    | <URL>        | verified | R1 unreviewed     |
@@ -60,6 +67,8 @@ The `Heartbeat` line is the check that re-arms itself while the run waits on a D
 The `Default branch` line is the default branch's tip at the last check of it: written at SKILL.md step 8 the first time, once every verified branch has been test-merged into that tip, and after that only at each [default-branch check](SKILL.md#the-default-branch-check). It is the baseline for "the tip has moved since", which decides whether the check re-gates the merge result. Its `passed` list names each row that passed at that tip, with the head it passed at: step 8 names only a verified branch whose head already contains the tip, and each check names only the rows that passed it. A row it does not name at its current head (one taken off the list, verified since, or pushed to since it passed) is re-gated at its next check, even when the tip has not moved. Before step 8 it reads `none yet`.
 
 The `Spec` line is there only in a spec run, and its integration branch only with that landing. In that landing, a ticket's **Branch** cell also gives the commit it was cut at, and once it has landed, its landed commit, and its **Pull request** cell is `none`: its work lands through the integration branch, which has a row of its own once its pull request is open ([SPEC.md](SPEC.md#on-an-integration-branch)).
+
+The `Team Run:` line is there only in a Team Run ([TEAM.md](TEAM.md#find-the-tracker)): the tracker the run reads and writes through, this teammate's login, and the tracker file's Support Level. `--resume` and `--status` load TEAM.md when a board has it. The `Shared Board labels:` line under it is there only once a state label write did not hold ([TEAM.md](TEAM.md#states-and-labels)). A Team Run's board also records, under the table, the plan's three lists (Teammates' tickets, `unassigned`, needs one assignee), and, beside each of this teammate's tickets, the row comment that is its Shared Board row, once written: `Shared Board row: #<n> comment <id>` ([TEAM.md](TEAM.md#when-a-row-is-written)). A re-created row's new id replaces the old.
 
 The **Decision Requests** cell lists each open question by its heading, and in an autonomous run each Ruling for the Delegation by its id and verdict (`R1 unreviewed`, `R3 needs re-review`), so the board shows what still waits on the human: a queued question, or a Ruling not yet upheld.
 
