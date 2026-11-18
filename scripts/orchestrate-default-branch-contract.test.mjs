@@ -287,8 +287,7 @@ describe("docs/orchestrate.md and CONFIG.md", () => {
 });
 
 describe("CHANGELOG.md", () => {
-  it("has an [Unreleased] line for the change", () => {
-    const unreleased = CHANGELOG.split("\n## [Unreleased]\n")[1].split("\n## [")[0];
-    assert.match(unreleased, /\[#288\]/);
+  it("has a line for the change, in [Unreleased] or the release that shipped it", () => {
+    assert.match(CHANGELOG, /^- .*\[#288\]/m);
   });
 });
