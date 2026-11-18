@@ -221,6 +221,18 @@ On the yes to hand it off, in this order, each step done before the next:
 
 The state label is left as it is, not removed as for another `dropped` ticket: it is the new owner's to set now, and its next `set-state` puts it right. A ticket handed off before its Delegation was spawned has no branch to push: step 1 is skipped, and its final row line says `handed off to @<new>, not started`.
 
+### Picking up a handed-off ticket
+
+A ticket newly assigned to this teammate is planned by their own run: in the Dispatch Plan of a new Team Run, or in the amended Dispatch Plan `--resume` shows for it ([RUN.md](RUN.md#resume)). Before it is planned, read its row comments with the `row` operation. When the newest row comment by its previous assignee has as its newest milestone `handed off to @<this login> at <branch>@<head>`, the plan says, beside the ticket, `picked up from @<previous>'s <branch>@<head>`, and on "go" the Chief of Staff starts a new Delegation from that branch, as a crashed Delegation's branch is picked up ([SKILL.md](SKILL.md#6-run-the-loop)): it fetches the branch from the remote, the new Delegation works on it from that head, and its brief says the branch carries the previous owner's work, to be read before it builds on it. The Executor and model are this run's own choice. When the remote's head of that branch is not the head the milestone names, or the milestone says `not started`, the plan says so, and the Delegation starts from the head the remote has, or from the default branch for `not started`.
+
+A ticket whose previous owner's row has no hand-off milestone, because their run never answered, is a Decision Request in the plan: the plan names that row's branch, head and age, and asks whether to start from that branch as the remote has it or from the default branch. Recommend the branch when the remote has it.
+
+The new owner's first write is a **new** row comment, made with `write-row` and carrying this run's id and this teammate's login in its marker. It never edits the previous owner's comment, which keeps its hand-off milestone: editing another person's comment needs write access, and that row is the previous owner's record. Its first milestone is `spawned from <branch>@<head>`.
+
+### Which comment is the row
+
+A ticket can carry several row comments, one for each owner it has had. A row comment counts only when its marker's `author` is the login of the comment's own author, as the `row` operation reads it. Whoever reads the Shared Board, `--status`, a teammate's Dispatch Plan, or an observer, takes as the ticket's row the row comment written by the ticket's current assignee, the newest of theirs when there are several. When there is none, because the new owner's run has not written yet or the ticket has no single assignee, the reader takes the newest row comment and shows it as stale: `stale: written by @<author>, who is not the assignee`. The older comments stay as they are: nothing deletes them.
+
 ## Conflicts with a teammate's branch
 
 A Chief of Staff rules only on its own branches. At SKILL.md step 8, beside the conflicts between this run's own branches, it test-merges each of this teammate's verified branches against the head of every open pull request of a teammate's ticket of the spec: found with `merged`, which lists each ticket's pull requests and their state, and read with the `pull-head` operation. It never changes, merges or comments on a teammate's branch or pull request, and a merge order between this teammate's branch and a teammate's is not its to set, nor a Ruling.

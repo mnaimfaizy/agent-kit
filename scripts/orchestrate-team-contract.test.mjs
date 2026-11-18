@@ -358,4 +358,19 @@ describe("TEAM.md: ownership of a row (#318)", () => {
     assert.match(off, /label/);
     assert.match(section(TEAM, "### Milestones"), /`handed off to @<login> at <branch>@<head>`/);
   });
+  it("has the new assignee's run start a new Delegation from the handed-off branch, as a crashed one's is picked up, and write a new row comment", () => {
+    const pick = section(owner, "### Picking up a handed-off ticket");
+    assert.match(pick, /new Delegation from that branch/);
+    assert.match(pick, /as a crashed Delegation's branch is picked up/);
+    assert.match(pick, /\[SKILL\.md\]\(SKILL\.md#/);
+    assert.match(pick, /\*\*new\*\* row comment/);
+    assert.match(pick, /never edits/);
+  });
+
+  it("has readers take the current assignee's row comment, or with none, the newest one shown as stale", () => {
+    const which = section(owner, "### Which comment is the row");
+    assert.match(which, /written by the ticket's current assignee/);
+    assert.match(which, /newest/);
+    assert.match(which, /stale/);
+  });
 });
