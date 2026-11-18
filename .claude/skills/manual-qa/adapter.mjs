@@ -2382,6 +2382,9 @@ export function renderConfigYaml(config, check = configProblems) {
   return `${emitBlock(ordered, 0).join("\n")}\n`;
 }
 
+/** The config sections whose answers merge key by key, one level down. */
+const MERGED_ONE_LEVEL_DOWN = ["plan", "run"];
+
 /**
  * The repository's config with the person's answers laid over it: a top-level
  * answer replaces that key, except `plan` and `run`, whose keys are merged one
@@ -2394,7 +2397,7 @@ export function mergeAnswers(existing, answers) {
   const merged = { ...existing };
   for (const [key, value] of Object.entries(answers))
     merged[key] =
-      (key === "plan" || key === "run") && isMapping(existing[key]) && isMapping(value)
+      MERGED_ONE_LEVEL_DOWN.includes(key) && isMapping(existing[key]) && isMapping(value)
         ? { ...existing[key], ...value }
         : value;
   return merged;
@@ -2443,6 +2446,25 @@ export function readAnswersFile(repo, file) {
 }
 
 /**
+ * Why an effective `working_dir`, or an answers file inside it, cannot be
+ * used, or null when both can: `working_dir` must be relative and stay inside
+ * the repository, and the answers file (when there is one) must be inside it.
+ * Checked after the merge, since an answer may set `working_dir` itself.
+ *
+ * @param {string} repo
+ * @param {string} workingDir the effective `working_dir`
+ * @param {string | null} answersPath the answers file's resolved path, or null
+ * @returns {string | null}
+ */
+export function answersPlaceProblem(repo, workingDir, answersPath) {
+  if (isAbsolute(workingDir) || workingDir.split(/[\\/]/).includes(".."))
+    return "`working_dir` must be a relative path inside the repository";
+  if (answersPath !== null && !isInside(answersPath, resolve(repo, workingDir)))
+    return `the answers file must be inside \`working_dir\` (\`${workingDir}\`)`;
+  return null;
+}
+
+/**
  * The one line a draft QA Plan is shown with when its readiness answers came
  * from a file: each answer as `key=value`, one level down for `plan` and `run`,
  * as `mergeAnswers` lays them over the config.
@@ -2453,7 +2475,7 @@ export function readAnswersFile(repo, file) {
 export function reusedAnswersLine(file, answers) {
   const values = [];
   for (const [key, value] of Object.entries(answers))
-    if ((key === "plan" || key === "run") && isMapping(value))
+    if (MERGED_ONE_LEVEL_DOWN.includes(key) && isMapping(value))
       for (const [sub, inner] of Object.entries(value))
         values.push(`${key}.${sub}=${JSON.stringify(inner)}`);
     else values.push(`${key}=${JSON.stringify(value)}`);
@@ -2679,14 +2701,8 @@ function checkPlanAnswers(argv, repo, loaded) {
       }),
     };
   const effective = effectiveConfig(merged);
-  if (isAbsolute(effective.working_dir) || effective.working_dir.split(/[\\/]/).includes(".."))
-    return { code: 2, out: "check: `working_dir` must be a relative path inside the repository\n" };
-  // After the merge: an answer may set `working_dir` itself.
-  if (!isInside(read.path, resolve(repo, effective.working_dir)))
-    return {
-      code: 2,
-      out: `check: the answers file must be inside \`working_dir\` (\`${effective.working_dir}\`)\n`,
-    };
+  const misplaced = answersPlaceProblem(repo, effective.working_dir, read.path);
+  if (misplaced) return { code: 2, out: `check: ${misplaced}\n` };
   return {
     code: 0,
     out: json({

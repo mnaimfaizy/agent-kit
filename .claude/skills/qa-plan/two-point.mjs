@@ -46,14 +46,14 @@
 
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync } from "node:fs";
-import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
   AnswersError,
   configProblems,
   effectiveConfig,
-  isInside,
+  answersPlaceProblem,
   mergeAnswers,
   readAnswersFile,
   readQaConfig,
@@ -658,14 +658,9 @@ export async function main(argv, io = {}) {
       };
   }
   const config = effectiveConfig(merged);
-  if (isAbsolute(config.working_dir) || config.working_dir.split(/[\\/]/).includes(".."))
-    return { code: 2, out: "`working_dir` must be a relative path inside the repository\n" };
   // After the merge: an answer may set `working_dir` itself.
-  if (answersPath && !isInside(answersPath, resolve(repo, config.working_dir)))
-    return {
-      code: 2,
-      out: `two-point: the answers file must be inside \`working_dir\` (\`${config.working_dir}\`)\n`,
-    };
+  const misplaced = answersPlaceProblem(repo, config.working_dir, answersPath);
+  if (misplaced) return { code: 2, out: `two-point: ${misplaced}\n` };
   const base = option(argv, "--base")[0] ?? config.plan.base_ref;
   if (!base)
     return {

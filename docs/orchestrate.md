@@ -178,15 +178,14 @@ A long run with you away stalls on every question. Most of them the evidence alr
 
 **What it rules on, and what stays yours.** The split is fixed, all or nothing:
 
-| The Chief of Staff rules on                                                       | You keep                                          |
-| --------------------------------------------------------------------------------- | ------------------------------------------------- |
-| A building Delegation's question about how to do the work within its issue's goal | Widening a scope fence                            |
-| A stalled or crashed Delegation: nudge it, or restart it from its branch          | Accepting a QA FAIL, or waiving a manual scenario |
-| The merge order between conflicting branches                                      | An analysis Delegation's options                  |
-| A QA FAIL: send it back, or run QA again                                          | Any write in your name not approved as routine    |
-| The delivery of a QA Plan                                                         | Everything under Authority                        |
-| A QA Plan's subject issue, an `unknown` row, and a test it could add instead      | The QA readiness answers                          |
-|                                                                                   | A hosted (`url`) QA target's host and role values |
+| The Chief of Staff rules on                                                       | You keep                                                                        |
+| --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| A building Delegation's question about how to do the work within its issue's goal | Widening a scope fence                                                          |
+| A stalled or crashed Delegation: nudge it, or restart it from its branch          | Accepting a QA FAIL, or waiving a manual scenario                               |
+| The merge order between conflicting branches                                      | An analysis Delegation's options                                                |
+| A QA FAIL: send it back, or run QA again                                          | Any write in your name not approved as routine                                  |
+| The delivery of a QA Plan                                                         | Everything under Authority                                                      |
+| A QA Plan's subject issue, an `unknown` row, and a test it could add instead      | The QA readiness answers, and a hosted (`url`) QA target's host and role values |
 
 **QA runs from the brief.** In an autonomous run, a QA Delegation on a local QA Stack (`target: stack`) composes, delivers and runs QA from its brief, with no command typed by you: its session reads each QA skill's `SKILL.md` and follows it, and each skill's "Run from an autonomous brief" section says what replaces each place it would wait on you. A test `qa-plan` finds could prove a promise goes back to the building Delegation to add; nothing is uploaded; the report is posted only if you approved that write. A `target: url` QA Delegation stays on the typed route: you confirm the host and give role test values in its session, and until you do it waits, while the rest of the run goes on. Why: [ADR 0013](adr/0013-in-an-autonomous-orchestrate-run-the-qa-skills-run-from-the-brief.md).
 
