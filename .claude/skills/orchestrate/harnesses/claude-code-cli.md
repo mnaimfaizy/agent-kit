@@ -16,13 +16,13 @@
 - `await`: wait on the background processes; on an end, read its output and the report file. Check a long-running one's Activity Log at an interval matched to its work, not more often. The primary event is a background process's exit, which starts a new turn in the Chief of Staff. The heartbeat is one recurring `CronCreate` task in the Chief of Staff's session, `*/10 * * * *` by default, with a plain-text prompt that says what each firing does (SKILL.md step 6), never `/orchestrate`. It fires only while Claude Code is running and idle. It expires after 7 days, so recreate it before then. A wait on CI or the review is a capped background command, and the heartbeat re-arms one that ended with nothing found.
 - `report`: the report file, and the `result` in the output.
 - A sub-agent, for an analysis Delegation: the in-session agent tool. Its result returns to the Chief of Staff when it finishes.
-- A QA Delegation: `spawn` on the brief, then `/qa-plan <n>` as the text of a `message` once its first phase has stopped, and `/manual-qa <plan file>` as a later one. If either fails, the QA Delegation falls back to a session the human starts. That fallback is part of the Executor the Dispatch Plan names for the QA row ("headless run; else a session you start"), so the switch needs no new plan.
+- A QA Delegation: `spawn` on the brief, then `/qa-plan <n> [--answers <working_dir>/qa-readiness.json]` as the text of a `message` once its first phase has stopped, and `/manual-qa <plan file>` as a later one. If either fails, the QA Delegation falls back to a session the human starts. That fallback is part of the Executor the Dispatch Plan names for the QA row ("headless run; else a session you start"), so the switch needs no new plan. With `go`, that is the typed route; with `go autonomous`, on a `stack` target, the same session follows its brief instead, reading each QA skill's `SKILL.md` from the paths the brief gives, so no command is sent or typed. A `url` target stays on the typed route.
 
 ## Limits
 
 - The human cannot open a headless run while it works; they read its Activity Log and output.
 - A headless run needs a permission mode that lets it commit and push without asking, which the human approves in the Dispatch Plan.
-- QA may fall back to a session the human starts, where the human types `/qa-plan <n>` and `/manual-qa <plan file>`.
+- On the typed route (with `go`, or a `url` target), QA may fall back to a session the human starts, where the human types `/qa-plan <n> [--answers <working_dir>/qa-readiness.json]` and `/manual-qa <plan file>`.
 
 ## Check before use
 

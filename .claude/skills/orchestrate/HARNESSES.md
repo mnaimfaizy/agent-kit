@@ -133,7 +133,10 @@ Codex Cloud, the Copilot cloud agent, Devin Cloud, Cursor Cloud Agents and Antig
 
 A harness file's **Executors** line wins over this table where they differ. The Dispatch Plan names the Executor for every Delegation, and the human's "go" approves it.
 
-A QA Delegation is never a sub-agent, on any harness: a sub-agent cannot take a user-invoked skill, and QA needs a working copy and a browser of its own. On every harness, the QA Delegation's session starts on its brief, never on a skill command, so the head is pinned before `qa-plan` runs. Where the way a QA skill starts is still **check before use**, the Dispatch Plan says the human may be asked to type `/qa-plan <n>`, and later `/manual-qa <plan file>`, in that session.
+A QA Delegation is never a sub-agent, on any harness: QA needs a working copy and a browser of its own, and outside an autonomous run, a sub-agent cannot take a user-invoked skill either. On every harness, the QA Delegation's session starts on its brief, never on a skill command, so the head is pinned before `qa-plan` runs. Then its QA skills start by one of two routes ([SKILL.md](SKILL.md) step 4):
+
+- **With `go`, and for a `url` target in any run:** typed. Each command is sent to the session as a message where the harness runs that as the user's invocation, or typed there by the human. Where that is still **check before use**, the Dispatch Plan says the human may be asked to type `/qa-plan <n> [--answers <working_dir>/qa-readiness.json]` (the `--answers` part only with an answers file for its base, [SKILL.md](SKILL.md) step 4), and later `/manual-qa <plan file>`, in that session.
+- **With `go autonomous`, for a `stack` target:** from the brief. The session reads each skill's `SKILL.md` from the paths its brief gives and follows it, so how this harness runs a slash command does not matter, and nobody types one.
 
 ## Notifying the human
 
