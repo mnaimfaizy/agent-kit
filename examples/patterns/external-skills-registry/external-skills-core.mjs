@@ -13,15 +13,36 @@
 // TODO(adopt): the heading of the one approved tier in your approval list.
 export const APPROVED_HEADING = "## Approved: project scope, committed";
 // A tier for skills installed on one person's machine is not an approval: no
-// fresh clone and no CI run has the skill, so nothing may route to it. Any
-// heading level, with or without the word "scope": "### Personal skills" is
-// the same tier.
-const PERSONAL_HEADING = /^#{1,6}\s+.*\b(?:personal|global|user[- ]scope)\b/im;
+// fresh clone and no CI run has the skill, so nothing may route to it. A
+// heading at any level is that tier when its name starts with the word
+// ("### Personal skills", "## Global installs") or names the scope ("##
+// Optional: user scope"). A word elsewhere in a heading, or in a fenced shell
+// comment, is not a tier.
+const PERSONAL_TIER = [
+  /^(?:personal|global|user|machine)(?![\w-])/i,
+  /(?<![\w-])(?:personal|global|user|machine)[- ]scope(?![\w-])/i,
+];
 // An approval entry in the list: `owner/repo@skill`, in backticks.
 const ENTRY = /`([\w.-]+\/[\w.-]+)@([\w.-]+)`/g;
 // A restatement of one anywhere else, backticks or not: in an install command,
-// plain text or link text.
-const RESTATED = /(?<![\w.\/-])([\w.-]+\/[\w.-]+)@([\w.-]+)/g;
+// plain text or link text. The name may not end in "." or "-", so a key that
+// ends a sentence ("we use owner/repo@skill.") is still the key.
+const RESTATED = /(?<![\w.\/-])([\w.-]+\/[\w.-]+)@([\w.-]*\w)/g;
+
+/** Each heading outside a code fence, as { level, text }. */
+function headings(text) {
+  const found = [];
+  let fenced = false;
+  text
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .forEach((line, index) => {
+      if (/^\s*(```|~~~)/.test(line)) fenced = !fenced;
+      const match = !fenced && line.match(/^(#{1,6})\s+(.*?)\s*#*\s*$/);
+      if (match) found.push({ index, level: match[1].length, text: match[2] });
+    });
+  return found;
+}
 
 /**
  * What the lock file says is installed, as `source@skill` keys. The shape
@@ -49,18 +70,12 @@ export function lockedSkills(lockText) {
 /** The body of one section, up to the next heading of the same or a higher level. */
 function section(text, heading) {
   const lines = text.replace(/\r\n/g, "\n").split("\n");
-  const start = lines.findIndex((line) => line.trim() === heading);
-  if (start === -1) return null;
-  const level = heading.match(/^#+/)[0].length;
-  const rest = lines.slice(start + 1);
-  // A `#` line inside a code fence is a shell comment, not a heading.
-  let fenced = false;
-  const end = rest.findIndex((line) => {
-    if (/^\s*(```|~~~)/.test(line)) fenced = !fenced;
-    const hashes = !fenced && line.match(/^(#{1,6})\s/);
-    return Boolean(hashes) && hashes[1].length <= level;
-  });
-  return (end === -1 ? rest : rest.slice(0, end)).join("\n");
+  // Headings outside fences only: a `#` line in a fence is a shell comment.
+  const all = headings(text);
+  const start = all.find((found) => `${"#".repeat(found.level)} ${found.text}` === heading);
+  if (!start) return null;
+  const next = all.find((found) => found.index > start.index && found.level <= start.level);
+  return lines.slice(start.index + 1, next ? next.index : lines.length).join("\n");
 }
 
 /** What the approval list approves, as `source@skill` keys, in order. */
@@ -83,7 +98,7 @@ export function registryProblems({ lockText, listText, skillDirs, docs = {} }) {
   const locked = lockedSkills(lockText);
   const approved = approvedSkills(listText);
 
-  if (PERSONAL_HEADING.test(listText)) {
+  if (headings(listText).some(({ text }) => PERSONAL_TIER.some((tier) => tier.test(text)))) {
     problems.push(
       "the approval list has a personal-scope tier: approve a skill at project scope, committed, or not at all",
     );

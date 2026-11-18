@@ -101,6 +101,24 @@ test("a personal tier at any heading level, with or without the word scope, is r
   }
 });
 
+test("a word in a heading, an entry or a fenced shell comment is not a personal tier", () => {
+  const extra = [
+    "```sh",
+    "# add at project scope, never --global",
+    "<installer add command>",
+    "```",
+    "## Excluded: tried as a global install",
+    "- `acme/skills@global-config`: overlaps a rule here.",
+    "### Global-config notes",
+  ].join("\n");
+  assert.deepEqual(check({ listText: list(["acme/skills@alpha", "acme/skills@beta"], extra) }), []);
+});
+
+test("a personal tier named by its scope anywhere in the heading is refused", () => {
+  const listText = list(["acme/skills@alpha", "acme/skills@beta"], "\n## Optional: user scope\n");
+  assert.match(check({ listText }).join("\n"), /personal-scope tier/);
+});
+
 test("the approved section ends at a heading of its level, not at a shell comment in a fence", () => {
   const listText = [
     APPROVED_HEADING,
@@ -143,6 +161,7 @@ test("a restatement without backticks is caught: an install command, plain text 
   const docs = {
     "a.md": "```sh\n<installer> add acme/skills@alpha\n```",
     "b.md": "We use acme/skills@beta for this.",
+    "e.md": "We use acme/skills@beta. And acme/skills@alpha-, too.",
     "c.md": "See [acme/skills@alpha](https://example.com).",
     "d.md": "Not a key: https://host/acme/skills@alpha or bigacme/skills@alphabet.",
   };
@@ -150,6 +169,8 @@ test("a restatement without backticks is caught: an install command, plain text 
     "a.md:2 restates acme/skills@alpha: link to the approval list instead",
     "b.md:1 restates acme/skills@beta: link to the approval list instead",
     "c.md:1 restates acme/skills@alpha: link to the approval list instead",
+    "e.md:1 restates acme/skills@beta: link to the approval list instead",
+    "e.md:1 restates acme/skills@alpha: link to the approval list instead",
   ]);
 });
 
