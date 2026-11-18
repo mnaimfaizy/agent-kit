@@ -43,7 +43,7 @@ A ticket's **state** is the one state label it carries, read through the config'
 
 ### Blocking across teammates
 
-SPEC.md's waves hold for this teammate's tickets, with the blockers each one has, read with the `blockers` operation: the tracker's own blocking links, where it has them. A blocker that is another ticket of the spec, but not this teammate's, is not SPEC.md's "blocker that gets no building Delegation" Decision Request: it is built in someone else's run, or in nobody's yet. The ticket it blocks is `parked`, and a teammate's blocker counts as cleared only when its pull request is merged, read with the `merged` operation, so the ticket is built on the code it will merge into. A blocker that is closed, or whose ticket is closed, with no merged pull request, is not cleared: it is a Decision Request to this teammate, since only a person knows why it was closed. The plan names, beside the parked ticket, whose ticket it waits on, or that nobody runs it yet when it is `unassigned` or needs one assignee. A blocker outside the spec is as SPEC.md says.
+SPEC.md's waves hold for this teammate's tickets, with the blockers each one has, read with the `blockers` operation, which reads the tracker's own blocking links ([TRACKERS.md](TRACKERS.md)). A blocker that is another ticket of the spec, but not this teammate's, is not SPEC.md's "blocker that gets no building Delegation" Decision Request: it is built in someone else's run, or in nobody's yet. The ticket it blocks is `parked`, and a teammate's blocker counts as cleared only when its pull request is merged, read with the `merged` operation, so the ticket is built on the code it will merge into. A blocker that is closed, or whose ticket is closed, with no merged pull request, is not cleared: it is a Decision Request to this teammate, since only a person knows why it was closed. The plan names, beside the parked ticket, whose ticket it waits on, or that nobody runs it yet when it is `unassigned` or needs one assignee. A blocker outside the spec is as SPEC.md says.
 
 While a ticket is parked, its row's **Parked on** line says on what ([The row](#the-row)). Each time the Chief of Staff wakes, on an `await` event or a heartbeat, and on `--resume`, it reads `merged` for every blocker of each parked ticket. When the last one is merged, the ticket is unparked: its Delegation is spawned from the default branch as it is then, and its row gets the milestone `unparked: #<blocker> merged`.
 
@@ -113,22 +113,22 @@ Updated <YYYY-MM-DD HH:MMZ>.
 
 `<login>` is this teammate's, read with the `viewer` operation. Each part:
 
-| Part                 | What it says                                                                                                                                                                                                                                                                                |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Headline             | One sentence: where the ticket stands, in the words [States and labels](#states-and-labels) gives for its fine state.                                                                                                                                                                       |
-| State label and fine | The ticket's state label, as `team.labels` names it, and its fine state, the state of its building or analysis Delegation on the local board ([RUN.md](RUN.md#states)).                                                                                                                     |
-| Waiting on           | One `>` line for each open Decision Request that waits on this teammate: its question, in one line, written for publication from its heading. In an autonomous run, only the ones the Chief of Staff does not rule on. Left out when there is none.                                         |
-| Assignee             | This teammate.                                                                                                                                                                                                                                                                              |
-| Branch               | The Delegation's branch and its head's short SHA, or `none yet` before it is spawned.                                                                                                                                                                                                       |
-| Pull request         | Its number, or `none yet`.                                                                                                                                                                                                                                                                  |
-| Parked on            | While the ticket is `parked`, what it waits on: each blocker that is not merged yet, with whose ticket it is, or `nobody runs it yet` for one `unassigned` or needing one assignee ([Blocking across teammates](#blocking-across-teammates)). Left out when it is not parked.               |
-| Decision authority   | `relay` or `autonomous`: this teammate's own, from their "go".                                                                                                                                                                                                                              |
-| Rulings              | In an autonomous run, the number of Rulings concerning this ticket's branch that are `unreviewed` or `needs re-review` in the Ruling Ledger, shown only while <N> is not zero. Only the count: the Rulings themselves stay in the ledger ([Rulings in a Team Run](#rulings-in-a-team-run)). |
-| Conflicts with       | Each open pull request of a teammate's ticket that this ticket's branch conflicts with ([Conflicts with a teammate's branch](#conflicts-with-a-teammates-branch)). Left out when there is none.                                                                                             |
-| Recent activity      | The last `team.recent_activity` milestones, newest first, each with its time in UTC, from the list in [Milestones](#milestones).                                                                                                                                                            |
-| Updated              | The time of the row's last change, in UTC. Readers tell a row's age from it: nothing in the row says whether the run is alive.                                                                                                                                                              |
-| Footer               | Says who keeps the row, and that a person's edit is overwritten on the next write.                                                                                                                                                                                                          |
-| Marker               | Hidden when the comment is rendered: the ticket's number, this run's id (its run folder's name) and the author's login. The `row` operation finds a row by it.                                                                                                                              |
+| Part                       | What it says                                                                                                                                                                                                                                                                                |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Headline                   | One sentence: where the ticket stands, in the words [States and labels](#states-and-labels) gives for its fine state.                                                                                                                                                                       |
+| State label and fine state | The ticket's state label, as `team.labels` names it, and its fine state, the state of its building or analysis Delegation on the local board ([RUN.md](RUN.md#states)).                                                                                                                     |
+| Waiting on                 | One `>` line for each open Decision Request that waits on this teammate: its question, in one line, written for publication from its heading. In an autonomous run, only the ones the Chief of Staff does not rule on. Left out when there is none.                                         |
+| Assignee                   | This teammate.                                                                                                                                                                                                                                                                              |
+| Branch                     | The Delegation's branch and its head's short SHA, or `none yet` before it is spawned.                                                                                                                                                                                                       |
+| Pull request               | Its number, or `none yet`.                                                                                                                                                                                                                                                                  |
+| Parked on                  | While the ticket is `parked`, what it waits on: each blocker that is not merged yet, with whose ticket it is, or `nobody runs it yet` for one `unassigned` or needing one assignee ([Blocking across teammates](#blocking-across-teammates)). Left out when it is not parked.               |
+| Decision authority         | `relay` or `autonomous`: this teammate's own, from their "go".                                                                                                                                                                                                                              |
+| Rulings                    | In an autonomous run, the number of Rulings concerning this ticket's branch that are `unreviewed` or `needs re-review` in the Ruling Ledger, shown only while <N> is not zero. Only the count: the Rulings themselves stay in the ledger ([Rulings in a Team Run](#rulings-in-a-team-run)). |
+| Conflicts with             | Each open pull request of a teammate's ticket that this ticket's branch conflicts with ([Conflicts with a teammate's branch](#conflicts-with-a-teammates-branch)). Left out when there is none.                                                                                             |
+| Recent activity            | The last `team.recent_activity` milestones, newest first, each with its time in UTC, from the list in [Milestones](#milestones).                                                                                                                                                            |
+| Updated                    | The time of the row's last change, in UTC. Readers tell a row's age from it: nothing in the row says whether the run is alive.                                                                                                                                                              |
+| Footer                     | Says who keeps the row, and that a person's edit is overwritten on the next write.                                                                                                                                                                                                          |
+| Marker                     | Hidden when the comment is rendered: the ticket's number, this run's id (its run folder's name) and the author's login. The `row` operation finds a row by it.                                                                                                                              |
 
 ### States and labels
 
@@ -157,7 +157,7 @@ A ticket's fine state is the state of its building or analysis Delegation on the
 
 The state label changes only when the coarse state changes, with the `set-state` operation: it adds the coarse state's label and removes any other of the six the ticket carries, so the ticket carries exactly one. A `dropped` ticket's label is removed, and its last row write says it was dropped. A state label the repository does not have, because the human said no to creating it ([Missing state labels](#missing-state-labels)), is not written, and the row is written as usual.
 
-`set-state` reads the ticket's labels back after each write. A tracker can drop a label change silently: GitHub does, with no error, when the teammate has no Triage or Write access. When the read-back does not show the new label, the label write did not hold, and the row comment stays the record. Log it once in the Activity Log, and put `Shared Board labels: not held, <why>` on the board, under the `Team Run:` line. It is not a Decision Request, and it is not retried until the next coarse state change.
+`set-state` reads the ticket's labels back after each write, since a tracker can drop a label change silently, with no error (the tracker file says when). When the read-back does not show the new label, the label write did not hold, and the row comment stays the record. Log it once in the Activity Log, and put `Shared Board labels: not held, <why>` on the board, under the `Team Run:` line. It is not a Decision Request, and it is not retried until the next coarse state change.
 
 ### When a row is written
 
@@ -170,6 +170,8 @@ The first write, right after "go", is the `planned` or `parked` row of each of t
 1. Read the ticket's row comments with the `row` operation. The row to edit is the one whose marker carries this run's id and this teammate's login.
 2. Write it with the `write-row` operation: edit that comment by its id, or create one when there is none, and record its comment id on the board, beside the ticket's row: `Shared Board row: #<n> comment <id>`.
 3. When the coarse state changed, write the state label with `set-state`, after the row, so a label never runs ahead of the row it mirrors.
+
+These add to the run folder ([RUN.md](RUN.md#layout)) a `shared-board/` folder holding the copy of each row as last written, `<n>.md`, and to the board ([RUN.md](RUN.md#board)) the `Shared Board row:` line of each ticket and, when a label write did not hold, the `Shared Board labels:` line under `Team Run:`.
 
 A write that fails is logged with what the tracker printed, and the run goes on; the next change writes the row again whole. The Shared Board never holds up the work.
 
@@ -186,6 +188,7 @@ The **Recent activity** list keeps the last `team.recent_activity` milestones (d
 - `QA passed on <head>` and `QA failed on <head>`
 - `crashed, branch kept at <head>` and `restarted from <head>`
 - `ready to merge`, `merged` and `dropped`
+- `handed off to @<login> at <branch>@<head>`, the old owner's last milestone when a ticket is reassigned
 
 ## Conflicts with a teammate's branch
 
@@ -195,13 +198,13 @@ A conflict is shown on the row instead, in its **Conflicts with** line: the team
 
 ## Rulings in a Team Run
 
-In a Team Run approved with `go autonomous`, the Chief of Staff rules only on this teammate's own Delegations, and only this teammate reviews its Rulings: the Ruling Ledger, and the evidence each Ruling cites, never leave this teammate's run folder. A Ruling line recorded where `decisions.to` says names whose Chief of Staff made it, in the place of SKILL.md's "Chief of Staff ruling, not yet reviewed":
+In a Team Run approved with `go autonomous`, the Chief of Staff rules only on this teammate's own Delegations, and only this teammate reviews its Rulings: the Ruling Ledger, and the evidence each Ruling cites, never leave this teammate's run folder. A Ruling line recorded where `decisions.to` says names whose Chief of Staff made it, in the place of the `Chief of Staff ruling, not yet reviewed` line of BRIEF.md's [Ruling form](BRIEF.md#ruling):
 
 ```text
 R<n> (@<login>'s Chief of Staff ruling, not yet reviewed): <question> → <choice>
 ```
 
-The Ruling Review updates `not yet reviewed` in it as SKILL.md says. A teammate, reading the pull request, sees whose ruling it is and that it is not theirs to review. The row carries only how many await review ([The row](#the-row)).
+After the Ruling Review ([SKILL.md](SKILL.md#autonomous-runs)), `not yet reviewed` in it is updated as BRIEF.md's [Ruling](BRIEF.md#ruling) section says. A teammate, reading the pull request, sees whose ruling it is and that it is not theirs to review. The row carries only how many await review ([The row](#the-row)).
 
 ## What stays local
 
