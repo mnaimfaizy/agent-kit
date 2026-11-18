@@ -78,6 +78,7 @@ describe("SKILL.md: when the default-branch check runs", () => {
   it("step 8 writes the board's Default branch line once, and later only the check moves it", () => {
     assert.match(STEP8, /`Default branch` line reads `none yet`, write it/);
     assert.match(STEP8, /only the default-branch check rewrites it/);
+    assert.match(STEP8, /naming as passed every verified branch that merged cleanly into it/);
   });
 
   it('"merged <pr>" confirms the merge, marks the row and checks the rest before naming the next', () => {
@@ -120,6 +121,14 @@ describe("SKILL.md: what the check reads and what each outcome does", () => {
 
   it("re-gates the merge result in a detached worktree whenever the tip moved, strict rule or not", () => {
     assert.match(DEFAULT_BRANCH_CHECK, /moved since the board's `Default branch` line/);
+  });
+
+  it("re-gates a row the Default branch line does not name as passed, so a row taken off the list is re-gated when it comes back", () => {
+    assert.match(
+      DEFAULT_BRANCH_CHECK,
+      /or when the line does not name the row as passed at that tip/,
+    );
+    assert.match(DEFAULT_BRANCH_CHECK, /naming as passed only the rows that passed this check/);
     assert.match(DEFAULT_BRANCH_CHECK, /`git commit-tree <tree> -p <tip> -p <head>`/);
     assert.match(DEFAULT_BRANCH_CHECK, /detached worktree/);
     assert.match(DEFAULT_BRANCH_CHECK, /strict rule or not/);
@@ -161,11 +170,12 @@ describe("SKILL.md: the Decision Request for a row behind or failing its re-gate
 });
 
 describe("SKILL.md: the merge order", () => {
-  it('says merge one at a time and say "merged <pr>" after each, under the strict rule', () => {
+  it('says merge one at a time and say "merged <pr>" after each, whenever more than one row is listed', () => {
     assert.match(STEP10, /merge one at a time, and say "merged <pr>" after each/);
-    assert.match(
-      STEP10,
-      /When any row was `BEHIND` at a check in this run, or the human chose to merge one as it is[^\n]*merge one at a time/,
+    assert.match(STEP10, /When the list has more than one row[^\n]*merge one at a time/);
+    assert.ok(
+      !STEP10.includes("When any row was `BEHIND` at a check in this run"),
+      "the instruction does not wait for a row to be `BEHIND` first",
     );
   });
 });
@@ -176,7 +186,10 @@ describe("RUN.md", () => {
   const states = section(RUN, "## States");
 
   it("the board form has the Default branch line straight under Heartbeat", () => {
-    assert.match(board, /^Heartbeat: .+\n\nDefault branch: <name> at <SHA>, checked <time>\.$/m);
+    assert.match(
+      board,
+      /^Heartbeat: .+\n\nDefault branch: <name> at <SHA>, checked <time>; passed: <Delegations, or none>\.$/m,
+    );
     assert.match(board, /^The `Default branch` line/m);
   });
 
@@ -197,9 +210,13 @@ describe("RUN.md", () => {
     assert.match(status, /default-branch check/);
     assert.match(
       status,
-      /changes nothing else: it messages no Delegation, voids no QA, re-arms nothing, and raises no Decision Request/,
+      /changes nothing else: it sets no row's state, messages no Delegation, voids no QA, re-arms nothing, and raises no Decision Request/,
     );
-    assert.match(status, /set back to `reported`/);
+    assert.match(status, /`--resume` step 4 runs the check on it again and acts on what it finds/);
+    assert.ok(
+      !status.includes("set back to `reported`"),
+      "`--status` leaves each row's state alone",
+    );
     assert.match(DEFAULT_BRANCH_CHECK, /On `--status`, the check acts on nothing/);
     assert.ok(
       !status.includes("It reads nothing else and changes nothing."),
