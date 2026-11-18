@@ -302,8 +302,14 @@ describe("docs/orchestrate.md: the Shared Board", () => {
   it("shows an example row that holds to the row's rules", () => {
     const example = fenced(section(team, "### The Shared Board"), "markdown");
     assertPublishable(example, "the docs' example row");
-    assert.match(example, /^<!-- orchestrate:shared-board-row ticket=\d+ run=\S+ author=@\S+ -->$/m);
-    assert.match(example, /Maintained by orchestrate for @\S+'s Team Run\. Edits here are overwritten\./);
+    assert.match(
+      example,
+      /^<!-- orchestrate:shared-board-row ticket=\d+ run=\S+ author=@\S+ -->$/m,
+    );
+    assert.match(
+      example,
+      /Maintained by orchestrate for @\S+'s Team Run\. Edits here are overwritten\./,
+    );
     assert.match(example, /\*\*Recent activity\*\*/);
   });
 

@@ -75,7 +75,7 @@ When no open ticket's only assignee is this teammate, the plan has no rows. It s
 
 ## The Shared Board
 
-From "go" until this teammate's run closes, each of this teammate's tickets carries one **Shared Board row**: a comment on the ticket that is a status card, plus one state label. The row is a projection of the ticket's row on the local board, never a store of its own ([ADR 0015](../../../docs/adr/0015-the-shared-board-is-a-published-projection-of-each-local-run-folder.md)): `--resume` and verification still read the run folder, never the row. Only this teammate's Chief of Staff writes the rows of this teammate's tickets, and it writes no other ([ADR 0014](../../../docs/adr/0014-a-team-runs-shared-board-is-one-single-writer-row-per-ticket.md)).
+From "go" until this teammate's run closes, each of this teammate's tickets carries one **Shared Board row**: a comment on the ticket that is a status card, plus one state label. The row is a projection of the ticket's row on the local board, never a store of its own ([ADR 0015](https://github.com/mnaimfaizy/agent-kit/blob/main/docs/adr/0015-the-shared-board-is-a-published-projection-of-each-local-run-folder.md)): `--resume` and verification still read the run folder, never the row. Only this teammate's Chief of Staff writes the rows of this teammate's tickets, and it writes no other ([ADR 0014](https://github.com/mnaimfaizy/agent-kit/blob/main/docs/adr/0014-a-team-runs-shared-board-is-one-single-writer-row-per-ticket.md)).
 
 A row is published, on a public repository to the open web, so it is held to three rules:
 
