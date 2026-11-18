@@ -26,6 +26,8 @@ docs/copilot-restore.md
 docs/issuebridge.md
 docs/adr/
 docs/assets/logo.svg
+docs/patterns/commit-pipeline.md
+docs/patterns/pr-pipeline.md
 
 .github/workflows/security-audit-reusable.yml
 .github/workflows/agent-plan-reusable.yml
@@ -63,6 +65,8 @@ examples/threat-pack/findings-ledger.md
 examples/qa.config.yml
 examples/qa-hazards/sign-in.md
 examples/orchestrate.config.yml
+examples/patterns/commit-pipeline/
+examples/patterns/pr-pipeline/
 
 scripts/prepare-release.sh
 scripts/cut-release.sh
