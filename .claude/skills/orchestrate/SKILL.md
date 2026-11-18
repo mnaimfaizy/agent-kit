@@ -180,7 +180,7 @@ For each Delegation in the wave, write its brief to its folder in the run, carry
 - **In an autonomous run**, a Delegation still stuck after the nudge, or a crashed one, is a Ruling instead of a question to the human: nudge it again, or restart it from its branch. The Chief of Staff makes one such Ruling per issue in the run. When the nudged or restarted Delegation stalls or crashes again, that is a question the human keeps: it is queued and notified as a question not ruled on ([Autonomous runs](#autonomous-runs)). Stopping it, or dropping it from the run, stays the human's.
 - **A Ruling overturned in the Ruling Review:** act on it as on any human answer ([Autonomous runs](#autonomous-runs)).
 
-**The heartbeat.** Arm it at the first `spawn` of the run, in the form the harness file gives, and record its id on the board, with the time it was made ([RUN.md](RUN.md#board)). Where the heartbeat is the foreground watch, the board says `foreground watch` in place of an id. On tier 3 there is none: the human is the event. Delete it at close-out (step 10), or when the run parks with nothing running and only the human's merges to wait for, and record that on the board. `--resume` arms it again ([RUN.md](RUN.md#resume)). Where the harness's heartbeat expires, recreate it before then and record the new id. On each firing, the Chief of Staff:
+**The heartbeat.** Arm it at the first `spawn` of the run, in the form the harness file gives, and record its id on the board, with the time it was made ([RUN.md](RUN.md#board)). Where the heartbeat is the foreground watch, the board says `foreground watch` in place of an id. On tier 3 there is none: the human is the event. Delete it at close-out (step 10), or when the run parks with nothing running and only the human's merges to wait for, in the form the harness file gives, a marker file included, and record that on the board. `--resume` arms it again ([RUN.md](RUN.md#resume)). Where the harness's heartbeat expires, recreate it before then and record the new id. On each firing, the Chief of Staff:
 
 1. reads the board;
 2. compares each running Delegation's `report.md` and `decisions.md` with what it last handled. On every wake-up, the Chief of Staff logs the time and size of each `report.md` and `decisions.md` it handles in its Activity Log, so this comparison has a baseline, after `--resume` too;
@@ -260,7 +260,7 @@ Then check each Ready to Merge row's head for a review run or comment newer than
 
 Also print what is not on the list and why: parked Delegations, Delegations awaiting Ruling Review, analysis results waiting on a decision, issues for the human, and anything raised and unanswered.
 
-Once the list is printed, delete the heartbeat (step 6) and record that on the board. Anything that sends a Delegation back to work after that, such as an overturned Ruling, arms it again.
+Once the list is printed, delete the heartbeat (step 6), with anything the harness file says goes with it, such as a hook's marker file, and record that on the board. Anything that sends a Delegation back to work after that, such as an overturned Ruling, arms it again.
 
 Then one line for the harness: each **check before use** item this run settled, and what it found, so the harness file can be corrected; and, on an unlisted harness, an offer to draft a harness file from what the run learned. Writing either is a change to this skill, made only on the human's yes.
 
