@@ -400,3 +400,119 @@ describe("TEAM.md: ownership of a row", () => {
     assert.match(edits, /restored on the next state change/);
   });
 });
+
+const RUN = read(`${SKILL_DIR}/RUN.md`);
+
+describe("SKILL.md: the observer form `--status --spec <n>`", () => {
+  const invocations = section(SKILL, "## Invocations");
+
+  it("names `--status --spec <n>` as an invocation that reads the tracker alone", () => {
+    const line = invocations
+      .split("\n")
+      .find((l) => l.includes("`/orchestrate --status --spec 50`"));
+    assert.ok(line, "the invocation is listed");
+    assert.match(line, /tracker/);
+    assert.match(line, /\[RUN\.md\]\(RUN\.md#/);
+  });
+
+  it("takes `--status --spec <n>` with nothing else, in the rule that stops any other mix", () => {
+    const rule = invocations.split("\n").find((l) => l.includes("stops the run before anything"));
+    assert.match(rule, /`--status --spec <n>` takes exactly one issue number and nothing else/);
+  });
+
+  it("puts `--status --spec <n>` in the argument hint, as a form of its own", () => {
+    const hint = /^argument-hint: "(.+)"$/m.exec(SKILL)[1];
+    assert.ok(hint.split(" | ").includes("--status --spec <n>"), hint);
+  });
+
+  it("loads TEAM.md for `--status` of a Team Run and for `--status --spec <n>`, and says it adds the Shared Board's writes after go", () => {
+    const load = SKILL.split("\n").find((l) =>
+      /Load \[TEAM\.md\]\(TEAM\.md\) for `--spec <n> --team`/.test(l),
+    );
+    assert.match(load, /`--status --spec <n>`/);
+    assert.match(load, /`--status`/);
+    assert.match(load, /Shared Board's writes after "go"/);
+    const team = invocations.split("\n").find((l) => l.includes("`/orchestrate --spec 50 --team"));
+    assert.match(team, /Shared Board's writes after "go"/);
+  });
+});
+
+describe("RUN.md: `--status` of a Team Run", () => {
+  const status = section(RUN, "## Status");
+  const team = section(RUN, "### In a Team Run");
+
+  it("prints the whole spec as a blocking tree in merge order, ending with Next moves", () => {
+    assert.match(team, /blocking tree/);
+    assert.match(team, /merge order/);
+    assert.match(team, /"Next moves"/);
+    const example = fenced(team, "text");
+    const lines = example.trimEnd().split("\n");
+    assert.match(lines[lines.length - 1], /^Next moves: /, "the example ends with Next moves");
+  });
+
+  it("shows each teammate's last write and each row's age since its last change", () => {
+    assert.match(team, /last write/);
+    assert.match(team, /age since its last change/);
+    assert.match(fenced(team, "text"), /last write/);
+  });
+
+  it("prints this teammate's own rows in full, as today, and teammates' rows as their status card shows them", () => {
+    assert.match(team, /own rows in full/);
+    assert.match(team, /open Decision Request in full/);
+    assert.match(team, /Ruling Ledger/);
+    assert.match(team, /as (its|their) status card shows (it|them)/);
+  });
+
+  it("lists `unassigned` and needs-one-assignee tickets, and hand-offs in progress", () => {
+    assert.match(team, /`unassigned`/);
+    assert.match(team, /needs one assignee/);
+    assert.match(team, /hand-off(s)? in progress/i);
+  });
+
+  it("writes nothing, and never says whether a teammate's run is alive", () => {
+    assert.match(team, /writes nothing/);
+    for (const thing of ["row", "label", "board", "file"])
+      assert.match(team, new RegExp(`no ${thing}`));
+    assert.match(team, /alive or dead/);
+    assert.doesNotMatch(fenced(team, "text"), /\b(alive|dead|inactive|idle)\b/i);
+  });
+
+  it("is part of the Status section, beside the observer form", () => {
+    assert.ok(status.includes("### In a Team Run"));
+    assert.ok(status.includes("### `--status --spec <n>`"));
+  });
+});
+
+describe("RUN.md: the observer form `--status --spec <n>`", () => {
+  const observer = section(RUN, "### `--status --spec <n>`");
+  /** The operation ids TRACKERS.md lists, each with its Kind. */
+  const kinds = new Map(
+    [...TRACKERS.matchAll(/^\| `([a-z][a-z-]*)` +\| ([^|]+?) +\|/gm)].map((m) => [m[1], m[2]]),
+  );
+
+  it("reads only the tracker and needs no local run", () => {
+    assert.match(observer, /reads only the tracker/);
+    assert.match(observer, /no run folder/);
+    assert.match(observer, /writes nothing/);
+  });
+
+  it("names only tracker operations that are reads", () => {
+    const named = [...observer.matchAll(/`([a-z][a-z-]*)` operation/g)].map((m) => m[1]);
+    assert.ok(named.length >= 3, "it names the operations it reads");
+    for (const id of named) assert.equal(kinds.get(id), "read", `\`${id}\` is a read`);
+    for (const id of ["spec-tickets", "row", "blockers"]) assert.ok(named.includes(id), id);
+  });
+
+  it("prints the same tree and Next moves as a Team Run's `--status`", () => {
+    assert.match(observer, /\[In a Team Run\]\(#in-a-team-run\)/);
+    assert.match(observer, /Next moves/);
+  });
+});
+
+describe("TEAM.md: a Team Run off GitHub", () => {
+  it("is loaded for `--status` of a Team Run and for `--status --spec <n>`", () => {
+    const opening = TEAM.split("\n\n")[1];
+    assert.match(opening, /`--status --spec <n>`/);
+    assert.match(opening, /`--status`/);
+  });
+});
