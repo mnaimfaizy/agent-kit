@@ -51,8 +51,9 @@ describe("TRACKERS.md", () => {
     assert.match(kind("create-label"), /^write as the human/);
   });
 
-  it("has a mapping file for GitHub", () => {
+  it("has a mapping file for GitHub and one for GitLab", () => {
     assert.ok(MAPPINGS.includes("github.md"));
+    assert.ok(MAPPINGS.includes("gitlab.md"));
   });
 
   it("names only trackers the config's `tracker` key can pin", () => {
@@ -76,6 +77,11 @@ for (const name of MAPPINGS) {
       const commands = text.replace(/\\\n\s*/g, " ").split("\n");
       for (const line of commands)
         if (/^gh api /.test(line)) assert.ok(!(/--slurp/.test(line) && /--jq/.test(line)), line);
+    });
+
+    it("never gives `glab api` a `--jq`, which it does not have", () => {
+      const commands = text.replace(/\\\n\s*/g, " ").split("\n");
+      for (const line of commands) if (/^glab api /.test(line)) assert.ok(!/--jq/.test(line), line);
     });
 
     it("maps every operation TRACKERS.md names, and no other", () => {
@@ -122,5 +128,82 @@ describe("trackers/github.md", () => {
     assert.match(set, /--remove-label/);
     assert.match(set, /silently/);
     assert.match(set, /row comment stays the record/);
+  });
+});
+
+describe("trackers/gitlab.md", () => {
+  const text = read("gitlab.md");
+
+  /** The text of one operation's `### \`<id>\`` section. */
+  const op = (id) => {
+    const start = text.indexOf(`\n### \`${id}\`\n`);
+    assert.ok(start >= 0, `section for \`${id}\``);
+    const body = text.slice(text.indexOf("\n", start + 1) + 1);
+    const next = body.search(/^#{2,3} /m);
+    return next < 0 ? body : body.slice(0, next);
+  };
+  /** The shell commands in the file's ```bash blocks, one per line, continuations joined. */
+  const commands = [...text.matchAll(/^```bash\n([\s\S]*?)^```$/gm)]
+    .flatMap((m) => m[1].replace(/\\\n\s*/g, " ").split("\n"))
+    .filter((line) => line.trim() !== "");
+
+  it("starts at Support Level `documented`, until a Team Run on GitLab passes", () => {
+    assert.match(text, /^- \*\*Support Level:\*\* `documented`/m);
+  });
+
+  it("dates its facts, and marks the research's unconfirmed points to check before use", () => {
+    assert.match(/^- \*\*Facts from:\*\* (.*)$/m.exec(text)?.[1] ?? "", /\d{4}-\d{2}-\d{2}/);
+    const check = text.slice(text.indexOf("\n## Check before use\n"));
+    assert.ok(check.length > 30, "a Check before use section");
+    for (const point of [/is_blocked_by/, /quick action/i, /closed_by/, /Planner/])
+      assert.match(check, point);
+  });
+
+  it("works with `glab` alone, never `gh`", () => {
+    for (const line of commands) assert.ok(!/(^|[|;&]\s*)gh /.test(line), line);
+    assert.ok(commands.some((line) => /^glab api /.test(line)));
+  });
+
+  it("needs no Premium feature: no scoped label, epic, Status or custom field", () => {
+    for (const line of commands) {
+      assert.ok(!/::/.test(line.replace(/projects\/:id/g, "")), `no scoped label: ${line}`);
+      assert.ok(!/epics|statusWidget|customFields|work_items/.test(line), line);
+    }
+  });
+
+  it("keeps the row in one note per ticket: found by its marker, edited by its note id", () => {
+    assert.match(op("row"), /projects\/:id\/issues\/<n>\/notes/);
+    assert.match(op("row"), /orchestrate:shared-board-row/);
+    assert.match(op("row"), /system/, "system notes are skipped");
+    assert.match(op("write-row"), /-X PUT projects\/:id\/issues\/<n>\/notes\/<id>/);
+    assert.match(op("write-row"), /glab api projects\/:id\/issues\/<n>\/notes /);
+  });
+
+  it("refuses to write a row with a line starting with `/`, which GitLab runs as a quick action", () => {
+    assert.match(op("write-row"), /grep -nE '\^\[\[:space:\]\]\*\/' <file>/);
+    assert.match(op("write-row"), /quick action/);
+  });
+
+  it("reads blockers from native `is_blocked_by` links, and else a `Blocked by:` line atop the description", () => {
+    const blockers = op("blockers");
+    assert.match(blockers, /projects\/:id\/issues\/<n>\/links/);
+    assert.match(blockers, /is_blocked_by/);
+    assert.match(blockers, /Blocked by: #<n>, #<n>/);
+    assert.match(blockers, /Premium/);
+  });
+
+  it("clears a blocker only on a merged merge request, read through `closed_by`, not the issue closing", () => {
+    const merged = op("merged");
+    assert.match(merged, /projects\/:id\/issues\/<n>\/closed_by/);
+    assert.match(merged, /`merged`/);
+    assert.match(merged, /not (from )?the issue clos/);
+  });
+
+  it("sets one plain state label with add and remove, and reads it back", () => {
+    const set = op("set-state");
+    assert.match(set, /add_labels/);
+    assert.match(set, /remove_labels/);
+    assert.match(set, /plain label/);
+    assert.match(set, /row (note|comment) stays the record/);
   });
 });
