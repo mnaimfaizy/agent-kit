@@ -217,22 +217,24 @@ describe("RUN.md", () => {
     assert.match(section(RUN, "## Resume"), /default-branch check/);
   });
 
-  it("`--status` runs the check and changes nothing but the board's check result", () => {
+  it("`--status` runs the check and prints its result, but writes nothing, so it never races a live session", () => {
     const status = section(RUN, "## Status");
     assert.match(status, /default-branch check/);
     assert.match(
       status,
-      /changes nothing else: it sets no row's state, messages no Delegation, voids no QA, re-arms nothing, and raises no Decision Request/,
+      /It writes nothing: not the board, its `Default branch` line or any row's state, and no other file in the run folder/,
     );
-    assert.match(status, /`--resume` step 4 runs the check on it again and acts on what it finds/);
-    assert.ok(
-      !status.includes("set back to `reported`"),
-      "`--status` leaves each row's state alone",
+    assert.match(status, /a live Chief of Staff session may still hold the run/);
+    assert.match(status, /the run in `run_dir` whose board was written last/);
+    assert.match(status, /`--resume` step 4 runs the check again/);
+    assert.ok(!status.includes("the only thing it writes"), "`--status` writes no board line");
+    assert.match(
+      DEFAULT_BRANCH_CHECK,
+      /On `--status`, the check acts on nothing and writes nothing/,
     );
-    assert.match(DEFAULT_BRANCH_CHECK, /On `--status`, the check acts on nothing/);
     assert.ok(
-      !status.includes("It reads nothing else and changes nothing."),
-      "the old rule is gone",
+      !DEFAULT_BRANCH_CHECK.includes("left out of the passed rows"),
+      "`--status` does not edit the passed list",
     );
   });
 });
@@ -251,11 +253,15 @@ describe("the glossary and DESIGN.md", () => {
 });
 
 describe("docs/orchestrate.md and CONFIG.md", () => {
-  it("the guide's `--status` row says it runs the check and writes only its result", () => {
+  it("the guide's `--status` row says it runs the check and writes nothing", () => {
     const line = DOCS.split("\n").find((l) => l.startsWith("| `/orchestrate --status [<run>]`"));
     assert.ok(line, "the `--status` row exists");
     assert.match(line, /default-branch check/);
-    assert.match(line, /only the board's `Default branch` line/);
+    assert.match(line, /prints what it finds and writes nothing/);
+    assert.ok(
+      !line.includes("writes only the board's"),
+      "the guide no longer says it writes the board",
+    );
     assert.ok(!line.includes("changes nothing."), "the old read-only rule is gone");
   });
 
