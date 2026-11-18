@@ -25,7 +25,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from pathlib import Path
 
 import yaml
@@ -351,6 +351,19 @@ def skip(reason: str) -> None:
     print(f"skipped: {reason}", file=sys.stderr)
 
 
+def installed_prettier(root: Path, env: Mapping[str, str]) -> Path | None:
+    """The repository's prettier, or None after a skip. In CI (`CI` set) it fails instead of skipping,
+    so a Tests job without `npm ci` cannot hide the notes check (#295)."""
+    # On Windows, npm's .bin/prettier is a POSIX shell shim that subprocess cannot start; use its .cmd.
+    prettier = root / "node_modules" / ".bin" / ("prettier.cmd" if os.name == "nt" else "prettier")
+    if prettier.is_file():
+        return prettier
+    reason = f"prettier is not installed ({prettier.relative_to(root).as_posix()} missing); run `npm ci`"
+    assert env.get("CI", "").lower() not in ("true", "1"), reason
+    skip(reason)
+    return None
+
+
 def test_the_strict_reader_reads_every_entry_of_the_real_register() -> None:
     text = REAL_REGISTER.read_text(encoding="utf-8")
     entries = real_register_entries(text)
@@ -360,10 +373,20 @@ def test_the_strict_reader_reads_every_entry_of_the_real_register() -> None:
     )
 
 
+def test_a_missing_prettier_fails_in_ci_instead_of_skipping() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            installed_prettier(Path(tmp), {"CI": "true"})
+        except AssertionError as error:
+            assert "prettier is not installed" in str(error) and "npm ci" in str(error), error
+        else:
+            raise AssertionError("installed_prettier went on without prettier while CI is set")
+
+
 def test_notes_with_the_real_register_s_entries_pass_prettier() -> None:
-    prettier = ROOT / "node_modules" / ".bin" / "prettier"
-    if not prettier.is_file():
-        return skip(f"prettier is not installed ({prettier.relative_to(ROOT)} missing); run `npm ci`")
+    prettier = installed_prettier(ROOT, os.environ)
+    if prettier is None:
+        return
     entries = real_register_entries(REAL_REGISTER.read_text(encoding="utf-8"))
     tag = f"v{entries[-1]['release']}"
     notes = release.notes_from_template(tag, entries)
@@ -817,6 +840,7 @@ if __name__ == "__main__":
     test_prepare_never_adds_the_table_to_existing_notes()
     test_prepare_refuses_a_register_outside_its_shape_before_writing()
     test_the_strict_reader_reads_every_entry_of_the_real_register()
+    test_a_missing_prettier_fails_in_ci_instead_of_skipping()
     test_notes_with_the_real_register_s_entries_pass_prettier()
     test_prepare_commits_only_finished_notes_and_can_open_the_pr()
     test_prepare_refuses_a_branch_that_exists_only_on_origin()
