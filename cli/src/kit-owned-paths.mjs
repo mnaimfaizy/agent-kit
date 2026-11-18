@@ -4,13 +4,15 @@
 // - forDeletion (the default): `upgrade` deletes every entry before copying
 //   it fresh, so only the permitted shapes pass, the same rule
 //   scripts/kit-owned-paths-contract.test.py enforces on the kit side. A tag
-//   that broke that rule must not delete Consumer files.
+//   that broke that rule must not delete Consumer files. Tests in
+//   scripts/cli-upgrade-contract.test.mjs hold ALLOWED_SHAPE equal to the
+//   Python pattern and parse this repository's own kit-owned-paths.txt with it.
 // - read-only (`forDeletion: false`, used by doctor): any plain relative
 //   folder path is accepted, so an older CLI can still check a newer tag that
 //   adds a new kind of Kit-owned path. Nothing is deleted on this path.
 
-const ALLOWED_SHAPE =
-  /^(?:\.claude\/skills\/[A-Za-z0-9._-]+\/|\.github\/(?:agent-runtime|agent-pipeline|security-audit)\/)$/;
+export const ALLOWED_SHAPE =
+  /^(?:\.claude\/skills\/[A-Za-z0-9._-]+\/|\.github\/(?:agent-runtime|agent-pipeline|security-audit|agent-review-response)\/)$/;
 const SAFE_PATH = /^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*\/$/;
 
 export class ManifestError extends Error {}
