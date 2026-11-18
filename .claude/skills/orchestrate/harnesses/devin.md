@@ -16,7 +16,7 @@
 - `await`: the process's end; nothing announces it. The heartbeat is the foreground watch ([HARNESSES.md](../HARNESSES.md#waiting-an-event-and-a-heartbeat)): while the run waits on a Delegation, the Chief of Staff does not end its turn, and the process's end is one more change the watch sees.
 - `report`: the absolute path, when the approved permission mode lets it write there; else its last message.
 - Analysis: a background `subagent_explore`, or a custom read-only profile with `model:` set; its end is announced. It shares the Chief of Staff's checkout.
-- A QA Delegation: a Desktop session the human starts in the worktree on the brief, where the human types `/qa-plan <n>` and later `/manual-qa <plan file>`.
+- A QA Delegation: a Desktop session the human starts in the worktree on the brief, where the human types `/qa-plan <n>` and later `/manual-qa <plan file>`. With `go`, that is the typed route; with `go autonomous`, on a `stack` target, the same session follows its brief instead, reading each QA skill's `SKILL.md` from the paths the brief gives, so no command is sent or typed. A `url` target stays on the typed route.
 
 ## Limits
 

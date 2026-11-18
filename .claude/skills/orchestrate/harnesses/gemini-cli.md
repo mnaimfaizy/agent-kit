@@ -16,7 +16,7 @@
 - `await`: the process's end. The heartbeat is the foreground watch ([HARNESSES.md](../HARNESSES.md#waiting-an-event-and-a-heartbeat)): while the run waits on a Delegation, the Chief of Staff does not end its turn, and the process's end is one more change the watch sees.
 - `report`: the report file, which `--include-directories` makes reachable.
 - Analysis: a `codebase_investigator` or `generalist` sub-agent, which blocks until it returns.
-- A QA Delegation: a session the human starts with `gemini` in its worktree, where the human types `/qa-plan <n>` and later `/manual-qa <plan file>`.
+- A QA Delegation: a session the human starts with `gemini` in its worktree, where the human types `/qa-plan <n>` and later `/manual-qa <plan file>`. With `go`, that is the typed route; with `go autonomous`, on a `stack` target, the same session follows its brief instead, reading each QA skill's `SKILL.md` from the paths the brief gives, so no command is sent or typed. A `url` target stays on the typed route.
 
 ## Limits
 

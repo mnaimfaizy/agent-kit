@@ -16,7 +16,7 @@
 - `await`: the background shell's end, which a Chief of Staff in OpenCode is told of; elsewhere, the process's end. The heartbeat is the foreground watch ([HARNESSES.md](../HARNESSES.md#waiting-an-event-and-a-heartbeat)): while the run waits on a Delegation, the Chief of Staff does not end its turn, and the announced end is one more change the watch sees. Whether it wakes an idle Chief of Staff is not relied on.
 - `report`: the absolute path; OpenCode allows writes outside the worktree by default.
 - Analysis: the `subagent` tool with `explore` or a read-only custom agent; it takes messages running or ended, and tells the parent each time it goes idle. It shares the Chief of Staff's checkout.
-- A QA Delegation: a headless run as for building, then a message that names the skill ("Load the `qa-plan` skill and run it for #<n>"), and later `manual-qa <plan file>`. Else a session the human opens (`opencode --session <id>`, or the desktop app), where the human types the two commands.
+- A QA Delegation: a headless run as for building, then a message that names the skill ("Load the `qa-plan` skill and run it for #<n>"), and later `manual-qa <plan file>`. Else a session the human opens (`opencode --session <id>`, or the desktop app), where the human types the two commands. With `go`, that is the typed route; with `go autonomous`, on a `stack` target, the same session follows its brief instead, reading each QA skill's `SKILL.md` from the paths the brief gives, so no command is sent or typed. A `url` target stays on the typed route.
 
 ## Limits
 
