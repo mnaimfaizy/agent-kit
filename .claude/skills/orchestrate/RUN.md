@@ -35,7 +35,7 @@ Started <date>. Plan approved <date>. Approved routine writes: <list, or none>. 
 
 Heartbeat: <id, interval, made <time>; `foreground watch`, where the harness has no scheduler; none yet; deleted <time>; or none on tier 3>.
 
-Default branch: <name> at <SHA>, checked <time>; passed: <Delegations, or none>.
+Default branch: <name> at <SHA>, checked <time>; passed: <Delegation>@<head>, …, or none.
 
 Spec #<n>, <shape>. Landing: <landing>. Integration branch: <name> at <SHA>, pushed: <no, or why>.
 
@@ -51,7 +51,7 @@ Spec #<n>, <shape>. Landing: <landing>. Integration branch: <name> at <SHA>, pus
 
 The `Heartbeat` line is the check that re-arms itself while the run waits on a Delegation (SKILL.md step 6), so `--status` shows whether one is armed and `--resume` knows what to arm again.
 
-The `Default branch` line is the default branch's tip at the last check of it: written at SKILL.md step 8 the first time, once every verified branch merges cleanly into that tip, and after that only at each [default-branch check](SKILL.md#the-default-branch-check). It is the baseline for "the tip has moved since", which decides whether the check re-gates the merge result. Its `passed` list names the rows that passed at that tip: step 8 names each verified branch that merged cleanly into it, and each check names only the rows that passed it. A row it does not name, one taken off the list or verified since, is re-gated at its next check even when the tip has not moved. Before step 8 it reads `none yet`.
+The `Default branch` line is the default branch's tip at the last check of it: written at SKILL.md step 8 the first time, once every verified branch has been test-merged into that tip, and after that only at each [default-branch check](SKILL.md#the-default-branch-check). It is the baseline for "the tip has moved since", which decides whether the check re-gates the merge result. Its `passed` list names each row that passed at that tip, with the head it passed at: step 8 names only a verified branch whose head already contains the tip, and each check names only the rows that passed it. A row it does not name at its current head (one taken off the list, verified since, or pushed to since it passed) is re-gated at its next check, even when the tip has not moved. Before step 8 it reads `none yet`.
 
 The `Spec` line is there only in a spec run, and its integration branch only with that landing. In that landing, a ticket's **Branch** cell also gives the commit it was cut at, and once it has landed, its landed commit, and its **Pull request** cell is `none`: its work lands through the integration branch, which has a row of its own once its pull request is open ([SPEC.md](SPEC.md#on-an-integration-branch)).
 

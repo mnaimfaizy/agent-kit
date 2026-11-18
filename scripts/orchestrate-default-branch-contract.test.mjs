@@ -80,7 +80,14 @@ describe("SKILL.md: when the default-branch check runs", () => {
   it("step 8 writes the board's Default branch line once, and later only the check moves it", () => {
     assert.match(STEP8, /`Default branch` line reads `none yet`, write it/);
     assert.match(STEP8, /only the default-branch check rewrites it/);
-    assert.match(STEP8, /naming as passed every verified branch that merged cleanly into it/);
+    assert.match(
+      STEP8,
+      /naming as passed, each with its head, only a verified branch whose head already contains that tip \(`git merge-base --is-ancestor <tip> <head>`\)/,
+    );
+    assert.ok(
+      !STEP8.includes("naming as passed every verified branch that merged cleanly into it"),
+      "step 8 names no branch whose merge result was never re-gated",
+    );
   });
 
   it('"merged <pr>" confirms the merge, marks the row and checks the rest before naming the next', () => {
@@ -128,9 +135,12 @@ describe("SKILL.md: what the check reads and what each outcome does", () => {
   it("re-gates a row the Default branch line does not name as passed, so a row taken off the list is re-gated when it comes back", () => {
     assert.match(
       DEFAULT_BRANCH_CHECK,
-      /or when the line does not name the row as passed at that tip/,
+      /or when the line does not name the row, at its current head, as passed at that tip/,
     );
-    assert.match(DEFAULT_BRANCH_CHECK, /naming as passed only the rows that passed this check/);
+    assert.match(
+      DEFAULT_BRANCH_CHECK,
+      /naming as passed only the rows that passed this check, each with the head it passed at/,
+    );
     assert.match(DEFAULT_BRANCH_CHECK, /`git commit-tree <tree> -p <tip> -p <head>`/);
     assert.match(DEFAULT_BRANCH_CHECK, /detached worktree/);
     assert.match(DEFAULT_BRANCH_CHECK, /strict rule or not/);
@@ -190,7 +200,7 @@ describe("RUN.md", () => {
   it("the board form has the Default branch line straight under Heartbeat", () => {
     assert.match(
       board,
-      /^Heartbeat: .+\n\nDefault branch: <name> at <SHA>, checked <time>; passed: <Delegations, or none>\.$/m,
+      /^Heartbeat: .+\n\nDefault branch: <name> at <SHA>, checked <time>; passed: <Delegation>@<head>, …, or none\.$/m,
     );
     assert.match(board, /^The `Default branch` line/m);
   });
