@@ -122,3 +122,65 @@ describe("TEAM.md: the tracker", () => {
     assert.match(find, /\[TRACKERS\.md\]\(TRACKERS\.md\)/);
   });
 });
+
+/** The first fenced block of a given language in a text, without its fences. */
+function fenced(text, lang) {
+  const m = new RegExp("^```" + lang + "\\n([\\s\\S]*?)^```$", "m").exec(text);
+  assert.ok(m, `a \`\`\`${lang} block`);
+  return m[1];
+}
+
+/** What every published row must hold to, wherever a row is shown. */
+function assertPublishable(row, where) {
+  for (const line of row.split("\n"))
+    assert.ok(!line.trimStart().startsWith("/"), `${where}: no line starts with "/": ${line}`);
+  for (const field of ["Handle", "Executor", "Model", "Wave"])
+    assert.doesNotMatch(row, new RegExp(`\\b${field}\\b`, "i"), `${where}: no ${field}`);
+}
+
+describe("TEAM.md: the Shared Board row", () => {
+  const board = section(TEAM, "## The Shared Board");
+  const row = section(TEAM, "### The row");
+  const template = fenced(row, "markdown");
+
+  it("is written as the status card, with every part the spec names", () => {
+    for (const part of [
+      "<!-- orchestrate:shared-board-row ticket=<n> run=<run> author=@<login> -->",
+      "<headline>",
+      "<fine state>",
+      "Waiting on @<login>:",
+      "Assignee",
+      "Branch",
+      "Pull request",
+      "Parked on",
+      "Decision authority",
+      "Rulings: <N> awaiting @<login>'s review",
+      "Conflicts with",
+      "Recent activity",
+      "Updated",
+      "Maintained by orchestrate",
+      "Edits here are overwritten.",
+    ])
+      assert.ok(template.includes(part), `the row holds ${part}`);
+  });
+
+  it("shows the Rulings line only while N is not zero, and keeps `recent_activity` milestones", () => {
+    assert.match(row, /only while <N> is not zero/);
+    assert.match(row, /`team\.recent_activity`/);
+  });
+
+  it("never carries the Handle, Executor kind, Model or Wave, and no line of it starts with `/`", () => {
+    assertPublishable(template, "TEAM.md's row");
+    assert.match(board, /never the Handle, the Executor kind, the Model or the Wave/);
+    assert.match(board, /no line starts with `\/`/i);
+  });
+
+  it("writes every free-text piece for publication, never copied from a brief, log or evidence file", () => {
+    assert.match(board, /written for publication/);
+    assert.match(board, /never copied from a brief, a report, a log or an evidence file/);
+  });
+
+  it("no longer says this version writes no row", () => {
+    assert.doesNotMatch(TEAM, /does not give the row's form yet/);
+  });
+});

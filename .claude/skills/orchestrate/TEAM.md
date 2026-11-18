@@ -56,7 +56,7 @@ SKILL.md step 4, with SPEC.md's additions, changed as follows. What is not named
   - **Teammates' tickets (not run here)**: each with its number, title, assignee and state, and the tickets of this teammate's it blocks.
   - **`unassigned`**: each with its number and title. Nobody runs these.
   - **Needs one assignee**: each with its assignees. Nobody runs these until exactly one remains.
-- **Routine writes:** the kinds step 4 lists, and "Shared Board: row comment and state labels on my assigned tickets". It covers only this teammate's own tickets, never a teammate's or an `unassigned` one, and is approved once, at "go". When the `public` operation says the repository is public, that section opens with the line: "This repository is **public**: row comments and state labels are readable by anyone." This version of the skill does not give the row's form yet, so it writes no row comment and no state label: the plan says so, and the approval is recorded on the board.
+- **Routine writes:** the kinds step 4 lists, and "Shared Board: row comment and state labels on my assigned tickets". It covers only this teammate's own tickets, never a teammate's or an `unassigned` one, and is approved once, at "go". When the `public` operation says the repository is public, that section opens with the line: "This repository is **public**: row comments and state labels are readable by anyone." Each write is as [The Shared Board](#the-shared-board) says, and the approval is recorded on the board.
 - **Decision authority** is per teammate: the line covers this teammate's run only, and this teammate's `go` or `go autonomous` sets it. Each teammate chooses their own in their own run, and an `autonomous` run makes Rulings only on its own Delegations.
 
 The board records the three lists beside the plan's rows.
@@ -70,3 +70,60 @@ Read the repository's labels with the `labels` operation, and compare them with 
 When no open ticket's only assignee is this teammate, the plan has no rows. It says that no ticket of spec `#<n>` is assigned to this teammate alone, by their login, shows the three lists, and points to `--status` to follow where the spec stands. There is nothing to "go" on: close the run on the board as having no tickets, and stop. Once a ticket is assigned to them, they start a new Team Run.
 
 **Done when:** the human has said "go" to the plan, or the plan said there are no tickets of their own; the board records which, with the three lists.
+
+## The Shared Board
+
+From "go" until this teammate's run closes, each of this teammate's tickets carries one **Shared Board row**: a comment on the ticket that is a status card, plus one state label. The row is a projection of the ticket's row on the local board, never a store of its own ([ADR 0015](../../../docs/adr/0015-the-shared-board-is-a-published-projection-of-each-local-run-folder.md)): `--resume` and verification still read the run folder, never the row. Only this teammate's Chief of Staff writes the rows of this teammate's tickets, and it writes no other ([ADR 0014](../../../docs/adr/0014-a-team-runs-shared-board-is-one-single-writer-row-per-ticket.md)).
+
+A row is published, on a public repository to the open web, so it is held to three rules:
+
+- **Every free-text piece is written for publication**: the headline, each question in the "Waiting on" box, and each milestone are written by the Chief of Staff, for this row, from the row's own fields. Each is never copied from a brief, a report, a log or an evidence file, and never quotes command output, a path in the run folder, or a secret.
+- **It carries only the fields below**: never the Handle, the Executor kind, the Model or the Wave. Those say how this teammate's machine runs the work, which is theirs.
+- **No line starts with `/`**: GitLab runs a note's line that starts with `/` as a quick action, and the same row is written on every tracker. Every line of the row starts with the form's own text, so a value, such as a branch name, never opens a line.
+
+### The row
+
+```markdown
+**<headline>**
+
+`<state label>` · <fine state>
+
+> **Waiting on @<login>:** <question>
+
+- **Assignee:** @<login>
+- **Branch:** `<branch>` at `<head>`
+- **Pull request:** #<pr>
+- **Parked on:** #<blocker> (@<teammate>) merged
+- **Decision authority:** <relay, or autonomous>
+- **Rulings: <N> awaiting @<login>'s review**
+- **Conflicts with:** #<pr> (@<teammate>), first merged wins
+
+**Recent activity**
+
+- <MM-DD HH:MMZ> <milestone>
+
+Updated <YYYY-MM-DD HH:MMZ>.
+
+<sub>Maintained by orchestrate for @<login>'s Team Run. Edits here are overwritten.</sub>
+
+<!-- orchestrate:shared-board-row ticket=<n> run=<run> author=@<login> -->
+```
+
+`<login>` is this teammate's, read with the `viewer` operation. Each part:
+
+| Part                 | What it says                                                                                                                                                                                                                                                                                |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Headline             | One sentence: where the ticket stands, in the words [States and labels](#states-and-labels) gives for its fine state.                                                                                                                                                                       |
+| State label and fine | The ticket's state label, as `team.labels` names it, and its fine state, the state of its building or analysis Delegation on the local board ([RUN.md](RUN.md#states)).                                                                                                                     |
+| Waiting on           | One `>` line for each open Decision Request that waits on this teammate: its question, in one line, written for publication from its heading. In an autonomous run, only the ones the Chief of Staff does not rule on. Left out when there is none.                                         |
+| Assignee             | This teammate.                                                                                                                                                                                                                                                                              |
+| Branch               | The Delegation's branch and its head's short SHA, or `none yet` before it is spawned.                                                                                                                                                                                                       |
+| Pull request         | Its number, or `none yet`.                                                                                                                                                                                                                                                                  |
+| Parked on            | While the ticket is `parked`, what it waits on: each blocker that is not merged yet, with whose ticket it is, or `nobody runs it yet` for one `unassigned` or needing one assignee ([Blocking across teammates](#blocking-across-teammates)). Left out when it is not parked.               |
+| Decision authority   | `relay` or `autonomous`: this teammate's own, from their "go".                                                                                                                                                                                                                              |
+| Rulings              | In an autonomous run, the number of Rulings concerning this ticket's branch that are `unreviewed` or `needs re-review` in the Ruling Ledger, shown only while <N> is not zero. Only the count: the Rulings themselves stay in the ledger ([Rulings in a Team Run](#rulings-in-a-team-run)). |
+| Conflicts with       | Each open pull request of a teammate's ticket that this ticket's branch conflicts with ([Conflicts with a teammate's branch](#conflicts-with-a-teammates-branch)). Left out when there is none.                                                                                             |
+| Recent activity      | The last `team.recent_activity` milestones, newest first, each with its time in UTC, from the list in [Milestones](#milestones).                                                                                                                                                            |
+| Updated              | The time of the row's last change, in UTC. Readers tell a row's age from it: nothing in the row says whether the run is alive.                                                                                                                                                              |
+| Footer               | Says who keeps the row, and that a person's edit is overwritten on the next write.                                                                                                                                                                                                          |
+| Marker               | Hidden when the comment is rendered: the ticket's number, this run's id (its run folder's name) and the author's login. The `row` operation finds a row by it.                                                                                                                              |
