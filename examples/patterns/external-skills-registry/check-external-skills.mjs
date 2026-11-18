@@ -2,7 +2,7 @@
 // Pattern guide skeleton: docs/patterns/external-skills-registry.md in Agent-kit.
 //
 // The external-skills check's shell: it reads the lock file, the approval
-// list, the project skills folder and the other docs, and prints what the core
+// list, the project-scope skills folder and the other docs, and prints what the core
 // finds. Every decision is in external-skills-core.mjs. Run it from the
 // repository root, in CI and in a pre-commit hook.
 //
@@ -20,18 +20,34 @@ import { lockedSkills, registryProblems } from "./external-skills-core.mjs";
 // folder project-scope skills are installed into.
 const LOCK_FILE = "<path to skills-lock.json>";
 const APPROVAL_LIST = "<path to approved-external-skills.md>";
-const SKILLS_DIR = "<project skills folder>";
+const SKILLS_DIR = "<project-scope skills folder>";
 // TODO(adopt): every file or folder of docs that might restate the list.
-const DOC_ROOTS = ["README.md", "<docs folder>", "<project skills folder>"];
+const DOC_ROOTS = ["README.md", "<docs folder>", "<project-scope skills folder>"];
 const SKIP_DIRS = new Set([".git", "node_modules"]);
 
-function markdownFiles(root) {
-  if (!fs.existsSync(root)) return [];
-  if (fs.statSync(root).isFile()) return root.endsWith(".md") ? [root] : [];
-  return fs.readdirSync(root, { withFileTypes: true }).flatMap((entry) => {
-    const full = path.join(root, entry.name);
-    if (entry.isDirectory()) return SKIP_DIRS.has(entry.name) ? [] : markdownFiles(full);
-    return entry.isFile() && entry.name.endsWith(".md") ? [full] : [];
+// fs.statSync follows a symlink, so a skill folder an installer links in from
+// a shared copy counts as a folder. A broken link counts as nothing.
+function statOf(full) {
+  try {
+    return fs.statSync(full);
+  } catch {
+    return null;
+  }
+}
+
+function markdownFiles(root, seen = new Set()) {
+  const stat = statOf(root);
+  if (!stat) return [];
+  if (stat.isFile()) return root.endsWith(".md") ? [root] : [];
+  // A linked folder can point back up the tree; read each real folder once.
+  const real = fs.realpathSync(root);
+  if (seen.has(real)) return [];
+  seen.add(real);
+  return fs.readdirSync(root).flatMap((name) => {
+    const full = path.join(root, name);
+    const entry = statOf(full);
+    if (entry?.isDirectory()) return SKIP_DIRS.has(name) ? [] : markdownFiles(full, seen);
+    return entry?.isFile() && name.endsWith(".md") ? [full] : [];
   });
 }
 
@@ -42,25 +58,31 @@ function main() {
   const lockText = fs.readFileSync(LOCK_FILE, "utf8");
   const listText = fs.readFileSync(APPROVAL_LIST, "utf8");
   const skillDirs = fs
-    .readdirSync(SKILLS_DIR, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => entry.name);
+    .readdirSync(SKILLS_DIR)
+    .filter((name) => statOf(path.join(SKILLS_DIR, name))?.isDirectory());
 
   // An external skill's own folder is upstream's prose, not a doc of yours:
   // it may name its own package. The approval list is the one place that may.
-  const upstream = lockedSkills(lockText).map(
-    (entry) => path.resolve(SKILLS_DIR, entry.name) + path.sep,
-  );
-  const skip = (file) =>
-    path.resolve(file) === path.resolve(APPROVAL_LIST) ||
-    upstream.some((dir) => path.resolve(file).startsWith(dir));
+  // Compared by real path, so a file reached through a link is still known.
+  const upstream = lockedSkills(lockText)
+    .map((entry) => path.join(SKILLS_DIR, entry.name))
+    .filter((dir) => statOf(dir))
+    .map((dir) => fs.realpathSync(dir) + path.sep);
+  const approvalList = fs.realpathSync(APPROVAL_LIST);
+  const skip = (real) => real === approvalList || upstream.some((dir) => real.startsWith(dir));
   // A doc root that does not exist would make the restatement check read
   // nothing and pass. Nothing read is not a pass.
   const absent = DOC_ROOTS.filter((root) => !fs.existsSync(root));
   if (absent.length) throw new Error(`doc root ${absent[0]} not found; fix DOC_ROOTS`);
+  // One set of seen folders across every root, and one read per real file.
+  const seen = new Set();
+  const read = new Set();
   const docs = {};
-  for (const file of new Set(DOC_ROOTS.flatMap(markdownFiles))) {
-    if (!skip(file)) docs[file] = fs.readFileSync(file, "utf8");
+  for (const file of DOC_ROOTS.flatMap((root) => markdownFiles(root, seen))) {
+    const real = fs.realpathSync(file);
+    if (read.has(real) || skip(real)) continue;
+    read.add(real);
+    docs[file] = fs.readFileSync(file, "utf8");
   }
 
   const problems = registryProblems({ lockText, listText, skillDirs, docs });

@@ -17,7 +17,7 @@ Skeleton to copy: [`examples/patterns/sub-agent-sync/`](../../examples/patterns/
 
 A repository that uses more than one agent harness ends up with the same sub-agent in several folders, because each harness reads its own: `.claude/agents/`, `.cursor/agents/`, `.github/agents/` and so on. Each folder wants a slightly different file: other frontmatter keys, other tool names, other model names. Kept by hand, they drift:
 
-- **A fix reaches one harness.** Someone tightens the reviewer's instructions in the harness they use. The other copies keep the old instructions, and the same agent behaves differently depending on which tool ran it.
+- **A fix reaches one harness.** Someone tightens the reviewer's instructions in the harness they use. The other copies keep the old instructions, and the same agent behaves differently depending on which harness ran it.
 - **A hand edit is lost.** Once a generator exists, an instruction written straight into a copy lasts until the next sync. In one repository an instruction added to one harness's copy was overwritten two weeks later, and nobody noticed until its output was missing.
 - **Model names are edited by hand.** Each harness spells models its own way, and a pin changed in one copy is not changed in the others. Worse, a vendor retires a model, and the agent pinned to it starts failing or quietly runs on a default.
 - **A grant widens unseen.** Adding a shell tool to one copy's tool list gives that agent a new power in one harness. In a diff of a long frontmatter line it is easy to miss.
@@ -40,7 +40,7 @@ A repository that uses more than one agent harness ends up with the same sub-age
                             └────────────────────┘          └────────────────────┘
 ```
 
-1. **The canonical folder** holds one file per agent: its name, its description, the capability roles it needs (`read`, `search`, `edit`, `execute`, `web`), and its body. A part of the body meant for some harnesses only sits inside a `<!-- harness:claude -->` … `<!-- /harness -->` block.
+1. **The canonical folder** holds one file per agent: its name, its description, the capability roles it needs, from the generator's `ROLES` list (such as `read` or `execute`), and its body. A part of the body meant for some harnesses only sits inside a `<!-- harness:claude -->` … `<!-- /harness -->` block.
 2. **The model policy** is one file that pins a model for every agent in every harness, in that harness's spelling, and says where each harness publishes its list of model names.
 3. **The generator** renders every harness's copy from those two: the frontmatter in that harness's shape (tool names mapped from the roles, the pinned model, quoted values) and the body with the other harnesses' blocks removed. `--apply` writes the copies and deletes copies of agents that no longer exist. `--check` writes nothing and fails if any copy is missing, different or extra.
 4. **The audit** runs on a schedule. It fetches each harness's model list and fails if a pinned name is no longer on it.
@@ -65,7 +65,7 @@ A repository that uses more than one agent harness ends up with the same sub-age
 
 - **The hook is not installed.** A contributor edits a copy, commits without the hook, and CI is the first to fail. That is the design working. If it keeps happening, the generated folders are not obviously generated: check that the comment at the top of each copy is visible in the editor people use.
 - **A catalog spells the model differently.** The pin is `composer-2` and the vendor's page says "Composer 2", so the audit reports a pin as missing that is not. Point the audit at a machine-readable list where the harness has one, or add a per-harness spelling map in `auditPins`.
-- **A short alias matches too much.** An alias like `sonnet` appears on a model page whether or not it still resolves, so a substring match can pass a dead alias. Prefer full model IDs in the policy where the harness accepts them, and an audit source that lists IDs.
+- **A short alias matches too much.** The audit matches a pin as a whole name, so a retired `model-4` does not pass because the catalog lists `model-4-5`. But an alias like `sonnet` appears on a model page whether or not it still resolves, so the audit can pass a dead alias. Prefer full model IDs in the policy where the harness accepts them, and an audit source that lists IDs.
 - **A generated folder holds hand-written files.** Any file in a harness folder with the copy's extension is either a copy or an extra, and `--apply` deletes extras. Keep the generated folders generated only; put notes elsewhere.
 - **One harness reads the canonical folder itself.** Then it is not a target, and the generator does not write its model line. Either enforce that harness's pin with a check over the canonical frontmatter, or keep the canonical folder neutral and make every harness a target.
 - **A harness needs a different description.** Marker blocks work on the body only. If a harness really needs another description, add a per-harness field to the canonical frontmatter and render it, rather than preserving a hand-written one in the copy.

@@ -13,10 +13,15 @@
 // TODO(adopt): the heading of the one approved tier in your approval list.
 export const APPROVED_HEADING = "## Approved: project scope, committed";
 // A tier for skills installed on one person's machine is not an approval: no
-// fresh clone and no CI run has the skill, so nothing may route to it.
-const PERSONAL_HEADING = /^##\s+.*\b(personal|user|global)\b.*\bscope\b/im;
-// An approval entry, and every restatement of one: `owner/repo@skill`.
+// fresh clone and no CI run has the skill, so nothing may route to it. Any
+// heading level, with or without the word "scope": "### Personal skills" is
+// the same tier.
+const PERSONAL_HEADING = /^#{1,6}\s+.*\b(?:personal|global|user[- ]scope)\b/im;
+// An approval entry in the list: `owner/repo@skill`, in backticks.
 const ENTRY = /`([\w.-]+\/[\w.-]+)@([\w.-]+)`/g;
+// A restatement of one anywhere else, backticks or not: in an install command,
+// plain text or link text.
+const RESTATED = /(?<![\w.\/-])([\w.-]+\/[\w.-]+)@([\w.-]+)/g;
 
 /**
  * What the lock file says is installed, as `source@skill` keys. The shape
@@ -41,13 +46,20 @@ export function lockedSkills(lockText) {
   });
 }
 
-/** The body of one `## ` section, up to the next `## ` heading. */
+/** The body of one section, up to the next heading of the same or a higher level. */
 function section(text, heading) {
   const lines = text.replace(/\r\n/g, "\n").split("\n");
   const start = lines.findIndex((line) => line.trim() === heading);
   if (start === -1) return null;
+  const level = heading.match(/^#+/)[0].length;
   const rest = lines.slice(start + 1);
-  const end = rest.findIndex((line) => /^## /.test(line));
+  // A `#` line inside a code fence is a shell comment, not a heading.
+  let fenced = false;
+  const end = rest.findIndex((line) => {
+    if (/^\s*(```|~~~)/.test(line)) fenced = !fenced;
+    const hashes = !fenced && line.match(/^(#{1,6})\s/);
+    return Boolean(hashes) && hashes[1].length <= level;
+  });
   return (end === -1 ? rest : rest.slice(0, end)).join("\n");
 }
 
@@ -64,7 +76,7 @@ export function approvedSkills(listText) {
 
 /**
  * Every disagreement, as one line each. `skillDirs` is the list of folders in
- * the project skills folder; `docs` maps every other doc's path to its text.
+ * the project-scope skills folder; `docs` maps every other doc's path to its text.
  */
 export function registryProblems({ lockText, listText, skillDirs, docs = {} }) {
   const problems = [];
@@ -115,7 +127,7 @@ export function registryProblems({ lockText, listText, skillDirs, docs = {} }) {
   const known = new Set([...lockedKeys, ...approvedKeys]);
   for (const [path, text] of Object.entries(docs).sort()) {
     text.split("\n").forEach((line, index) => {
-      for (const match of line.matchAll(ENTRY)) {
+      for (const match of line.matchAll(RESTATED)) {
         const key = `${match[1]}@${match[2]}`;
         if (known.has(key)) {
           problems.push(`${path}:${index + 1} restates ${key}: link to the approval list instead`);

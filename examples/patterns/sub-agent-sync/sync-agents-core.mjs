@@ -59,12 +59,23 @@ export function splitFrontmatter(text) {
   };
 }
 
-function scalar(frontmatter, key) {
+/**
+ * One single-line frontmatter value. A value this reader cannot take whole is
+ * an error, not a guess: a block scalar (`>`, `|`) would read as the indicator
+ * itself, and a quote that does not close on its line would keep the quote.
+ */
+function scalar(frontmatter, key, slug) {
   const match = frontmatter.match(new RegExp(`^${key}:[ \\t]*(.*)$`, "m"));
   if (!match) return null;
   const value = match[1].trim();
+  if (/^[|>][+-]?\d*$/.test(value)) {
+    throw new Error(`${slug}: ${key} is a multi-line block; write it on one line`);
+  }
   if (/^"(?:[^"\\]|\\.)*"$/.test(value)) return JSON.parse(value);
-  if (/^'.*'$/.test(value)) return value.slice(1, -1).replace(/''/g, "'");
+  if (/^'(?:[^']|'')*'$/.test(value)) return value.slice(1, -1).replace(/''/g, "'");
+  if (/^["']/.test(value)) {
+    throw new Error(`${slug}: ${key} opens a quote it does not close on the same line`);
+  }
   return value;
 }
 
@@ -76,11 +87,11 @@ function scalar(frontmatter, key) {
 export function parseCanonical(slug, text) {
   const { frontmatter, body } = splitFrontmatter(text);
   if (frontmatter === null) throw new Error(`${slug}: canonical file has no --- frontmatter`);
-  const name = scalar(frontmatter, "name");
-  const description = scalar(frontmatter, "description");
+  const name = scalar(frontmatter, "name", slug);
+  const description = scalar(frontmatter, "description", slug);
   if (!name) throw new Error(`${slug}: canonical frontmatter has no name`);
   if (!description) throw new Error(`${slug}: canonical frontmatter has no description`);
-  const tools = scalar(frontmatter, "tools");
+  const tools = scalar(frontmatter, "tools", slug);
   if (tools === null) throw new Error(`${slug}: canonical frontmatter has no tools: [roles] line`);
   const list = tools.match(/^\[(.*)\]$/);
   if (!list) throw new Error(`${slug}: tools must be a one-line list such as [read, search]`);
@@ -88,6 +99,9 @@ export function parseCanonical(slug, text) {
     .split(",")
     .map((role) => role.trim().replace(/^['"]|['"]$/g, ""))
     .filter(Boolean);
+  // An empty list is refused: some harnesses read an empty or missing tool
+  // list as "inherit every tool", which turns no grant into every grant.
+  if (!roles.length) throw new Error(`${slug}: tools lists no roles; an agent needs at least one`);
   for (const role of roles) {
     if (!ROLES.includes(role))
       throw new Error(`${slug}: unknown tool role ${JSON.stringify(role)}`);
@@ -171,8 +185,13 @@ export function renderTarget(agent, harness, models, harnesses = HARNESSES) {
     `model: ${JSON.stringify(pinnedModel(models, agent.slug, harness))}`,
   ];
   if (config.tools) {
-    const names = agent.roles.flatMap((role) => config.tools[role] ?? []);
-    lines.push(`tools: ${[...new Set(names)].join(", ")}`);
+    const names = [...new Set(agent.roles.flatMap((role) => config.tools[role] ?? []))];
+    // Never write an empty tool list, for the same reason parseCanonical
+    // refuses one: in some harnesses it means every tool.
+    if (!names.length) {
+      throw new Error(`${agent.slug}: roles ${agent.roles.join(", ")} map to no ${harness} tools`);
+    }
+    lines.push(`tools: ${names.join(", ")}`);
   } else if (config.readonly) {
     lines.push(`readonly: ${config.readonly(agent.roles)}`);
   }
@@ -245,6 +264,17 @@ export function planSync(agents, models, existing, harnesses = HARNESSES) {
 }
 
 /**
+ * Whether a catalog lists a model name as a whole token. A plain substring
+ * match would pass a retired `model-4` because the catalog lists `model-4-5`.
+ */
+export function listsModel(text, model) {
+  const escaped = model.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  // A full stop ending a sentence still ends the token; one followed by more
+  // of a name (`model-4.5`) does not.
+  return new RegExp(`(^|[^\\w.-])${escaped}($|[^\\w.-]|\\.(?![\\w-]))`, "i").test(text);
+}
+
+/**
  * The periodic audit: is every pinned model name still listed by the harness
  * that runs it? `catalogs` maps a harness to the text of its model list, or to
  * null when the list could not be read. An unread catalog is NOT RUN, never a
@@ -258,7 +288,10 @@ export function auditPins(models, catalogs) {
     for (const [harness, model] of Object.entries(harnessPins ?? {})) {
       if (!pins.has(harness)) pins.set(harness, new Map());
       const byModel = pins.get(harness);
-      byModel.set(model, [...(byModel.get(model) ?? []), slug]);
+      // The same trimmed name the generator writes, so the audit checks the
+      // pin the copies carry.
+      const name = String(model).trim();
+      byModel.set(name, [...(byModel.get(name) ?? []), slug]);
     }
   }
   for (const [harness, byModel] of [...pins].sort()) {
@@ -271,9 +304,8 @@ export function auditPins(models, catalogs) {
       notRun.push(`${harness}: the catalog could not be read`);
       continue;
     }
-    const haystack = text.toLowerCase();
     for (const [model, slugs] of [...byModel].sort()) {
-      if (!haystack.includes(model.toLowerCase())) {
+      if (!listsModel(text, model)) {
         missing.push(
           `${harness}: ${JSON.stringify(model)} (pinned for ${slugs.join(", ")}) is not in the catalog`,
         );

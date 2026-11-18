@@ -11,6 +11,7 @@ import { test } from "node:test";
 
 import {
   auditPins,
+  listsModel,
   parseCanonical,
   planSync,
   renderSections,
@@ -63,6 +64,20 @@ test("a canonical file without a description, a tools list, or with an unknown r
   assert.throws(() => scout({ tools: "read, search" }), /one-line list/);
   assert.throws(() => scout({ tools: "[read, admin]" }), /unknown tool role "admin"/);
   assert.throws(() => parseCanonical("scout", "no frontmatter"), /no --- frontmatter/);
+});
+
+test("a multi-line or unclosed frontmatter value is an error, not a mangled value", () => {
+  assert.throws(() => scout({ description: ">" }), /multi-line block/);
+  assert.throws(() => scout({ description: "|-" }), /multi-line block/);
+  assert.throws(() => scout({ description: '"a long' }), /does not close/);
+  assert.throws(() => scout({ description: "'a long" }), /does not close/);
+  assert.equal(scout({ description: "'it''s fine'" }).description, "it's fine");
+});
+
+test("an empty role list is refused, because an empty tool list can mean every tool", () => {
+  assert.throws(() => scout({ tools: "[]" }), /lists no roles/);
+  const noTools = { ...HARNESSES, alpha: { ...HARNESSES.alpha, tools: { read: [], search: [] } } };
+  assert.throws(() => renderTarget(scout(), "alpha", MODELS, noTools), /map to no alpha tools/);
 });
 
 test("a harness block reaches only the harnesses it names", () => {
@@ -156,6 +171,18 @@ test("the audit finds each pin in its harness's catalog, case-insensitively", ()
 test("the audit reports a pin its catalog no longer lists", () => {
   const { missing } = auditPins(MODELS, { alpha: "model-z", beta: "model-b" });
   assert.deepEqual(missing, ['alpha: "model-a" (pinned for scout) is not in the catalog']);
+});
+
+test("the audit matches a whole model name, not a prefix of a newer one", () => {
+  assert.equal(listsModel("model-4-5, model-4-1", "model-4"), false);
+  assert.equal(listsModel("model-4.5", "model-4"), false);
+  assert.equal(listsModel("Use model-4.", "model-4"), true);
+  assert.equal(listsModel("(model-4)", "MODEL-4"), true);
+});
+
+test("the audit checks the trimmed pin the generator writes", () => {
+  const models = { agents: { scout: { alpha: " model-a " } } };
+  assert.deepEqual(auditPins(models, { alpha: "model-a" }), { missing: [], notRun: [] });
 });
 
 test("an unread or unconfigured catalog is NOT RUN, never a pass", () => {

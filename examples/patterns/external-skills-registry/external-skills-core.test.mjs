@@ -87,6 +87,40 @@ test("a personal-scope tier is refused", () => {
   assert.match(check({ listText }).join("\n"), /personal-scope tier/);
 });
 
+test("a personal tier at any heading level, with or without the word scope, is refused", () => {
+  for (const heading of [
+    "## Personal skills (not committed)",
+    "### Personal scope",
+    "## Global installs",
+  ]) {
+    const listText = list(
+      ["acme/skills@alpha", "acme/skills@beta"],
+      `\n${heading}\n\n- \`acme/skills@gamma\``,
+    );
+    assert.match(check({ listText }).join("\n"), /personal-scope tier/, heading);
+  }
+});
+
+test("the approved section ends at a heading of its level, not at a shell comment in a fence", () => {
+  const listText = [
+    APPROVED_HEADING,
+    "- `acme/skills@alpha`",
+    "```sh",
+    "# refresh every approved skill",
+    "<installer update command>",
+    "```",
+    "- `acme/skills@beta`",
+    "### Notes",
+    "- `acme/skills@gamma`",
+    "## Excluded",
+    "- `acme/skills@delta`",
+  ].join("\n");
+  assert.deepEqual(
+    approvedSkills(listText).map((entry) => entry.name),
+    ["alpha", "beta", "gamma"],
+  );
+});
+
 test("an entry approved twice is a problem", () => {
   const listText = list(["acme/skills@alpha", "acme/skills@beta", "acme/skills@alpha"]);
   assert.deepEqual(check({ listText }), ["the approval list names acme/skills@alpha twice"]);
@@ -102,6 +136,20 @@ test("another doc that restates an entry is a problem, and one that links is not
   assert.deepEqual(check({ docs }), [
     "skills/README.md:2 restates acme/skills@alpha: link to the approval list instead",
     "skills/README.md:3 restates acme/skills@beta: link to the approval list instead",
+  ]);
+});
+
+test("a restatement without backticks is caught: an install command, plain text or link text", () => {
+  const docs = {
+    "a.md": "```sh\n<installer> add acme/skills@alpha\n```",
+    "b.md": "We use acme/skills@beta for this.",
+    "c.md": "See [acme/skills@alpha](https://example.com).",
+    "d.md": "Not a key: https://host/acme/skills@alpha or bigacme/skills@alphabet.",
+  };
+  assert.deepEqual(check({ docs }), [
+    "a.md:2 restates acme/skills@alpha: link to the approval list instead",
+    "b.md:1 restates acme/skills@beta: link to the approval list instead",
+    "c.md:1 restates acme/skills@alpha: link to the approval list instead",
   ]);
 });
 

@@ -1,12 +1,12 @@
 <!-- Pattern guide skeleton: docs/patterns/external-skills-registry.md in Agent-kit.
-     The approval list. Copy it next to your project skills, fill in every
+     The approval list. Copy it into the skills folder your harness reads at project scope, fill in every
      <placeholder>, replace the example entries, and delete this comment. -->
 
 # Approved external skills
 
 Skills written outside this repository that this repository approves. This page is the only list of them. Every other doc links here and does not restate it; `<check command>` fails on a doc that copies an entry.
 
-An approved skill is installed at project scope, into `<project skills folder>`, and committed. It is never hand-edited, and it changes only through the installer, so an upstream change arrives as a diff in a pull request. `<path to skills-lock.json>` is the registry the installer writes; `<check command>` holds it and this list in step in both directions.
+An approved skill is installed at project scope, into `<project-scope skills folder>`, and committed. It is never hand-edited, and it changes only through the installer, so an upstream change arrives as a diff in a pull request. `<path to skills-lock.json>` is the registry the installer writes; `<check command>` holds it and this list in step in both directions.
 
 There is no personal-scope tier. A skill on one person's machine is missing from every fresh clone and from CI, so nothing may route to it, and nobody here can review it when it changes.
 
