@@ -11,8 +11,10 @@
 #
 # History (docs/adr/, CHANGELOG.md, release-notes/) may always name an old
 # name. scripts/deprecation-register-contract.test.py fails on any other
-# mention, and scripts/cli-doctor-contract.test.mjs checks that doctor's rename
-# map (RENAMED_VARIABLES) equals the variable entries that have a replacement.
+# mention, scripts/cli-doctor-contract.test.mjs checks that doctor's rename
+# map (RENAMED_VARIABLES) equals the variable entries that have a replacement,
+# and scripts/release-tooling-contract.test.py fails on an entry that
+# scripts/release.py cannot read.
 
 # ADR 0009: every Stage setting is CLAUDE_<STAGE>_<SETTING> (#246).
 - kind: variable
