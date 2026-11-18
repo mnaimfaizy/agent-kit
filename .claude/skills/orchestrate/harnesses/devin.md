@@ -13,7 +13,7 @@
 
 - `spawn`: `devin -p --prompt-file <brief> --model <model> --permission-mode <approved mode> --respect-workspace-trust false` in the worktree, in the background, with stdout to `delegations/<id>/output.txt`. The handle is the worktree path, the session id from `devin list --format json` there, and the process id.
 - `message`: `devin -r <session-id> -p "<text>"` in that worktree, once the run has ended.
-- `await`: the process's end; nothing announces it.
+- `await`: the process's end; nothing announces it. The heartbeat is the foreground watch ([HARNESSES.md](../HARNESSES.md#waiting-an-event-and-a-heartbeat)): while the run waits on a Delegation, the Chief of Staff does not end its turn, and the process's end is one more change the watch sees.
 - `report`: the absolute path, when the approved permission mode lets it write there; else its last message.
 - Analysis: a background `subagent_explore`, or a custom read-only profile with `model:` set; its end is announced. It shares the Chief of Staff's checkout.
 - A QA Delegation: a Desktop session the human starts in the worktree on the brief, where the human types `/qa-plan <n>` and later `/manual-qa <plan file>`.
@@ -28,6 +28,7 @@
 
 ## Check before use
 
+- How long a foreground shell command, and a turn, may run, since the foreground watch depends on both. A shell tool's own time limit could cut the watch short (not yet confirmed).
 - That `-p` combines with `-r` for a follow-up, and how a run reports its session id.
 - What `-p` does when a tool call needs approval.
 - Whether Devin honours `disable-model-invocation` (its own field is `triggers`); if it does not, the agent could load `qa-plan` itself.

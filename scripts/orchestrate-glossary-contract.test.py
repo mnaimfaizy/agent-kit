@@ -28,6 +28,8 @@ TERMS = [
     "Ruling Review",
     "Dispatch Plan",
     "Activity Log",
+    "Heartbeat",
+    "Foreground watch",
     "Run Summary",
     "Ready to Merge",
 ]

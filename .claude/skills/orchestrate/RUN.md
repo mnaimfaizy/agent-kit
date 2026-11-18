@@ -33,6 +33,8 @@ Nothing in a run folder is committed. A brief or a log can quote issue text and 
 
 Started <date>. Plan approved <date>. Approved routine writes: <list, or none>. Decision authority: <relay, or autonomous>.
 
+Heartbeat: <id, interval, made <time>; `foreground watch`, where the harness has no scheduler; none yet; deleted <time>; or none on tier 3>.
+
 Spec #<n>, <shape>. Landing: <landing>. Integration branch: <name> at <SHA>, pushed: <no, or why>.
 
 | Delegation | Issue | Kind     | Executor     | Handle   | Model | Wave      | Branch | Pull request | State    | Decision Requests |
@@ -44,6 +46,8 @@ Spec #<n>, <shape>. Landing: <landing>. Integration branch: <name> at <SHA>, pus
 
 - #34: `ready-for-human`, listed for the human.
 ```
+
+The `Heartbeat` line is the check that re-arms itself while the run waits on a Delegation (SKILL.md step 6), so `--status` shows whether one is armed and `--resume` knows what to arm again.
 
 The `Spec` line is there only in a spec run, and its integration branch only with that landing. In that landing, a ticket's **Branch** cell also gives the commit it was cut at, and once it has landed, its landed commit, and its **Pull request** cell is `none`: its work lands through the integration branch, which has a row of its own once its pull request is open ([SPEC.md](SPEC.md#on-an-integration-branch)).
 
@@ -117,7 +121,7 @@ Each Activity Log is append-only Markdown, one entry per thing done, newest last
 3. Check each Delegation not `merged` or `dropped` against the source, not the board: its branch and head, its pull request and whether it is merged, CI on its head, the review workflow's run on its head and any review comment newer than its verification (SKILL.md step 7), and whether its Executor still answers its handle. With an integration branch, check the branch's head too, and which tickets' heads it contains: a ticket has landed, whatever the board says, when its landed commit is in it, or, when the board records none (an interruption between the move and the board's update), when the commit its verified report names is in it and is not the commit the ticket was cut at (a ticket cut but never committed to is in it too, and has not landed). Judge by those commits, never by the ticket branch's current head, which may have moved on since. Check the integration branch's own pull request the same way: when it is merged, so is every ticket it landed. Check each QA Delegation that has a head pinned in its row and is not `failed` or `void` against its pull request: when the pull request's head is not that head, it is `void`, a `passed` one included, and its building row goes back to `reported`, for SKILL.md step 7 on the new head. A `planned` QA Delegation has no head yet: it waits for its building Delegation, as before. For one whose `qa-plan.md` exists, check that it names the pinned head as its **Head**, and look where the plan was delivered for a posted QA Report for that head, whatever its report says: a QA Delegation interrupted between posting and reporting has posted one its report does not name. A board written before an interruption can be out of date.
 4. Update the board to what was found, and log each change.
 5. In an autonomous run, open with the Rulings still awaiting review: each `unreviewed` or `needs re-review` entry in the Ruling Ledger, grouped by Delegation as SKILL.md step 10 shows them, and with the questions still queued for the human. The human may answer them now, or later in the session.
-6. Start each `parked` Delegation whose wait is over, from the default branch as it now is, or, with an integration branch, from that branch's head. Continue the loop from SKILL.md step 6.
+6. Start each `parked` Delegation whose wait is over, from the default branch as it now is, or, with an integration branch, from that branch's head. Arm the heartbeat again (SKILL.md step 6), unless the only thing left to wait for is the human's merges, or the run is on tier 3. A `reported` or `waiting` row with a wait on CI or a review still needs it. The board's id may name a task that is gone, or one that outlived the old session, so check it first with the harness's own list of scheduled tasks, and make a new one only when it is gone. Then re-arm each wait the old session held, such as a subscription on a Delegation or a capped wait on CI: a background command does not survive a resume. Record the new id on the board, and continue the loop from SKILL.md step 6.
 
 A Delegation whose Executor no longer answers, and whose work did not finish, is `crashed`: its branch is the handoff, and the human decides whether a new Delegation picks it up.
 

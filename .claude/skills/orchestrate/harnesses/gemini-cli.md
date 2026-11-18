@@ -13,7 +13,7 @@
 
 - `spawn`: `gemini -p "<brief>" -m <model> -o stream-json --include-directories <run folder>` in the worktree, in the background, with the approval mode the human approved (`--approval-mode yolo` to commit and push unasked), and output to `delegations/<id>/output.jsonl`. The handle is the session id in its `init` event.
 - `message`: `gemini -r <session-id> -p "<text>"` from the worktree.
-- `await`: the process's end.
+- `await`: the process's end. The heartbeat is the foreground watch ([HARNESSES.md](../HARNESSES.md#waiting-an-event-and-a-heartbeat)): while the run waits on a Delegation, the Chief of Staff does not end its turn, and the process's end is one more change the watch sees.
 - `report`: the report file, which `--include-directories` makes reachable.
 - Analysis: a `codebase_investigator` or `generalist` sub-agent, which blocks until it returns.
 - A QA Delegation: a session the human starts with `gemini` in its worktree, where the human types `/qa-plan <n>` and later `/manual-qa <plan file>`.
@@ -27,6 +27,7 @@
 
 ## Check before use
 
+- How long a foreground shell command, and a turn, may run, since the foreground watch depends on both. A shell tool's own time limit could cut the watch short (not yet confirmed).
 - Whether Gemini CLI honours `disable-model-invocation`.
 - Whether `-w` worktrees, which it makes under `.gemini/worktrees/` inside the checkout, can be kept out of the Chief of Staff's checkout; until then, make the worktree by hand.
 - Whether the harness can notify the human that a question is queued, and how: record what was found.
