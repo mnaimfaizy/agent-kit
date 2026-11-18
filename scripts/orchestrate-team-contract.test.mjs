@@ -21,6 +21,7 @@ const SKILL_DIR = ".claude/skills/orchestrate";
 const SKILL = read(`${SKILL_DIR}/SKILL.md`);
 const TEAM = read(`${SKILL_DIR}/TEAM.md`);
 const TRACKERS = read(`${SKILL_DIR}/TRACKERS.md`);
+const DOC = read("docs/orchestrate.md");
 
 /** The text of a `## ` or `### ` section, from its heading to the next of the same depth or higher. */
 function section(text, heading) {
@@ -298,7 +299,6 @@ describe("TEAM.md: what stays local", () => {
 });
 
 describe("docs/orchestrate.md: the Shared Board", () => {
-  const DOC = read("docs/orchestrate.md");
   const team = section(DOC, "## Team Run");
 
   it("shows an example row that holds to the row's rules", () => {
@@ -530,8 +530,6 @@ describe("TEAM.md: a Team Run off GitHub", () => {
 });
 
 describe("docs/orchestrate.md: watching a Team Run, and reassignment", () => {
-  const DOC = read("docs/orchestrate.md");
-
   it("lists `--status --spec <n>` with the invocations", () => {
     assert.match(section(DOC, "## Invocations"), /\| `\/orchestrate --status --spec 50` +\|/);
   });
@@ -642,6 +640,10 @@ describe("RUN.md: a new Team Run after a lost machine", () => {
     assert.match(lost(), /Chief of Staff ruling, not yet reviewed/);
     assert.match(lost(), /open question for the human again/);
     assert.match(lost(), /never a Ruling/);
+    // The pull-request line only ever says `not yet reviewed`, `upheld` or `overturned` (BRIEF.md).
+    assert.doesNotMatch(lost(), /`needs re-review`/);
+    assert.match(lost(), /recorded where `decisions\.to` says/);
+    assert.match(lost(), /keeping the old id/);
   });
 
   it("is pointed to from TEAM.md, where a new Team Run plans", () => {
@@ -667,13 +669,11 @@ describe("trackers/gitlab.md: `spec-tickets` after TEAM.md reads it", () => {
 });
 
 describe("docs/orchestrate.md: resuming a Team Run, and a lost machine", () => {
-  const DOC = read("docs/orchestrate.md");
-
   it("says what `--resume` reconciles and how to carry on after a lost machine", () => {
     const res = section(section(DOC, "## Team Run"), "### Resuming a Team Run");
     assert.match(res, /`\/orchestrate --resume <run>`/);
     assert.match(res, /amended Dispatch Plan/);
-    assert.match(res, /lost/);
+    assert.match(res, /machine is lost/);
     assert.match(res, /take (the|your old) rows? over/);
     assert.match(res, /not yet reviewed/);
   });
