@@ -484,8 +484,9 @@ jobs:
           goes last under its axis, below a ### Checked line, as a list or in
           prose. Every other list item under those headings is a thread entry,
           so a list of fixes or confirmations anywhere else fails the check.
-          Keep the three axes separate and do not rerank across them. A trusted check after you finish fails the review when an
-          entry does not link a thread you started on this pull request.
+          Keep the three axes separate and do not rerank across them. A
+          trusted check after you finish fails the review when an entry does
+          not link a thread you started on this pull request.
 
           Re-review. The threads below are yours, from earlier reviews:
           1. Never post a new thread for a finding one of them already holds,
