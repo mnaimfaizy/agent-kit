@@ -6,7 +6,8 @@ A Pattern guide is a page under `docs/patterns/` and a skeleton under
 - every page has a skeleton folder of the same name, and every skeleton a page;
 - every skeleton holds an agent body (`*.agent.md`), a `SKILL.md` and a runner
   stub (`*.sh`, or `*.mjs` where the runner is a decision core and its shell),
-  and the page links every file in it;
+  and the page links every file in it. A pattern with no agent in it is listed
+  in NO_AGENT_BODY, and its page must say so;
 - every page has the five sections the ADR lists;
 - no page or skeleton names the repository the patterns were designed from, or
   its commands. A skeleton marks a placeholder where a host would be named.
@@ -23,6 +24,10 @@ SKELETONS = ROOT / "examples" / "patterns"
 SECTIONS = ("## The problem", "## The moving parts", "## Failure modes", "## Adopting it")
 RUNNER_SUFFIXES = (".sh", ".mjs")
 RULES_SECTION = re.compile(r"^## The rules, and why", re.MULTILINE)
+# Patterns where nothing drafts or judges, so a skeleton agent body would be
+# invented for the test. The page must say it has none, in these words.
+NO_AGENT_BODY = {"external-skills-registry"}
+NO_AGENT_SENTENCE = "This skeleton has no agent body."
 # Names from the source repository that a guide must not carry over. A generic
 # pattern name (such as "merge train", ADR 0012 guide 8) is not listed: a guide
 # must be able to name itself.
@@ -30,7 +35,11 @@ HOST_NAMES = re.compile(
     r"myorganiser|corepack yarn|yarn ai:|ai:commit|ai:create-pr|PrAuthor"
     r"|Surface Label|fix:attribution|github-labels\.json|Introduced in #|\bADR 0(?:025|100)\b"
     r"|merge:train|Merge Danger|Standalone Run|finish-standalone-runs|Sign-off Issue|review:(?:auto|agent|human)"
-    r"|Sandcastle|Component(?:Builder|Reviewer)|TestScaffold|gate:(?:mechanical|standard|full)",
+    r"|Sandcastle|Component(?:Builder|Reviewer)|TestScaffold|gate:(?:mechanical|standard|full)"
+    r"|sync-subagents|sync-agent-models|audit-agent-model-catalog|agents:(?:sync|models)|agent-model-policy"
+    r"|agent-tool-map|agent-tool-grants|harness-sections|sub-agent-sync-workflow|CodeExplorer"
+    r"|check-skill-map|skills:map|skill-atlas|EXTERNAL_SKILLS|Upstream-Owned|upstream-brief|ask-matt"
+    r"|mattpocock|modern-web-guidance|\bADR 0(?:030|031|032|081|084)\b",
     re.IGNORECASE,
 )
 
@@ -45,7 +54,7 @@ def skeletons() -> dict[str, Path]:
 
 def skeleton_problems(name: str, folder: Path) -> list[str]:
     problems = []
-    if not list(folder.glob("*.agent.md")):
+    if name not in NO_AGENT_BODY and not list(folder.glob("*.agent.md")):
         problems.append(f"examples/patterns/{name}/ has no *.agent.md agent body")
     if not (folder / "SKILL.md").is_file():
         problems.append(f"examples/patterns/{name}/ has no SKILL.md")
@@ -57,6 +66,8 @@ def skeleton_problems(name: str, folder: Path) -> list[str]:
 def page_problems(name: str, page: Path, folder: Path) -> list[str]:
     text = page.read_text(encoding="utf-8")
     problems = [f"docs/patterns/{page.name} has no '{heading}' section" for heading in SECTIONS if heading not in text]
+    if name in NO_AGENT_BODY and NO_AGENT_SENTENCE not in text:
+        problems.append(f"docs/patterns/{page.name} has no agent body but does not say '{NO_AGENT_SENTENCE}'")
     if not RULES_SECTION.search(text):
         problems.append(f"docs/patterns/{page.name} has no '## The rules, and why ...' section")
     for path in sorted(folder.iterdir()):
@@ -85,6 +96,8 @@ def test_every_page_has_a_skeleton_and_every_skeleton_a_page() -> None:
 
 
 def test_every_skeleton_holds_its_three_parts() -> None:
+    stale = sorted(NO_AGENT_BODY - set(skeletons()))
+    assert stale == [], f"NO_AGENT_BODY names {stale}, which has no skeleton"
     problems = [p for name, folder in skeletons().items() for p in skeleton_problems(name, folder)]
     assert problems == [], "\n".join(problems)
 

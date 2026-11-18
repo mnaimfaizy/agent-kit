@@ -28,6 +28,8 @@ Where the two differ is what the Consumer does next. A Portable skill stays uned
 
 A contract test, `scripts/pattern-guides-contract.test.py`, checks what the boundary needs: every guide has its skeleton and the sections listed above, and no guide or skeleton names the source repository or its commands.
 
+A pattern with no agent in it has no agent body in its skeleton. The registry of external skills (guide 5) is one: an installer writes, a person approves and a script checks, and an agent body written only to fill the slot would teach nothing. The contract test lists each such pattern by name, and its page must say that the skeleton has no agent body.
+
 ## Considered Options
 
 - **A Portable skill with a config for each workflow, as orchestrate is.** Rejected for now. The parts are small, and almost every line in them is a repository fact, so the config would be the whole skill. It also implies the kit maintains each one for every Consumer's hooks, which it cannot test. A guide stays open to this later, one pattern at a time.
@@ -37,13 +39,13 @@ A contract test, `scripts/pattern-guides-contract.test.py`, checks what the boun
 
 ## Planned guides
 
-The first pass wrote guides 1 and 2, and the second wrote 3 and 8. The others are planned, and each one gets its page in a later change:
+The first pass wrote guides 1 and 2, the second wrote 3 and 8, and the third wrote 4 and 5. The others are planned, and each one gets its page in a later change:
 
 1. **Commit pipeline** (written: [commit-pipeline.md](../patterns/commit-pipeline.md)). A read-only drafting agent and a runner that always runs the hooks and labels each failure with a reason. Covers named-path staging, a secret-path guard, and origin lines on fixes.
 2. **Pull request pipeline** (written: [pr-pipeline.md](../patterns/pr-pipeline.md)). The drafting agent emits the merge base and the runner verifies it. Covers a merge risk block, labels from one allowlist, and no reviewers by default.
 3. **Tiered quality gates** (written: [tiered-quality-gates.md](../patterns/tiered-quality-gates.md)). Mechanical, standard and full tiers, builder → reviewer → runner chains, and a retry cap.
-4. **Sub-agent sync across harnesses.** Canonical bodies, generated copies and a drift check.
-5. **A registry for skills from outside the repository.** A lock file, an approval list and a check. It links to each skill rather than restating it.
+4. **Sub-agent sync across harnesses** (written: [sub-agent-sync.md](../patterns/sub-agent-sync.md)). One folder holds the canonical agent bodies, and a generator writes each harness's copy, frontmatter included, with `--apply` and a `--check` that fails on drift. Capabilities are roles mapped to each harness's tool names, each harness's model is pinned in one policy and written by the generator, and a scheduled audit checks that every pinned model name still exists.
+5. **A registry for skills from outside the repository** (written: [external-skills-registry.md](../patterns/external-skills-registry.md)). An external skill is installed at project scope, committed and never hand-edited, so an upstream change arrives as a diff. The lock file is the registry, one approval list names each approved skill, and a check holds the two in step in both directions. Content forked from an upstream skill moves to where it is always true, there is no personal-scope tier, and every other doc links to the approval list rather than restating it.
 6. **The instruction layout.** One `AGENTS.md` plus thin harness adapters. A skill listed there says which skill to use, not that skill's steps.
 7. **Planning chain.** Grill → PRD → slices. It builds on the Companion library, so it follows the last consequence below.
 8. **Merge train** (written: [merge-train.md](../patterns/merge-train.md)). It keeps strict up-to-date branch protection meaningful without a merge queue or an admin bypass. Pull requests merge one at a time, in the order given. For each one the train brings the branch up to date if needed, waits for every required check on that new head (read from the ruleset, not listed in the script), and merges exactly that head. It stops at the first red check, conflict, draft or blocking review, and names the pull requests it never reached. All decisions live in a pure core, and all IO in a thin shell.

@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "skills": {
+    "api-style": {
+      "source": "example-org/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/api-style/SKILL.md",
+      "computedHash": "<hash the installer computed for this skill's files>"
+    },
+    "release-notes": {
+      "source": "example-org/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/release-notes/SKILL.md",
+      "computedHash": "<hash the installer computed for this skill's files>"
+    }
+  }
+}
