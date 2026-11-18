@@ -43,11 +43,11 @@ function row(table, name) {
   return line;
 }
 
-const CHECK = section(SKILL, "#### The default-branch check");
+const DEFAULT_BRANCH_CHECK = section(SKILL, "#### The default-branch check");
 const STEP8 = section(SKILL, "### 8. Find conflicts between finished branches");
 const STEP9 = section(SKILL, "### 9. QA each finished head");
 const STEP10 = section(SKILL, "### 10. Close out");
-const CLAUSE =
+const READY_CLAUSE =
   "merges cleanly into the default branch as it now is, and is not behind it where the repository requires branches to be up to date, unless the human chose to merge it as it is";
 
 describe("SKILL.md: when the default-branch check runs", () => {
@@ -57,10 +57,10 @@ describe("SKILL.md: when the default-branch check runs", () => {
   });
 
   it('runs on `--status`, `--resume` and "merged <pr>", with no heartbeat armed for it', () => {
-    assert.match(CHECK, /`--status`/);
-    assert.match(CHECK, /`--resume`/);
-    assert.match(CHECK, /"merged <pr>"/);
-    assert.match(CHECK, /No heartbeat is armed for it/);
+    assert.match(DEFAULT_BRANCH_CHECK, /`--status`/);
+    assert.match(DEFAULT_BRANCH_CHECK, /`--resume`/);
+    assert.match(DEFAULT_BRANCH_CHECK, /"merged <pr>"/);
+    assert.match(DEFAULT_BRANCH_CHECK, /No heartbeat is armed for it/);
   });
 
   it("step 8 and step 9 list no row the check has not passed", () => {
@@ -75,62 +75,87 @@ describe("SKILL.md: when the default-branch check runs", () => {
       );
   });
 
-  it("step 8 writes the board's Default branch line", () => {
-    assert.match(STEP8, /`Default branch` line/);
+  it("step 8 writes the board's Default branch line once, and later only the check moves it", () => {
+    assert.match(STEP8, /`Default branch` line reads `none yet`, write it/);
+    assert.match(STEP8, /only the default-branch check rewrites it/);
+  });
+
+  it('"merged <pr>" confirms the merge, marks the row and checks the rest before naming the next', () => {
+    assert.match(
+      STEP10,
+      /When the human says "merged <pr>", check that the pull request is merged[^\n]*mark its row `merged`, and run the default-branch check on each row still Ready to Merge before naming the next one/,
+    );
   });
 
   it("the integration-branch run checks the `<integration>` row, not landed tickets", () => {
-    assert.match(CHECK, /`<integration>` row/);
+    assert.match(DEFAULT_BRANCH_CHECK, /`<integration>` row/);
     assert.match(section(SPEC, "### On an integration branch"), /default-branch check/);
   });
 });
 
 describe("SKILL.md: what the check reads and what each outcome does", () => {
   it("reads `mergeStateStatus`, test-merges against the current tip, and reads the checks", () => {
-    assert.match(CHECK, /`mergeStateStatus`/);
-    assert.match(CHECK, /`git merge-tree --write-tree <tip> <head>`/);
-    assert.match(CHECK, /`gh pr checks <pr>`/);
+    assert.match(DEFAULT_BRANCH_CHECK, /`mergeStateStatus`/);
+    assert.match(DEFAULT_BRANCH_CHECK, /`git merge-tree --write-tree <tip> <head>`/);
+    assert.match(DEFAULT_BRANCH_CHECK, /`gh pr checks <pr>`/);
   });
 
   it('a failing check sends the row back to step 7; a pending one keeps it off the list as "checks running"', () => {
-    assert.match(CHECK, /failing check[^.]*back to step 7/);
-    assert.match(CHECK, /pending[^.]*off the list[^.]*"checks running"/);
+    assert.match(
+      DEFAULT_BRANCH_CHECK,
+      /failing check[^.]*back to step 7[^\n]*it is `reported` again/,
+    );
+    assert.match(
+      DEFAULT_BRANCH_CHECK,
+      /pending keeps the row off the list, set back to `reported` and shown as "checks running"/,
+    );
   });
 
   it("a `BEHIND` row or a failed re-gate is a Decision Request, and the row is `waiting`", () => {
-    assert.match(CHECK, /`BEHIND`/);
-    assert.match(CHECK, /re-gate fails/);
-    assert.match(CHECK, /`waiting`/);
+    assert.match(
+      DEFAULT_BRANCH_CHECK,
+      /A row that is `BEHIND`, or whose re-gate fails, is a Decision Request, and the row is `waiting`/,
+    );
   });
 
   it("re-gates the merge result in a detached worktree whenever the tip moved, strict rule or not", () => {
-    assert.match(CHECK, /moved since the board's `Default branch` line/);
-    assert.match(CHECK, /`git commit-tree <tree> -p <tip> -p <head>`/);
-    assert.match(CHECK, /detached worktree/);
-    assert.match(CHECK, /strict rule or not/);
+    assert.match(DEFAULT_BRANCH_CHECK, /moved since the board's `Default branch` line/);
+    assert.match(DEFAULT_BRANCH_CHECK, /`git commit-tree <tree> -p <tip> -p <head>`/);
+    assert.match(DEFAULT_BRANCH_CHECK, /detached worktree/);
+    assert.match(DEFAULT_BRANCH_CHECK, /strict rule or not/);
   });
 
   it("writes the Default branch line at each check", () => {
-    assert.match(CHECK, /rewrite the board's `Default branch` line/);
+    assert.match(DEFAULT_BRANCH_CHECK, /rewrite the board's `Default branch` line/);
   });
 });
 
 describe("SKILL.md: the Decision Request for a row behind or failing its re-gate", () => {
   it("offers merge as it is with the admin bypass, or the Delegation merges the default branch in", () => {
-    assert.match(CHECK, /\*\*Merge it as it is\*\*[^\n]*admin bypass/);
-    assert.match(CHECK, /\*\*The Delegation merges the default branch in\*\*/);
-    assert.match(CHECK, /new head[^\n]*step 7[^\n]*`void`/);
+    assert.match(DEFAULT_BRANCH_CHECK, /\*\*Merge it as it is\*\*[^\n]*admin bypass/);
+    assert.match(DEFAULT_BRANCH_CHECK, /\*\*The Delegation merges the default branch in\*\*/);
+    assert.match(DEFAULT_BRANCH_CHECK, /new head[^\n]*step 7[^\n]*`void`/);
   });
 
-  it("recommends (i) only when merge-tree is clean and the re-gate passed", () => {
-    assert.match(CHECK, /Recommend 1 when the merge is clean and the re-gate passed; otherwise 2/);
+  it("recommends (i) only when the re-gate passed, and gives a conflict no second question", () => {
+    assert.match(
+      DEFAULT_BRANCH_CHECK,
+      /Recommend 1 when the re-gate passed \(or did not need to run\); otherwise 2/,
+    );
+    assert.match(DEFAULT_BRANCH_CHECK, /That is the row's one question from this check/);
   });
 
   it("in an autonomous run, only option 2 can be a Ruling; option 1 stays the human's", () => {
-    assert.match(CHECK, /autonomous run, option 2 may be a Ruling/);
-    assert.match(CHECK, /option 1 is always the human's/);
+    assert.match(
+      DEFAULT_BRANCH_CHECK,
+      /autonomous run, option 2 may be a Ruling, when the re-gate failed/,
+    );
+    assert.match(DEFAULT_BRANCH_CHECK, /option 1 is always the human's/);
     const auto = section(SKILL, "## Autonomous runs");
-    assert.match(auto, /merging the default branch into a row's branch \(step 10\)/);
+    assert.match(
+      auto,
+      /merging the default branch into a row's branch \(step 10\), when its re-gate on the merge result failed;/,
+    );
     assert.match(auto, /merging a row as it is with the admin bypass/);
   });
 });
@@ -138,7 +163,10 @@ describe("SKILL.md: the Decision Request for a row behind or failing its re-gate
 describe("SKILL.md: the merge order", () => {
   it('says merge one at a time and say "merged <pr>" after each, under the strict rule', () => {
     assert.match(STEP10, /merge one at a time, and say "merged <pr>" after each/);
-    assert.match(STEP10, /`BEHIND`/);
+    assert.match(
+      STEP10,
+      /When any row was `BEHIND` at a check in this run, or the human chose to merge one as it is[^\n]*merge one at a time/,
+    );
   });
 });
 
@@ -153,7 +181,10 @@ describe("RUN.md", () => {
   });
 
   it("`ready to merge` carries the clause, and a `BEHIND` row is `waiting`", () => {
-    assert.ok(row(states, "ready to merge").includes(CLAUSE), "ready to merge has the clause");
+    assert.ok(
+      row(states, "ready to merge").includes(READY_CLAUSE),
+      "ready to merge has the clause",
+    );
     assert.match(row(states, "waiting"), /`BEHIND`/);
   });
 
@@ -164,7 +195,12 @@ describe("RUN.md", () => {
   it("`--status` runs the check and changes nothing but the board's check result", () => {
     const status = section(RUN, "## Status");
     assert.match(status, /default-branch check/);
-    assert.match(status, /changes nothing else/);
+    assert.match(
+      status,
+      /changes nothing else: it messages no Delegation, voids no QA, re-arms nothing, and raises no Decision Request/,
+    );
+    assert.match(status, /set back to `reported`/);
+    assert.match(DEFAULT_BRANCH_CHECK, /On `--status`, the check acts on nothing/);
     assert.ok(
       !status.includes("It reads nothing else and changes nothing."),
       "the old rule is gone",
@@ -175,7 +211,7 @@ describe("RUN.md", () => {
 describe("the glossary and DESIGN.md", () => {
   it("GLOSSARY's **Ready to Merge** has the clause", () => {
     const entry = GLOSSARY.split("\n**Ready to Merge**:\n")[1].split("\n")[0];
-    assert.ok(entry.includes(CLAUSE), entry);
+    assert.ok(entry.includes(READY_CLAUSE), entry);
   });
 
   it("DESIGN.md says why the check runs on the human's return, not on a heartbeat", () => {

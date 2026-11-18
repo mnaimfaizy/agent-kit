@@ -51,7 +51,7 @@ Spec #<n>, <shape>. Landing: <landing>. Integration branch: <name> at <SHA>, pus
 
 The `Heartbeat` line is the check that re-arms itself while the run waits on a Delegation (SKILL.md step 6), so `--status` shows whether one is armed and `--resume` knows what to arm again.
 
-The `Default branch` line is the default branch's tip at the last check of it: written at SKILL.md step 8, once every verified branch merges cleanly into that tip, and again at each [default-branch check](SKILL.md#the-default-branch-check). It is the baseline for "the tip has moved since", which decides whether the check re-gates the merge result. Before step 8 it reads `none yet`.
+The `Default branch` line is the default branch's tip at the last check of it: written at SKILL.md step 8 the first time, once every verified branch merges cleanly into that tip, and after that only at each [default-branch check](SKILL.md#the-default-branch-check). It is the baseline for "the tip has moved since", which decides whether the check re-gates the merge result. Before step 8 it reads `none yet`.
 
 The `Spec` line is there only in a spec run, and its integration branch only with that landing. In that landing, a ticket's **Branch** cell also gives the commit it was cut at, and once it has landed, its landed commit, and its **Pull request** cell is `none`: its work lands through the integration branch, which has a row of its own once its pull request is open ([SPEC.md](SPEC.md#on-an-integration-branch)).
 
@@ -131,7 +131,7 @@ A Delegation whose Executor no longer answers, and whose work did not finish, is
 
 ## Status
 
-`--status [<run>]` prints the board of the run named, or of the run in `run_dir` whose board was written last, with each open Decision Request in full, and, in an autonomous run, the Ruling Ledger. Before printing, it runs the [default-branch check](SKILL.md#the-default-branch-check) on each `ready to merge` row, since the human has come back to the run and may be about to merge. That check's result is the only thing it writes: the board's `Default branch` line, and the state of each row the check takes off the list, with why. It changes nothing else: it messages no Delegation, re-arms nothing, and raises no Decision Request. A row the check sends back to step 7, or that needs a Decision Request, is printed with what was found, and is acted on at the next `--resume`, or by the Chief of Staff's session if it is still running.
+`--status [<run>]` prints the board of the run named, or of the run in `run_dir` whose board was written last, with each open Decision Request in full, and, in an autonomous run, the Ruling Ledger. Before printing, it runs the [default-branch check](SKILL.md#the-default-branch-check) on each `ready to merge` row, since the human has come back to the run and may be about to merge. That check's result is the only thing it writes: the board's `Default branch` line, and each row the check takes off the list set back to `reported`, with what was found. It changes nothing else: it messages no Delegation, voids no QA, re-arms nothing, and raises no Decision Request. A row the check would send back to step 7, whose head moved, or that needs a Decision Request is printed with what was found, and the next `--resume` runs the check again and acts on it.
 
 ## Run Summary
 
