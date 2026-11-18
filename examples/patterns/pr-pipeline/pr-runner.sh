@@ -73,8 +73,10 @@ fi
 computed="$(git merge-base "origin/$base" HEAD 2>/dev/null || git merge-base "$base" HEAD 2>/dev/null || true)"
 [ -n "$computed" ] || fail "cannot compute the merge base with '$base'. Fetch it with history, then $RUNNER again."
 supplied="$(printf '%s' "$merge_base" | tr '[:upper:]' '[:lower:]')"
-[[ "$supplied" =~ ^[0-9a-f]{7,40}$ ]] || fail "--merge-base '$merge_base' is not a commit SHA of 7 to 40 hex characters."
-[[ "$computed" == "$supplied"* ]] ||
+# git merge-base prints the full SHA, so an abbreviation means the drafter did
+# not use its output. TODO(adopt): allow 64 characters in a SHA-256 repository.
+[[ "$supplied" =~ ^[0-9a-f]{40}$ ]] || fail "--merge-base '$merge_base' is not the full 40-character SHA git merge-base prints."
+[ "$computed" = "$supplied" ] ||
   fail "--merge-base $supplied does not match this branch's merge base $computed. The draft describes another branch, or was written without inspecting it. Draft again."
 
 [ -n "$(git rev-list "$computed..HEAD")" ] || fail "no commits between '$base' and '$branch'."
