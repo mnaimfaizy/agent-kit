@@ -252,6 +252,14 @@ _Avoid_: wrap-up, final report
 A Delegation whose CI is green, whose review is settled, whose QA requirement is met on its current head, whose Rulings are upheld, and whose branch merges cleanly into the default branch as it now is, and is not behind it where the repository requires branches to be up to date, unless the human chose to merge it as it is; the only Delegations the closing list names.
 _Avoid_: done, mergeable, green
 
+**Team Run**:
+A spec run started with `--team`, in which each teammate runs their own Chief of Staff over the spec's tickets assigned to them alone, beside the others, and every one of them reads one Shared Board.
+_Avoid_: team mode, shared run, joining a run
+
+**Shared Board**:
+The board of a Team Run on the issue tracker: one row comment on each spec ticket, written only by its current assignee's Chief of Staff, and one state label mirroring its state; a published projection of each teammate's own run folder, never a store.
+_Avoid_: team board, shared run folder
+
 ### Review response
 
 The `address-pr-review` Portable skill, which answers the code review on a pull request. Its [`DESIGN.md`](.claude/skills/address-pr-review/DESIGN.md#glossary) carries the same definitions, so the skill keeps them when it is installed alone. **Handoff** names the Auto mode that the Review response First-class flow adds; the skill alone has none.

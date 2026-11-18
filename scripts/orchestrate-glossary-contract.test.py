@@ -32,6 +32,8 @@ TERMS = [
     "Foreground watch",
     "Run Summary",
     "Ready to Merge",
+    "Team Run",
+    "Shared Board",
 ]
 
 
