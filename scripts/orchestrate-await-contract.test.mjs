@@ -71,6 +71,7 @@ describe("await: an event plus a heartbeat", () => {
   it("HARNESSES.md gives every harness without a scheduler the foreground watch, and tier 3 none", () => {
     const waiting = section(HARNESSES, "## Waiting: an event and a heartbeat");
     assert.match(waiting, /foreground watch/);
+    assert.match(waiting, /the human stops its turn/);
     const tier3 = section(HARNESSES, "## Tiers")
       .split("\n")
       .find((l) => l.startsWith("- `await`: the human says"));
@@ -106,6 +107,11 @@ describe("SKILL.md: the heartbeat", () => {
       "logs one line",
     ])
       assert.ok(step6.includes(phrase), `step 6 says "${phrase}"`);
+  });
+
+  it("step 6 says how a report that is not final from an exited process gets finished", () => {
+    assert.match(step6, /An exited process whose report says `no` is not a crash/);
+    assert.match(step6, /`message` it to finish the work and rewrite its report/);
   });
 
   it("step 6 logs what it handled, and on a foreground watch runs the watch again instead of ending the turn", () => {
@@ -144,11 +150,14 @@ describe("RUN.md", () => {
     // The board's example opens with a `# Run` heading inside its fence, which ends `section`.
     const board = RUN.slice(RUN.indexOf("\n## Board\n"), RUN.indexOf("\n## States\n"));
     assert.match(board, /^Heartbeat: </m);
+    assert.match(board, /; none yet; deleted <time>; or none on tier 3>/);
     assert.match(board, /^The `Heartbeat` line/m);
   });
 
   it("`--resume` re-arms the heartbeat", () => {
-    assert.match(section(RUN, "## Resume"), /heartbeat/);
+    const resume = section(RUN, "## Resume");
+    assert.match(resume, /heartbeat/);
+    assert.match(resume, /unless the only thing left to wait for is the human's merges/);
   });
 });
 
@@ -179,6 +188,13 @@ describe("BRIEF.md: a report says whether it is final", () => {
 
 describe("harnesses/claude-code-desktop.md", () => {
   const wait = awaitBullet(DESKTOP);
+
+  it("says a held message is always dropped, since the app cannot show the dialog", () => {
+    const msg = section(DESKTOP, "## Verbs")
+      .split("\n")
+      .find((l) => l.startsWith("- `message`:"));
+    assert.match(msg, /cannot show that dialog/);
+  });
 
   it("drops 'Never poll'", () => {
     assert.ok(!DESKTOP.includes("Never poll"));
@@ -241,6 +257,15 @@ describe("every harness file", () => {
   ))
     it(`${file}: \`await\` names its heartbeat`, () => {
       assert.match(awaitBullet(read(`${SKILL_DIR}/harnesses/${file}`)), /heartbeat/);
+    });
+
+  for (const file of readdirSync(join(root, SKILL_DIR, "harnesses")).filter((f) =>
+    f.endsWith(".md"),
+  ))
+    it(`${file}: a harness on the foreground watch checks its shell and turn limits`, (t) => {
+      const text = read(`${SKILL_DIR}/harnesses/${file}`);
+      if (!/foreground watch/.test(awaitBullet(text))) return t.skip("not on the watch");
+      assert.match(section(text, "## Check before use"), /how long a foreground shell command/i);
     });
 });
 
