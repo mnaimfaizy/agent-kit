@@ -47,7 +47,7 @@ Spec #<n>, <shape>. Landing: <landing>. Integration branch: <name> at <SHA>, pus
 - #34: `ready-for-human`, listed for the human.
 ```
 
-The `Heartbeat` line is the check that re-arms itself while Delegations run (SKILL.md step 6), so `--status` shows whether one is armed and `--resume` knows what to arm again.
+The `Heartbeat` line is the check that re-arms itself while the run waits on a Delegation (SKILL.md step 6), so `--status` shows whether one is armed and `--resume` knows what to arm again.
 
 The `Spec` line is there only in a spec run, and its integration branch only with that landing. In that landing, a ticket's **Branch** cell also gives the commit it was cut at, and once it has landed, its landed commit, and its **Pull request** cell is `none`: its work lands through the integration branch, which has a row of its own once its pull request is open ([SPEC.md](SPEC.md#on-an-integration-branch)).
 

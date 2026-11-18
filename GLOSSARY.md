@@ -233,7 +233,7 @@ An append-only record of what was done in a run and why, kept by the Chief of St
 _Avoid_: transcript, journal
 
 **Heartbeat**:
-A check on every running Delegation that comes again at a set interval, whatever happened since the last one, so that a run never waits on one signal alone.
+A check on every Delegation the run waits on that comes again at a set interval, whatever happened since the last one, so that a run never waits on one signal alone.
 _Avoid_: poll, timer, cron job
 
 **Foreground watch**:

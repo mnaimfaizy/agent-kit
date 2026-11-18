@@ -32,7 +32,7 @@ These are word for word the definitions in Agent-kit's root glossary, where a co
 
 **Activity Log**: An append-only record of what was done in a run and why, kept by the Chief of Staff and by each Delegation in the run folder.
 
-**Heartbeat**: A check on every running Delegation that comes again at a set interval, whatever happened since the last one, so that a run never waits on one signal alone.
+**Heartbeat**: A check on every Delegation the run waits on that comes again at a set interval, whatever happened since the last one, so that a run never waits on one signal alone.
 
 **Foreground watch**: The Heartbeat on a harness with nothing to schedule it: the Chief of Staff keeps its turn open, waiting for a change in any Delegation or for a time cap, then waits again.
 
