@@ -247,3 +247,33 @@ describe("TEAM.md: when a row and its state label are written", () => {
     assert.match(states, /the row comment stays the record/);
   });
 });
+
+describe("TEAM.md: blocking, conflicts and Rulings across teammates", () => {
+  it("reads blocking from the tracker, and clears a teammate's blocker only when its pull request is merged", () => {
+    const blocking = section(TEAM, "### Blocking across teammates");
+    assert.match(blocking, /`blockers` operation/);
+    assert.match(blocking, /tracker's own blocking links/);
+    assert.match(blocking, /only when its pull request is merged/);
+    assert.match(blocking, /`parked`/);
+    assert.match(blocking, /\*\*Parked on\*\*/);
+  });
+
+  it("rules only on its own branches, and shows a conflict with a teammate's branch on the row: first merged wins", () => {
+    const conflicts = section(TEAM, "## Conflicts with a teammate's branch");
+    assert.match(conflicts, /rules only on its own branches/);
+    assert.match(conflicts, /first merged wins/i);
+    assert.match(conflicts, /`pull-head`/);
+    assert.match(conflicts, /\*\*Conflicts with\*\*/);
+  });
+
+  it("names whose Chief of Staff made a Ruling, in the line recorded where `decisions.to` says", () => {
+    const rulings = section(TEAM, "## Rulings in a Team Run");
+    const line = "R<n> (@<login>'s Chief of Staff ruling, not yet reviewed)";
+    assert.ok(rulings.includes(line), "TEAM.md gives the line");
+    assert.match(rulings, /`decisions\.to`/);
+    assert.ok(
+      section(read(`${SKILL_DIR}/BRIEF.md`), "## Ruling").includes(line),
+      "BRIEF.md's Ruling form gives it",
+    );
+  });
+});

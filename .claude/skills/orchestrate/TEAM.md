@@ -1,6 +1,6 @@
 # Team Run
 
-`/orchestrate --spec <n> --team [go] [autonomous]` runs a spec as a **Team Run**: teammates who split a spec's tickets each run their own Chief of Staff, on their own machine and harness, over the tickets assigned to them, and every one of them reads one **Shared Board** on the issue tracker. Load this file only for `--team`, after [SPEC.md](SPEC.md), or on `--resume` of a run whose board says it is a Team Run. A run without `--team` never reads it. It changes SPEC.md and steps 1 to 4 of [SKILL.md](SKILL.md#workflow) where it says so, and leaves every rule and every other step as written there. Why it is shaped this way: [DESIGN.md](DESIGN.md#team-run).
+`/orchestrate --spec <n> --team [go] [autonomous]` runs a spec as a **Team Run**: teammates who split a spec's tickets each run their own Chief of Staff, on their own machine and harness, over the tickets assigned to them, and every one of them reads one **Shared Board** on the issue tracker. Load this file only for `--team`, after [SPEC.md](SPEC.md), or on `--resume` of a run whose board says it is a Team Run. A run without `--team` never reads it. It changes SPEC.md and steps 1 to 4 of [SKILL.md](SKILL.md#workflow) where it says so, adds the Shared Board's writes, the check against teammates' branches and the Ruling line to the steps after them, and leaves every other rule and step as written there. Why it is shaped this way: [DESIGN.md](DESIGN.md#team-run).
 
 A Team Run is federated. No Chief of Staff drives another person's machine, and there is nothing to join: each teammate starts their own run. Each keeps its own run folder, exactly as a single-person run does ([RUN.md](RUN.md#layout)); the Shared Board is a projection of it, never a store. A Chief of Staff never assigns, unassigns or reassigns a ticket: the tracker's assignee is the human's to set, and the only sign of whose ticket it is.
 
@@ -43,7 +43,9 @@ A ticket's **state** is the one state label it carries, read through the config'
 
 ### Blocking across teammates
 
-SPEC.md's waves hold for this teammate's tickets, with the blockers each one has, read with the `blockers` operation. A blocker that is another ticket of the spec, but not this teammate's, is not SPEC.md's "blocker that gets no building Delegation" Decision Request: it is built in someone else's run, or in nobody's yet. The ticket it blocks is parked until that blocker's pull request is merged, read with the `merged` operation, so it is built on the code it will merge into. The plan names, beside the parked ticket, whose ticket it waits on, or that nobody runs it yet when it is `unassigned` or needs one assignee. A blocker outside the spec is as SPEC.md says.
+SPEC.md's waves hold for this teammate's tickets, with the blockers each one has, read with the `blockers` operation: the tracker's own blocking links, where it has them. A blocker that is another ticket of the spec, but not this teammate's, is not SPEC.md's "blocker that gets no building Delegation" Decision Request: it is built in someone else's run, or in nobody's yet. The ticket it blocks is `parked`, and a teammate's blocker counts as cleared only when its pull request is merged, read with the `merged` operation, so the ticket is built on the code it will merge into. A blocker that is closed, or whose ticket is closed, with no merged pull request, is not cleared: it is a Decision Request to this teammate, since only a person knows why it was closed. The plan names, beside the parked ticket, whose ticket it waits on, or that nobody runs it yet when it is `unassigned` or needs one assignee. A blocker outside the spec is as SPEC.md says.
+
+While a ticket is parked, its row's **Parked on** line says on what ([The row](#the-row)). Each time the Chief of Staff wakes, on an `await` event or a heartbeat, and on `--resume`, it reads `merged` for every blocker of each parked ticket. When the last one is merged, the ticket is unparked: its Delegation is spawned from the default branch as it is then, and its row gets the milestone `unparked: #<blocker> merged`.
 
 ## The Dispatch Plan
 
@@ -184,3 +186,23 @@ The **Recent activity** list keeps the last `team.recent_activity` milestones (d
 - `QA passed on <head>` and `QA failed on <head>`
 - `crashed, branch kept at <head>` and `restarted from <head>`
 - `ready to merge`, `merged` and `dropped`
+
+## Conflicts with a teammate's branch
+
+A Chief of Staff rules only on its own branches. At SKILL.md step 8, beside the conflicts between this run's own branches, it test-merges each of this teammate's verified branches against the head of every open pull request of a teammate's ticket of the spec: found with `merged`, which lists each ticket's pull requests and their state, and read with the `pull-head` operation. It never changes, merges or comments on a teammate's branch or pull request, and a merge order between this teammate's branch and a teammate's is not its to set, nor a Ruling.
+
+A conflict is shown on the row instead, in its **Conflicts with** line: the teammate's pull request and whose it is. It is not a Decision Request. First merged wins: whichever pull request merges first lands as it is, and the other merges the default branch in and re-gates, as SKILL.md step 10 says for a branch the default branch has moved past. The line is removed when the conflict is gone, or when either pull request is merged.
+
+## Rulings in a Team Run
+
+In a Team Run approved with `go autonomous`, the Chief of Staff rules only on this teammate's own Delegations, and only this teammate reviews its Rulings: the Ruling Ledger, and the evidence each Ruling cites, never leave this teammate's run folder. A Ruling line recorded where `decisions.to` says names whose Chief of Staff made it, in the place of SKILL.md's "Chief of Staff ruling, not yet reviewed":
+
+```text
+R<n> (@<login>'s Chief of Staff ruling, not yet reviewed): <question> → <choice>
+```
+
+The Ruling Review updates `not yet reviewed` in it as SKILL.md says. A teammate, reading the pull request, sees whose ruling it is and that it is not theirs to review. The row carries only how many await review ([The row](#the-row)).
+
+## What stays local
+
+The Shared Board publishes only the row and the state label. Everything else stays in this teammate's run folder, exactly as in a single-person run ([RUN.md](RUN.md#layout)): the briefs, the reports, the full Decision Requests and their answers, the Ruling Ledger, the evidence, both kinds of Activity Log, and the QA Plans and QA Reports. A QA Report reaches a pull request only through the QA skills' own post-on-a-yes route. Decision answers and Ruling lines are recorded where `decisions.to` says, as in any run. The copies of the rows in `shared-board/` are the run's own, too.
