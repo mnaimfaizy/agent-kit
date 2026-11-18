@@ -799,3 +799,10 @@ describe("TEAM.md and RUN.md: a parked ticket picked up or restarted from a bran
     );
   });
 });
+
+describe("RUN.md: re-asked Rulings after a lost machine", () => {
+  it("numbers the new run's Rulings past every id on the pull requests", () => {
+    const lost = section(section(RUN, "## Resume"), "### After a lost machine");
+    assert.match(lost, /numbers its own Rulings from one past the highest/);
+  });
+});
