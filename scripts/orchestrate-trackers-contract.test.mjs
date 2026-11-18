@@ -72,6 +72,12 @@ for (const name of MAPPINGS) {
       assert.ok(line("Facts from"), "Facts from line");
     });
 
+    it("never gives `gh api --slurp` with `--jq`, which `gh` refuses", () => {
+      const commands = text.replace(/\\\n\s*/g, " ").split("\n");
+      for (const line of commands)
+        if (/^gh api /.test(line)) assert.ok(!(/--slurp/.test(line) && /--jq/.test(line)), line);
+    });
+
     it("maps every operation TRACKERS.md names, and no other", () => {
       const ids = mapped(text);
       assert.deepEqual(

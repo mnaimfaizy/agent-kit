@@ -68,11 +68,11 @@ Creates one label. It is a write as the human: made only on the yes to the Dispa
 ### `row`
 
 ```bash
-gh api --paginate --slurp repos/<owner>/<repo>/issues/<n>/comments \
-  --jq '[.[][] | select(.body | contains("<!-- orchestrate:shared-board-row ")) | {id, author: .user.login, updated_at, body}]'
+gh api --paginate repos/<owner>/<repo>/issues/<n>/comments \
+  --jq '.[] | select(.body | contains("<!-- orchestrate:shared-board-row ")) | {id, author: .user.login, updated_at, body}'
 ```
 
-The row comments on ticket `<n>`, oldest first: each comment whose body carries the hidden marker `<!-- orchestrate:shared-board-row `, with its comment `id`, its `author`, its `updated_at` and its `body`. The marker's own `ticket`, `run` and `author` fields are read from the body ([TEAM.md](../TEAM.md#the-row)). An empty list means the ticket has no row yet.
+One JSON object per line, for the row comments on ticket `<n>`, oldest first: each comment whose body carries the hidden marker `<!-- orchestrate:shared-board-row `, with its comment `id`, its `author`, its `updated_at` and its `body`. The marker's own `ticket`, `run` and `author` fields are read from the body ([TEAM.md](../TEAM.md#the-row)). No output means the ticket has no row yet. `--jq` runs on each page, so `--slurp`, which `gh` refuses with `--jq`, is not needed.
 
 ### `write-row`
 
@@ -105,5 +105,5 @@ The first gives the pull request's `state`, its head branch and its head commit.
 
 - `closedByPullRequestsReferences` lists the pull requests whose body closes the issue; a pull request that only mentions it is not listed. The first Team Run that relies on `merged` records in its Activity Log what it returned.
 - The sub-issues and dependencies endpoints, as [SPEC.md](../SPEC.md#read-the-spec) says.
-- GitHub drops a label change silently for a user with no Triage or Write access, as [#303](https://github.com/mnaimfaizy/agent-kit/issues/303) found; whether `gh issue edit` exits non-zero then is not confirmed, which is why `set-state` reads the labels back. The first Team Run that writes a state label records the read-back in its Activity Log.
-- The `row` filter reads the `body` of every comment on the ticket; a ticket with very many comments is paged by `--paginate --slurp`, not confirmed past a few hundred.
+- Whether `gh issue edit` exits non-zero when GitHub drops a label change ([#303](https://github.com/mnaimfaizy/agent-kit/issues/303)) is not confirmed, which is why `set-state` reads the labels back. The first Team Run that writes a state label records the read-back in its Activity Log.
+- The `row` filter reads the `body` of every comment on the ticket, page by page; not confirmed past a few hundred comments.
