@@ -21,9 +21,11 @@ PAGES = ROOT / "docs" / "patterns"
 SKELETONS = ROOT / "examples" / "patterns"
 SECTIONS = ("## The problem", "## The moving parts", "## Failure modes", "## Adopting it")
 RULES_SECTION = re.compile(r"^## The rules, and why", re.MULTILINE)
-# Names from the source repository that a guide must not carry over.
+# Names from the source repository that a guide must not carry over. A generic
+# pattern name (such as "merge train", ADR 0012 guide 8) is not listed: a guide
+# must be able to name itself.
 HOST_NAMES = re.compile(
-    r"myorganiser|corepack yarn|yarn ai:|ai:commit|ai:create-pr|PrAuthor|Merge Train"
+    r"myorganiser|corepack yarn|yarn ai:|ai:commit|ai:create-pr|PrAuthor"
     r"|Surface Label|fix:attribution|github-labels\.json|Introduced in #|\bADR 0(?:025|100)\b",
     re.IGNORECASE,
 )
