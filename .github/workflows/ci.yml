@@ -31,8 +31,12 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
-      - name: Install Python dev deps
-        run: uv sync --locked
+          cache: npm
+      # npm ci too: the release-notes prettier test runs node_modules/.bin/prettier, and fails in CI without it.
+      - name: Install dev deps
+        run: |
+          uv sync --locked
+          npm ci
       - name: Python contract tests
         run: uv run pytest
       - name: Node contract tests
