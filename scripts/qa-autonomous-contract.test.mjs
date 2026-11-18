@@ -181,6 +181,14 @@ describe("qa-plan: --answers in the invocation", () => {
     assert.match(step2, /Always write the answers/);
   });
 
+  it("docs/adopt.md names the autonomous exception on each QA skill's line", () => {
+    const adopt = read("docs/adopt.md").split("\n");
+    for (const skill of ["qa-plan", "manual-qa"]) {
+      const line = adopt.find((l) => l.startsWith(`- \`.claude/skills/${skill}/\``));
+      assert.match(line, /`go autonomous`/, skill);
+    }
+  });
+
   it("docs/qa.md says an autonomous orchestrate run follows the skills from a brief", () => {
     const intro = read("docs/qa.md")
       .split("\n")
