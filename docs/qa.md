@@ -60,6 +60,8 @@ Each prints the config path, its `problems`, the effective values with defaults 
 
 A missing file is not an error: the skill lists exactly what it needs, asks in one message, and works on the answers given in chat. It writes them into the config only when you say yes: `adapter.mjs render < answers.json` prints the new body (the file the lookup found, in its own dialect, or a new `qa.config.yml`), with the answers merged in and every other key kept, and `render --write` writes it. YAML comments are not kept, so when the file has any, `--write` stops first and the skill asks whether to drop them (`--write --drop-comments`). Nothing is assumed.
 
+The answers can also come in up front, as a file: `/qa-plan <n> --answers <file>`, which runs `check --for plan --answers <file>`. That is how an [`orchestrate`](orchestrate.md#qa) run hands each QA session the readiness answers you gave once, in its Dispatch Plan. The file is the same JSON object `render` takes, read only from inside `working_dir`. The skill asks only for what the file leaves, does not offer to save a config, and shows the draft under the line `Readiness answers reused from <file>: <values>`, so you see the answers where you approve the plan.
+
 ## Targets and the host rule
 
 A run has one of two targets:

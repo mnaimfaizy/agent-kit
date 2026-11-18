@@ -118,7 +118,7 @@ _Avoid_: report upload, publishing findings
 
 ### Manual QA
 
-The `qa-plan` and `manual-qa` Portable skills; why they are two skills: [ADR 0003](docs/adr/0003-qa-is-two-skills-joined-by-a-copied-plan-format.md). Each skill's `DESIGN.md` ([`qa-plan`](.claude/skills/qa-plan/DESIGN.md#glossary), [`manual-qa`](.claude/skills/manual-qa/DESIGN.md#glossary)) carries the same definitions, word for word, so the skill keeps them when it is installed alone; `scripts/qa-glossary-contract.test.py` keeps the three the same.
+The `qa-plan` and `manual-qa` Portable skills; why they are two skills: [ADR 0003](docs/adr/0003-qa-is-two-skills-joined-by-a-copied-plan-format.md); how an autonomous `orchestrate` run follows them from a brief: [ADR 0013](docs/adr/0013-in-an-autonomous-orchestrate-run-the-qa-skills-run-from-the-brief.md). Each skill's `DESIGN.md` ([`qa-plan`](.claude/skills/qa-plan/DESIGN.md#glossary), [`manual-qa`](.claude/skills/manual-qa/DESIGN.md#glossary)) carries the same definitions, word for word, so the skill keeps them when it is installed alone; `scripts/qa-glossary-contract.test.py` keeps the three the same.
 
 **QA Plan**:
 The Markdown file `qa-plan` writes for one pull request at one head, in the format its `ANATOMY.md` gives, carrying only the Residue and runnable from the plan alone.

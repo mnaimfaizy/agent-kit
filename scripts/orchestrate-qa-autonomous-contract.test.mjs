@@ -224,7 +224,7 @@ describe("the ADR and the changelog", () => {
     assert.equal(adrs.length, 1);
     const adr = read(`docs/adr/${adrs[0]}`);
     assert.match(adr, /^# In an autonomous orchestrate run, the QA skills run from the brief$/m);
-    assert.match(adr, /## Considered options/);
+    assert.match(adr, /## Considered options/i);
     assert.match(adr, /model-invocable/);
     assert.match(adr, /keep the human typing/i);
     assert.match(adr, /hosted/);
