@@ -16,12 +16,12 @@
 - `await`: the process's end. The heartbeat is the foreground watch ([HARNESSES.md](../HARNESSES.md#waiting-an-event-and-a-heartbeat)): while the run waits on a Delegation, the Chief of Staff does not end its turn, and the process's end is one more change the watch sees.
 - `report`: the report file, which `--include-directories` makes reachable.
 - Analysis: a `codebase_investigator` or `generalist` sub-agent, which blocks until it returns.
-- A QA Delegation: a session the human starts with `gemini` in its worktree, where the human types `/qa-plan <n>` and later `/manual-qa <plan file>`. With `go`, that is the typed route; with `go autonomous`, on a `stack` target, the same session follows its brief instead, reading each QA skill's `SKILL.md` from the paths the brief gives, so no command is sent or typed. A `url` target stays on the typed route.
+- A QA Delegation: a session the human starts with `gemini` in its worktree, where the human types `/qa-plan <n> [--answers <working_dir>/qa-readiness.json]` and later `/manual-qa <plan file>`. With `go`, that is the typed route; with `go autonomous`, on a `stack` target, the same session follows its brief instead, reading each QA skill's `SKILL.md` from the paths the brief gives, so no command is sent or typed. A `url` target stays on the typed route.
 
 ## Limits
 
 - Gemini CLI reads `.agents/skills`, not `.claude/skills`: the skills need a copy there, which the Dispatch Plan names for the human to approve.
-- `-p` does not run a skill command, so every QA Delegation is a session the human starts and types the two commands in.
+- `-p` does not run a skill command, so on the typed route (with `go`, or a `url` target), every QA Delegation is a session the human starts and types the two commands in.
 - Its sub-agents block the Chief of Staff until they return, and cannot run side by side.
 - The human cannot open a headless run while it works.
 

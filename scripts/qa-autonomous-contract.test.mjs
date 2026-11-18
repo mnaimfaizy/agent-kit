@@ -171,6 +171,23 @@ describe("qa-plan: --answers in the invocation", () => {
     assert.match(step2, /never offer to save a config/);
   });
 
+  it("step 2 gives the --answers form before its Exit 1 bullet, so the bullets cover both forms", () => {
+    const step2 = workflowSteps(SKILL).get(2);
+    assert.ok(step2.indexOf("check --for plan --answers <file>") < step2.indexOf("- Exit 1:"));
+  });
+
+  it("step 2 always writes answers given in chat or a Decision Request to a file, save or not", () => {
+    const step2 = workflowSteps(SKILL).get(2);
+    assert.match(step2, /Always write the answers/);
+  });
+
+  it("docs/qa.md says an autonomous orchestrate run follows the skills from a brief", () => {
+    const intro = read("docs/qa.md")
+      .split("\n")
+      .find((l) => l.startsWith("Both skills are User-scope"));
+    assert.match(intro, /`go autonomous`/);
+  });
+
   it("step 4 passes the same file to two-point.mjs, and step 7 shows the reused-answers line", () => {
     assert.match(workflowSteps(SKILL).get(4), /`--answers` file/);
     const step7 = workflowSteps(SKILL).get(7);

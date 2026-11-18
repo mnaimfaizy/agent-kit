@@ -22,7 +22,7 @@
 
 - `report`: the session's report file, and its final message.
 - A sub-agent, for an analysis Delegation: the in-session agent tool. Its result returns to the Chief of Staff when it finishes.
-- A QA Delegation: start the session on its brief, and once its first phase has stopped, `message` it `/qa-plan <n>`; later, `/manual-qa <plan file>`. With `go`, that is the typed route; with `go autonomous`, on a `stack` target, the same session follows its brief instead, reading each QA skill's `SKILL.md` from the paths the brief gives, so no command is sent or typed. A `url` target stays on the typed route.
+- A QA Delegation: start the session on its brief, and once its first phase has stopped, `message` it `/qa-plan <n> [--answers <working_dir>/qa-readiness.json]`; later, `/manual-qa <plan file>`. With `go`, that is the typed route; with `go autonomous`, on a `stack` target, the same session follows its brief instead, reading each QA skill's `SKILL.md` from the paths the brief gives, so no command is sent or typed. A `url` target stays on the typed route.
 - This harness may also run the Claude Code CLI's headless runs ([claude-code-cli.md](claude-code-cli.md)).
 
 ## Limits

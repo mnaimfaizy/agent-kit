@@ -73,11 +73,11 @@ Every form runs from the root of the repository the issues belong to.
 
 The skill has a file for each harness it knows ([`harnesses/`](../.claude/skills/orchestrate/harnesses/)), and at step 1 it finds which one this run is on: from the environment and its own tools, or from the config's `harness` key. When it cannot tell, it asks. Each harness has a **Support Level**:
 
-| Harness                                                                           | Support Level | What that means for a run                                                                                                                                             |
-| --------------------------------------------------------------------------------- | ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Claude Code desktop app                                                           | `verified`    | Runs end to end: Live Sessions for building and QA.                                                                                                                   |
-| Cursor                                                                            | `tried`       | One run, with gaps: sub-agents must be checked for their own worktree, and you may type the QA commands.                                                              |
-| Claude Code CLI, Codex CLI, Copilot CLI, Gemini CLI, Antigravity, Devin, OpenCode | `documented`  | Written from their documentation; no run has tried them. Expect to type the QA commands, and to approve copies of the QA skills where some harnesses look for skills. |
+| Harness                                                                           | Support Level | What that means for a run                                                                                                                                                                                               |
+| --------------------------------------------------------------------------------- | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Claude Code desktop app                                                           | `verified`    | Runs end to end: Live Sessions for building and QA.                                                                                                                                                                     |
+| Cursor                                                                            | `tried`       | One run, with gaps: sub-agents must be checked for their own worktree, and you may type the QA commands, on the typed route.                                                                                            |
+| Claude Code CLI, Codex CLI, Copilot CLI, Gemini CLI, Antigravity, Devin, OpenCode | `documented`  | Written from their documentation; no run has tried them. Expect to type the QA commands on the typed route (with `go`, or a `url` target), and to approve copies of the QA skills where some harnesses look for skills. |
 
 Below `verified`, the Dispatch Plan opens with the level and a **Harness limits** list: only the limits that bear on this run, such as "you will type `/qa-plan` in the QA session" or "review comments are watched with `gh`". The plan then waits for your "go", even when you typed `go` with the command. A harness with no file runs one Delegation at a time, with you starting each session.
 
@@ -113,7 +113,7 @@ Nothing local runs while the computer sleeps. Before leaving a desktop run unatt
 With `ready_to_merge.qa: report` (for every issue, or only those carrying one of `qa_labels`), each building Delegation gets a QA Delegation, `d<issue>-qa`, listed in the Dispatch Plan with its Executor and model (`models.qa`). It starts only when its building Delegation is verified: CI green, review settled, and a clean merge in the proposed order. It tests that one head:
 
 1. It detaches its own working copy at that head, and stops if the pull request's head is anything else.
-2. It composes a QA Plan with `qa-plan`, which is sent to its session as a message once the head is pinned, or typed there by you if the session cannot run it, as `/qa-plan <n> --answers <working_dir>/qa-readiness.json`. In an autonomous run on a `stack` target, the session follows `qa-plan` from its brief instead, and nothing is sent or typed. The draft comes to you as a Decision Request, with its scenarios and where it would be delivered, and is delivered only on your yes. If you are in the QA session and answer `qa-plan` there, that is your answer.
+2. It composes a QA Plan with `qa-plan`, which is sent to its session as a message once the head is pinned, or typed there by you if the session cannot run it, as `/qa-plan <n> [--answers <working_dir>/qa-readiness.json]`, with the `--answers` part when the run has an answers file for its base. In an autonomous run on a `stack` target, the session follows `qa-plan` from its brief instead, and nothing is sent or typed. The draft comes to you as a Decision Request, with its scenarios and where it would be delivered, and is delivered only on your yes. If you are in the QA session and answer `qa-plan` there, that is your answer.
 3. It runs the plan with `manual-qa`. A QA Delegation against a local QA Stack holds it, so two never run at once, whatever `limits.shared` says. A building Delegation whose tests use the same ports needs those ports named in `limits.shared`.
 4. It copies the QA Plan and QA Report into the run folder, and posts the report only if you approved that kind of write in the plan.
 
@@ -213,6 +213,8 @@ A run keeps its state in a folder of its own inside the config's `run_dir` (defa
   board.md                  the board: one row per Delegation
   activity.md               the Chief of Staff's Activity Log
   answers.json              your answers in chat, when the config did not say
+  qa-readiness.json         the QA readiness answers the Dispatch Plan asked for
+  qa-readiness-<base>.json  the same, for a pull request with another base
   rulings.md                the Ruling Ledger, in an autonomous run
   evidence/                 command output a Ruling cites
   delegations/<id>/

@@ -108,7 +108,7 @@ describe("the QA brief", () => {
   });
 
   it("on the typed route, gives the exact command with --answers", () => {
-    assert.match(QA_BRIEF, /`\/qa-plan <n> --answers <working_dir>\/qa-readiness\.json`/);
+    assert.match(QA_BRIEF, /`\/qa-plan <n> \[--answers <working_dir>\/qa-readiness\.json\]`/);
   });
 
   it("on the brief route, carries each skill's SKILL.md and folder from the same install as its scripts", () => {
@@ -214,6 +214,72 @@ describe("DESIGN.md and HARNESSES.md", () => {
       assert.match(line, /with `go`, that is the typed route/i, `${file}: the typed route with go`);
       assert.match(line, /with `go autonomous`/i, `${file}: the brief route with go autonomous`);
     }
+  });
+});
+
+describe("review fixes on PR #297", () => {
+  const harnessDir = `${SKILL_DIR}/harnesses`;
+  const harnessFiles = readdirSync(join(root, harnessDir)).filter((f) => f.endsWith(".md"));
+  const typedSources = [
+    [`${SKILL_DIR}/SKILL.md`, SKILL],
+    [`${SKILL_DIR}/BRIEF.md`, BRIEF],
+    [`${SKILL_DIR}/HARNESSES.md`, HARNESSES],
+    ["docs/orchestrate.md", read("docs/orchestrate.md")],
+    ...harnessFiles.map((f) => [`${harnessDir}/${f}`, read(`${harnessDir}/${f}`)]),
+  ];
+
+  it("every typed qa-plan command carries `--answers` only as an optional part", () => {
+    for (const [file, text] of typedSources)
+      for (const line of text.split("\n")) {
+        // A check-before-use question and a record of an earlier run quote no command to send.
+        if (line.startsWith("- Whether") || line.includes("In the first run")) continue;
+        if (!/[/$]qa-plan <n>|run it for #<n>/.test(line)) continue;
+        assert.match(line, /\[--answers [^\]]+\]/, `${file}: ${line.slice(0, 80)}`);
+        assert.doesNotMatch(line, /qa-plan <n> --answers/, `${file}: --answers without brackets`);
+      }
+  });
+
+  it("step 4 says when `--answers` is sent: only with an answers file for the pull request's base", () => {
+    assert.match(STEP4, /only when the run has an answers file for its pull request's base/);
+  });
+
+  it("the base the answers hold for comes from the merged config, the config's own base_ref included", () => {
+    const readiness = bullet(STEP4, "- **QA readiness, asked once.**");
+    assert.match(readiness, /`effective\.plan\.base_ref`/);
+  });
+
+  it("BRIEF.md phase 3 stops on any Decision Request the skill's run section raises", () => {
+    const phase3 = QA_BRIEF.split("\n").find((l) => l.trimStart().startsWith("3. **Run it**"));
+    assert.match(phase3, /any Decision Request/);
+    assert.match(phase3, /Run from an autonomous brief/);
+  });
+
+  it("each harness file's QA limit that has the human type the commands names the typed route", () => {
+    for (const file of harnessFiles) {
+      const limits = section(read(`${harnessDir}/${file}`), "## Limits");
+      for (const line of limits.split("\n"))
+        if (/human types|types the two/.test(line))
+          assert.match(line, /typed route/, `${file}: ${line.slice(0, 80)}`);
+    }
+  });
+
+  it("docs/orchestrate.md's run-folder layout lists the readiness files", () => {
+    const docs = read("docs/orchestrate.md");
+    assert.match(docs, /^ {2}qa-readiness\.json /m);
+    assert.match(docs, /^ {2}qa-readiness-<base>\.json /m);
+  });
+
+  it("docs/orchestrate.md's harness table says typing the QA commands is the typed route only", () => {
+    const docs = read("docs/orchestrate.md");
+    for (const line of docs.split("\n").filter((l) => /type the QA commands/.test(l)))
+      assert.match(line, /typed route/, line.slice(0, 80));
+  });
+
+  it("the changelog line ends with its Consumer action", () => {
+    const line = read("CHANGELOG.md")
+      .split("\n")
+      .find((l) => l.includes("[#289]"));
+    assert.match(line, /\*\*Consumer action:\*\* none\.$/);
   });
 });
 
