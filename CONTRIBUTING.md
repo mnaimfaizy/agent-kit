@@ -18,18 +18,18 @@ On Windows, work in Git Bash. `.gitattributes` forces LF working copies; a CRLF 
 
 Everything CI runs, locally:
 
-| Check                    | Command                                                                             |
-| ------------------------ | ----------------------------------------------------------------------------------- |
-| Python contract tests    | `uv run pytest`                                                                     |
-| Node contract tests      | `npm test` (also runs every `.claude/skills/*/*.test.mjs` suite)                    |
-| Release snapshot paths   | `uv run python scripts/verify_release_snapshot.py`                                  |
-| Workflow reference fresh | `uv run python scripts/gen_workflow_reference.py --check`                           |
-| Generated blocks fresh   | `uv run python scripts/gen_doc_blocks.py --check` (also runs under `uv run pytest`) |
-| Python lint / format     | `uv run ruff check .` · `uv run ruff format --check .`                              |
-| Markdown / YAML / JSON   | `npx prettier --check .` (fix: `npm run format`)                                    |
-| Shell                    | `shellcheck` on `git ls-files '*.sh'` (pre-commit bundles it)                       |
-| Workflows                | `actionlint` (pre-commit bundles it; CI uses the digest-pinned image)               |
-| All lint hooks at once   | `uv run pre-commit run --all-files`                                                 |
+| Check                    | Command                                                                                               |
+| ------------------------ | ----------------------------------------------------------------------------------------------------- |
+| Python contract tests    | `uv run pytest`                                                                                       |
+| Node contract tests      | `npm test` (also runs every `.claude/skills/*/*.test.mjs` and `examples/patterns/*/*.test.mjs` suite) |
+| Release snapshot paths   | `uv run python scripts/verify_release_snapshot.py`                                                    |
+| Workflow reference fresh | `uv run python scripts/gen_workflow_reference.py --check`                                             |
+| Generated blocks fresh   | `uv run python scripts/gen_doc_blocks.py --check` (also runs under `uv run pytest`)                   |
+| Python lint / format     | `uv run ruff check .` · `uv run ruff format --check .`                                                |
+| Markdown / YAML / JSON   | `npx prettier --check .` (fix: `npm run format`)                                                      |
+| Shell                    | `shellcheck` on `git ls-files '*.sh'` (pre-commit bundles it)                                         |
+| Workflows                | `actionlint` (pre-commit bundles it; CI uses the digest-pinned image)                                 |
+| All lint hooks at once   | `uv run pre-commit run --all-files`                                                                   |
 
 CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs three jobs on every PR and push to `main`: **Tests**, **Lint and format**, **Internal links**. External links are checked weekly by [links.yml](.github/workflows/links.yml), which opens a tracking issue on failure.
 
