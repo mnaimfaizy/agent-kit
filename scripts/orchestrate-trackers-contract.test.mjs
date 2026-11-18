@@ -33,6 +33,19 @@ const MAPPINGS = readdirSync(DIR)
 /** The `### \`<id>\`` headings of a mapping file. */
 const mapped = (text) => [...text.matchAll(/^### `([a-z][a-z-]*)`$/gm)].map((m) => m[1]);
 
+/** The text of operation `<id>`'s `### \`<id>\`` section in mapping file `<name>`. */
+const section = (name, id) => {
+  const text = read(name);
+  const start = text.indexOf(`\n### \`${id}\`\n`);
+  assert.ok(start >= 0, `section for \`${id}\``);
+  const body = text.slice(text.indexOf("\n", start + 1) + 1);
+  const next = body.search(/^#{2,3} /m);
+  return next < 0 ? body : body.slice(0, next);
+};
+
+/** A text's lines, each line that ends in `\` joined to the next. */
+const joinedLines = (text) => text.replace(/\\\n\s*/g, " ").split("\n");
+
 describe("TRACKERS.md", () => {
   it("names the operations a Team Run's Dispatch Plan reads, each once", () => {
     for (const id of ["viewer", "spec-tickets", "blockers", "merged", "public", "labels"])
@@ -74,14 +87,13 @@ for (const name of MAPPINGS) {
     });
 
     it("never gives `gh api --slurp` with `--jq`, which `gh` refuses", () => {
-      const commands = text.replace(/\\\n\s*/g, " ").split("\n");
-      for (const line of commands)
+      for (const line of joinedLines(text))
         if (/^gh api /.test(line)) assert.ok(!(/--slurp/.test(line) && /--jq/.test(line)), line);
     });
 
     it("never gives `glab api` a `--jq`, which it does not have", () => {
-      const commands = text.replace(/\\\n\s*/g, " ").split("\n");
-      for (const line of commands) if (/^glab api /.test(line)) assert.ok(!/--jq/.test(line), line);
+      for (const line of joinedLines(text))
+        if (/^glab api /.test(line)) assert.ok(!/--jq/.test(line), line);
     });
 
     it("maps every operation TRACKERS.md names, and no other", () => {
@@ -105,15 +117,7 @@ describe("trackers/github.md", () => {
     assert.match(read("github.md"), /^- \*\*Support Level:\*\* `documented`/m);
   });
 
-  /** The text of one operation's `### \`<id>\`` section. */
-  const op = (id) => {
-    const text = read("github.md");
-    const start = text.indexOf(`\n### \`${id}\`\n`);
-    assert.ok(start >= 0, `section for \`${id}\``);
-    const body = text.slice(text.indexOf("\n", start + 1) + 1);
-    const next = body.search(/^#{2,3} /m);
-    return next < 0 ? body : body.slice(0, next);
-  };
+  const op = (id) => section("github.md", id);
 
   it("finds a row by its hidden marker, and edits it by its comment id", () => {
     assert.match(op("row"), /orchestrate:shared-board-row/);
@@ -134,17 +138,10 @@ describe("trackers/github.md", () => {
 describe("trackers/gitlab.md", () => {
   const text = read("gitlab.md");
 
-  /** The text of one operation's `### \`<id>\`` section. */
-  const op = (id) => {
-    const start = text.indexOf(`\n### \`${id}\`\n`);
-    assert.ok(start >= 0, `section for \`${id}\``);
-    const body = text.slice(text.indexOf("\n", start + 1) + 1);
-    const next = body.search(/^#{2,3} /m);
-    return next < 0 ? body : body.slice(0, next);
-  };
+  const op = (id) => section("gitlab.md", id);
   /** The shell commands in the file's ```bash blocks, one per line, continuations joined. */
   const commands = [...text.matchAll(/^```bash\n([\s\S]*?)^```$/gm)]
-    .flatMap((m) => m[1].replace(/\\\n\s*/g, " ").split("\n"))
+    .flatMap((m) => joinedLines(m[1]))
     .filter((line) => line.trim() !== "");
 
   it("starts at Support Level `documented`, until a Team Run on GitLab passes", () => {
@@ -153,8 +150,9 @@ describe("trackers/gitlab.md", () => {
 
   it("dates its facts, and marks the research's unconfirmed points to check before use", () => {
     assert.match(/^- \*\*Facts from:\*\* (.*)$/m.exec(text)?.[1] ?? "", /\d{4}-\d{2}-\d{2}/);
-    const check = text.slice(text.indexOf("\n## Check before use\n"));
-    assert.ok(check.length > 30, "a Check before use section");
+    const at = text.indexOf("\n## Check before use\n");
+    assert.ok(at >= 0, "a Check before use section");
+    const check = text.slice(at);
     for (const point of [/is_blocked_by/, /quick action/i, /closed_by/, /Planner/])
       assert.match(check, point);
   });

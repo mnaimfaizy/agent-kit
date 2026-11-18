@@ -1668,7 +1668,7 @@ test("gitlab.com is detected however the remote spells it: ssh with a port, cred
     assert.equal(trackerFromRemote(url).tracker, null, url);
 });
 
-test("a self-hosted GitLab is not detected, and works with `tracker: gitlab` pinned", () => {
+test("a self-hosted GitLab is not detected, and `check` reports the `tracker: gitlab` pin", () => {
   const pinned = { "orchestrate.config.yml": [...READY_BASE, "tracker: gitlab"].join("\n") };
   const out = main(["check"], {
     read: reader(pinned),
