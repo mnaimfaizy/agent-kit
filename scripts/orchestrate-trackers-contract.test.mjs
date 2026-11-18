@@ -1,7 +1,7 @@
 /**
  * Contract test: the tracker seam of an `orchestrate` Team Run (spec #314,
  * ADR 0014). The Team Run's parts of the skill speak only of the operations
- * `trackers/TRACKERS.md` names; each tracker's mapping file under `trackers/`
+ * `TRACKERS.md` names; each tracker's mapping file under `trackers/`
  * says how each one is done there. An operation with no mapping would leave a
  * run on that tracker with a step it cannot take, so this test holds every
  * mapping file to every operation, and to the header a run reads its Support
@@ -17,20 +17,21 @@ import { fileURLToPath } from "node:url";
 import { SUPPORT_LEVELS, TRACKERS } from "../.claude/skills/orchestrate/config.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const DIR = join(root, ".claude/skills/orchestrate/trackers");
+const SKILL_DIR = join(root, ".claude/skills/orchestrate");
+const DIR = join(SKILL_DIR, "trackers");
 const read = (name) => readFileSync(join(DIR, name), "utf8");
-const LIST = read("TRACKERS.md");
+const LIST = readFileSync(join(SKILL_DIR, "TRACKERS.md"), "utf8");
 
 /** The operation ids: the first cell of each row of TRACKERS.md's operations table. */
 const OPERATIONS = [...LIST.matchAll(/^\| `([a-z][a-z-]*)` +\|/gm)].map((m) => m[1]);
 const MAPPINGS = readdirSync(DIR)
-  .filter((name) => name.endsWith(".md") && name !== "TRACKERS.md")
+  .filter((name) => name.endsWith(".md"))
   .sort();
 
 /** The `### \`<id>\`` headings of a mapping file. */
 const mapped = (text) => [...text.matchAll(/^### `([a-z][a-z-]*)`$/gm)].map((m) => m[1]);
 
-describe("trackers/TRACKERS.md", () => {
+describe("TRACKERS.md", () => {
   it("names the operations a Team Run's Dispatch Plan reads, each once", () => {
     for (const id of ["viewer", "spec-tickets", "blockers", "merged", "public", "labels"])
       assert.ok(OPERATIONS.includes(id), `operation \`${id}\` is listed`);

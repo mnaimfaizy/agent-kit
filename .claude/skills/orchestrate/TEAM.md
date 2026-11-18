@@ -15,7 +15,7 @@ At SKILL.md step 1, `check` prints a `tracker` report beside the `harness` one: 
 | a tracker | another tracker                      | The two disagree: a Decision Request before anything else, never a silent choice. Say the pin, the remote's host and what it points to. Recommend the remote's, and setting the pin to match, since the remote is where the tickets live. |
 | null      | null (no remote, or an unknown host) | A Decision Request: say the remote's host, or that there is none, and ask which tracker the spec's tickets are on. Recommend pinning `tracker` in the config, so the next run does not ask.                                               |
 
-Then load [trackers/TRACKERS.md](trackers/TRACKERS.md), which names the operations a Team Run reads the tracker through, and that tracker's own file under [trackers/](trackers/), and only that one. A tracker with no file there stops the run before anything else is read: say which trackers this version has a file for.
+Then load [TRACKERS.md](TRACKERS.md), which names the operations a Team Run reads the tracker through, and that tracker's own file under [trackers/](trackers/), and only that one. A tracker with no file there stops the run before anything else is read: say which trackers this version has a file for.
 
 The tracker file gives its **Support Level**, in the words harness files use ([HARNESSES.md](HARNESSES.md#support-level)). Below `verified`, the Dispatch Plan says so with what it means for this run, and waits for the human's "go" even when the invocation carried `go`, as for a harness.
 

@@ -7,7 +7,7 @@ The skill's own files are the reference; this page is the walkthrough:
 - [`SKILL.md`](../.claude/skills/orchestrate/SKILL.md): the invocations, the rules and the ten workflow steps.
 - [`SPEC.md`](../.claude/skills/orchestrate/SPEC.md): spec mode and the two landings.
 - [`TEAM.md`](../.claude/skills/orchestrate/TEAM.md): the Team Run, `--spec <n> --team`, and its Dispatch Plan.
-- [`trackers/`](../.claude/skills/orchestrate/trackers/TRACKERS.md): the tracker operations a Team Run reads, and how each is done on GitHub.
+- [`TRACKERS.md`](../.claude/skills/orchestrate/TRACKERS.md) and [`trackers/`](../.claude/skills/orchestrate/trackers/github.md): the tracker operations a Team Run reads, and how each is done on GitHub.
 - [`BRIEF.md`](../.claude/skills/orchestrate/BRIEF.md): the Brief Contract, the Decision Request form and the report form.
 - [`RUN.md`](../.claude/skills/orchestrate/RUN.md): the run folder, the board, the states, `--resume` and `--status`.
 - [`HARNESSES.md`](../.claude/skills/orchestrate/HARNESSES.md): how the skill starts, messages and waits for an Executor on each harness.

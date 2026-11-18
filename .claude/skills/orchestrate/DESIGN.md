@@ -172,7 +172,7 @@ A Team Run lands one pull request per ticket. An integration branch would have t
 
 A ticket with no assignee, or with two, is run by nobody. Guessing an owner would put two Chief of Staff sessions on one branch, or none on a ticket somebody thought was theirs, and the fix is one click on the tracker by the people who know.
 
-The tracker is reached through a short list of operations, each mapped in its own file under `trackers/`, as harnesses are under `harnesses/`. Only the Team Run's parts speak of them; the rest of the skill stays bound to `gh`, since a tracker-neutral core is more than a Team Run needs. Detection reads the git remote's host because that is where the tickets live, and a pin that disagrees is a question: either could be the mistake, and a run on the wrong tracker reads the wrong tickets.
+The tracker is reached through a short list of operations, named in TRACKERS.md and each mapped in its own file under `trackers/`, as HARNESSES.md names the verbs and each harness has its file under `harnesses/`. Only the Team Run's parts speak of them; the rest of the skill stays bound to `gh`, since a tracker-neutral core is more than a Team Run needs. Detection reads the git remote's host because that is where the tickets live, and a pin that disagrees is a question: either could be the mistake, and a run on the wrong tracker reads the wrong tickets.
 
 Like spec mode, the Team Run is a file of its own, TEAM.md, loaded only for `--team`, so a single-person run reads none of it.
 

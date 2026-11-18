@@ -119,6 +119,6 @@ describe("TEAM.md: the tracker", () => {
     const find = section(TEAM, "## Find the tracker");
     assert.match(find, /disagree/);
     assert.match(find, /Decision Request/);
-    assert.match(find, /trackers\/TRACKERS\.md/);
+    assert.match(find, /\[TRACKERS\.md\]\(TRACKERS\.md\)/);
   });
 });

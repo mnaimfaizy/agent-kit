@@ -1,6 +1,6 @@
 # Tracker operations
 
-A Team Run ([TEAM.md](../TEAM.md)) reads the tracker through the operations below, and only these. How each one is done on one tracker is in that tracker's own file in this folder: load only the file for the tracker this run is on, once [TEAM.md](../TEAM.md#find-the-tracker) has named it. The rest of the skill stays bound to `gh`, as before.
+A Team Run ([TEAM.md](TEAM.md)) reads the tracker through the operations below, and only these. How each one is done on one tracker is in that tracker's own file under [trackers/](trackers/): load only the file for the tracker this run is on, once [TEAM.md](TEAM.md#find-the-tracker) has named it. The rest of the skill stays bound to `gh`, as before.
 
 | Operation      | Kind                      | What it gives                                                                                                    |
 | -------------- | ------------------------- | ---------------------------------------------------------------------------------------------------------------- |
@@ -14,10 +14,10 @@ A Team Run ([TEAM.md](../TEAM.md)) reads the tracker through the operations belo
 
 ## A tracker file
 
-`trackers/<tracker>.md` is named for a value of the config's `tracker` key ([CONFIG.md](../CONFIG.md#tracker)). It opens with these bullets, each on its own line in this form:
+`trackers/<tracker>.md` is named for a value of the config's `tracker` key ([CONFIG.md](CONFIG.md#tracker)). It opens with these bullets, each on its own line in this form:
 
 - `- **Id:** \`<tracker>\``, the file's own name.
-- `- **Support Level:** \`<level>\``, then what it rests on, in the vocabulary harness files use ([HARNESSES.md](../HARNESSES.md#support-level)).
+- `- **Support Level:** \`<level>\``, then what it rests on, in the vocabulary harness files use ([HARNESSES.md](HARNESSES.md#support-level)).
 - `- **Facts from:**` where and when each fact was read.
 
 Then a `###` section for each operation above, headed with its name in backticks, giving the command and how to read its output, and a `## Check before use` section for every fact no run has confirmed yet. A contract test holds each file to every operation.
