@@ -542,4 +542,14 @@ describe("docs/orchestrate.md: watching a Team Run, and reassignment", () => {
     assert.match(fenced(watch, "text"), /^Next moves: /m);
     assert.match(watch, /writes nothing/);
   });
+
+  it("says what happens when a ticket is reassigned, a run of yours owns a row, or a person edits one", () => {
+    const board = section(section(DOC, "## Team Run"), "### The Shared Board");
+    assert.match(board, /hand (it )?off/i);
+    assert.match(board, /ask for it back/);
+    assert.match(board, /handed off to @/);
+    assert.match(board, /stale/);
+    assert.match(board, /another run of yours/);
+    assert.match(board, /overwritten/);
+  });
 });
