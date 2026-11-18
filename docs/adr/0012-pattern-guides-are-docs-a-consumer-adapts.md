@@ -37,16 +37,16 @@ A contract test, `scripts/pattern-guides-contract.test.py`, checks what the boun
 
 ## Planned guides
 
-The first pass writes guides 1 and 2. The others are planned, and each one gets its page in a later change:
+The first pass wrote guides 1 and 2, and the second wrote 3 and 8. The others are planned, and each one gets its page in a later change:
 
-1. **Commit pipeline.** A read-only drafting agent and a runner that always runs the hooks and labels each failure with a reason. Covers named-path staging, a secret-path guard, and origin lines on fixes.
-2. **Pull request pipeline.** The drafting agent emits the merge base and the runner verifies it. Covers a merge risk block, labels from one allowlist, and no reviewers by default.
-3. **Tiered quality gates.** Mechanical, standard and full tiers, builder → reviewer → runner chains, and a retry cap.
+1. **Commit pipeline** (written: [commit-pipeline.md](../patterns/commit-pipeline.md)). A read-only drafting agent and a runner that always runs the hooks and labels each failure with a reason. Covers named-path staging, a secret-path guard, and origin lines on fixes.
+2. **Pull request pipeline** (written: [pr-pipeline.md](../patterns/pr-pipeline.md)). The drafting agent emits the merge base and the runner verifies it. Covers a merge risk block, labels from one allowlist, and no reviewers by default.
+3. **Tiered quality gates** (written: [tiered-quality-gates.md](../patterns/tiered-quality-gates.md)). Mechanical, standard and full tiers, builder → reviewer → runner chains, and a retry cap.
 4. **Sub-agent sync across harnesses.** Canonical bodies, generated copies and a drift check.
 5. **A registry for skills from outside the repository.** A lock file, an approval list and a check. It links to each skill rather than restating it.
 6. **The instruction layout.** One `AGENTS.md` plus thin harness adapters. A skill listed there says which skill to use, not that skill's steps.
 7. **Planning chain.** Grill → PRD → slices. It builds on the Companion library, so it follows the last consequence below.
-8. **Merge train.** It keeps strict up-to-date branch protection meaningful without a merge queue or an admin bypass. Pull requests merge one at a time, in the order given. For each one the train brings the branch up to date if needed, waits for every required check on that new head (read from the ruleset, not listed in the script), and merges exactly that head. It stops at the first red check, conflict, draft or blocking review, and names the pull requests it never reached. All decisions live in a pure core, and all IO in a thin shell.
+8. **Merge train** (written: [merge-train.md](../patterns/merge-train.md)). It keeps strict up-to-date branch protection meaningful without a merge queue or an admin bypass. Pull requests merge one at a time, in the order given. For each one the train brings the branch up to date if needed, waits for every required check on that new head (read from the ruleset, not listed in the script), and merges exactly that head. It stops at the first red check, conflict, draft or blocking review, and names the pull requests it never reached. All decisions live in a pure core, and all IO in a thin shell.
 
    Its optional auto-merge mode moves from off to shadow to on. In shadow it only posts what it would have merged, or why it held. When on, it merges only on facts read for the exact head, never on a model's judgment, and a bad auto-merge sends it back to shadow. The kit's own flows promise that nothing auto-merges, and this guide does not change that. It is a practice a Consumer may choose for its own repository, so the page presents auto-merge as optional and reached only through shadow, and the kit's flows keep their promise.
 

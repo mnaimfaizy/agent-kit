@@ -5,7 +5,8 @@ A Pattern guide is a page under `docs/patterns/` and a skeleton under
 
 - every page has a skeleton folder of the same name, and every skeleton a page;
 - every skeleton holds an agent body (`*.agent.md`), a `SKILL.md` and a runner
-  stub (`*.sh`), and the page links each of them;
+  stub (`*.sh`, or `*.mjs` where the runner is a decision core and its shell),
+  and the page links every file in it;
 - every page has the five sections the ADR lists;
 - no page or skeleton names the repository the patterns were designed from, or
   its commands. A skeleton marks a placeholder where a host would be named.
@@ -20,13 +21,16 @@ ROOT = Path(__file__).resolve().parents[1]
 PAGES = ROOT / "docs" / "patterns"
 SKELETONS = ROOT / "examples" / "patterns"
 SECTIONS = ("## The problem", "## The moving parts", "## Failure modes", "## Adopting it")
+RUNNER_SUFFIXES = (".sh", ".mjs")
 RULES_SECTION = re.compile(r"^## The rules, and why", re.MULTILINE)
 # Names from the source repository that a guide must not carry over. A generic
 # pattern name (such as "merge train", ADR 0012 guide 8) is not listed: a guide
 # must be able to name itself.
 HOST_NAMES = re.compile(
     r"myorganiser|corepack yarn|yarn ai:|ai:commit|ai:create-pr|PrAuthor"
-    r"|Surface Label|fix:attribution|github-labels\.json|Introduced in #|\bADR 0(?:025|100)\b",
+    r"|Surface Label|fix:attribution|github-labels\.json|Introduced in #|\bADR 0(?:025|100)\b"
+    r"|merge:train|Merge Danger|Standalone Run|finish-standalone-runs|Sign-off Issue|review:(?:auto|agent|human)"
+    r"|Sandcastle|Component(?:Builder|Reviewer)|TestScaffold|gate:(?:mechanical|standard|full)",
     re.IGNORECASE,
 )
 
@@ -45,8 +49,8 @@ def skeleton_problems(name: str, folder: Path) -> list[str]:
         problems.append(f"examples/patterns/{name}/ has no *.agent.md agent body")
     if not (folder / "SKILL.md").is_file():
         problems.append(f"examples/patterns/{name}/ has no SKILL.md")
-    if not list(folder.glob("*.sh")):
-        problems.append(f"examples/patterns/{name}/ has no *.sh runner stub")
+    if not any(path.suffix in RUNNER_SUFFIXES for path in folder.iterdir()):
+        problems.append(f"examples/patterns/{name}/ has no runner stub ({' or '.join(RUNNER_SUFFIXES)})")
     return problems
 
 

@@ -28,6 +28,8 @@ docs/adr/
 docs/assets/logo.svg
 docs/patterns/commit-pipeline.md
 docs/patterns/pr-pipeline.md
+docs/patterns/tiered-quality-gates.md
+docs/patterns/merge-train.md
 
 .github/workflows/security-audit-reusable.yml
 .github/workflows/agent-plan-reusable.yml
@@ -67,6 +69,8 @@ examples/qa-hazards/sign-in.md
 examples/orchestrate.config.yml
 examples/patterns/commit-pipeline/
 examples/patterns/pr-pipeline/
+examples/patterns/tiered-quality-gates/
+examples/patterns/merge-train/
 
 scripts/prepare-release.sh
 scripts/cut-release.sh
