@@ -155,13 +155,13 @@ A ticket's fine state is the state of its building or analysis Delegation on the
 | `merged`                 | `merged`                                                 | Done: #<pr> was merged on <YYYY-MM-DD>.                                                               |
 | `dropped`                | none: its state label is removed                         | Taken out of @<login>'s Team Run; nobody runs it here now.                                            |
 
-The state label changes only when the coarse state changes, with the `set-state` operation: it adds the coarse state's label and removes any other of the six the ticket carries, so the ticket carries exactly one. A `dropped` ticket's label is removed, and its last row write says it was dropped, except on a hand-off, where the label is left for the new owner ([Hand-off](#hand-off)). A state label the repository does not have, because the human said no to creating it ([Missing state labels](#missing-state-labels)), is not written, and the row is written as usual.
+The state label changes only when the coarse state changes, with the `set-state` operation: it adds the coarse state's label and removes any other of the six the ticket carries, so the ticket carries exactly one. A `dropped` ticket's label is removed, and its last row write says it was dropped, except on a hand-off, where the label is left for the new owner ([Handing a ticket off](#handing-a-ticket-off)). A state label the repository does not have, because the human said no to creating it ([Missing state labels](#missing-state-labels)), is not written, and the row is written as usual.
 
 `set-state` reads the ticket's labels back after each write, since a tracker can drop a label change silently, with no error (the tracker file says when). When the read-back does not show the new label, the label write did not hold, and the row comment stays the record. Log it once in the Activity Log, and put `Shared Board labels: not held, <why>` on the board, under the `Team Run:` line. It is not a Decision Request, and it is not retried until the next coarse state change.
 
 ### When a row is written
 
-Rows and labels are written under the routine write "Shared Board: row comment and state labels on my assigned tickets", approved once at "go", and only on this teammate's own tickets: those the plan put in this teammate's group. Never on a teammate's ticket, an `unassigned` one, or one that needs one assignee, and never before "go" or after the run is closed.
+Rows and labels are written under the routine write "Shared Board: row comment and state labels on my assigned tickets", approved once at "go", and only on this teammate's own tickets: those the plan put in this teammate's group. Never on a teammate's ticket, an `unassigned` one, or one that needs one assignee, and never before "go" or after the run is closed. The one exception is the last row write of a ticket handed off on the human's yes ([Handing a ticket off](#handing-a-ticket-off)).
 
 A row is written only when its text would change, so only when one of its parts changes: the fine state, a Decision Request opened or answered, the branch's head, the pull request, what it is parked on, the Rulings count, a conflict found or gone, or a new milestone. Each time, the Chief of Staff renders the row from the local board into the run folder, `shared-board/<n>.md`, and compares it with the copy it last wrote. When nothing changed, nothing is written, so a heartbeat that finds nothing new writes nothing (and `--status` writes nothing at all). The **Updated** time is part of the change, never a reason for one.
 
@@ -188,7 +188,7 @@ The **Recent activity** list keeps the last `team.recent_activity` milestones (d
 - `QA passed on <head>` and `QA failed on <head>`
 - `crashed, branch kept at <head>` and `restarted from <head>`
 - `ready to merge`, `merged` and `dropped`
-- `handed off to @<login> at <branch>@<head>`, or `handed off to @<login>, not started`, the old owner's last milestone when a ticket is reassigned ([Hand-off](#hand-off))
+- `` handed off to @<login> at `<branch>@<head>` ``, or `handed off to @<login>, not started`, the old owner's last milestone when a ticket is reassigned ([Handing a ticket off](#handing-a-ticket-off))
 
 ## Ownership
 
@@ -198,34 +198,34 @@ A ticket's row has one writer: the Chief of Staff of its current assignee ([ADR 
 
 Just before every `write-row` and every `set-state`, the Chief of Staff re-reads the ticket's assignees with the `spec-tickets` operation, and writes only while the ticket's single assignee is this teammate. The assignee read at "go", or at the last write, is never enough: the tracker's assignee is the only sign of whose ticket it is, and the human sets it at any time. It also re-reads them each time it wakes, on an `await` event or a heartbeat, so a ticket that has no row change pending is not reassigned unseen.
 
-When the re-read shows any other assignees, nothing is written on the ticket, neither the row nor its label, and the work is not stopped: the ticket has been assigned away ([Reassignment](#reassignment)). Writing resumes only when a re-read shows this teammate as its single assignee again. The one write made on a ticket assigned away is the hand-off's last row write, on the human's yes ([Hand-off](#hand-off)).
+When the re-read shows any other assignees, or none, nothing is written on the ticket, neither the row nor its label, and the work is not stopped: the ticket has been assigned away ([Reassignment](#reassignment)). Writing resumes only when a re-read shows this teammate as its single assignee again. The one write made on a ticket assigned away is the hand-off's last row write, on the human's yes ([Handing a ticket off](#handing-a-ticket-off)).
 
 ### Reassignment
 
 A ticket of this teammate's whose Delegation is running or parked, or waits on anything in the run, and whose re-read shows it assigned away, is a Decision Request to this teammate, its old owner, raised as soon as the re-read sees it. It is never a Ruling, in an autonomous run too: whether to give up a ticket is the human's, as stopping or dropping a Delegation is ([SKILL.md](SKILL.md#autonomous-runs)). It says who the ticket is assigned to now (one person, nobody, or several), the branch and its head, and what is done and left, and gives two options:
 
-1. **Hand it off**: the branch is pushed, the row says where, and this run drops the ticket ([Hand-off](#hand-off)). The new owner's run carries on from that branch.
+1. **Hand it off**: the branch is pushed, the row says where, and this run drops the ticket ([Handing a ticket off](#handing-a-ticket-off)). The new owner's run carries on from that branch.
 2. **Ask for it back**: the ticket stays in this run, and the human asks whoever reassigned it to assign it back. A Chief of Staff never sets an assignee. The run writes nothing on the ticket until a re-read shows this teammate as its single assignee again.
 
 Recommend the hand-off when the ticket now has one assignee, since the team has said whose it is; when it has none or several, recommend asking for it back, since there is nobody yet to hand it to, and a hand-off waits until a re-read shows exactly one.
 
 While the question waits, the Delegation is never stopped unasked: it goes on with its work, and stops only on the human's answer. Only the Shared Board writes on that ticket pause. A ticket that is `planned` and not yet spawned is not spawned while the question waits.
 
-### Hand-off
+### Handing a ticket off
 
 On the yes to hand it off, in this order, each step done before the next:
 
 1. The Delegation pushes its branch, as it stands, and reports its head; the Chief of Staff `message`s it to, and then stops it. A Delegation that no longer answers is not waited on: the Chief of Staff pushes its branch from its worktree as it is.
 2. The Chief of Staff makes one final row write, the last on this ticket: its row, with the fine state `dropped`, the headline "Handed off to @<new>; @<new>'s Team Run carries it on.", and, as its newest milestone, the line "handed off to @<new> at `<branch>@<head>`", with the head just pushed. This write is made although the ticket is no longer this teammate's, on the human's yes, and it is never repeated.
-3. The ticket's row on the local board becomes `dropped`, with `handed off to @<new> at <branch>@<head>` beside it, and the ticket leaves this run: no more writes on it, and its worktree is kept as it is.
+3. The ticket's row on the local board becomes `dropped`, with `` handed off to @<new> at `<branch>@<head>` `` beside it, and the ticket leaves this run: no more writes on it, and its worktree is kept as it is.
 
 The state label is left as it is, not removed as for another `dropped` ticket: it is the new owner's to set now, and its next `set-state` puts it right. A ticket handed off before its Delegation was spawned has no branch to push: step 1 is skipped, and its final row line says `handed off to @<new>, not started`.
 
 ### Picking up a handed-off ticket
 
-A ticket newly assigned to this teammate is planned by their own run: in the Dispatch Plan of a new Team Run, or in the amended Dispatch Plan `--resume` shows for it ([RUN.md](RUN.md#resume)). Before it is planned, read its row comments with the `row` operation. When the newest row comment by its previous assignee has as its newest milestone `handed off to @<this login> at <branch>@<head>`, the plan says, beside the ticket, `picked up from @<previous>'s <branch>@<head>`, and on "go" the Chief of Staff starts a new Delegation from that branch, as a crashed Delegation's branch is picked up ([SKILL.md](SKILL.md#6-run-the-loop)): it fetches the branch from the remote, the new Delegation works on it from that head, and its brief says the branch carries the previous owner's work, to be read before it builds on it. The Executor and model are this run's own choice. When the remote's head of that branch is not the head the milestone names, or the milestone says `not started`, the plan says so, and the Delegation starts from the head the remote has, or from the default branch for `not started`.
+A ticket newly assigned to this teammate is planned by their own run: in the Dispatch Plan of a new Team Run, or in the amended Dispatch Plan `--resume` shows for it ([RUN.md](RUN.md#resume)). Before it is planned, read its row comments with the `row` operation. When a row comment by another author has as its newest milestone `` handed off to @<this login> at `<branch>@<head>` `` (the newest such comment, when there are several), its author is the previous owner, and the plan says, beside the ticket, `` picked up from @<previous> at `<branch>@<head>` ``, and on "go" the Chief of Staff starts a new Delegation from that branch, as a crashed Delegation's branch is picked up ([SKILL.md](SKILL.md#6-run-the-loop)): it fetches the branch from the remote, the new Delegation works on it from that head, and its brief says the branch carries the previous owner's work, to be read before it builds on it. The Executor and model are this run's own choice. When the remote's head of that branch is not the head the milestone names, or the milestone says `not started`, the plan says so, and the Delegation starts from the head the remote has, or from the default branch for `not started`.
 
-A ticket whose previous owner's row has no hand-off milestone, because their run never answered, is a Decision Request in the plan: the plan names that row's branch, head and age, and asks whether to start from that branch as the remote has it or from the default branch. Recommend the branch when the remote has it.
+A ticket that has another author's row but none handed off to this teammate, because the previous owner's run never answered, is a Decision Request in the plan: the plan names the newest such row's author, branch, head and age, and asks whether to start from that branch as the remote has it or from the default branch. Recommend the branch when the remote has it.
 
 The new owner's first write is a **new** row comment, made with `write-row` and carrying this run's id and this teammate's login in its marker. It never edits the previous owner's comment, which keeps its hand-off milestone: editing another person's comment needs write access, and that row is the previous owner's record. Its first milestone is `spawned from <branch>@<head>`.
 
@@ -235,10 +235,10 @@ A ticket can carry several row comments, one for each owner it has had. A row co
 
 ### Two runs of one teammate
 
-One teammate can have two Team Runs on one spec: a second session started by mistake, a run on another machine, or a new run after a lost one. Each run's id is in its rows' markers, and it is the only thing that tells the two apart, since both write as the same login. So a row comment of this teammate's, its marker's `author` and its comment author both this teammate's login, that carries another run id is never overwritten, and no second row is created beside it. When the `row` read before a write finds one, and none with this run's id, nothing is written on that ticket, a ticket not yet spawned is not spawned, and the Chief of Staff raises a Decision Request to this teammate. It is never a Ruling. It names the other run's id, the row's fine state, branch and head, and when it last changed, and gives two options:
+One teammate can have two Team Runs on one spec: a second session started by mistake, a run on another machine, or a new run after a lost one. Each run's id is in its rows' markers, and it is the only thing that tells the two apart, since both write as the same login. So a row comment of this teammate's, its marker's `author` and its comment author both this teammate's login, that carries another run id is never overwritten, and no second row is created beside it. When the `row` read before a write finds one, whether or not this run has its own row there too (two runs that both wrote first, right after their "go"), nothing is written on that ticket, a ticket not yet spawned is not spawned, and the Chief of Staff raises a Decision Request to this teammate. It is never a Ruling. It names the other run's id, the row's fine state, branch and head, and when it last changed, and gives two options:
 
 1. **Resume that run**: this run drops the ticket, writing nothing on the tracker, and the human carries it on with `--resume` of the run named in the row, where its run folder is.
-2. **Take the row over**: from now on this run edits that comment, by its id, with this run's id in its marker. The other run, if it still runs, finds a row with an id not its own at its next write, and asks the same question there, so neither ever overwrites the other unasked.
+2. **Take the row over**: from now on this run writes the ticket's row with this run's id in its marker: its own row comment when it has one, or else that comment, edited by its id. The other run, if it still runs, finds a row with an id not its own at its next write, and asks the same question there, so neither ever overwrites the other unasked.
 
 Recommend resuming that run when its run folder is on this machine and not closed, and taking the row over when it is not, as after a lost machine. With several such rows, the newest is the one taken over; the older stay as they are.
 

@@ -12,7 +12,7 @@ A Team Run ([TEAM.md](TEAM.md)) reads and writes the tracker through the operati
 | `labels`       | read                      | The names of the repository's labels, to find which state labels are missing.                                                                                                             |
 | `create-label` | write as the human, asked | Create one state label in the repository. Never routine: the Dispatch Plan asks once for all the missing labels.                                                                          |
 | `row`          | read                      | A ticket's Shared Board row comments: each comment that carries the row's hidden marker, with its id, its author's login, its body and when it was last changed.                          |
-| `write-row`    | routine write             | Create a ticket's row comment, or edit it by its comment id, with a body from a file. Approved once at "go", for this teammate's own tickets only.                                        |
+| `write-row`    | routine write             | Create a ticket's row comment, or edit it by its comment id, with a body from a file. Approved once at "go", for this teammate's own tickets only, and the last write of one handed off.  |
 | `set-state`    | routine write             | Set a ticket's single state label: add the one for its coarse state, remove any other of the six, and read its labels back. Approved with the row.                                        |
 | `pull-head`    | read                      | The head branch and commit of an open pull request, to test-merge this teammate's branch against a teammate's.                                                                            |
 
