@@ -1621,3 +1621,11 @@ test("the `tracker` and `team` keys add nothing the readiness check asks for or 
   );
   assert.deepEqual(team, base);
 });
+
+test("CONFIG.md's `team` example reads with no problems, and is the defaults", () => {
+  const block = configBlock("yaml", 2);
+  assert.match(block, /^team:/);
+  const read = parseConfig("orchestrate.config.yml", block);
+  assert.deepEqual(read.problems, []);
+  assert.deepEqual(effectiveConfig(read.config).team, effectiveConfig({}).team);
+});
