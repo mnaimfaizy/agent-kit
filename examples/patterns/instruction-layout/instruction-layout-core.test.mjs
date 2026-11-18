@@ -146,6 +146,21 @@ test("a nested list under a chooser fails", () => {
   );
 });
 
+test("a loose item's indented second paragraph belongs to its item", () => {
+  const chooser = "- When committing: `.agents/skills/commit/SKILL.md`";
+  const reference =
+    "- [Command reference](docs/commands.md): a task names a check you have not run.";
+  const text = shared()
+    .replace(chooser, `${chooser}\n\n  Use this for every commit in this repository.`)
+    .replace(reference, `${reference}\n\n  It lists every check in one table.`);
+  assert.deepEqual(problems({ sharedFile: { path: "AGENTS.md", text } }), []);
+});
+
+test("an unindented paragraph after a list is not read into its last item", () => {
+  const text = shared("\nThese lines say which skill to load, nothing more.");
+  assert.deepEqual(problems({ sharedFile: { path: "AGENTS.md", text } }), []);
+});
+
 test("a section after the skills section is not read as choosers", () => {
   const text = shared("\n## Do not\n\n- Do not run the deploy script by hand from a laptop.");
   assert.deepEqual(problems({ sharedFile: { path: "AGENTS.md", text } }), []);

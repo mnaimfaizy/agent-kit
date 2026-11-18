@@ -9,19 +9,14 @@ labels: []
 ---
 
 <!--
-Publish it as a sub-issue of its PRD. Then give it, from labels.json:
-- exactly one tier label: tier:mechanical, tier:standard or tier:full;
-- exactly one of afk or hitl;
-- the dispatch label (ready-for-agent) only if it is afk, or ready-for-human
-  if it is hitl.
+Publish it as a sub-issue of its PRD. That link is the one record of its
+parent, so this body names no parent; if your slicing skill writes one, it is
+a display copy, and a dispatcher reads the link. Then give it the labels that
+labels.json says every slice carries, by the rule beside each one.
 Record each blocking edge once: here under Blocked by, or as the tracker's
 native dependency link, never both. Publish blockers first, so each edge can
 name a real issue.
 -->
-
-## Parent
-
-<#PRD issue number>
 
 ## What to build
 

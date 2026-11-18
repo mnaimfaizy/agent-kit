@@ -74,7 +74,7 @@ Two smaller habits make it worse. An agent searches the code one file at a time 
 
 ## Failure modes
 
-- **A paraphrase.** The check finds a sentence of eight words or more copied word for word. A rule reworded in an adapter passes it. Reviewers catch that one; the rule to point at is "link, don't restate".
+- **A paraphrase.** The check finds a sentence of at least `MIN_WORDS` words (eight in the skeleton) copied word for word. A rule reworded in an adapter passes it. Reviewers catch that one; the rule to point at is "link, don't restate".
 - **A harness with no import.** Some harnesses cannot import another file. Give that harness a pointer of a line or two that names the shared file, and keep it out of the check's adapters, since it has no import line to find.
 - **Nested instruction files.** A folder's own `AGENTS.md` adds rules for that folder, and the check reads only the root one. To keep a nested file from restating the root, add it to the check as a second shared file, or review it.
 - **A checkout without symlinks.** Git on Windows with `core.symlinks` off writes the link as a small text file holding the path. The harness then sees no skills, and the check fails on the file. Contributors on such a checkout turn symlink support on.

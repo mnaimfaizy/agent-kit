@@ -92,15 +92,24 @@ function section(text, heading) {
 }
 
 /** A section's list items, each joined with its wrapped lines. */
+// An indented line belongs to the item above it, after a blank line too (a
+// loose list item's second paragraph). An unindented line that is not an item
+// ends the list, so a paragraph after it is not read into the last item.
 function items(lines) {
   const found = [];
+  let open = false;
   for (const { line } of lines) {
-    if (ITEM.test(line) && !/^\s{2,}/.test(line)) found.push(line.replace(ITEM, "").trim());
-    else if (found.length && line.trim() && /^\s/.test(line))
+    if (!line.trim()) continue;
+    if (ITEM.test(line) && !/^\s{2,}/.test(line)) {
+      found.push(line.replace(ITEM, "").trim());
+      open = true;
+    } else if (open && /^\s/.test(line)) {
       found[found.length - 1] += ` ${line.trim()}`;
-    else if (!line.trim() && found.length) found.push(null);
+    } else {
+      open = false;
+    }
   }
-  return found.filter(Boolean);
+  return found;
 }
 
 /** Text as a reader sees it: link text kept, URLs, code marks and emphasis gone. */
