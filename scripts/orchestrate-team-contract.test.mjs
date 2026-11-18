@@ -734,3 +734,10 @@ describe("docs/orchestrate.md: the Team Run's facts match the skill", () => {
     );
   });
 });
+
+describe("GLOSSARY.md: Support Level covers a tracker file", () => {
+  it("defines it for a harness and for a tracker", () => {
+    const def = GLOSSARY.split("**Support Level**:\n")[1].split("\n")[0];
+    assert.match(def, /on a harness or a tracker/);
+  });
+});

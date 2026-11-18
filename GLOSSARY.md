@@ -201,7 +201,7 @@ The agent product a session runs in (Claude Code desktop, Claude Code CLI, Curso
 _Avoid_: tool, IDE, client, platform
 
 **Support Level**:
-How far `orchestrate` has been proven on a harness: verified (a full run passed), tried (a run happened, with known gaps) or documented (built from the harness's documentation alone).
+How far `orchestrate` has been proven on a harness or a tracker: verified (a full run passed), tried (a run happened, with known gaps) or documented (built from its documentation alone).
 _Avoid_: compatibility, maturity, tier (a tier is what the harness can do)
 
 **Live Session**:
