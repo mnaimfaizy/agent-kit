@@ -1,0 +1,12 @@
+{
+  "agents": {
+    "reviewer": {
+      "claude": "sonnet",
+      "cursor": "<cursor model id>"
+    }
+  },
+  "catalogs": {
+    "claude": "<URL of the page that lists Claude Code's model aliases>",
+    "cursor": "<URL of the page that lists Cursor's model ids>"
+  }
+}
