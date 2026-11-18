@@ -266,7 +266,7 @@ To start one:
 2. **Assign each ticket to one person** on the tracker. The assignee is the only sign of ownership, and the Chief of Staff never sets it. A ticket with no assignee, or with two, is run by nobody until it has exactly one.
 3. **Each teammate runs** `/orchestrate --spec <n> --team` in their own checkout of the repository, with their own `gh` signed in as themselves.
 
-The Chief of Staff finds the tracker from the git remote's host (`github.com` or `gitlab.com`), or from the `tracker` key; when the two disagree it asks you. This version has a mapping for GitHub only, at Support Level `documented`, so the plan says so and waits for your "go".
+The Chief of Staff finds the tracker from the git remote's host (`github.com` or `gitlab.com`), or from the `tracker` key; when the two disagree it asks you. This version has a mapping for GitHub and one for GitLab ([below](#on-gitlab)), both at Support Level `documented`, so the plan says so and waits for your "go".
 
 Your Dispatch Plan then:
 
@@ -318,6 +318,17 @@ Updated 2026-11-18 10:01Z.
 - **Blocked by a teammate's ticket:** your ticket is `parked`, and its row says on what, until that ticket's pull request is merged.
 - **A conflict with a teammate's branch** is shown on the row, not settled: your Chief of Staff rules only on your own branches. The first one merged wins, and the other merges the default branch in and re-gates.
 - **Rulings:** in a `go autonomous` run, a Ruling line in a pull request names whose Chief of Staff made it, as in `R2 (@sam's Chief of Staff ruling, not yet reviewed)`. Only you review your own Chief of Staff's Rulings.
+
+### On GitLab
+
+A Team Run works on GitLab Free, on gitlab.com or a self-hosted instance, with no Premium feature. Its commands are in [`trackers/gitlab.md`](../.claude/skills/orchestrate/trackers/gitlab.md), at Support Level `documented`: written from GitLab's documentation, not yet tried in a run. What it needs:
+
+- **`glab` signed in as you**, in place of `gh` for the Shared Board: `glab auth login`, or `glab auth login --hostname <host>` for a self-hosted GitLab. A self-hosted GitLab on its own domain also needs `tracker: gitlab` in the config, since only `gitlab.com` is detected.
+- **A role that can set labels.** Writing a row note needs only Guest, but setting a ticket's state label needs Planner or higher (Reporter before GitLab 17.7), and creating the six state labels needs the same. With less, the label write does not hold, and the row note stays the record.
+- **The spec's tickets as a task list.** GitLab Free has no sub-issues, so the spec lists its tickets in its description, one task-list item each, starting with the ticket: `- [ ] #<n>`.
+- **A `Blocked by:` line.** Blocking links ("is blocked by") are Premium. On Free, put `Blocked by: #<n>, #<n>` as the first line of a ticket's description; on Premium the native links are read too. A blocker counts as cleared only when its merge request is merged, read from the merge requests that close it, never from the issue closing.
+
+Free also has one assignee per issue, so no ticket needs one assignee there, and plain labels only: the Chief of Staff removes a ticket's old state label as it adds the new one. Rows reference a merge request as `!<iid>`, and no row line starts with `/`, which GitLab would run as a quick action. On gitlab.com a project can make 60 notes a minute per user; a row is created once and then edited only when it changes.
 
 ## The config
 
