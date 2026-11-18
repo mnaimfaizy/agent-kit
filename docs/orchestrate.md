@@ -6,6 +6,8 @@ The skill's own files are the reference; this page is the walkthrough:
 
 - [`SKILL.md`](../.claude/skills/orchestrate/SKILL.md): the invocations, the rules and the ten workflow steps.
 - [`SPEC.md`](../.claude/skills/orchestrate/SPEC.md): spec mode and the two landings.
+- [`TEAM.md`](../.claude/skills/orchestrate/TEAM.md): the Team Run, `--spec <n> --team`, and its Dispatch Plan.
+- [`trackers/`](../.claude/skills/orchestrate/trackers/TRACKERS.md): the tracker operations a Team Run reads, and how each is done on GitHub.
 - [`BRIEF.md`](../.claude/skills/orchestrate/BRIEF.md): the Brief Contract, the Decision Request form and the report form.
 - [`RUN.md`](../.claude/skills/orchestrate/RUN.md): the run folder, the board, the states, `--resume` and `--status`.
 - [`HARNESSES.md`](../.claude/skills/orchestrate/HARNESSES.md): how the skill starts, messages and waits for an Executor on each harness.
@@ -58,16 +60,17 @@ Any Companion skill the config names (to implement, to triage, to review) must b
 
 Every form runs from the root of the repository the issues belong to.
 
-| Invocation                                 | What it does                                                                                                                                                                                                                                                                  |
-| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/orchestrate #12 #34`                     | A run for these issues. The skill reads the config, analyses each issue, shows the Dispatch Plan, and waits for your "go".                                                                                                                                                    |
-| `/orchestrate #12 #34 go`                  | The same, but the run starts as soon as the plan is shown, unless analysis raised a Decision Request: then it waits for the answer and your "go".                                                                                                                             |
-| `/orchestrate #12 #34 go autonomous`       | The same as with `go`, with the Dispatch Plan's **Decision authority** line filled in as `autonomous` ([Autonomous runs](#autonomous-runs)). Without `go`, the plan waits for your "go" as usual.                                                                             |
-| `/orchestrate --spec 50 [go] [autonomous]` | A run for the spec `#50` and the work it holds, in dependency order ([Spec mode](#spec-mode)). `--spec` takes one issue number and nothing else but `go` and `autonomous`.                                                                                                    |
-| `/orchestrate --status [<run>]`            | Prints the board of the run named, or of the latest run, with each open Decision Request in full. It first runs the default-branch check on each Ready to Merge row, then prints what it finds and writes nothing, so it is safe to run beside a live Chief of Staff session. |
-| `/orchestrate --resume <run>`              | Continues a run from its folder, after a usage limit, a closed laptop or a pause for merges. It checks every Delegation against git and the tracker first.                                                                                                                    |
+| Invocation                                        | What it does                                                                                                                                                                                                                                                                  |
+| ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/orchestrate #12 #34`                            | A run for these issues. The skill reads the config, analyses each issue, shows the Dispatch Plan, and waits for your "go".                                                                                                                                                    |
+| `/orchestrate #12 #34 go`                         | The same, but the run starts as soon as the plan is shown, unless analysis raised a Decision Request: then it waits for the answer and your "go".                                                                                                                             |
+| `/orchestrate #12 #34 go autonomous`              | The same as with `go`, with the Dispatch Plan's **Decision authority** line filled in as `autonomous` ([Autonomous runs](#autonomous-runs)). Without `go`, the plan waits for your "go" as usual.                                                                             |
+| `/orchestrate --spec 50 [go] [autonomous]`        | A run for the spec `#50` and the work it holds, in dependency order ([Spec mode](#spec-mode)). `--spec` takes one issue number and nothing else but `go` and `autonomous`.                                                                                                    |
+| `/orchestrate --spec 50 --team [go] [autonomous]` | A **Team Run** of the spec `#50`: you build only the spec's tickets assigned to you alone, while each teammate runs their own ([Team Run](#team-run)). `go` and `autonomous` are yours alone.                                                                                 |
+| `/orchestrate --status [<run>]`                   | Prints the board of the run named, or of the latest run, with each open Decision Request in full. It first runs the default-branch check on each Ready to Merge row, then prints what it finds and writes nothing, so it is safe to run beside a live Chief of Staff session. |
+| `/orchestrate --resume <run>`                     | Continues a run from its folder, after a usage limit, a closed laptop or a pause for merges. It checks every Delegation against git and the tracker first.                                                                                                                    |
 
-`autonomous` is taken once, last, after `go` when both are given, and only in a run for issues or a spec. Any other argument, or a mix of these forms, stops the run before anything is read, with the list of forms this version knows. `<run>` is the run folder's name, such as `2026-11-13-12-34` or `2026-11-13-spec-50` ([Run state](#run-state)).
+`--team` is taken only with `--spec <n>`, once, straight after the number. `autonomous` is taken once, last, after `go` when both are given, and only in a run for issues or a spec. Any other argument, or a mix of these forms, stops the run before anything is read, with the list of forms this version knows. `<run>` is the run folder's name, such as `2026-11-13-12-34` or `2026-11-13-spec-50` ([Run state](#run-state)).
 
 ## Harnesses
 
@@ -253,6 +256,30 @@ The two landings:
 
 On an integration branch, the Chief of Staff cuts the branch from the default branch at "go", cuts each ticket's branch from it, and moves it forward by fast-forward only, one verified and re-gated ticket at a time, in plan order. It never checks the branch out. Pushing it, for an Executor that works from a clone or to open the final pull request, is a Decision Request that says the branch becomes public. No pull request or Delegation closes the spec: closing it is offered with the Run Summary, as a write in your name.
 
+## Team Run
+
+When a team splits a spec's tickets between several people, each person can run their own share with `orchestrate`, side by side: a **Team Run**. Nobody's Chief of Staff drives anyone else's machine, and there is nothing to join. A single-person `--spec` run is unchanged, and stays the default: no config key makes a Team Run the default.
+
+To start one:
+
+1. **Break the spec into tickets**, as sub-issues of the spec. A Team Run plans only the Tickets shape, since a ticket's assignee is what says whose run builds it.
+2. **Assign each ticket to one person** on the tracker. The assignee is the only sign of ownership, and the Chief of Staff never sets it. A ticket with no assignee, or with two, is run by nobody until it has exactly one.
+3. **Each teammate runs** `/orchestrate --spec <n> --team` in their own checkout of the repository, with their own `gh` signed in as themselves.
+
+The Chief of Staff finds the tracker from the git remote's host (`github.com` or `gitlab.com`), or from the `tracker` key; when the two disagree it asks you. This version has a mapping for GitHub only, at Support Level `documented`, so the plan says so and waits for your "go".
+
+Your Dispatch Plan then:
+
+- has rows for **your tickets only**, the ones whose only assignee is you;
+- lists **Teammates' tickets (not run here)**, each with its assignee and state, and which of yours it blocks; a ticket of yours blocked by a teammate's is parked until that ticket's pull request is merged;
+- lists `unassigned` tickets and tickets that **need one assignee**: nobody runs those;
+- says **Landing: per-ticket**: a Team Run always lands one pull request per ticket, and a `spec.landing` of `integration-branch` or `ask` is overridden, which the plan states;
+- lists the routine write **"Shared Board: row comment and state labels on my assigned tickets"**, for your tickets only, opening with "This repository is **public**: row comments and state labels are readable by anyone." when it is; this version writes no row or label yet;
+- asks once, when any of the six state labels (`team.labels`) are missing from the repository, whether to create them: a write in your name, never routine;
+- has its own **Decision authority** line: `go` or `go autonomous` is yours, and each teammate chooses their own.
+
+With no ticket assigned to you alone, the plan says so, shows the lists, and points you to `/orchestrate --status`. Your briefs, Activity Logs, evidence and Ruling Ledger stay in your own run folder: the **Shared Board** on the tracker is a projection of it, carrying only what is written for publication ([ADR 0014](adr/0014-a-team-runs-shared-board-is-one-single-writer-row-per-ticket.md), [ADR 0015](adr/0015-the-shared-board-is-a-published-projection-of-each-local-run-folder.md)).
+
 ## The config
 
 The repository's facts live in one file at its root: `orchestrate.config.yml`, `orchestrate.config.yaml` or `orchestrate.config.json`, the first one present. The skill names no repository command, skill, label or path; each comes from here. Start from [`examples/orchestrate.config.yml`](../examples/orchestrate.config.yml), which shows every key with a comment; every default and meaning is in [`CONFIG.md`](../.claude/skills/orchestrate/CONFIG.md).
@@ -272,6 +299,8 @@ The repository's facts live in one file at its root: `orchestrate.config.yml`, `
 | `decisions`      | `to`: `pull-request` (default) or `issue-comment`. `marker`: a line each record starts with.                                                                                                                                                      |
 | `ready_to_merge` | `review`: `settled` (default) or `approved`. `qa`: `none` (default) or `report` (a QA Delegation per head). `qa_labels`: with `qa: report`, the labels that need one. `review_workflow`: `detect` (default), `none`, or the review Caller's path. |
 | `spec`           | `landing`: `ask` (default), `integration-branch` or `per-ticket`. `integration_branch`: the branch name, default `orchestrate/spec-<n>`.                                                                                                          |
+| `tracker`        | Read only by a Team Run: `detect` (default, from the git remote's host), `github` or `gitlab`. Pin it for any host but `github.com` or `gitlab.com`.                                                                                              |
+| `team`           | Read only by a Team Run. `labels`: the label for each of the six states (default `team: planned` and so on). `recent_activity`: milestones a Shared Board row keeps (default 5).                                                                  |
 
 A route, command or skill name is free text: the brief carries it as written, so a route can be a command, a skill to use, or a sentence of convention.
 
@@ -283,6 +312,6 @@ A route, command or skill name is free text: the brief carries it as written, so
 node "<skill>/config.mjs" check
 ```
 
-It prints JSON: the config's path, its problems, the effective values with every default applied, and its readiness: what the run still **needs** and **notes** it will say. It exits 0 when the config has no problems, 1 when it has any, and 2 when the command or the answers file is wrong (bad usage, or an answers file that is missing, unreadable or outside `run_dir`). `--repo <dir>` checks another repository.
+It prints JSON: the config's path, its problems, the effective values with every default applied, the harness and tracker it finds, and its readiness: what the run still **needs** and **notes** it will say. It exits 0 when the config has no problems, 1 when it has any, and 2 when the command or the answers file is wrong (bad usage, or an answers file that is missing, unreadable or outside `run_dir`). `--repo <dir>` checks another repository.
 
 **With no config**, the skill asks in one message for what a run needs (`read_first`, `routes.commit`, `routes.pull_request` and `regate`), plus `ready_to_merge.qa` when a QA config is present and nothing sets it, writes your answers to `answers.json` in the run folder, and checks them with `check --answers <path>`. It offers to write them into a config file, and writes one only on your yes.

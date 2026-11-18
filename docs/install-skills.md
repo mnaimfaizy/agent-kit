@@ -79,7 +79,7 @@ npx skills add mnaimfaizy/agent-kit#<tag> --skill plain-prose -g
 npx skills add mnaimfaizy/agent-kit#<tag> --skill orchestrate -g
 ```
 
-It reads the repository's routes (what a Delegation reads first, how it commits and opens a pull request, which commands re-gate a branch) from `orchestrate.config.yml` at the repository root, and asks for them in chat when there is none, or when it leaves out what a run needs. Start from [`examples/orchestrate.config.yml`](../examples/orchestrate.config.yml). The issues it runs need the five triage labels, or your own labels mapped to them. Guide: [Orchestrate](orchestrate.md).
+It reads the repository's routes (what a Delegation reads first, how it commits and opens a pull request, which commands re-gate a branch) from `orchestrate.config.yml` at the repository root, and asks for them in chat when there is none, or when it leaves out what a run needs. Start from [`examples/orchestrate.config.yml`](../examples/orchestrate.config.yml). The issues it runs need the five triage labels, or your own labels mapped to them. A **Team Run** (`--spec <n> --team`), where each teammate runs the spec's tickets assigned to them with their own Chief of Staff, reads the tickets' assignees from the tracker, so each teammate needs `gh` signed in as themselves. Guide: [Orchestrate](orchestrate.md).
 
 `address-pr-review`:
 
