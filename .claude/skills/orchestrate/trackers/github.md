@@ -90,7 +90,7 @@ gh issue edit <n> --add-label "<new>" --remove-label "<old>" [--remove-label "<o
 gh issue view <n> --json labels --jq '.labels[].name'
 ```
 
-The first adds the label for the ticket's coarse state and removes each other state label it carries, in one edit; a label the ticket does not carry is not named. The second reads the labels back. GitHub drops a label change silently, with no error, when the teammate has no Triage or Write access to the repository: when the read-back does not show exactly the new state label among the six, the label write did not hold, and the row comment stays the record ([TEAM.md](../TEAM.md#state-labels)). `--add-label` with a label the repository does not have fails with an error, so a missing state label is never named here.
+The first adds the label for the ticket's coarse state and removes each other state label it carries, in one edit; a label the ticket does not carry is not named. The second reads the labels back. GitHub drops a label change silently, with no error, when the teammate has no Triage or Write access to the repository: when the read-back does not show exactly the new state label among the six, the label write did not hold, and the row comment stays the record ([TEAM.md](../TEAM.md#states-and-labels)). `--add-label` with a label the repository does not have fails with an error, so a missing state label is never named here.
 
 ### `pull-head`
 
