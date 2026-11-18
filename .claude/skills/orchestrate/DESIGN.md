@@ -38,7 +38,7 @@ These are word for word the definitions in Agent-kit's root glossary, where a co
 
 **Run Summary**: The account of a finished run, offered after the human merges, for the issue that groups the run's work.
 
-**Ready to Merge**: A Delegation whose CI is green, whose review is settled, whose QA requirement is met on its current head, whose Rulings are upheld and whose branch merges cleanly; the only Delegations the closing list names.
+**Ready to Merge**: A Delegation whose CI is green, whose review is settled, whose QA requirement is met on its current head, whose Rulings are upheld, and whose branch merges cleanly into the default branch as it now is, and is not behind it where the repository requires branches to be up to date, unless the human chose to merge it as it is; the only Delegations the closing list names.
 
 ## A core plus a config
 
@@ -112,7 +112,15 @@ In the first run, a fix for a review finding, relayed by an automated fixer, was
 
 ## Ready to Merge, and no further
 
-The closing list means something only if every item on it can be merged now: green CI, a settled review, the QA the repository requires, and a clean merge. The skill stops there and prints the merge order and, when the config names one, the merge command, because merging is the human's act: it is the point where the work becomes theirs, and a merge train that merges on their behalf takes that from them.
+The closing list means something only if every item on it can be merged now: green CI, a settled review, the QA the repository requires, and a clean merge into the default branch as it now is. The skill stops there and prints the merge order and, when the config names one, the merge command, because merging is the human's act: it is the point where the work becomes theirs, and a merge train that merges on their behalf takes that from them.
+
+## The default branch, checked on the human's return
+
+A row verified against the default branch can stop being Ready to Merge without anything in the run changing: a merge from outside the run, or the human's own merge of the row before it, moves the tip. Under a rule that requires branches to be up to date, the row is then behind, and GitHub will not merge it; without that rule, it may still merge into code it was never tested with. In the first run that met this, the default branch moved three times while rows waited, and the Chief of Staff caught each case by hand. So a row is checked against the tip as it is now, and the merge result is re-gated whenever the tip has moved, strict rule or not, because two changes that each pass can fail together.
+
+The check runs when someone is about to act on the list: at close-out, on `--status`, on `--resume`, and when the human says they merged a pull request. It is not kept on a heartbeat. While only the human's merges are left, the tip moves when the human, or someone outside the run, merges, and a heartbeat would spend a turn every few minutes, for hours, finding nothing the human is not about to look at. Checking on the human's return catches every move that matters, since a stale row matters only when someone reads the list. For the same reason, under the strict rule the merge order asks the human to merge one at a time and say so, so the next row is checked against the tip their merge made.
+
+Whether the repository requires branches to be up to date is read from the pull request's `mergeStateStatus`, not from its rulesets or branch protection: GitHub has already applied whichever of them holds, and reading them would mean knowing every way a rule can be set. A behind row gets two options, and the cheaper one, merging as it is with the admin bypass, stays the human's even in an autonomous run, because it sets a repository rule aside.
 
 ## The run folder
 

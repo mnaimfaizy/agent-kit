@@ -249,7 +249,7 @@ The account of a finished run, offered after the human merges, for the issue tha
 _Avoid_: wrap-up, final report
 
 **Ready to Merge**:
-A Delegation whose CI is green, whose review is settled, whose QA requirement is met on its current head, whose Rulings are upheld and whose branch merges cleanly; the only Delegations the closing list names.
+A Delegation whose CI is green, whose review is settled, whose QA requirement is met on its current head, whose Rulings are upheld, and whose branch merges cleanly into the default branch as it now is, and is not behind it where the repository requires branches to be up to date, unless the human chose to merge it as it is; the only Delegations the closing list names.
 _Avoid_: done, mergeable, green
 
 ### Review response
