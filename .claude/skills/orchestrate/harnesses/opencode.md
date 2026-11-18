@@ -26,6 +26,7 @@
 
 ## Check before use
 
+- How long a foreground shell command, and a turn, may run, since the foreground watch depends on both. A shell tool's own time limit could cut the watch short (not yet confirmed).
 - Whether the human can type into a session while `run` drives it. If they can, OpenCode is a tier 1 harness for building.
 - Whether a `--session` message to a session still working steers it or fails.
 - Whether the background shell's end wakes an idle Chief of Staff.

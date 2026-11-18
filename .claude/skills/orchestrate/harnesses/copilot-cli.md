@@ -28,6 +28,7 @@
 
 ## Check before use
 
+- How long a foreground shell command, and a turn, may run, since the foreground watch depends on both. A shell tool's own time limit could cut the watch short (not yet confirmed).
 - Whether `-p "/qa-plan <n>"` runs the skill as the user's own invocation.
 - Whether a headless run can drive a browser for `manual-qa`.
 - The field names of the final record in the JSON output.

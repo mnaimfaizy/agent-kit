@@ -30,6 +30,7 @@
 
 ## Check before use
 
+- How long a foreground shell command, and a turn, may run, since the foreground watch depends on both. A shell tool's own time limit could cut the watch short (not yet confirmed).
 - Where a sub-agent's worktree is made, and what its branch is named.
 - Whether a sub-agent's result wakes an idle Chief of Staff.
 - Whether a `/schedule` timer fires in an idle Chief of Staff and re-arms itself, so that it can be the heartbeat in place of the foreground watch.

@@ -27,6 +27,7 @@
 
 ## Check before use
 
+- How long a foreground shell command, and a turn, may run, since the foreground watch depends on both. A shell tool's own time limit could cut the watch short (not yet confirmed).
 - Whether Gemini CLI honours `disable-model-invocation`.
 - Whether `-w` worktrees, which it makes under `.gemini/worktrees/` inside the checkout, can be kept out of the Chief of Staff's checkout; until then, make the worktree by hand.
 - Whether the harness can notify the human that a question is queued, and how: record what was found.

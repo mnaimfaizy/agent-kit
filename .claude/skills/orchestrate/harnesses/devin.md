@@ -28,6 +28,7 @@
 
 ## Check before use
 
+- How long a foreground shell command, and a turn, may run, since the foreground watch depends on both. A shell tool's own time limit could cut the watch short (not yet confirmed).
 - That `-p` combines with `-r` for a follow-up, and how a run reports its session id.
 - What `-p` does when a tool call needs approval.
 - Whether Devin honours `disable-model-invocation` (its own field is `triggers`); if it does not, the agent could load `qa-plan` itself.

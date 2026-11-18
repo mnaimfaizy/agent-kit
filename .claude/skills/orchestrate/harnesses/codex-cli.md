@@ -28,6 +28,7 @@
 
 ## Check before use
 
+- How long a foreground shell command, and a turn, may run, since the foreground watch depends on both. A shell tool's own time limit could cut the watch short (not yet confirmed).
 - Whether `$qa-plan` in a resumed prompt counts as the user's own invocation.
 - Whether `--approve-for-me`, or an allow rule, approves a `git push`.
 - Whether `codex queue` reaches a running `exec` run, which would let a `message` arrive while it works.

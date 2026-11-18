@@ -24,6 +24,8 @@ A wake-up, from either part, means "something may have changed", never "a report
 
 Each harness file's `await` names its primary event and its heartbeat. On Claude Code (desktop and CLI) the heartbeat is a recurring scheduled task in the Chief of Staff's own session. On a harness whose file names no scheduler, the heartbeat is the **foreground watch**: the Chief of Staff does not end its turn while a Delegation runs. Instead it runs a shell loop in the foreground that checks every 60 seconds. The loop returns as soon as any Delegation's `report.md` or `decisions.md` changes, or a pull request the run waits on changes state, or else at a cap of 10 to 15 minutes. The Chief of Staff acts on what changed, or on nothing, writes the board, and runs the watch again. The harness's own event, where it has one, is one more change the watch sees. How long a shell command or a turn may run on that harness is a **check before use** item until a run records it.
 
+While the watch runs, the turn stays open, so the human has no prompt to answer at. A question for the human (every Decision Request in a relay run, or one queued in an autonomous run on a harness whose **Notify** is `none known`) is written whole in the Chief of Staff's session between two watches, and on the board. Then the watch runs again, and the other Delegations go on. To answer, the human stops its turn and answers there; the Chief of Staff acts on the answer and runs the watch again. The Dispatch Plan says so under **Harness limits**.
+
 ## The harnesses
 
 | Id                    | Harness                                        | Tool signature: the session has…                                 | File                                                       |
