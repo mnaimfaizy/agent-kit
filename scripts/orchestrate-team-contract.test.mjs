@@ -373,4 +373,20 @@ describe("TEAM.md: ownership of a row (#318)", () => {
     assert.match(which, /newest/);
     assert.match(which, /stale/);
   });
+  it("never overwrites a row of the same author carrying another run id, and asks: resume that run, or take the row over", () => {
+    const two = section(owner, "### Two runs of one teammate");
+    assert.match(two, /another run id/);
+    assert.match(two, /never overwritten/);
+    assert.match(two, /Decision Request/);
+    assert.match(two, /1\. \*\*Resume that run\*\*/);
+    assert.match(two, /2\. \*\*Take the row over\*\*/);
+    assert.match(section(TEAM, "### When a row is written"), /\[Two runs of one teammate\]\(#two-runs-of-one-teammate\)/);
+  });
+
+  it("overwrites a person's edit on the next write, re-creates a deleted row, and restores a removed label on the next state change", () => {
+    const edits = section(owner, "### A person's edits");
+    assert.match(edits, /overwritten on the next write/);
+    assert.match(edits, /re-created/);
+    assert.match(edits, /restored on the next (coarse )?state change/);
+  });
 });

@@ -83,6 +83,8 @@ gh api -X PATCH repos/<owner>/<repo>/issues/comments/<id> -F body=@<file> --jq .
 
 The first creates ticket `<n>`'s row comment from `<file>`, the row as written in the run folder, and prints the new comment's id: record it on the board. The second edits the row comment `<id>` in place. `-F body=@<file>` reads the value from the file, so the body is never quoted on the command line. Commenting needs only read access and the right to comment on the issue; editing a comment needs its author, or write access. A refusal is logged as `gh` printed it, and the run goes on.
 
+An edit of a comment that was deleted fails with `HTTP 404`: the row is re-created with the first command ([TEAM.md](../TEAM.md#a-persons-edits)).
+
 ### `set-state`
 
 ```bash
@@ -106,4 +108,5 @@ The first gives the pull request's `state`, its head branch and its head commit.
 - `closedByPullRequestsReferences` lists the pull requests whose body closes the issue; a pull request that only mentions it is not listed. The first Team Run that relies on `merged` records in its Activity Log what it returned.
 - The sub-issues and dependencies endpoints, as [SPEC.md](../SPEC.md#read-the-spec) says.
 - Whether `gh issue edit` exits non-zero when GitHub drops a label change ([#303](https://github.com/mnaimfaizy/agent-kit/issues/303)) is not confirmed, which is why `set-state` reads the labels back. The first Team Run that writes a state label records the read-back in its Activity Log.
+- That `PATCH` on a deleted comment fails with `HTTP 404`. The first Team Run that re-creates a deleted row records in its Activity Log what the edit printed.
 - The `row` filter reads the `body` of every comment on the ticket, page by page; not confirmed past a few hundred comments.

@@ -167,8 +167,8 @@ A row is written only when its text would change, so only when one of its parts 
 
 The first write, right after "go", is the `planned` or `parked` row of each of this teammate's tickets, with its state label. Each write, that one included, is made only while the ticket's single assignee is this teammate, re-read just before it ([Who writes](#who-writes)). Then:
 
-1. Read the ticket's row comments with the `row` operation. The row to edit is the one whose marker carries this run's id and this teammate's login.
-2. Write it with the `write-row` operation: edit that comment by its id, or create one when there is none, and record its comment id on the board, beside the ticket's row: `Shared Board row: #<n> comment <id>`.
+1. Read the ticket's row comments with the `row` operation. The row to edit is the one whose marker carries this run's id and this teammate's login. A row of this teammate's with another run's id is never edited ([Two runs of one teammate](#two-runs-of-one-teammate)).
+2. Write it with the `write-row` operation: edit that comment by its id, or create one when there is none, as for a row a person deleted ([A person's edits](#a-persons-edits)), and record its comment id on the board, beside the ticket's row: `Shared Board row: #<n> comment <id>`.
 3. When the coarse state changed, write the state label with `set-state`, after the row, so a label never runs ahead of the row it mirrors.
 
 These add to the run folder ([RUN.md](RUN.md#layout)) a `shared-board/` folder holding the copy of each row as last written, `<n>.md`, and to the board ([RUN.md](RUN.md#board)) the `Shared Board row:` line of each ticket and, when a label write did not hold, the `Shared Board labels:` line under `Team Run:`.
@@ -232,6 +232,25 @@ The new owner's first write is a **new** row comment, made with `write-row` and 
 ### Which comment is the row
 
 A ticket can carry several row comments, one for each owner it has had. A row comment counts only when its marker's `author` is the login of the comment's own author, as the `row` operation reads it. Whoever reads the Shared Board, `--status`, a teammate's Dispatch Plan, or an observer, takes as the ticket's row the row comment written by the ticket's current assignee, the newest of theirs when there are several. When there is none, because the new owner's run has not written yet or the ticket has no single assignee, the reader takes the newest row comment and shows it as stale: `stale: written by @<author>, who is not the assignee`. The older comments stay as they are: nothing deletes them.
+
+### Two runs of one teammate
+
+One teammate can have two Team Runs on one spec: a second session started by mistake, a run on another machine, or a new run after a lost one. Each run's id is in its rows' markers, and it is the only thing that tells the two apart, since both write as the same login. So a row comment of this teammate's, its marker's `author` and its comment author both this teammate's login, that carries another run id is never overwritten, and no second row is created beside it. When the `row` read before a write finds one, and none with this run's id, nothing is written on that ticket, a ticket not yet spawned is not spawned, and the Chief of Staff raises a Decision Request to this teammate. It is never a Ruling. It names the other run's id, the row's fine state, branch and head, and when it last changed, and gives two options:
+
+1. **Resume that run**: this run drops the ticket, writing nothing on the tracker, and the human carries it on with `--resume` of the run named in the row, where its run folder is.
+2. **Take the row over**: from now on this run edits that comment, by its id, with this run's id in its marker. The other run, if it still runs, finds a row with an id not its own at its next write, and asks the same question there, so neither ever overwrites the other unasked.
+
+Recommend resuming that run when its run folder is on this machine and not closed, and taking the row over when it is not, as after a lost machine. With several such rows, the newest is the one taken over; the older stay as they are.
+
+### A person's edits
+
+A row is the Chief of Staff's, and its footer says a person's edits are overwritten. What a person changes on the tracker is put right by the next write, never fought over as it happens:
+
+- **An edited row** is overwritten on the next write: the row is rendered whole from the local board and compared with the run folder's own copy, `shared-board/<n>.md`, never with the comment, so an edit alone causes no write, and the next change replaces the comment's whole body.
+- **A deleted row**, or one whose marker was edited away, is re-created on the next write: the `row` read finds no comment with this run's id, so `write-row` creates a new one, and its new comment id replaces the old on the board. An edit that fails because the comment is gone is answered the same way.
+- **A removed state label**, or another state label added beside it, is restored on the next state change: `set-state` adds the coarse state's label and removes every other of the six. Until that change, the row stays the record, and nothing is written for the label alone.
+
+A person's edit never changes who writes the row: only the assignee does ([Who writes](#who-writes)).
 
 ## Conflicts with a teammate's branch
 
