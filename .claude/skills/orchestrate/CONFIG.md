@@ -198,7 +198,7 @@ team:
   recent_activity: 5
 ```
 
-A `labels` mapping that leaves a state out, names a key that is not one of the six, or gives one label to two states is a problem.
+A `labels` mapping that leaves a state out, names a key that is not one of the six, or gives one label to two states (compared without case, as the tracker compares them) is a problem.
 
 ## Readiness check
 

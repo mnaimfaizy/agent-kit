@@ -224,11 +224,15 @@ export const TEAM_STATES = /** @type {const} */ ([
  */
 export function trackerFromRemote(url) {
   const text = typeof url === "string" ? url.trim() : "";
+  // A drive letter (`C:\repo`, `C:/repo`) is a local path, not `host:path`.
+  if (/^[a-z]:[\\/]/i.test(text)) return { host: null, tracker: null };
   const host = (
-    /^[a-z][a-z0-9+.-]*:\/\/(?:[^@/]*@)?([^/:]+)/i.exec(text)?.[1] ??
+    /^[a-z][a-z0-9+.-]*:\/\/(?:[^@/]*@)?(\[[^\]]*\]|[^/:]+)/i.exec(text)?.[1] ??
     /^(?:[^@/:]+@)?([^/:]+):(?!\/)/.exec(text)?.[1] ??
     ""
-  ).toLowerCase();
+  )
+    .replace(/^\[(.*)\]$/, "$1")
+    .toLowerCase();
   if (host === "") return { host: null, tracker: null };
   return { host, tracker: Object.hasOwn(TRACKER_HOSTS, host) ? TRACKER_HOSTS[host] : null };
 }
@@ -877,12 +881,11 @@ export const SECTIONS = {
         sink.add(path, "expected a label name");
         continue;
       }
-      if (names.has(labels[state]))
-        sink.add(
-          path,
-          `\`${labels[state]}\` is also the label for \`${names.get(labels[state])}\``,
-        );
-      else names.set(labels[state], state);
+      // GitHub and GitLab compare label names without case, so two such names are one label.
+      const name = labels[state].trim().toLowerCase();
+      if (names.has(name))
+        sink.add(path, `\`${labels[state]}\` is also the label for \`${names.get(name)}\``);
+      else names.set(name, state);
     }
   },
 };

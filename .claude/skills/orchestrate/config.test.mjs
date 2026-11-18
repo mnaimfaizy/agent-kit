@@ -1629,3 +1629,29 @@ test("CONFIG.md's `team` example reads with no problems, and is the defaults", (
   assert.deepEqual(read.problems, []);
   assert.deepEqual(effectiveConfig(read.config).team, effectiveConfig({}).team);
 });
+
+test("a label name given twice is found whatever its case or spacing, as GitHub compares them", () => {
+  const all = TEAM_STATES.map((state) => `    ${state}: "team: ${state}"`);
+  const problems = yaml(
+    "team:",
+    "  labels:",
+    ...all.map((line) => (line.includes("merged:") ? '    merged: " Team: Planned"' : line)),
+  ).problems.join("\n");
+  assert.match(
+    problems,
+    /`team\.labels\.merged`: ` Team: Planned` is also the label for `planned`/,
+  );
+});
+
+test("a remote with no host gives none: a Windows path, or an IPv6 host in brackets", () => {
+  assert.deepEqual(trackerFromRemote("C:\\repos\\app"), { host: null, tracker: null });
+  assert.deepEqual(trackerFromRemote("C:/repos/app"), { host: null, tracker: null });
+  assert.deepEqual(trackerFromRemote("ssh://git@[::1]:2222/acme/app"), {
+    host: "::1",
+    tracker: null,
+  });
+  assert.deepEqual(trackerFromRemote("https://github.com.evil.example/acme/app"), {
+    host: "github.com.evil.example",
+    tracker: null,
+  });
+});
