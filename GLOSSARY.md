@@ -232,6 +232,14 @@ _Avoid_: run plan, schedule
 An append-only record of what was done in a run and why, kept by the Chief of Staff and by each Delegation in the run folder.
 _Avoid_: transcript, journal
 
+**Heartbeat**:
+A check on every running Delegation that comes again at a set interval, whatever happened since the last one, so that a run never waits on one signal alone.
+_Avoid_: poll, timer, cron job
+
+**Foreground watch**:
+The Heartbeat on a harness with nothing to schedule it: the Chief of Staff keeps its turn open, waiting for a change in any Delegation or for a time cap, then waits again.
+_Avoid_: poll loop, busy wait, sleep loop
+
 **Run Summary**:
 The account of a finished run, offered after the human merges, for the issue that groups the run's work.
 _Avoid_: wrap-up, final report
