@@ -130,6 +130,10 @@ describe("SKILL.md: the heartbeat", () => {
     );
   });
 
+  it("step 6 and step 10 delete the heartbeat in the harness file's form, a marker included", () => {
+    assert.match(step6, /in the form the harness file gives, a marker file included/);
+  });
+
   it("step 6 checks every running Delegation on each wake-up, not only the one quoted", () => {
     assert.match(step6, /every running Delegation, not only the one/);
   });
@@ -286,6 +290,17 @@ describe("harnesses/cursor.md", () => {
     assert.match(CURSOR, /persistent change/);
   });
 
+  it("says who writes and removes the `stop` hook's marker, and bounds the hook", () => {
+    const hook = section(CURSOR, "## Verbs")
+      .split("\n")
+      .find((l) => l.includes("`stop` hook heartbeat"));
+    assert.match(hook, /`heartbeat\.marker`/);
+    assert.match(hook, /writes the marker at the first `spawn`/);
+    assert.match(hook, /removes it at close-out and when the run parks/);
+    assert.match(hook, /`--resume` writes it again/);
+    assert.match(hook, /never `null`/);
+  });
+
   it("check before use carries the research's unconfirmed Cursor items", () => {
     const check = section(CURSOR, "## Check before use");
     assert.match(check, /background shell/);
@@ -298,5 +313,10 @@ describe("docs/orchestrate.md", () => {
   it("tells a Consumer about the heartbeat and Keep computer awake", () => {
     assert.match(DOCS, /heartbeat/);
     assert.match(DOCS, /\*\*Keep computer awake\*\*/);
+    assert.ok(
+      !DOCS.includes("On Cursor, to talk to it mid-run"),
+      "the stop-the-turn rule is not Cursor's alone",
+    );
+    assert.match(DOCS, /a question waits in its session until you stop its turn/);
   });
 });
