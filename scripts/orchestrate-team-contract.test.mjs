@@ -294,3 +294,20 @@ describe("TEAM.md: what stays local", () => {
     assert.match(local, /publishes only the row and the state label/);
   });
 });
+
+describe("docs/orchestrate.md: the Shared Board", () => {
+  const DOC = read("docs/orchestrate.md");
+  const team = section(DOC, "## Team Run");
+
+  it("shows an example row that holds to the row's rules", () => {
+    const example = fenced(section(team, "### The Shared Board"), "markdown");
+    assertPublishable(example, "the docs' example row");
+    assert.match(example, /^<!-- orchestrate:shared-board-row ticket=\d+ run=\S+ author=@\S+ -->$/m);
+    assert.match(example, /Maintained by orchestrate for @\S+'s Team Run\. Edits here are overwritten\./);
+    assert.match(example, /\*\*Recent activity\*\*/);
+  });
+
+  it("no longer says this version writes no row or label", () => {
+    assert.doesNotMatch(team, /writes no row or label yet/);
+  });
+});

@@ -274,11 +274,50 @@ Your Dispatch Plan then:
 - lists **Teammates' tickets (not run here)**, each with its assignee and state, and which of yours it blocks; a ticket of yours blocked by a teammate's is parked until that ticket's pull request is merged;
 - lists `unassigned` tickets and tickets that **need one assignee**: nobody runs those;
 - says **Landing: per-ticket**: a Team Run always lands one pull request per ticket, and a `spec.landing` of `integration-branch` or `ask` is overridden, which the plan states;
-- lists the routine write **"Shared Board: row comment and state labels on my assigned tickets"**, for your tickets only, opening with "This repository is **public**: row comments and state labels are readable by anyone." when it is; this version writes no row or label yet;
+- lists the routine write **"Shared Board: row comment and state labels on my assigned tickets"**, for your tickets only, opening with "This repository is **public**: row comments and state labels are readable by anyone." when it is;
 - asks once, when any of the six state labels (`team.labels`) are missing from the repository, whether to create them: a write in your name, never routine;
 - has its own **Decision authority** line: `go` or `go autonomous` is yours, and each teammate chooses their own.
 
 With no ticket assigned to you alone, the plan says so, shows the lists, and points you to `/orchestrate --status`. Your briefs, Activity Logs, evidence and Ruling Ledger stay in your own run folder: the **Shared Board** on the tracker is a projection of it, carrying only what is written for publication ([ADR 0014](adr/0014-a-team-runs-shared-board-is-one-single-writer-row-per-ticket.md), [ADR 0015](adr/0015-the-shared-board-is-a-published-projection-of-each-local-run-folder.md)).
+
+### The Shared Board
+
+After your "go", each of your tickets carries one **Shared Board row**: a comment your Chief of Staff keeps up to date as the ticket's Delegation moves, plus one state label (`team: planned`, `team: parked`, `team: running`, `team: waiting`, `team: ready to merge` or `team: merged`, from `team.labels`). Anyone who can read the repository sees every ticket's state and assignee in the spec's sub-issue list, and the row on each ticket's page. A row looks like this:
+
+```markdown
+**Waiting on @sam to answer 1 question; work on it is paused until then.**
+
+`team: waiting` · waiting
+
+> **Waiting on @sam:** Should the docs-impact finding block the review, or only be listed?
+
+- **Assignee:** @sam
+- **Branch:** `claude/issue-257-docs-impact` at `7c74a7f`
+- **Pull request:** #270
+- **Decision authority:** relay
+- **Conflicts with:** #272 (@alex), first merged wins
+
+**Recent activity**
+
+- 11-18 10:01Z stopped on a Decision Request
+- 11-18 09:40Z verified
+- 11-18 09:15Z reported
+- 11-18 09:02Z pull request #270 opened
+- 11-18 08:10Z spawned from main@0d176a1
+
+Updated 2026-11-18 10:01Z.
+
+<sub>Maintained by orchestrate for @sam's Team Run. Edits here are overwritten.</sub>
+
+<!-- orchestrate:shared-board-row ticket=257 run=2026-11-18-spec-253 author=@sam -->
+```
+
+- **What a row holds:** a one-line headline, the fine state, each open question waiting on you, the branch and its head, the pull request, what a parked ticket waits on, your Decision authority, how many Rulings await your review (in an autonomous run, only while there are any), a conflict with a teammate's open pull request, the last `team.recent_activity` milestones, and when it last changed. A hidden marker names the ticket, your run and you.
+- **What it never holds:** the Handle, Executor kind, Model or Wave, or anything copied from a brief, log or evidence file. Each piece is written for publication, and no line starts with `/`.
+- **When it is written:** only when it changes, only on your own tickets, and only under the routine write you approved at "go". The label changes only when the coarse state does. If GitHub drops the label change silently, because you have no Triage or Write access, the row comment stays the record.
+- **Blocked by a teammate's ticket:** your ticket is `parked`, and its row says on what, until that ticket's pull request is merged.
+- **A conflict with a teammate's branch** is shown on the row, not settled: your Chief of Staff rules only on your own branches. The first one merged wins, and the other merges the default branch in and re-gates.
+- **Rulings:** in a `go autonomous` run, a Ruling line in a pull request names whose Chief of Staff made it, as in `R2 (@sam's Chief of Staff ruling, not yet reviewed)`. Only you review your own Chief of Staff's Rulings.
 
 ## The config
 
