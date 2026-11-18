@@ -119,12 +119,15 @@ def test_the_brief_sets_the_re_review_rules() -> None:
 def test_the_brief_keeps_fixed_threads_out_of_the_report_lists() -> None:
     # Run 44169512125 (PR #276): a re-review found its seven unanswered
     # threads fixed and listed each one as an unlinked list item, so the
-    # report check failed the job. A fixed thread is said in prose.
+    # report check failed the job. A rule to say it in prose did not hold
+    # either: run 44251348204 (PR #298) listed four fixed findings the same
+    # way. A fixed thread now has a place of its own, below ### Fixed.
     brief = flat(step(BRIEF_STEP)["run"])
     for needle in [
         "List it in the report if the head still has its finding.",
-        "If the head fixed it, leave it out of the lists: say so in one sentence of prose, "
-        "never as a list item per fixed thread.",
+        "If the head fixed it, it is not an entry: say so below its axis's ### Fixed line, "
+        "never as a list item anywhere else.",
+        "Earlier findings the head has fixed go under their axis, below a ### Fixed line, as a list or in prose.",
     ]:
         assert needle in brief, f"the brief must say {needle!r}"
 
@@ -306,6 +309,32 @@ def test_a_re_review_with_its_earlier_findings_fixed_passes() -> None:
     assert "1 entries, each linking its thread" in result.stdout
 
 
+def test_a_re_review_listing_its_fixed_findings_under_fixed_passes() -> None:
+    # Run 44251348204 (#298) as the brief now asks for it: the fixed findings
+    # as a list, below ### Fixed, then the reviewer's checks below ### Checked.
+    result = run_report_step(
+        "No new Standards findings.\n\n"
+        "### Fixed\n\n"
+        "- `items()` no longer pushes a `null` placeholder.\n"
+        "- `slice-issue.md` no longer has its second record of the parent.\n\n"
+        "### Checked\n\n"
+        "- Every description in `labels.json` is still 100 characters or fewer."
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "0 entries, each linking its thread" in result.stdout
+
+
+def test_a_re_review_listing_its_fixed_findings_without_fixed_fails() -> None:
+    # Run 44251348204 (#298) as posted: the fixed findings listed after a
+    # prose line, with no ### Fixed line above them.
+    result = run_report_step(
+        "No new Standards findings. The head fixes both earlier findings:\n"
+        "- `items()` no longer pushes a `null` placeholder."
+    )
+    assert result.returncode != 0
+    assert '"`items()` no longer pushes a `null` placeholder." links no review thread' in result.stdout
+
+
 def test_a_re_review_listing_its_fixed_findings_unlinked_fails() -> None:
     # Run 44169512125: each fixed finding as a list item with no thread link.
     result = run_report_step(
@@ -321,7 +350,8 @@ def test_the_brief_gives_checked_notes_a_sub_heading() -> None:
     brief = flat(step(BRIEF_STEP)["run"])
     for needle in [
         "What you checked or confirmed goes last under its axis, below a ### Checked line,",
-        "Every other list item under those headings is a thread entry.",
+        "Every other list item under those headings is a thread entry, "
+        "so a list of fixes or confirmations anywhere else fails the check.",
     ]:
         assert needle in brief, f"the brief must say {needle!r}"
 
