@@ -1,0 +1,21 @@
+@AGENTS.md
+
+<!--
+Pattern guide skeleton: docs/patterns/instruction-layout.md in Agent-kit.
+Save this as CLAUDE.md at your repository root, fill in every <placeholder>,
+and delete this comment. The first line imports AGENTS.md, so Claude Code
+reads the shared file first. Keep it the first line.
+-->
+
+# Claude Code
+
+This file is the Claude Code adapter. The shared policy is in AGENTS.md, imported above; add only what is true for Claude Code alone, and never restate the shared file here.
+
+## Skills
+
+The skill tree is `<skill-tree>`. Claude Code reads it through the `.claude/skills` link.
+
+## Claude Code only
+
+- <A hook that only Claude Code runs, and what to do when it fires.>
+- <A tool or setting name only Claude Code has.>

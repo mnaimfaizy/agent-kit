@@ -1,0 +1,42 @@
+<!--
+Pattern guide skeleton: docs/patterns/instruction-layout.md in Agent-kit.
+Save this as AGENTS.md at your repository root, fill in every <placeholder>,
+and delete this comment. It is named .template here so that no harness loads
+it as the instructions for this folder.
+-->
+
+# <Project> agent guide
+
+## Scope
+
+<One or two sentences: what this repository is, and where its main parts live. A nested AGENTS.md adds rules for its own folder.>
+
+## Reference documents
+
+This file holds the rules every task needs. Open a reference document only when its trigger applies:
+
+- [Command reference](<docs/agents/commands.md>): a task names a check, or needs a command that is not under Commands.
+- [Conventions](<docs/agents/conventions.md>): before you add a doc, write a decision record, or add a check script.
+
+## Commands
+
+- Build: `<build command>`.
+- Test: `<test command>`.
+- Lint and format: `<lint command>`, `<format command>`.
+- Every other command is in the command reference. Add a new one there, not here.
+
+## Rules
+
+- Before you make a <third> read or search in a row to find something in the code, stop and hand the search to `<explorer>` with an explorer request: one goal sentence, and whichever of known locations, search hints, supplied evidence, depth, out of scope and expected output you have. It has no shell, so run any command it needs and paste the output as supplied evidence.
+- Treat a refused tool call, from a hook or a permission check, as the human's decision. Stop, say what was refused, and ask, even when it looks like a false positive. The same effect reached another way counts as the refused action.
+- Each fact lives in one file. When another file needs it, link to that file instead of copying the fact, and fix the one file when it changes.
+- <Your other always-on rules: what never to commit, which folders are generated, the boundaries between parts of the code.>
+
+## Skills
+
+Each line says which skill to load for a request. The skill holds the steps; do not copy them here.
+
+- When committing: `<skill-tree>/<commit-skill>/SKILL.md`
+- When opening a pull request: `<skill-tree>/<pull-request-skill>/SKILL.md`
+- When adding or changing an instruction, a skill or a reference document: `<skill-tree>/<placing-instructions>/SKILL.md`
+- When filing a one-off bug or task: `<skill-tree>/<issue-skill>/SKILL.md`. A planned feature goes to `<skill-tree>/<plan-skill>/SKILL.md` instead.

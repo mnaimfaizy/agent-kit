@@ -98,7 +98,7 @@ Not vendored: Consumer Threat pack (threat model + findings ledger), product pla
 
 ## Pattern guides
 
-Guides to agent workflows you set up in your own repository: what goes wrong without the workflow, its parts, each rule and the failure it prevents, and how to adopt it. Each one comes with a skeleton under [`examples/patterns/`](examples/patterns) (a `SKILL.md`, a runner stub or decision core, and an agent body where the workflow has an agent) with placeholders where your repository's names go. They are documentation, not Kit-owned paths: `init` does not copy them and `upgrade` never overwrites your copy.
+Guides to agent workflows you set up in your own repository: what goes wrong without the workflow, its parts, each rule and the failure it prevents, and how to adopt it. Each one comes with a skeleton under [`examples/patterns/`](examples/patterns) (a `SKILL.md`, a runner stub or decision core, and an agent body where the workflow has an agent; where every step is a Companion skill, only the templates passed between the steps) with placeholders where your repository's names go. They are documentation, not Kit-owned paths: `init` does not copy them and `upgrade` never overwrites your copy.
 
 | Guide                                                                 | For                                                                                                                             |
 | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
@@ -108,6 +108,8 @@ Guides to agent workflows you set up in your own repository: what goes wrong wit
 | [Merge train](docs/patterns/merge-train.md)                           | A batch merges one at a time, each up to date and green on the exact head that lands, with no admin bypass; auto-merge optional |
 | [Sub-agent sync](docs/patterns/sub-agent-sync.md)                     | Each sub-agent written once, every harness's copy generated with its own frontmatter and pinned model, drift failing a check    |
 | [External skills registry](docs/patterns/external-skills-registry.md) | Others' skills installed at project scope and committed, a lock file and one approval list held in step by a check              |
+| [Instruction layout](docs/patterns/instruction-layout.md)             | One always-on file, thin harness adapters, one skill tree, choosers not procedures, references opened on a trigger              |
+| [Planning chain](docs/patterns/planning-chain.md)                     | Grill, PRD, vertical slices with tier, AFK/HITL and blocking edges; a slice closes only clean, the PRD gated once               |
 
 ## Use one skill without adopting the kit
 
