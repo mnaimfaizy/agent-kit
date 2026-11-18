@@ -296,12 +296,7 @@ describe("the ADR and the changelog", () => {
     assert.match(adr, /hosted/);
   });
 
-  it("CHANGELOG.md's Unreleased section has the line", () => {
-    const changelog = read("CHANGELOG.md");
-    const unreleased = changelog.slice(
-      changelog.indexOf("## [Unreleased]"),
-      changelog.indexOf("\n## [", changelog.indexOf("## [Unreleased]") + 5),
-    );
-    assert.match(unreleased, /#289/);
+  it("CHANGELOG.md has the line, in [Unreleased] or the release that shipped it", () => {
+    assert.match(read("CHANGELOG.md"), /^- .*\[#289\]/m);
   });
 });
