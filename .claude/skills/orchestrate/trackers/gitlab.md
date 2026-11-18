@@ -118,10 +118,10 @@ The first adds the label for the ticket's coarse state and removes each other st
 
 ```bash
 glab api projects/:id/merge_requests/<mr> | jq -c '{state, source_branch, sha}'
-git fetch origin "refs/merge-requests/<mr>/head"
+git fetch <remote> "refs/merge-requests/<mr>/head"
 ```
 
-The first gives the merge request's `state`, its source branch and its head commit, `sha`. The second fetches that commit, from a fork as well, since GitLab keeps every merge request's head under `refs/merge-requests/<mr>/head` in the target project, so `git merge-tree` can test-merge it against this teammate's branch. Read it only for a merge request whose `state` is `opened`.
+The first gives the merge request's `state`, its source branch and its head commit, `sha`. The second fetches that commit, from `<remote>`, the remote `check` read the host from ([TEAM.md](../TEAM.md#find-the-tracker)), from a fork as well, since GitLab keeps every merge request's head under `refs/merge-requests/<mr>/head` in the target project, so `git merge-tree` can test-merge it against this teammate's branch. Read it only for a merge request whose `state` is `opened`.
 
 ## Rate limits
 

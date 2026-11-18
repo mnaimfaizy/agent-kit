@@ -824,3 +824,13 @@ describe("TEAM.md: the newest row comment", () => {
     assert.match(section(TEAM, "### Which comment is the row"), /latest `updated_at`/);
   });
 });
+
+describe("The tracker files: the remote `check` read", () => {
+  it("fetch from `<remote>`, never a hardcoded `origin`", () => {
+    for (const text of [GITHUB, GITLAB]) {
+      assert.doesNotMatch(text, /git fetch origin/);
+      assert.match(section(text, "### `pull-head`"), /git fetch <remote> /);
+    }
+    assert.match(section(TEAM, "## Find the tracker"), /`<remote>`/);
+  });
+});

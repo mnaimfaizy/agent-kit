@@ -6,7 +6,7 @@ A Team Run is federated. No Chief of Staff drives another person's machine, and 
 
 ## Find the tracker
 
-At SKILL.md step 1, `check` prints a `tracker` report beside the `harness` one: `pinned`, the config's `tracker` value, or null for `detect` ([CONFIG.md](CONFIG.md#tracker)); `remote_host`, the host of the repository's git remote (`origin`, or its only remote); and `detected`, the tracker that host points to, or null for a host detection does not know.
+At SKILL.md step 1, `check` prints a `tracker` report beside the `harness` one: `pinned`, the config's `tracker` value, or null for `detect` ([CONFIG.md](CONFIG.md#tracker)); `remote_host`, the host of the repository's git remote (`origin`, or its only remote, whatever its name: `<remote>` in a tracker file's commands, and the remote a Team Run fetches and pushes a branch on); and `detected`, the tracker that host points to, or null for a host detection does not know.
 
 | `pinned`  | `detected`                           | The tracker                                                                                                                                                                                                                               |
 | --------- | ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

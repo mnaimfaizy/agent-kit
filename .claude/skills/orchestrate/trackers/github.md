@@ -98,10 +98,10 @@ The first adds the label for the ticket's coarse state and removes each other st
 
 ```bash
 gh pr view <pr> --json state,headRefName,headRefOid
-git fetch origin "pull/<pr>/head"
+git fetch <remote> "pull/<pr>/head"
 ```
 
-The first gives the pull request's `state`, its head branch and its head commit. The second fetches that commit, from a fork as well, so `git merge-tree` can test-merge it against this teammate's branch. Read it only for a pull request whose `state` is `OPEN`.
+The first gives the pull request's `state`, its head branch and its head commit. The second fetches that commit from `<remote>`, the remote `check` read the host from ([TEAM.md](../TEAM.md#find-the-tracker)), from a fork as well, so `git merge-tree` can test-merge it against this teammate's branch. Read it only for a pull request whose `state` is `OPEN`.
 
 ## Check before use
 
