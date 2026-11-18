@@ -32,6 +32,10 @@ These are word for word the definitions in Agent-kit's root glossary, where a co
 
 **Activity Log**: An append-only record of what was done in a run and why, kept by the Chief of Staff and by each Delegation in the run folder.
 
+**Heartbeat**: A check on every Delegation the run waits on that comes again at a set interval, whatever happened since the last one, so that a run never waits on one signal alone.
+
+**Foreground watch**: The Heartbeat on a harness with nothing to schedule it: the Chief of Staff keeps its turn open, waiting for a change in any Delegation or for a time cap, then waits again.
+
 **Run Summary**: The account of a finished run, offered after the human merges, for the issue that groups the run's work.
 
 **Ready to Merge**: A Delegation whose CI is green, whose review is settled, whose QA requirement is met on its current head, whose Rulings are upheld and whose branch merges cleanly; the only Delegations the closing list names.
@@ -116,7 +120,7 @@ A run outlives a session: usage limits end it, laptops close, and a run with blo
 
 ## Four verbs, three tiers
 
-Harnesses differ in how one agent starts another: some start sessions the human can open, some start background runs to poll, some cannot start one at all. The skill body speaks only of `spawn`, `message`, `await` and `report`, and HARNESSES.md says how each works on each harness, so the body does not change when a harness does. Reports travel as files on every harness, so the verbs only carry signals. Facts about a harness are dated and marked when unconfirmed, because a harness changes faster than the skill, and a guessed flag fails at the worst moment of a run.
+Harnesses differ in how one agent starts another: some start sessions the human can open, some start background runs to poll, some cannot start one at all. The skill body speaks only of `spawn`, `message`, `await` and `report`, and HARNESSES.md says how each works on each harness, so the body does not change when a harness does. Reports travel as files on every harness, so the verbs only carry signals. And no signal is trusted alone. A harness's wake-up is a turn-end, not a finished report: it comes at most once per turn, which can be before the report is final. It does not come for a Delegation stuck on a prompt, or for a wait on CI that ends with nothing found. In one run, the Chief of Staff sat idle in each of those ways while the human was away. So `await` pairs the harness's event with a heartbeat that re-arms itself, every wake-up is read as "something may have changed", and a report says whether it is final. The cost is a short turn every few minutes; the alternative is a run that stops without anyone knowing. Facts about a harness are dated and marked when unconfirmed, because a harness changes faster than the skill, and a guessed flag fails at the worst moment of a run.
 
 Each harness has a file of its own, and a run loads only the one it is on, so a run on one harness carries none of the others' facts. The run finds its harness, from the environment and its own tools, rather than trusting the config alone: the same repository is opened in one harness one day and another the next, so a config value goes stale, while a guess sends every Delegation down the wrong route. So the config may pin the harness, and a disagreement is a question, never a choice the run makes. Each harness carries a **Support Level** because "documented" and "proven" fail differently: the first Cursor run followed a harness description no run had tried, and invented what it lacked. Below `verified`, the human sees the level and the harness's limits before the "go", and a level rises only on a run's evidence. Executors may run on another harness because one harness's headless run can carry a run whose own harness cannot yet; it is not the default, because it needs a second CLI signed in and a second set of model names.
 

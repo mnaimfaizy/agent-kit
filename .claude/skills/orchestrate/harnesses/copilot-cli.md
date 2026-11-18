@@ -13,7 +13,7 @@
 
 - `spawn`: `copilot -p "<brief>" --session-id <uuid> --worktree=<branch> --model <model> --output-format json --no-ask-user --add-dir <run folder>`, with the tool permissions the human approved (`--allow-all-tools`, or allow rules), as a background shell. The handle is the uuid. Straight after `spawn`, check with `git worktree list` that the branch's worktree exists and is not the Chief of Staff's checkout.
 - `message`: `copilot -p "<text>" --resume=<uuid>`, once the run has ended.
-- `await`: end the turn: the background shell's end is announced. Elsewhere, wait on the process.
+- `await`: the background shell's end, which is announced to a Chief of Staff in the Copilot CLI; elsewhere, the process's end. The heartbeat is the foreground watch ([HARNESSES.md](../HARNESSES.md#waiting-an-event-and-a-heartbeat)): while the run waits on a Delegation, the Chief of Staff does not end its turn, and the announced end is one more change the watch sees. Whether an announcement wakes an idle Chief of Staff is not relied on.
 - `report`: the report file, which `--add-dir` makes writable; else the run's last message.
 - Analysis: a `task` sub-agent (`explore`, `research`, or a custom one with read-only `tools`); `write_agent` reaches it running or idle. It shares the Chief of Staff's checkout.
 - A QA Delegation: a headless run, with `/qa-plan <n>` and later `/manual-qa <plan file>` sent by `--resume`, and a browser through a Playwright MCP server (`--additional-mcp-config`). Else a session the human starts with `copilot` in that worktree.
@@ -28,6 +28,7 @@
 
 ## Check before use
 
+- How long a foreground shell command, and a turn, may run, since the foreground watch depends on both. A shell tool's own time limit could cut the watch short (not yet confirmed).
 - Whether `-p "/qa-plan <n>"` runs the skill as the user's own invocation.
 - Whether a headless run can drive a browser for `manual-qa`.
 - The field names of the final record in the JSON output.
