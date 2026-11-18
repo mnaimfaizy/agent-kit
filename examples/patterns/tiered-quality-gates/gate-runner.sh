@@ -24,7 +24,7 @@ FULL_CHECK="<the whole type check and test suite>"
 # TODO(adopt): what your tools print when they exit 0 having checked nothing
 # (no matching test files, zero files linted). A check whose output matches is
 # NOT RUN, not PASS. Keep it narrow, so a real pass never matches.
-NOTHING_CHECKED='No test files found|0 files? (checked|linted)|No files matching'
+NOTHING_CHECKED='No test files found|(^|[^0-9])0 files? (checked|linted)|No files matching'
 
 tier="${1:-}"
 shift || true
