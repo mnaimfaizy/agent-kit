@@ -36,7 +36,7 @@ glab api projects/:id/issues/<spec> | jq -r .description
 glab api "projects/:id/issues?iids[]=<n>&iids[]=<n>&per_page=100" | jq -c '.[] | {iid, title, state, assignees: [.assignees[].username], labels}'
 ```
 
-GitLab Free has no sub-issues: an issue's child items there are tasks, and an epic, which holds issues, is Premium. So a spec on GitLab lists its tickets as a task list in its description, one item per ticket, each starting with the ticket's reference: `- [ ] #<n>` (or `- [x] #<n>` once done). The first command reads the description; take the `#<n>` that opens each task-list item, in order, and nothing else in it. The second reads those tickets, up to 100 per call: one JSON line each, with its `iid`, `title`, `state` (`opened` or `closed`), its assignees' usernames, and `labels`, a list of names. A reference to another project (`group/project#<n>`) is outside the spec. A task-list item whose ticket the second command does not return cannot be read: SPEC.md's Decision Request for an edge to an issue that cannot be read. **Check before use:** this convention was not settled by the spec ([below](#check-before-use)).
+GitLab Free has no sub-issues: an issue's child items there are tasks, and an epic, which holds issues, is Premium. So a spec on GitLab lists its tickets as a task list in its description, one item per ticket, each starting with the ticket's reference: `- [ ] #<n>` (or `- [x] #<n>` once done). The first command reads the description; take the `#<n>` that opens each task-list item, in order, and nothing else in it. The second reads those tickets, up to 100 per call: one JSON line each, with its `iid`, `title`, `state` (`opened` or `closed`), its assignees' usernames, and `labels`, a list of names. A reference to another project (`group/project#<n>`) is outside the spec. A task-list item whose ticket the second command does not return cannot be read: SPEC.md's Decision Request for an edge to an issue that cannot be read. **Check before use:** this convention is provisional: the spec did not settle one, and it waits on the human's answer ([below](#check-before-use)).
 
 ### `blockers`
 
@@ -47,7 +47,7 @@ glab api projects/:id/issues/<n> | jq -r .description
 
 The first lists ticket `<n>`'s native blocking links: each issue that blocks it, from the ticket's side, has `link_type` `is_blocked_by`. Blocking links ("blocks", "is blocked by") are Premium; on GitLab Free there are none, and the first command prints nothing. A blocker with another `project_id` than the ticket's is outside the spec.
 
-The second reads the ticket's description. On Free, and beside native links on Premium, its blockers are listed in a line at the top of it, `Blocked by: #<n>, #<n>`: the first non-blank line, when it starts with `Blocked by:`, each `#<n>` in it an issue of this project. A blocker named both ways counts once. Neither form gives a blocker's merged state: that is the `merged` operation's.
+The second reads the ticket's description. On Free, and beside native links on Premium, its blockers are listed in a line at the top of it, `Blocked by: #<n>, #<n>`: its first line, blank lines skipped, when it starts with `Blocked by:`, each `#<n>` in it an issue of this project. A blocker named both ways counts once. Neither form gives a blocker's merged state: that is the `merged` operation's.
 
 ### `merged`
 
@@ -99,7 +99,7 @@ glab api -X PUT projects/:id/issues/<n>/notes/<id> -F body=@<file> | jq .id
 
 The first checks the row in `<file>`, as written in the run folder: it must print nothing. A line it prints starts with `/`, which GitLab would run as a quick action on the ticket (`/close`, `/assign`, `/label`) and remove from the note: that row is not sent, and the failure is logged as a failed write ([TEAM.md](../TEAM.md#when-a-row-is-written)), with the line. The second creates ticket `<n>`'s row note from `<file>` and prints the new note's id: record it on the board. The third edits the row note `<id>` in place. `-F body=@<file>` reads the value from the file, so the body is never quoted on the command line.
 
-Each row is one note, and only its author edits it: commenting needs the Guest role, and editing another person's note needs Maintainer, so a teammate's Chief of Staff cannot overwrite it by mistake. GitLab strips carriage returns and trailing spaces from a note, so a `row` read back can differ from `<file>` in white space only; compare with the run folder's own copy, as TEAM.md says, never with the read-back. A refusal is logged as `glab` printed it, and the run goes on.
+Each row is one note, written only by its author's Chief of Staff: TEAM.md's check of the assignee and of the marker's `run` and `author`, made before every write, is what keeps it so. GitLab does not: commenting needs the Guest role, and a teammate with Maintainer can edit anyone's note. GitLab strips carriage returns and trailing spaces from a note, so a `row` read back can differ from `<file>` in white space only; compare with the run folder's own copy, as TEAM.md says, never with the read-back. A refusal is logged as `glab` printed it, and the run goes on.
 
 ### `set-state`
 
@@ -129,7 +129,7 @@ On gitlab.com, as of 2026-11-19: 2,000 authenticated API requests a minute per u
 
 Nothing here has been run against GitLab. Each item below was not confirmed by the sources in **Facts from**; the first Team Run that relies on it records in its Activity Log what it found.
 
-- **How a spec lists its tickets.** GitLab Free has no sub-issues, and the spec names no convention for GitLab; the task list in the spec's description, `spec-tickets` above, follows this repository's fallback where sub-issues are missing, and waits on the human's answer (Decision Request from d321, spec #314). Whether an issue can be the parent of another issue on any tier is not confirmed either.
+- **How a spec lists its tickets.** GitLab Free has no sub-issues, and the spec names no convention for GitLab; the task list in the spec's description, `spec-tickets` above, follows the task-list fallback that `docs/agents/issue-tracker.md` gives for a parent without sub-issues, and waits on the human's answer (Decision Request from d321, spec #314). Whether an issue can be the parent of another issue on any tier is not confirmed either.
 - **`is_blocked_by` on Free.** Whether a Free instance rejects or silently downgrades a `blocks` link, and so whether `links` can ever return `is_blocked_by` there. The `Blocked by:` line is read either way.
 - **`closed_by` after the merge.** That `closed_by` still lists a merge request once it is merged, with `state` `merged`, and lists only those that close the issue (by "Closes #<n>" or the merge request's own setting), not ones that only mention it.
 - **Quick actions on a note's edit.** GitLab's Notes API says it runs and removes quick actions on create and on update; whether a line with spaces before its `/` is run too is not confirmed, which is why `write-row`'s check allows none.

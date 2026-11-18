@@ -264,7 +264,7 @@ To start one:
 
 1. **Break the spec into tickets**, as sub-issues of the spec. A Team Run plans only the Tickets shape, since a ticket's assignee is what says whose run builds it.
 2. **Assign each ticket to one person** on the tracker. The assignee is the only sign of ownership, and the Chief of Staff never sets it. A ticket with no assignee, or with two, is run by nobody until it has exactly one.
-3. **Each teammate runs** `/orchestrate --spec <n> --team` in their own checkout of the repository, with their own `gh` signed in as themselves.
+3. **Each teammate runs** `/orchestrate --spec <n> --team` in their own checkout of the repository, with their own `gh` signed in as themselves (`glab` on GitLab, [below](#on-gitlab)).
 
 The Chief of Staff finds the tracker from the git remote's host (`github.com` or `gitlab.com`), or from the `tracker` key; when the two disagree it asks you. This version has a mapping for GitHub and one for GitLab ([below](#on-gitlab)), both at Support Level `documented`, so the plan says so and waits for your "go".
 
@@ -325,10 +325,10 @@ A Team Run works on GitLab Free, on gitlab.com or a self-hosted instance, with n
 
 - **`glab` signed in as you**, in place of `gh` for the Shared Board: `glab auth login`, or `glab auth login --hostname <host>` for a self-hosted GitLab. A self-hosted GitLab on its own domain also needs `tracker: gitlab` in the config, since only `gitlab.com` is detected.
 - **A role that can set labels.** Writing a row note needs only Guest, but setting a ticket's state label needs Planner or higher (Reporter before GitLab 17.7), and creating the six state labels needs the same. With less, the label write does not hold, and the row note stays the record.
-- **The spec's tickets as a task list.** GitLab Free has no sub-issues, so the spec lists its tickets in its description, one task-list item each, starting with the ticket: `- [ ] #<n>`.
-- **A `Blocked by:` line.** Blocking links ("is blocked by") are Premium. On Free, put `Blocked by: #<n>, #<n>` as the first line of a ticket's description; on Premium the native links are read too. A blocker counts as cleared only when its merge request is merged, read from the merge requests that close it, never from the issue closing.
+- **The spec's tickets as a task list.** GitLab Free has no sub-issues, so for now the spec lists its tickets in its description, one task-list item each, starting with the ticket: `- [ ] #<n>`. This convention is provisional, and may change before a GitLab Team Run is first tried.
+- **A `Blocked by:` line.** Blocking links ("is blocked by") are Premium. On Free, put `Blocked by: #<n>, #<n>` at the top of a ticket's description, as its first line that is not blank; on Premium the native links are read too. A blocker counts as cleared only when its merge request is merged, read from the merge requests that close it, never from the issue closing.
 
-Free also has one assignee per issue, so no ticket needs one assignee there, and plain labels only: the Chief of Staff removes a ticket's old state label as it adds the new one. Rows reference a merge request as `!<iid>`, and no row line starts with `/`, which GitLab would run as a quick action. On gitlab.com a project can make 60 notes a minute per user; a row is created once and then edited only when it changes.
+Free also has one assignee per issue, so no ticket needs one assignee there, and plain labels only: the Chief of Staff removes a ticket's old state label as it adds the new one. Rows reference a merge request as `!<iid>`, and no row line starts with `/`, which GitLab would run as a quick action. On gitlab.com each user can create 60 notes a minute; a row is created once and then edited only when it changes.
 
 ## The config
 
