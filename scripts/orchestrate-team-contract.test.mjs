@@ -515,4 +515,15 @@ describe("TEAM.md: a Team Run off GitHub", () => {
     assert.match(opening, /`--status --spec <n>`/);
     assert.match(opening, /`--status`/);
   });
+
+  it("reads the spec and its tickets through `spec-tickets` on another tracker, in the Tickets shape when it lists any", () => {
+    const whose = section(TEAM, "## Whose tickets");
+    assert.match(whose, /other than GitHub/);
+    assert.match(whose, /`spec-tickets`/);
+    assert.match(whose, /Tickets shape when `spec-tickets` lists any/);
+  });
+
+  it("writes a merge request as `!<iid>` on GitLab where the row says `#<pr>`", () => {
+    assert.match(section(TEAM, "### The row"), /`!<iid>`.*`#<pr>`|`#<pr>`.*`!<iid>`/);
+  });
 });

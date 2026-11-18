@@ -27,6 +27,7 @@ Read this teammate's login with the `viewer` operation. Record on the board, und
 
 Read the spec as SPEC.md says. A Team Run is planned in the [Tickets](SPEC.md#tickets) shape only, since a ticket's assignee is what says whose run builds it:
 
+- **On a tracker other than GitHub,** SPEC.md's reading is `gh`'s, so it is not used: the spec's tickets are read through the tracker file, with the `spec-tickets` operation (on GitLab, the task list `- [ ] #<n>` in the spec's description, [trackers/gitlab.md](trackers/gitlab.md#spec-tickets)), and each ticket's blocking edges with the `blockers` operation. The spec is in the Tickets shape when `spec-tickets` lists any ticket, whatever its body holds, and SPEC.md's Tickets rules then hold as written: a closed ticket is done work, and the four Decision Requests (a cycle, an open blocker outside the spec, an edge that cannot be read, a blocker that gets no building Delegation) are raised as there. When it lists none, the spec is as **Neither** below, and the Decision Request asks for the tickets in the form the tracker file reads.
 - **Phases:** a phase has no assignee. Make SPEC.md's offer to publish the phases as tickets; on a yes, the tickets are made unassigned, so the plan has no tickets of this teammate's ([below](#no-tickets-of-your-own)) until the team assigns them. Without a yes, stop, and say that `--spec <n>` without `--team` runs phases.
 - **Neither:** as SPEC.md says.
 
@@ -111,7 +112,7 @@ Updated <YYYY-MM-DD HH:MMZ>.
 <!-- orchestrate:shared-board-row ticket=<n> run=<run> author=@<login> -->
 ```
 
-`<login>` is this teammate's, read with the `viewer` operation. Each part:
+`<login>` is this teammate's, read with the `viewer` operation. A tracker file may say how its references differ: on GitLab, where the row says `#<pr>`, it writes the merge request as `!<iid>`, since `#<n>` there links an issue ([trackers/gitlab.md](trackers/gitlab.md#writing-the-row-on-gitlab)). Each part:
 
 | Part                       | What it says                                                                                                                                                                                                                                                                                |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
