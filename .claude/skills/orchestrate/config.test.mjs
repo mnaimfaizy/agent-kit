@@ -1655,3 +1655,31 @@ test("a remote with no host gives none: a Windows path, or an IPv6 host in brack
     tracker: null,
   });
 });
+
+test("gitlab.com is detected however the remote spells it: ssh with a port, credentials, upper case", () => {
+  for (const url of [
+    "ssh://git@gitlab.com:22/acme/app.git",
+    "https://oauth2:token@gitlab.com/acme/group/app.git",
+    "https://GitLab.com/acme/app",
+    "gitlab.com:acme/app.git",
+  ])
+    assert.deepEqual(trackerFromRemote(url), { host: "gitlab.com", tracker: "gitlab" }, url);
+  for (const url of ["https://gitlab.acme.dev/acme/app.git", "git@gitlab.com.evil.example:a/b"])
+    assert.equal(trackerFromRemote(url).tracker, null, url);
+});
+
+test("a self-hosted GitLab is not detected, and works with `tracker: gitlab` pinned", () => {
+  const pinned = { "orchestrate.config.yml": [...READY_BASE, "tracker: gitlab"].join("\n") };
+  const out = main(["check"], {
+    read: reader(pinned),
+    exists: () => true,
+    cwd: "/repo",
+    env: {},
+    remote: () => "git@git.acme.internal:platform/app.git",
+  }).out;
+  assert.deepEqual(JSON.parse(out).tracker, {
+    pinned: "gitlab",
+    remote_host: "git.acme.internal",
+    detected: null,
+  });
+});
