@@ -35,22 +35,23 @@ CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs three jobs on eve
 
 ## Repository layout
 
-| Path                                         | What                                                                                                                      |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `.github/workflows/*-reusable.yml`           | The product: reusable job bodies Consumers reference.                                                                     |
-| `.github/workflows/dogfood-*.yml`            | This repository as its own Caller (off by default).                                                                       |
-| `.github/workflows/ci.yml`, `links.yml`      | This repository's CI.                                                                                                     |
-| `.github/workflows/publish-cli.yml`          | Creates the GitHub Release and publishes `cli/` to npm on each Release tag.                                               |
-| `.github/agent-*`, `.github/security-audit/` | Runtime files Consumers copy.                                                                                             |
-| `.github/CODEOWNERS`                         | Review owners for kit-critical paths.                                                                                     |
-| `.claude/skills/`                            | Portable skills Consumers copy; a skill may carry its own `*.test.mjs` suites, which CI runs.                             |
-| `kit-owned-paths.txt`                        | The Kit-owned paths Consumers replace whole on upgrade.                                                                   |
-| `cli/`                                       | The `@mnaimfaizy/agent-kit` npm CLI (`init`, `doctor`, `upgrade`).                                                        |
-| `examples/`                                  | Caller templates, setup presets, Threat pack skeletons, QA config and Hazard pack templates, and an `orchestrate` config. |
-| `scripts/*.test.py`, `*.test.mjs`            | Contract tests.                                                                                                           |
-| `scripts/gen_workflow_reference.py`          | Generates `docs/reference.md` from the workflows.                                                                         |
-| `scripts/gen_doc_blocks.py`, `doc-facts.mjs` | Write the Generated blocks in the docs from their Doc facts ([how](#docs-that-are-generated-and-how-to-add-one)).         |
-| `security/`                                  | This repository's own Threat pack (dogfood audit).                                                                        |
+| Path                                         | What                                                                                                                                                    |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `.github/workflows/*-reusable.yml`           | The product: reusable job bodies Consumers reference.                                                                                                   |
+| `.github/workflows/dogfood-*.yml`            | This repository as its own Caller (off by default).                                                                                                     |
+| `.github/workflows/ci.yml`, `links.yml`      | This repository's CI.                                                                                                                                   |
+| `.github/workflows/publish-cli.yml`          | Creates the GitHub Release and publishes `cli/` to npm on each Release tag.                                                                             |
+| `.github/agent-*`, `.github/security-audit/` | Runtime files Consumers copy.                                                                                                                           |
+| `.github/CODEOWNERS`                         | Review owners for kit-critical paths.                                                                                                                   |
+| `.claude/skills/`                            | Portable skills Consumers copy; a skill may carry its own `*.test.mjs` suites, which CI runs.                                                           |
+| `kit-owned-paths.txt`                        | The Kit-owned paths Consumers replace whole on upgrade.                                                                                                 |
+| `cli/`                                       | The `@mnaimfaizy/agent-kit` npm CLI (`init`, `doctor`, `upgrade`).                                                                                      |
+| `docs/patterns/`, `examples/patterns/`       | Pattern guides and their skeletons: docs Consumers adapt, not Kit-owned paths ([ADR 0012](docs/adr/0012-pattern-guides-are-docs-a-consumer-adapts.md)). |
+| `examples/`                                  | Caller templates, setup presets, Threat pack skeletons, QA config and Hazard pack templates, and an `orchestrate` config.                               |
+| `scripts/*.test.py`, `*.test.mjs`            | Contract tests.                                                                                                                                         |
+| `scripts/gen_workflow_reference.py`          | Generates `docs/reference.md` from the workflows.                                                                                                       |
+| `scripts/gen_doc_blocks.py`, `doc-facts.mjs` | Write the Generated blocks in the docs from their Doc facts ([how](#docs-that-are-generated-and-how-to-add-one)).                                       |
+| `security/`                                  | This repository's own Threat pack (dogfood audit).                                                                                                      |
 
 ## Contract tests
 

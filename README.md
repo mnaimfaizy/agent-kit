@@ -90,11 +90,20 @@ Run each with `npx @mnaimfaizy/agent-kit <command>`. `init` and `upgrade` ask be
 | `.github/agent-review-response/`     | Trusted script of the Review response flow: builds the Work list and brief, validates and pushes the round's commits, replies and resolves. Copy.                                                                              |
 | `.claude/skills/`                    | **Portable skills**: `code-review`, `security-audit`, `security-finding-triage`, `security-response`, `explainer`, `instruction-drift-audit`, `qa-plan`, `manual-qa`, `plain-prose`, `orchestrate`, `address-pr-review`. Copy. |
 | `kit-owned-paths.txt`                | The list of paths above that you copy from a tag and replace whole on upgrade.                                                                                                                                                 |
-| `examples/`                          | Caller templates, setup presets, Threat pack skeletons, QA config and Hazard pack templates, and an `orchestrate` config to copy and edit.                                                                                     |
+| `examples/`                          | Caller templates, setup presets, Threat pack skeletons, QA config and Hazard pack templates, an `orchestrate` config, and Pattern guide skeletons to copy and edit.                                                            |
 | `cli/`                               | Source of the `@mnaimfaizy/agent-kit` npm CLI. Run with `npx`; never copy.                                                                                                                                                     |
 | `.github/workflows-archive/copilot/` | Inert **Copilot archive** — an alternative runner, never live alongside Claude.                                                                                                                                                |
 
-Not vendored: Consumer Threat pack (threat model + findings ledger), product playbooks, Companion skills (`implement`, `tdd`, `wayfinder`, …), subagent definitions.
+Not vendored: Consumer Threat pack (threat model + findings ledger), product playbooks, Companion skills (`implement`, `tdd`, `wayfinder`, …), subagent definitions. A [Pattern guide](#pattern-guides) skeleton holds a subagent definition, but only as an example you copy and edit; the kit never installs or upgrades it ([ADR 0012](docs/adr/0012-pattern-guides-are-docs-a-consumer-adapts.md)).
+
+## Pattern guides
+
+Guides to agent workflows you set up in your own repository: what goes wrong without the workflow, its parts, each rule and the failure it prevents, and how to adopt it. Each one comes with a skeleton under [`examples/patterns/`](examples/patterns) (an agent body, a `SKILL.md` and a runner stub) with placeholders where your repository's names go. They are documentation, not Kit-owned paths: `init` does not copy them and `upgrade` never overwrites your copy.
+
+| Guide                                                 | For                                                                                                                       |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| [Commit pipeline](docs/patterns/commit-pipeline.md)   | An agent commits only through a runner that always runs the hooks, refuses secret-looking paths, and labels each failure  |
+| [Pull request pipeline](docs/patterns/pr-pipeline.md) | A drafter proves it read the branch, the body states merge risk, labels come from one allowlist, no unrequested reviewers |
 
 ## Use one skill without adopting the kit
 
@@ -124,6 +133,7 @@ For procedure skills such as `implement`, `tdd`, and `wayfinder`, adopt **[Matt 
 | [Cutting releases](docs/cutting-releases.md)               | Maintainers: how to tag a release                                                        |
 | [Copilot restore](docs/copilot-restore.md)                 | Swapping the runner to the inert Copilot archive                                         |
 | [Issuebridge](docs/issuebridge.md)                         | Reference Consumer target state + stand-up checklist                                     |
+| [Pattern guides](#pattern-guides)                          | Commit and pull request pipelines to adapt in your own repository                        |
 | [Decision records](docs/adr/)                              | Why the CLI ships on npm, skills install with `npx skills`, and QA is two skills         |
 | [GLOSSARY.md](GLOSSARY.md)                                 | Glossary of the terms used across these docs                                             |
 | [CHANGELOG.md](CHANGELOG.md)                               | Release history                                                                          |

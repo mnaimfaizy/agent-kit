@@ -71,6 +71,10 @@ _Avoid_: dependency skill, bundled skill
 **Companion library**:
 The external skills repository Companion skills come from; outside the Release line.
 
+**Pattern guide**:
+A page under `docs/patterns/` plus a skeleton under `examples/patterns/` describing an agent workflow a Consumer sets up in its own repository; the Consumer copies and edits the skeleton, so it is never a Kit-owned path ([ADR 0012](docs/adr/0012-pattern-guides-are-docs-a-consumer-adapts.md)).
+_Avoid_: playbook, template skill
+
 **Copilot archive**:
 An inert, restorable alternative runner for the First-class flows; never live alongside the Claude path.
 _Avoid_: Copilot flow, second runner
