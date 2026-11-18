@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shared Board prototype</title>
+<!--
+  PROTOTYPE, throwaway. Wayfinder ticket #308 "Mock Shared Board for a past spec run" (map #302).
+  Plan: three variants of what teammates see in a Team Run, switchable via ?variant=A|B|C, on one page
+  that mocks GitHub (spec issue, one ticket page) plus the assembled `orchestrate --status` output.
+  Data: spec run 2026-11-17-spec-253 (spec #253), frozen at 2026-11-18 10:05Z, split across two
+  imagined teammates (alex, sam). #259 shows a hand-off from alex to sam. Nothing is posted anywhere.
+  Fixed by decisions #305/#306/#307 (same in every variant): sub-issue list with assignee + coarse
+  state label; one row comment per ticket by the assignee's Chief of Staff; run-id marker; Recent
+  activity milestones; Decision Request headings only. Variants differ in row-comment shape and in
+  how --status assembles the board.
+-->
+<style>
+:root{--bg:#fff;--fg:#1f2328;--muted:#59636e;--line:#d1d9e0;--soft:#f6f8fa;--accent:#0969da;--term:#0d1117;--termfg:#e6edf3;
+--l-planned:#ddf4ff;--l-running:#fff8c5;--l-waiting:#ffebe9;--l-ready:#dafbe1;--l-merged:#fbefff}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#0d1117;--fg:#e6edf3;--muted:#9198a1;--line:#3d444d;--soft:#151b23;--accent:#4493f8;
+--l-planned:#0c2d4a;--l-running:#3b2e00;--l-waiting:#4a1513;--l-ready:#0f3a1c;--l-merged:#3a1d4a}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;padding:16px 16px 90px}
+.wrap{max-width:1180px;margin:0 auto}
+.banner{background:var(--soft);border:1px dashed var(--line);border-radius:6px;padding:8px 12px;color:var(--muted);font-size:12px;margin-bottom:16px}
+h1{font-size:22px;font-weight:400;margin:0 0 4px}h1 b{font-weight:600}
+.sub{color:var(--muted);font-size:13px;margin-bottom:16px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}@media(max-width:900px){.grid{grid-template-columns:1fr}}
+.panel{border:1px solid var(--line);border-radius:6px;overflow:hidden;min-width:0}
+.ph{background:var(--soft);border-bottom:1px solid var(--line);padding:8px 12px;font-weight:600;font-size:13px;display:flex;justify-content:space-between;gap:8px}
+.ph span{font-weight:400;color:var(--muted)}
+.pb{padding:12px}
+.subi{display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--line);flex-wrap:wrap}.subi:last-child{border:0}
+.dot{width:14px;height:14px;border-radius:50%;border:2px solid #1a7f37;flex:none}.dot.closed{background:#8250df;border-color:#8250df}
+.subi .t{flex:1;min-width:180px}.subi .n{color:var(--muted)}
+.lbl{font-size:12px;border-radius:2em;padding:0 8px;border:1px solid var(--line);white-space:nowrap}
+.planned{background:var(--l-planned)}.running{background:var(--l-running)}.waiting{background:var(--l-waiting)}.ready{background:var(--l-ready)}.merged{background:var(--l-merged)}
+.av{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;font-size:11px;font-weight:600;color:#fff;flex:none}
+.alex{background:#bf3989}.sam{background:#1f6feb}
+.prog{height:8px;background:var(--soft);border-radius:4px;overflow:hidden;margin:4px 0 10px;display:flex}.prog i{display:block;height:100%}
+.comment{border:1px solid var(--line);border-radius:6px;margin:10px 0;overflow:hidden}
+.ch{background:var(--soft);border-bottom:1px solid var(--line);padding:6px 10px;font-size:12px;color:var(--muted);display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.ch b{color:var(--fg)}.cb{padding:10px;overflow-x:auto}
+.stale{opacity:.6}.tag{font-size:11px;border:1px solid var(--line);border-radius:2em;padding:0 6px}
+table{border-collapse:collapse;font-size:12px;width:100%}th,td{border:1px solid var(--line);padding:4px 6px;text-align:left;vertical-align:top}th{background:var(--soft)}
+code{font:12px ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--soft);padding:1px 4px;border-radius:4px}
+.hidden-marker{font:11px ui-monospace,monospace;color:var(--muted);border-top:1px dashed var(--line);margin-top:8px;padding-top:6px}
+.foot{font-size:11px;color:var(--muted);margin-top:8px}
+details summary{cursor:pointer;color:var(--accent);font-size:12px}
+ul.act{margin:6px 0 0;padding-left:18px;font-size:12px}
+.card-head{display:flex;align-items:center;gap:10px;margin-bottom:8px}.big{font-size:18px;font-weight:600}
+.kv{display:grid;grid-template-columns:110px 1fr;gap:2px 10px;font-size:12px}.kv div:nth-child(odd){color:var(--muted)}
+.tl{border-left:2px solid var(--line);margin:10px 0 0 6px;padding-left:12px;font-size:12px}.tl div{position:relative;margin-bottom:4px}.tl div:before{content:"";position:absolute;left:-17px;top:6px;width:8px;height:8px;border-radius:50%;background:var(--muted)}
+.dr{border-left:3px solid #cf222e;background:var(--l-waiting);padding:6px 8px;border-radius:4px;font-size:12px;margin:8px 0}
+.prose p{margin:0 0 8px}
+.term{background:var(--term);color:var(--termfg);font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;padding:12px;white-space:pre;overflow-x:auto;border-radius:0}
+.tabs{display:flex;gap:6px;margin:16px 0 8px;flex-wrap:wrap}.tabs button{border:1px solid var(--line);background:var(--bg);color:var(--fg);border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px}.tabs button.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+.switch{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);background:#1f2328;color:#fff;border-radius:999px;padding:6px 8px;display:flex;gap:8px;align-items:center;box-shadow:0 6px 24px rgba(0,0,0,.35);z-index:9;font-size:13px;max-width:calc(100% - 32px)}
+.switch button{background:#3d444d;color:#fff;border:0;border-radius:999px;width:30px;height:30px;cursor:pointer;font-size:15px}
+.switch .lab{padding:0 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="banner">PROTOTYPE (throwaway) for wayfinder ticket "Mock Shared Board for a past spec run". Real spec run 2026-11-17-spec-253, frozen at 2026-11-18 10:05Z and split across two imagined teammates, <b>alex</b> and <b>sam</b>. Nothing here is posted to the tracker. Flip variants with the bar at the bottom or ← →.</div>
+
+  <h1>A gate that keeps the docs in step with changes <span style="color:var(--muted)">#253</span></h1>
+  <div class="sub">Spec issue · Team Run · Viewed by anyone with read access (public repository)</div>
+
+  <div class="grid">
+    <div class="panel">
+      <div class="ph">Sub-issues <span>what GitHub shows on the spec, same in every variant</span></div>
+      <div class="pb" id="subissues"></div>
+    </div>
+    <div class="panel">
+      <div class="ph"><span style="color:var(--fg);font-weight:600" id="tickettitle"></span><span>ticket page, row comment(s)</span></div>
+      <div class="pb">
+        <div class="tabs" id="tickettabs" style="margin-top:0"></div>
+        <div id="ticket"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel" style="margin-top:20px">
+    <div class="ph">$ orchestrate --status <span id="statusnote"></span></div>
+    <div class="term" id="status"></div>
+  </div>
+</div>
+
+<div class="switch" role="toolbar" aria-label="Prototype variant switcher">
+  <button id="prev" aria-label="Previous variant">←</button>
+  <span class="lab" id="vlabel"></span>
+  <button id="next" aria-label="Next variant">→</button>
+</div>
+
+<script>
+const NOW = "2026-11-18 10:05Z";
+const T = [
+ {n:255,title:"Deprecation register, from the #246 renames through to CI",who:"alex",coarse:"merged",fine:"merged",branch:"claude/issue-255-deprecation-register-7684c5",head:"8838db3",pr:271,parked:null,drs:[],run:"2026-11-17-spec-253",updated:"2026-11-17 20:33Z",
+  act:[["11-17 14:02","spawned"],["11-17 16:40","reported"],["11-17 17:05","verified; PR #271 opened"],["11-17 19:10","QA passed on 8838db3"],["11-17 20:31","merged (0d176a1)"]]},
+ {n:256,title:"Generated blocks, end to end with the protected-paths list",who:"alex",coarse:"ready",fine:"ready to merge",branch:"claude/issue-256-generated-blocks-c55c31",head:"aa436ed",pr:272,parked:null,drs:[],run:"2026-11-17-spec-253",updated:"2026-11-18 09:50Z",
+  act:[["11-17 14:03","spawned"],["11-17 18:22","verified; PR #272 opened"],["11-18 08:30","QA passed on aa436ed"],["11-18 09:48","default-branch check passed at 0d176a1"],["11-18 09:50","ready to merge"]]},
+ {n:257,title:"Docs-impact finding in code-review, with the Docs map",who:"sam",coarse:"waiting",fine:"waiting",branch:"claude/issue-257-docs-impact-57cbac",head:"7c74a7f",pr:270,parked:null,
+  drs:[["open","Does review run 44193064839 count as the review of 7c74a7f?"]],run:"2026-11-18-spec-253",updated:"2026-11-18 10:01Z",
+  act:[["11-18 08:10","spawned"],["11-18 09:15","reported"],["11-18 09:40","verified; PR #270 opened"],["11-18 10:01","stopped on a Decision Request"]]},
+ {n:258,title:"Release notes get the old-to-new table from the Deprecation register",who:"sam",coarse:"running",fine:"running",branch:"claude/issue-258-release-notes",head:"(no commits yet)",pr:null,parked:null,drs:[],run:"2026-11-18-spec-253",updated:"2026-11-18 09:58Z",
+  act:[["11-18 08:12","parked on #255"],["11-18 09:57","#255 merged; unparked"],["11-18 09:58","spawned from main@0d176a1"]]},
+ {n:259,title:"Stage variables and Trigger labels as Generated blocks",who:"sam",coarse:"planned",fine:"parked",branch:"claude/issue-259-stage-variables (from alex)",head:"3f1e2aa",pr:null,parked:"#256 (alex) merged",drs:[],run:"2026-11-18-spec-253",updated:"2026-11-18 09:30Z",
+  act:[["11-18 09:30","picked up from alex's hand-off at 3f1e2aa"],["11-18 09:30","parked on #256"]],
+  old:{who:"alex",run:"2026-11-17-spec-253",updated:"2026-11-18 09:12Z",fine:"handed off",
+   act:[["11-17 14:04","parked on #256"],["11-18 08:55","reassigned to @sam; hand-off asked"],["11-18 09:12","handed off to @sam at claude/issue-259-stage-variables@3f1e2aa"]]}}
+];
+const NAMES={alex:"Alex",sam:"Sam"};
+const av=w=>`<span class="av ${w}" title="@${w}">${w[0].toUpperCase()}</span>`;
+const lbl=c=>`<span class="lbl ${c}">team: ${c==="ready"?"ready to merge":c}</span>`;
+const pr=p=>p?`<a href="#" onclick="return false">#${p}</a>`:"none yet";
+const marker=(t,who,run)=>`<div class="hidden-marker">&lt;!-- orchestrate:shared-board-row ticket=${t.n} run=${run} author=@${who} --&gt; (hidden in the rendered comment)</div>`;
+const header=(who,updated,extra="")=>`<div class="ch">${av(who)}<b>${who}</b> commented · edited ${updated} ${extra}<span style="margin-left:auto" class="tag">Shared Board row</span></div>`;
+const maintained=`<div class="foot">Maintained by orchestrate for @ASSIGNEE's Team Run. Edits here are overwritten.</div>`;
+
+function subissues(){
+  const counts={merged:0,ready:0,waiting:0,running:0,planned:0};T.forEach(t=>counts[t.coarse]++);
+  const col={merged:"#8250df",ready:"#1a7f37",waiting:"#cf222e",running:"#bf8700",planned:"#0969da"};
+  let bar=Object.entries(counts).map(([k,v])=>`<i style="width:${v/T.length*100}%;background:${col[k]}" title="${k}: ${v}"></i>`).join("");
+  return `<div style="font-size:12px;color:var(--muted)">1 of 5 closed</div><div class="prog">${bar}</div>`+
+   T.map(t=>`<div class="subi"><span class="dot ${t.coarse==="merged"?"closed":""}"></span><span class="t">${t.title} <span class="n">#${t.n}</span></span>${lbl(t.coarse)}${av(t.who)}</div>`).join("");
+}
+
+/* ---------- Variant A: table row ---------- */
+function rowA(t,who,run,updated,fine,act,old){
+  const drs=t.drs.length?t.drs.map(d=>`${d[0]}: ${d[1]}`).join("<br>"):"none";
+  return `<div class="comment ${old?"stale":""}">${header(who,updated,old?'<span class="tag">superseded</span>':"")}<div class="cb">
+  <b>Shared Board row</b>
+  <table><tr><th>Ticket</th><th>Assignee</th><th>State</th><th>Branch</th><th>Pull request</th><th>Parked on</th><th>Decision Requests</th><th>Updated</th></tr>
+  <tr><td>#${t.n}</td><td>@${who}</td><td>${fine}</td><td><code>${t.branch}</code> @${t.head}</td><td>${old?"none":pr(t.pr)}</td><td>${old?"none":(t.parked||"none")}</td><td>${old?"none":drs}</td><td>${updated}</td></tr></table>
+  <details ${old?"open":""}><summary>Recent activity (last 5)</summary><ul class="act">${act.map(a=>`<li>${a[0]} ${a[1]}</li>`).join("")}</ul></details>
+  ${maintained.replace("ASSIGNEE",who)}${marker(t,who,run)}</div></div>`;
+}
+function statusA(){
+  const order=["waiting","running","planned","ready","merged"];
+  let s=`Team Run · spec #253 · tracker github (detected) · read ${NOW}\nYou: @sam (run 2026-11-18-spec-253). Shared Board read from 5 tickets.\n`;
+  order.forEach(c=>{const rows=T.filter(t=>t.coarse===c);if(!rows.length)return;
+    s+=`\n${(c==="ready"?"READY TO MERGE":c.toUpperCase())} (${rows.length})\n`;
+    rows.forEach(t=>{s+=`  #${String(t.n).padEnd(4)} @${t.who.padEnd(5)} ${t.fine.padEnd(15)} ${t.pr?("PR #"+t.pr):"no PR  "}  ${t.parked?("parked on "+t.parked):""}${t.drs.length?("DR: "+t.drs[0][1]):""}${t.who==="sam"?"   ← yours":""}\n`;});});
+  s+=`\nNot yours: 2 rows (@alex). Hand-offs: #259 from @alex at 3f1e2aa (done).\nStale rows (no update > 30 min): none.`;
+  return s;
+}
+
+/* ---------- Variant B: status card + timeline ---------- */
+function rowB(t,who,run,updated,fine,act,old){
+  const dr=(!old&&t.drs.length)?t.drs.map(d=>`<div class="dr"><b>Waiting on @${who}:</b> ${d[1]}</div>`).join(""):"";
+  return `<div class="comment ${old?"stale":""}">${header(who,updated,old?'<span class="tag">superseded</span>':"")}<div class="cb">
+  <div class="card-head">${lbl(old?"merged":t.coarse).replace(/team: [a-z ]+/,"team: "+(old?"handed off":t.coarse==="ready"?"ready to merge":t.coarse))}<span class="big">${fine}</span></div>
+  ${dr}
+  <div class="kv"><div>Assignee</div><div>@${who}</div><div>Pull request</div><div>${old?"none":pr(t.pr)}</div><div>Branch</div><div><code>${t.branch}</code> @${t.head}</div><div>Parked on</div><div>${old?"none":(t.parked||"none")}</div><div>Updated</div><div>${updated}</div></div>
+  <div class="tl">${act.slice().reverse().map(a=>`<div><span style="color:var(--muted)">${a[0]}</span> ${a[1]}</div>`).join("")}</div>
+  ${maintained.replace("ASSIGNEE",who)}${marker(t,who,run)}</div></div>`;
+}
+function statusB(){
+  let s=`Team Run · spec #253 · ${NOW}\n`;
+  ["sam","alex"].forEach(w=>{const rows=T.filter(t=>t.who===w);
+    s+=`\n┌─ @${w}${w==="sam"?" (you, run 2026-11-18-spec-253)":" (run 2026-11-17-spec-253, last write 09:50Z)"} ─ ${rows.length} tickets\n`;
+    rows.forEach(t=>{s+=`│ #${t.n} ${t.fine.padEnd(15)} ${t.pr?("PR #"+t.pr).padEnd(8):"        "} ${t.title.slice(0,46)}\n`;
+      if(t.drs.length) s+=`│      ⚠ needs @${w}: ${t.drs[0][1]}\n`;
+      if(t.parked) s+=`│      ⏸ parked on ${t.parked}\n`;});
+    s+=`└────────────────────────────────────────────────────\n`;});
+  s+=`\nUnassigned: none.  Handed off: #259 alex → sam.`;
+  return s;
+}
+
+/* ---------- Variant C: prose, one paragraph ---------- */
+function rowC(t,who,run,updated,fine,act,old){
+  let p;
+  if(old) p=`@${who}'s Chief of Staff no longer runs this ticket. It was reassigned to @sam, and the branch was handed off at <code>3f1e2aa</code>.`;
+  else if(t.coarse==="merged") p=`Done. <b>#${t.pr}</b> was merged on ${updated}.`;
+  else if(t.coarse==="ready") p=`<b>Ready to merge.</b> ${pr(t.pr)} has green CI, a settled review and QA passed on <code>${t.head}</code>, and it merges cleanly into main.`;
+  else if(t.coarse==="waiting") p=`<b>Waiting on @${who}</b> to answer one question: “${t.drs[0][1]}” Work on ${pr(t.pr)} is paused until then.`;
+  else if(t.fine==="parked") p=`<b>Parked</b> until ${t.parked}. It continues from <code>${t.head}</code> on <code>${t.branch}</code>.`;
+  else p=`<b>Being built</b> on <code>${t.branch}</code>. No pull request yet.`;
+  return `<div class="comment ${old?"stale":""}">${header(who,updated,old?'<span class="tag">superseded</span>':"")}<div class="cb prose">
+  <p>${p}</p><p style="font-size:12px;color:var(--muted)">Latest: ${act[act.length-1][0]} ${act[act.length-1][1]}.</p>
+  <details><summary>Recent activity</summary><ul class="act">${act.map(a=>`<li>${a[0]} ${a[1]}</li>`).join("")}</ul></details>
+  ${maintained.replace("ASSIGNEE",who)}${marker(t,who,run)}</div></div>`;
+}
+function statusC(){
+  const order=[255,256,258,257,259];
+  let s=`Team Run · spec #253 · ${NOW} · merge path, in blocking order\n\n`;
+  s+=`  #255 ✓ merged            @alex   PR #271\n`;
+  s+=`   ├─ #258 ▶ running        @sam    (unparked when #255 merged)\n`;
+  s+=`  #256 ● ready to merge    @alex   PR #272   ← merging this unparks #259\n`;
+  s+=`   └─ #259 ⏸ parked         @sam    handed off by @alex at 3f1e2aa\n`;
+  s+=`  #257 ✋ waiting          @sam    PR #270   DR: Does review run 44193064839 count …?\n`;
+  s+=`\nNext moves: @alex merges #272 · @sam answers the DR on #257.`;
+  return s;
+}
+
+const V={A:{name:"Table row, --status by state",row:rowA,status:statusA},B:{name:"Status card + timeline, --status by teammate",row:rowB,status:statusB},C:{name:"One plain sentence, --status as blocking tree",row:rowC,status:statusC}};
+const keys=Object.keys(V);
+let cur=new URLSearchParams(location.search).get("variant");if(!V[cur])cur="A";
+let tix=259;
+function render(){
+  const v=V[cur];
+  document.getElementById("subissues").innerHTML=subissues();
+  document.getElementById("tickettabs").innerHTML=T.map(t=>`<button class="${t.n===tix?"on":""}" data-n="${t.n}">#${t.n}</button>`).join("");
+  const t=T.find(x=>x.n===tix);
+  document.getElementById("tickettitle").textContent=`#${t.n} ${t.title}`;
+  let h=`<div style="font-size:12px;color:var(--muted);margin-bottom:6px">Assignee ${av(t.who)} @${t.who} · ${lbl(t.coarse)}</div>`;
+  if(t.old) h+=v.row(t,t.old.who,t.old.run,t.old.updated,t.old.fine,t.old.act,true);
+  h+=v.row(t,t.who,t.run,t.updated,t.fine,t.act,false);
+  document.getElementById("ticket").innerHTML=h;
+  document.getElementById("status").textContent=v.status();
+  document.getElementById("statusnote").textContent="as @sam would see it";
+  document.getElementById("vlabel").textContent=`${cur} (${v.name})`;
+  document.querySelectorAll("#tickettabs button").forEach(b=>b.onclick=()=>{tix=+b.dataset.n;render();});
+}
+function go(d){cur=keys[(keys.indexOf(cur)+d+keys.length)%keys.length];const u=new URL(location);u.searchParams.set("variant",cur);history.replaceState(null,"",u);render();}
+document.getElementById("prev").onclick=()=>go(-1);document.getElementById("next").onclick=()=>go(1);
+addEventListener("keydown",e=>{if(e.target.closest("input,textarea,[contenteditable]"))return;if(e.key==="ArrowLeft")go(-1);if(e.key==="ArrowRight")go(1);});
+render();
+</script>
+</body>
+</html>
