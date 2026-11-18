@@ -39,6 +39,10 @@ const ghJson = (args) => {
 const repository = ghJson(["repo", "view", "--json", "nameWithOwner"])?.nameWithOwner;
 
 const io = {
+  // The branch-rules endpoint returns rulesets only. TODO(adopt): if your
+  // required checks live in classic branch protection, read
+  // `repos/<owner>/<repo>/branches/<base>/protection/required_status_checks`
+  // (its `contexts`) instead, or merge both sources.
   requiredChecks: () =>
     requiredChecksFromRules(ghJson(["api", `repos/${repository}/rules/branches/${BASE}`])),
   read: (pr) => {

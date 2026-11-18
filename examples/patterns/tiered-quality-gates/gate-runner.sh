@@ -21,6 +21,10 @@ TEST_CHECK="<run only the given test files>"
 DOCS_CHECK="<format check for docs, given paths>"
 # TODO(adopt): the wider check `full` adds, run once with no paths.
 FULL_CHECK="<the whole type check and test suite>"
+# TODO(adopt): what your tools print when they exit 0 having checked nothing
+# (no matching test files, zero files linted). A check whose output matches is
+# NOT RUN, not PASS. Keep it narrow, so a real pass never matches.
+NOTHING_CHECKED='No test files found|0 files? (checked|linted)|No files matching'
 
 tier="${1:-}"
 shift || true
@@ -64,9 +68,14 @@ run_check() {
     not_run+=("$label: no command is set for these paths")
     return 0
   fi
-  local status=0
+  local status=0 output
   # shellcheck disable=SC2086 # the command is a word list on purpose
-  $command "$@" || status=$?
+  output="$($command "$@" 2>&1)" || status=$?
+  [ -z "$output" ] || printf '%s\n' "$output"
+  if [ "$status" -eq 0 ] && printf '%s' "$output" | grep -Eq "$NOTHING_CHECKED"; then
+    not_run+=("$label: $command exited 0 but checked nothing")
+    return 0
+  fi
   ran+=("$command${*:+ $*} -> $status")
   [ "$status" -eq 0 ] || failed=true
 }

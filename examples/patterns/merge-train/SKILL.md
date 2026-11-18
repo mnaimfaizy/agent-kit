@@ -3,7 +3,7 @@
 # Copy this folder's SKILL.md into your skills directory, fill in every
 # <placeholder>, and delete these comment lines.
 name: <merge-train>
-description: Use when the user asks to merge a batch of pull requests, or asks in what order to merge them. Has <merge-order> propose the order, then hands the user the one <train command> to run. Never merges with --admin and never merges a pull request outside the train.
+description: Use when the user asks to merge a batch of pull requests, or asks in what order to merge them. Has <merge-order> propose the order, then runs the one <train command> on the user's go-ahead. Never merges with --admin and never merges a pull request outside the train.
 ---
 
 # Merge a batch through the train

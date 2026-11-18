@@ -268,13 +268,29 @@ export async function runAutoPass(args, io) {
       continue;
     }
     if (args.mode === "shadow") {
-      const checksGreen = requiredCheckState(required, first.checks);
-      const ready = checksGreen.red.length === 0 && checksGreen.waiting.length === 0;
-      const decision = decideAutoMerge(io.facts(pr, first, ready), "shadow");
-      // A comment that fails to post is reported; it never turns into a merge.
-      if (!io.comment(pr, shadowComment(decision, first.headRefOid)))
-        hold("the shadow comment could not be written");
-      if (decision.held) hold(decision.reason);
+      // Shadow must say what `on` would do, so the train's own decision comes
+      // first: a draft, a conflict or a blocking review holds, and a branch
+      // that is behind or still waiting is not ready. Only a head `on` would
+      // merge as it stands is judged on the auto-merge facts.
+      const step = decideNext(first, required);
+      const decision =
+        step.kind === "merge"
+          ? decideAutoMerge(io.facts(pr, first, true), "shadow")
+          : {
+              action: "comment",
+              held: true,
+              reason:
+                step.kind === "stop"
+                  ? step.reason
+                  : `not ready (${step.kind === "update" ? `behind ${BASE}` : step.reason})`,
+            };
+      // A comment that fails to post is reported; it never turns into a merge,
+      // and the candidate lands in exactly one list.
+      if (!io.comment(pr, shadowComment(decision, first.headRefOid))) {
+        hold(
+          `${decision.held ? `${decision.reason}; ` : ""}the shadow comment could not be written`,
+        );
+      } else if (decision.held) hold(decision.reason);
       else result.wouldMerge.push(pr);
       continue;
     }

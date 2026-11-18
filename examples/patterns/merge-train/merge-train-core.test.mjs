@@ -184,3 +184,26 @@ test("under on, a held candidate is skipped and the pass moves on", async () => 
   assert.deepEqual(result.merged, [2]);
   assert.equal(result.held[0].pr, 1);
 });
+
+test("shadow holds what the train itself would stop, even with every fact clear", async () => {
+  const io = fakeIo(
+    { 1: [pr({ isDraft: true })], 2: [pr({ number: 2, mergeStateStatus: "BEHIND" })] },
+    { facts: (_n, snapshot) => allClear(snapshot.headRefOid) },
+  );
+  const result = await runAutoPass({ ...args, pullRequests: [1, 2], mode: "shadow" }, io);
+  assert.deepEqual(result.wouldMerge, []);
+  assert.deepEqual(
+    result.held.map(({ pr }) => pr),
+    [1, 2],
+  );
+  assert.match(io.calls[0][2], /held: #1 is a draft/);
+  assert.match(io.calls[1][2], /held: not ready/);
+});
+
+test("a shadow comment that fails lists the candidate once, as held", async () => {
+  const io = fakeIo({ 1: [pr()] }, { facts: (_n, snapshot) => allClear(snapshot.headRefOid) });
+  io.comment = () => false;
+  const result = await runAutoPass({ ...args, pullRequests: [1], mode: "shadow" }, io);
+  assert.deepEqual(result.wouldMerge, []);
+  assert.equal(result.held.length, 1);
+});
