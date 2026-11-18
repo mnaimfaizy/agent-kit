@@ -25,6 +25,8 @@ const SPEC = read(`${SKILL_DIR}/SPEC.md`);
 const DESIGN = read(`${SKILL_DIR}/DESIGN.md`);
 const GLOSSARY = read("GLOSSARY.md");
 const CHANGELOG = read("CHANGELOG.md");
+const DOCS = read("docs/orchestrate.md");
+const CONFIG = read(`${SKILL_DIR}/CONFIG.md`);
 
 /** The text of a `## `, `### ` or `#### ` section, from its heading to the next of the same depth or higher. */
 function section(text, heading) {
@@ -235,6 +237,35 @@ describe("the glossary and DESIGN.md", () => {
     const why = section(DESIGN, "## The default branch, checked on the human's return");
     assert.match(why, /heartbeat/);
     assert.match(why, /`mergeStateStatus`/);
+  });
+});
+
+describe("docs/orchestrate.md and CONFIG.md", () => {
+  it("the guide's `--status` row says it runs the check and writes only its result", () => {
+    const line = DOCS.split("\n").find((l) => l.startsWith("| `/orchestrate --status [<run>]`"));
+    assert.ok(line, "the `--status` row exists");
+    assert.match(line, /default-branch check/);
+    assert.match(line, /only the board's `Default branch` line/);
+    assert.ok(!line.includes("changes nothing."), "the old read-only rule is gone");
+  });
+
+  it("the guide's close-out and run-state sections name the check and the one-at-a-time order", () => {
+    assert.match(DOCS, /merge one at a time, and say "merged <pr>" after each/);
+    const runState = DOCS.split("\n").find((l) => l.startsWith("`--status` prints the board"));
+    assert.ok(runState, "the run-state `--status` line exists");
+    assert.match(runState, /default-branch check/);
+  });
+
+  it("the guide's Ready to Merge sentence and CONFIG.md's carry the clause", () => {
+    assert.ok(DOCS.includes(READY_CLAUSE), "docs/orchestrate.md has the clause");
+    assert.match(
+      section(CONFIG, "### `ready_to_merge`"),
+      /merges cleanly into the default branch as it now is/,
+    );
+    assert.ok(
+      !CONFIG.includes("beyond green CI and a clean merge."),
+      "the config table names the default branch too",
+    );
   });
 });
 
