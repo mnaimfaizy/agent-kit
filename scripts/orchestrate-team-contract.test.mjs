@@ -818,3 +818,9 @@ describe("TEAM.md and the tracker files: label names as the tracker compares the
     assert.match(section(GITHUB, "### `set-state`"), /comma/);
   });
 });
+
+describe("TEAM.md: the newest row comment", () => {
+  it("is the one with the latest `updated_at`", () => {
+    assert.match(section(TEAM, "### Which comment is the row"), /latest `updated_at`/);
+  });
+});
