@@ -36,7 +36,7 @@ glab api projects/:id/issues/<spec> | jq -r .description
 glab api "projects/:id/issues?iids[]=<n>&iids[]=<n>&per_page=100" | jq -c '.[] | {iid, title, state, assignees: [.assignees[].username], labels}'
 ```
 
-GitLab Free has no sub-issues: an issue's child items there are tasks, and an epic, which holds issues, is Premium. So a spec on GitLab lists its tickets as a task list in its description, one item per ticket, each starting with the ticket's reference: `- [ ] #<n>` (or `- [x] #<n>` once done). The first command reads the description; take the `#<n>` that opens each task-list item, in order, and nothing else in it. The second reads those tickets, up to 100 per call: one JSON line each, with its `iid`, `title`, `state` (`opened` or `closed`), its assignees' usernames, and `labels`, a list of names. A reference to another project (`group/project#<n>`) is outside the spec. A task-list item whose ticket the second command does not return cannot be read: SPEC.md's Decision Request for an edge to an issue that cannot be read. The human chose this convention in spec #314's run (a Decision Request from d321); it follows the task-list fallback that `docs/agents/issue-tracker.md` gives for a parent without sub-issues. Until TEAM.md says so, a run on GitLab reads the spec's tickets here, and plans the Tickets shape when this lists any. **Check before use** ([below](#check-before-use)).
+GitLab Free has no sub-issues: an issue's child items there are tasks, and an epic, which holds issues, is Premium. So a spec on GitLab lists its tickets as a task list in its description, one item per ticket, each starting with the ticket's reference: `- [ ] #<n>` (or `- [x] #<n>` once done). The first command reads the description; take the `#<n>` that opens each task-list item, in order, and nothing else in it. The second reads those tickets, up to 100 per call: one JSON line each, with its `iid`, `title`, `state` (`opened` or `closed`), its assignees' usernames, and `labels`, a list of names. A reference to another project (`group/project#<n>`) is outside the spec. A task-list item whose ticket the second command does not return cannot be read: SPEC.md's Decision Request for an edge to an issue that cannot be read. To re-read one ticket's assignees just before a row or label write ([TEAM.md](../TEAM.md#who-writes)), run the second command with that ticket's `iid` alone. The human chose this convention in spec #314's run (a Decision Request from d321); it follows the task-list fallback that `docs/agents/issue-tracker.md` gives for a parent without sub-issues. Until TEAM.md says so, a run on GitLab reads the spec's tickets here, and plans the Tickets shape when this lists any. **Check before use** ([below](#check-before-use)).
 
 ### `blockers`
 
@@ -101,6 +101,8 @@ The first checks the row in `<file>`, as written in the run folder: it must prin
 
 Each row is one note, written only by its author's Chief of Staff: TEAM.md's check of the assignee and of the marker's `run` and `author`, made before every write, is what keeps it so. GitLab does not: commenting needs the Guest role, and a teammate with Maintainer can edit anyone's note. GitLab strips carriage returns and trailing spaces from a note, so a `row` read back can differ from `<file>` in white space only; compare with the run folder's own copy, as TEAM.md says, never with the read-back. A refusal is logged as `glab` printed it, and the run goes on.
 
+An edit of a note that was deleted fails with `404 Not found`: the row is re-created with the second command ([TEAM.md](../TEAM.md#a-persons-edits)).
+
 ### `set-state`
 
 ```bash
@@ -136,5 +138,6 @@ Nothing here has been run against GitLab. Each item below was not confirmed by t
 - **A Guest's label change.** Applying labels to an existing issue needs Planner; whether GitLab answers a Guest with an error or drops the change silently. `set-state` reads the labels back either way.
 - **The marker and `<sub>`.** That GitLab hides an HTML comment in a rendered note and renders `<sub>`.
 - **`-F body=@<file>`.** That `glab api` sends the file's text as a string, and does not read a body that starts with `[`, `{`, a number, `true`, `false` or `null` as JSON. A row starts with `**`, so the run does not depend on it.
+- **Editing a deleted note.** That `PUT` on a deleted note fails with `404 Not found`. The first Team Run that re-creates a deleted row records in its Activity Log what the edit printed.
 - **Editing a note and the rate limit.** Whether a `PUT` on a note counts toward the note-creation limit.
 - **`iids[]` paging.** That one `spec-tickets` read returns every ticket asked for, up to 100; a spec with more is read in groups of 100.
