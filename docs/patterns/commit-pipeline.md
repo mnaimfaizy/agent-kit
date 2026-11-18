@@ -82,7 +82,7 @@ hint: <the one command to run next>
 | `hook`        | a hook failed and no pattern matched              | Read the hook output above the trailer, fix that check, retry.  |
 | `unknown`     | git failed outside the hooks, or bad runner input | Read the output, fix the cause, retry.                          |
 
-The classifier is a few regular expressions over the hook output. Which patterns identify your formatter and linter, and what the hint command is, are the main thing you fill in when you adopt it.
+The classifier is a few regular expressions over the hook output. Which patterns identify your formatter and linter, and what the hint command is, are the main thing you fill in when you adopt it. Each pattern must match only the line a check prints when it **fails**. Hook managers print a line for every hook, the ones that passed included, so a pattern that is only the tool's name matches on every commit and blames the wrong check. Match the failure line, for example `linter-name\.+Failed`, not `linter-name`.
 
 ### Origin lines on fixes
 

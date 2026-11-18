@@ -17,15 +17,20 @@ set -uo pipefail
 # TODO(adopt): how a person or agent invokes this script, for the hints below.
 RUNNER="<runner command>"
 
-# TODO(adopt): a pattern that appears in your formatter hook's failure output,
-# and the command that fixes it.
-FORMAT_PATTERN='<formatter name or its failure message>'
+# Each pattern below must match only a line your hook prints when that check
+# FAILS. Hook managers print a line for every hook, passed ones included, so a
+# bare tool name matches on every commit and labels the wrong check. Match the
+# failure line itself, for example 'formatter-name\.+Failed'.
+
+# TODO(adopt): a pattern for your formatter hook's failure line, and the
+# command that fixes it.
+FORMAT_PATTERN='<formatter failure line, e.g. formatter-name\.+Failed>'
 FORMAT_HINT='<your format command>'
 
-# TODO(adopt): a pattern that appears in your linter hook's failure output, and
-# the command to rerun it. To name a scope in the trailer, also set a pattern
-# whose first capture group is the project or package name.
-LINT_PATTERN='<linter name or its failure message>'
+# TODO(adopt): a pattern for your linter hook's failure line, and the command
+# to rerun it. To name a scope in the trailer, also set a pattern whose first
+# capture group is the project or package name.
+LINT_PATTERN='<linter failure line, e.g. linter-name\.+Failed>'
 LINT_SCOPE_PATTERN=''
 LINT_HINT='<your lint command>'
 
