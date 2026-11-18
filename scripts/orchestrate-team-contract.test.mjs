@@ -741,3 +741,15 @@ describe("GLOSSARY.md: Support Level covers a tracker file", () => {
     assert.match(def, /on a harness or a tracker/);
   });
 });
+
+describe("CHANGELOG.md: the Team Run entries describe the end state", () => {
+  const unreleased = CHANGELOG.slice(
+    CHANGELOG.indexOf("## [Unreleased]"),
+    CHANGELOG.indexOf("\n## [", CHANGELOG.indexOf("## [Unreleased]") + 1),
+  );
+  it("does not describe changes to text no Consumer has seen", () => {
+    assert.doesNotMatch(unreleased, /loaded only for `--team`/);
+    assert.doesNotMatch(unreleased, /no longer says it reads the spec's tickets/);
+    assert.doesNotMatch(unreleased, /a Team Run now reads/);
+  });
+});
