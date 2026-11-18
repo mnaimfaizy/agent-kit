@@ -330,36 +330,48 @@ def test_prepare_refuses_a_register_outside_its_shape_before_writing() -> None:
         assert g("branch", "--list", "chore/release-v1.0.0-beta.2") == ""
 
 
-def real_register_entries() -> list[dict[str, str | None]]:
+REAL_REGISTER = ROOT / release.REGISTER
+
+
+def real_register_entries(text: str) -> list[dict[str, str | None]]:
     """The real register, read by the release tool's strict reader. A shape it refuses fails here,
     with the `ReleaseError` naming `docs/deprecations.yml:<line>`, not at the next `prepare`."""
-    text = (ROOT / release.REGISTER).read_text(encoding="utf-8")
     try:
-        return release.register_entries(text, "in docs/deprecations.yml")
+        return release.register_entries(text, f"in {release.REGISTER}")
     except release.ReleaseError as error:
         raise AssertionError(str(error)) from None
 
 
+def skip(reason: str) -> None:
+    """Skip under pytest; under plain `python` say so and let the `__main__` block go on."""
+    if "pytest" in sys.modules:
+        import pytest
+
+        pytest.skip(reason)
+    print(f"skipped: {reason}", file=sys.stderr)
+
+
 def test_the_strict_reader_reads_every_entry_of_the_real_register() -> None:
-    entries = real_register_entries()
-    lenient = yaml.safe_load((ROOT / release.REGISTER).read_text(encoding="utf-8"))
+    text = REAL_REGISTER.read_text(encoding="utf-8")
+    entries = real_register_entries(text)
+    lenient = yaml.safe_load(text)
     assert len(entries) == len(lenient), (
         f"release.py's reader found {len(entries)} entries in {release.REGISTER}, PyYAML {len(lenient)}"
     )
 
 
 def test_notes_with_the_real_register_s_entries_pass_prettier() -> None:
-    import pytest
-
     prettier = ROOT / "node_modules" / ".bin" / "prettier"
     if not prettier.is_file():
-        pytest.skip(f"prettier is not installed ({prettier.relative_to(ROOT)} missing); run `npm ci`")
-    entries = real_register_entries()
+        return skip(f"prettier is not installed ({prettier.relative_to(ROOT)} missing); run `npm ci`")
+    entries = real_register_entries(REAL_REGISTER.read_text(encoding="utf-8"))
     tag = f"v{entries[-1]['release']}"
     notes = release.notes_from_template(tag, entries)
+    # The table's header row, as `deprecations_block` writes it: the notes are not checked without one.
     assert "  | Kind " in notes, f"the notes for {tag} have no register table"
     with tempfile.TemporaryDirectory() as tmp:
-        # Beside the repository's own prettier config, so prettier formats it as it would in the repository.
+        # Beside copies of the repository's prettier config. Not in release-notes/, which .prettierignore
+        # lists (shipped notes are history), so `prettier --check .` never checks notes written there.
         for name in (".prettierrc.json", ".editorconfig"):
             shutil.copy(ROOT / name, Path(tmp) / name)
         page = Path(tmp) / f"{tag}.md"
