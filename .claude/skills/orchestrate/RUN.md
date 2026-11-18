@@ -11,6 +11,8 @@ A run lives in its own folder inside the config's `run_dir`, which is gitignored
   board.md                  the board: one row per Delegation
   activity.md               the Chief of Staff's Activity Log
   answers.json              the answers given in chat, when the config did not say
+  qa-readiness.json         the QA readiness answers the Dispatch Plan asked for, the JSON object qa-plan's --answers takes
+  qa-readiness-<base>.json  the same, for a pull request with another base branch, once the human has answered for it
   rulings.md                the Ruling Ledger, in an autonomous run
   evidence/                 command output a Ruling cites, one file each: R<n>-<k>.txt
   delegations/<id>/
@@ -33,6 +35,8 @@ Nothing in a run folder is committed. A brief or a log can quote issue text and 
 
 Started <date>. Plan approved <date>. Approved routine writes: <list, or none>. Decision authority: <relay, or autonomous>.
 
+QA readiness: <none needed; or for <base>, this run only, or saved to <config> (uncommitted); and each other base answered>.
+
 Heartbeat: <id, interval, made <time>; `foreground watch`, where the harness has no scheduler; none yet; deleted <time>; or none on tier 3>.
 
 Default branch: <name> at <SHA>, checked <time>; passed: <Delegation>@<head>, …, or none.
@@ -48,6 +52,8 @@ Spec #<n>, <shape>. Landing: <landing>. Integration branch: <name> at <SHA>, pus
 
 - #34: `ready-for-human`, listed for the human.
 ```
+
+The `QA readiness` line is there only when the run has a QA Delegation. It names the base branch the answers in `qa-readiness.json` hold for, so a QA brief for a pull request with another base gives no answers file ([SKILL.md](SKILL.md) step 4). In `qa-readiness-<base>.json`, a `/` in the branch name is written `-`.
 
 The `Heartbeat` line is the check that re-arms itself while the run waits on a Delegation (SKILL.md step 6), so `--status` shows whether one is armed and `--resume` knows what to arm again.
 
