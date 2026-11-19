@@ -744,11 +744,13 @@ describe("the CLI stays dependency-free and shell-free", () => {
         ...text.matchAll(/import\s*\{([^}]*)\}\s*from\s*"node:child_process"/g),
       ];
       if (f.endsWith(join("src", "exec.mjs"))) {
+        // spawnSync for the blocking runner, spawn for `runner.start`; both
+        // pass `shell: false`.
         assert.deepEqual(
           childProcess.map((m) => m[1].trim()),
-          ["spawnSync"],
+          ["spawn as spawnChild, spawnSync"],
         );
-        assert.match(text, /shell:\s*false/);
+        assert.equal(text.match(/shell:\s*false/g)?.length, 2, `${f}: shell: false on both calls`);
       } else {
         assert.equal(childProcess.length, 0, `${f}: run commands through the injected runner`);
       }
