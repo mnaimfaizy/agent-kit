@@ -16,6 +16,10 @@ ROOT = Path(__file__).resolve().parents[1]
 SKILL_DIR = ROOT / ".claude" / "skills" / "security-response"
 SKILL = SKILL_DIR / "SKILL.md"
 RUN = SKILL_DIR / "RUN.md"
+TRIAGE_DIR = ROOT / ".claude" / "skills" / "security-finding-triage"
+TRIAGE = TRIAGE_DIR / "SKILL.md"
+OUTCOME_FORMAT = TRIAGE_DIR / "OUTCOME-FORMAT.md"
+OUTCOMES = ["confirmed", "rejected", "below-floor", "accepted-risk", "duplicate"]
 RETIRED = "STATUS-FORMAT.md"
 MODES = "status | next | triage <target> | fix <target> | reconcile | record <what> | close"
 MODE_NAMES = ["status", "next", "triage <target>", "fix <target>", "reconcile", "record <what>", "close"]
@@ -294,6 +298,44 @@ def test_each_correction_is_logged() -> None:
     assert "`reconciled: <old> → <new>, checked <how>`" in log
 
 
+def test_triage_does_not_write_the_ledger() -> None:
+    triage = read(TRIAGE)
+    process = section(triage, "Process")
+    steps = re.findall(r"^\d+\. (.+)$", process, re.MULTILINE)
+    assert not any("ledger" in step.lower() for step in steps), f"no process step may edit the ledger: {steps}"
+    assert "fingerprint-safe" not in triage, "the step that updated the ledger's fingerprint-safe fields is gone"
+    rules = flat(section(triage, "Hard rules"))
+    assert "Never edit the findings ledger." in rules
+    assert "Proposed ledger row" in rules, "the rule must name what triage emits instead"
+    assert "only a Security Response Run's `close` applies it" in rules
+    outcomes = [m.group(1) for m in re.finditer(r"^   - `([^`]+)`", process, re.MULTILINE)]
+    assert outcomes == OUTCOMES, f"triage's outcomes must read {OUTCOMES}, got {outcomes}"
+
+
+def outcome_line(text: str, field: str) -> str:
+    return next(line for line in text.splitlines() if line.startswith(f"- **{field}:**"))
+
+
+def test_outcome_format_gains_below_floor_and_a_proposed_ledger_row() -> None:
+    text = read(OUTCOME_FORMAT)
+    outcome = outcome_line(text, "Outcome")
+    assert outcome.split(":** ", 1)[1].split(" | ") == OUTCOMES, f"the Outcome line must read {OUTCOMES}: {outcome!r}"
+    assert "low" in outcome_line(text, "Severity (after triage)").split(" | "), "a below-floor finding needs `low`"
+    assert "`<canonical concept-id>`" in outcome_line(text, "Duplicate of")
+    assert "\n### Proposed ledger row\n" in text
+    assert "Ledger update" not in text, "`Ledger update` is replaced by `Proposed ledger row`"
+    row = flat(subsection(text, "Proposed ledger row"))
+    assert "| Concept id | Status | First seen | Advisory | Notes |" in table_rows(row)
+    assert "Triage never writes it" in row
+    outcomes = flat(subsection(text, "Outcomes"))
+    assert "`below-floor`" in item(outcomes, "`below-floor`") and "under the Medium floor" in outcomes
+    assert "not `rejected`" in item(outcomes, "`below-floor`")
+    accepted = item(outcomes, "`accepted-risk`")
+    assert "the Delivery ending `accepted-risk`" in accepted and "a recommendation" in accepted, accepted
+    found = flat(subsection(text, "Found in triage"))
+    assert "a new finding" in found and "its own concept id" in found
+
+
 if __name__ == "__main__":
     test_argument_hint_and_mode_list()
     test_every_mode_opens_or_resumes_the_run()
@@ -316,4 +358,6 @@ if __name__ == "__main__":
     test_reconcile_never_deletes_rows()
     test_a_concept_id_in_the_ledger_enters_untriaged()
     test_each_correction_is_logged()
+    test_triage_does_not_write_the_ledger()
+    test_outcome_format_gains_below_floor_and_a_proposed_ledger_row()
     print("security-response contract: ok")
