@@ -5,9 +5,11 @@
 // alone adds the accepted sandbox runtimes' CLIs (ADR 0019). There is no
 // second runner that bypasses this. Every module takes a runner as a
 // parameter; tests inject a fake one, or a fake spawn behind the real
-// allowlist.
+// allowlist. A runner also has `start`, the same command run without
+// blocking (`deep-scan`'s long sandbox steps), so an interrupt can stop the
+// step and the sandbox still be torn down; it checks the same allowlist.
 
-import { spawnSync } from "node:child_process";
+import { spawn as spawnChild, spawnSync } from "node:child_process";
 
 /** The sandbox runtimes' command-line tools, which only `deep-scan` may run. */
 export const RUNTIME_CLIS = Object.freeze([
@@ -28,9 +30,14 @@ const ALLOWLISTS = Object.freeze({
 /**
  * @typedef {{ status: number | null, stdout: string, stderr: string }} RunResult
  * @typedef {{ status: number | null, stdout: Buffer, stderr: string }} BufferResult
- * @typedef {(cmd: string, args: string[], opts?: { cwd?: string, env?: NodeJS.ProcessEnv, encoding?: "utf8" | "buffer" }) => RunResult} Runner
+ * @typedef {{ status: number | null, signal: string | null, aborted: boolean, stdout: Buffer, stderr: string }} StartResult
+ *   `aborted` is true when `opts.signal` stopped the command.
+ * @typedef {(cmd: string, args: string[], opts?: { cwd?: string, env?: NodeJS.ProcessEnv, stdin?: Buffer | string, signal?: AbortSignal }) => Promise<StartResult>} Start
+ * @typedef {((cmd: string, args: string[], opts?: { cwd?: string, env?: NodeJS.ProcessEnv, encoding?: "utf8" | "buffer" }) => RunResult) & { start: Start }} Runner
  *   With `encoding: "buffer"`, stdout is the raw bytes (a Buffer): use it for
- *   file contents, which need not be UTF-8. stderr is always text.
+ *   file contents, which need not be UTF-8. stderr is always text. `start`
+ *   runs a command without blocking, feeds it `stdin`, and kills it when
+ *   `signal` aborts.
  */
 
 /** The commands a subcommand's runner may run. */
@@ -40,34 +47,110 @@ export function allowedCommands(subcommand) {
   return list;
 }
 
+const MAX_OUTPUT = 64 * 1024 * 1024;
+
 /**
- * The runner for one subcommand. `spawn` is the process boundary, replaceable
- * only by tests; the allowlist check always runs first.
+ * The runner for one subcommand. `spawn` and `spawnAsync` are the process
+ * boundary (blocking and not), replaceable only by tests; the allowlist check
+ * always runs first.
  * @param {string} subcommand
- * @param {{ spawn?: typeof spawnSync }} [opts]
+ * @param {{ spawn?: typeof spawnSync, spawnAsync?: typeof spawnChild }} [opts]
  * @returns {Runner}
  */
-export function runnerFor(subcommand, { spawn = spawnSync } = {}) {
-  return makeRunner(allowedCommands(subcommand), subcommand, spawn);
+export function runnerFor(subcommand, { spawn = spawnSync, spawnAsync = spawnChild } = {}) {
+  return makeRunner(allowedCommands(subcommand), subcommand, spawn, spawnAsync);
 }
 
-function makeRunner(list, who, spawn) {
+function makeRunner(list, who, spawn, spawnAsync = spawnChild) {
   const allowed = new Set(list);
   const names = `${list.slice(0, -1).join(", ")} and ${list.at(-1)}`;
-  return function run(cmd, args, opts = {}) {
+  const check = (cmd, args) => {
     if (!allowed.has(cmd)) {
       throw new Error(`refusing to run ${cmd}: ${who} may run only ${names}`);
     }
     if (!Array.isArray(args) || args.some((a) => typeof a !== "string")) {
       throw new TypeError("runner arguments must be an array of strings");
     }
+  };
+  const envFor = (opts) => ({
+    ...process.env,
+    GIT_TERMINAL_PROMPT: "0",
+    GH_PROMPT_DISABLED: "1",
+    ...opts.env,
+  });
+  /** @type {Start} */
+  const start = (cmd, args, opts = {}) => {
+    check(cmd, args);
+    return new Promise((resolve) => {
+      let done = false;
+      let aborted = false;
+      const out = [];
+      const err = [];
+      let size = 0;
+      const finish = (result) => {
+        if (done) return;
+        done = true;
+        opts.signal?.removeEventListener("abort", onAbort);
+        resolve({ aborted, ...result });
+      };
+      let child;
+      const onAbort = () => {
+        aborted = true;
+        child?.kill("SIGTERM");
+      };
+      try {
+        child = spawnAsync(cmd, args, {
+          cwd: opts.cwd,
+          env: envFor(opts),
+          shell: false,
+          windowsHide: true,
+          stdio: ["pipe", "pipe", "pipe"],
+        });
+      } catch (e) {
+        finish({
+          status: null,
+          signal: null,
+          stdout: Buffer.alloc(0),
+          stderr: `${cmd}: ${e.message}`,
+        });
+        return;
+      }
+      child.stdout.on("data", (b) => {
+        size += b.length;
+        if (size <= MAX_OUTPUT) out.push(b);
+      });
+      child.stderr.on("data", (b) => err.push(b));
+      child.on("error", (e) =>
+        finish({
+          status: null,
+          signal: null,
+          stdout: Buffer.alloc(0),
+          stderr: `${cmd}: ${e.message}`,
+        }),
+      );
+      child.on("close", (status, signal) =>
+        finish({
+          status,
+          signal,
+          stdout: Buffer.concat(out),
+          stderr: Buffer.concat(err).toString("utf8"),
+        }),
+      );
+      if (opts.signal?.aborted) onAbort();
+      else opts.signal?.addEventListener("abort", onAbort, { once: true });
+      child.stdin.on("error", () => {});
+      child.stdin.end(opts.stdin ?? undefined);
+    });
+  };
+  function run(cmd, args, opts = {}) {
+    check(cmd, args);
     const result = spawn(cmd, args, {
       cwd: opts.cwd,
-      env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GH_PROMPT_DISABLED: "1", ...opts.env },
+      env: envFor(opts),
       encoding: "buffer",
       shell: false,
       windowsHide: true,
-      maxBuffer: 64 * 1024 * 1024,
+      maxBuffer: MAX_OUTPUT,
     });
     const raw = opts.encoding === "buffer";
     if (result.error) {
@@ -83,7 +166,9 @@ function makeRunner(list, who, spawn) {
       stdout: raw ? stdout : stdout.toString("utf8"),
       stderr: (result.stderr ?? Buffer.alloc(0)).toString("utf8"),
     };
-  };
+  }
+  run.start = start;
+  return run;
 }
 
 /**
