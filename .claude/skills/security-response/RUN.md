@@ -164,7 +164,7 @@ A found-in-triage row confirmed at Medium or above needs a draft advisory before
 - `released <tag>`: the human cut a release; the run checks the tag contains the fix SHA ([Merged and released](#merged-and-released))
 - `fixed <concept-id>: <how>`: the row is done with a change that needs no release ([Fixed](#fixed))
 - `accepted-risk <concept-id>: <reason>`: the human accepts the risk on the row ([Accepted risk, recorded](#accepted-risk-recorded))
-- `approve publish|close|cve <GHSA…>`: the run then publishes, closes, or requests a CVE for each named advisory
+- `approve publish|close|cve <GHSA…>`: the run then publishes, closes, or requests a CVE for each named advisory ([Advisory actions](#advisory-actions))
 - `match <GHSA> <concept-id>`: joins a human-made draft to a row with advisory `none yet` ([Match](#match))
 - `ack <concept-id|GHSA>`: clears a contradicted-final entry from Waiting on you ([Ack](#ack))
 
@@ -212,9 +212,41 @@ Each transition leaves its record in the row's Record, so nothing the API later 
 
 The Record collects these as the row moves: a later record is added after the earlier ones, never written over them (`fork PR #2, fix 763af3a, v1.0.0-alpha.9`).
 
+An advisory's CVE request is recorded in its CVE column, not in a row's Record ([CVE request](#cve-request)).
+
 ### The log
 
 Each `record` is logged in `activity.md` as a human report, with what was verified: `<time> human: record <what>; verified: <check and result>`, or `verified: nothing to check` for a judgement. A refused `record` writes nothing, not even a log entry.
+
+## Advisory actions
+
+Only `record approve` lets the run publish, close, or request a CVE for an advisory, and the run then does it itself, through `gh api` ([SKILL.md](SKILL.md#advisory-actions) names the calls). `<GHSA…>` is one or more full GHSA ids, each one named: there is no wildcard. Each advisory is gated on its own, after reconcile: the run acts on each one that passes its gate and refuses each one that does not, naming why, and a refusal does not stop the others.
+
+An approval is for that one action on that advisory. A refused or failed action needs a new `record approve`, and an approval never carries over to a later action.
+
+After each call, the run reads the advisory back with `gh api repos/<owner>/<repo>/security-advisories/<GHSA-id>`, and moves the board only on what the read shows. A call that fails moves nothing: the reply gives GitHub's error. Each action is logged in `activity.md`: the human's approval ([The log](#the-log)), then the call and what the read showed.
+
+An advisory with no finding rows is refused here for now: say so, and act on nothing for it. A **duplicate advisory** is one whose every row is `duplicate`.
+
+### Publish
+
+`record approve publish <GHSA>` publishes the advisory. Publish is refused while any row under the advisory is not final, or while the advisory is not `draft`. A duplicate advisory is never published: the run refuses it, and says to close it once its canonical row's advisory is final ([Close](#close)).
+
+Publishing deletes the private fork, and its pull requests with it. So the run checks that the fork PR numbers and fix SHAs are in the Record of every row under it before the publish. For a row that went through the fork and lacks either, the run reads them from the fork (`gh pr list` and `gh pr view`), writes them into the row's Record, and logs it, before it publishes. When a record is missing and the fork cannot be read, the run refuses the publish.
+
+Once the read shows `published`, the advisory's State becomes `published` and its Next `final`. The run then offers to remove the private-fork clone named in its Fork clone cell, and removes it only on a yes.
+
+### Close
+
+`record approve close <GHSA…>` closes each advisory without publishing it. Close is refused while any row under the advisory is not final, or while the advisory is not `draft`.
+
+A duplicate advisory is closed, not published, once its canonical row's advisory is final. For each of its rows, the row named in its `of <canonical id>` record must have an advisory that is `published` or `closed`; a canonical row with advisory `n/a` must itself be final, and a canonical id that is only in the findings ledger counts as final. Until then the close is refused, and the advisory's Next reads `close once <canonical advisory> is final`.
+
+What closing does to the private fork is not documented, so before a close the run records fork PR numbers and fix SHAs as it does before a publish. Once the read shows `closed`, the advisory's State becomes `closed` and its Next `final`.
+
+### CVE request
+
+`record approve cve <GHSA>` requests a CVE for the advisory. The run requests it only after a row under the advisory is `confirmed`, and refuses it otherwise, on a `closed` advisory, and when the CVE column already reads `requested <date>` or a CVE id. GitHub answers `202 Accepted`, for a public repository only, and its `cve_id` stays empty until a CVE is assigned. So on that answer the run writes `requested <date>` in the advisory's CVE column, and the request is logged in `activity.md`; the board keeps the request until the advisory API shows the CVE id, which then replaces it ([Who wins](#who-wins)). Any other answer records nothing.
 
 ## Board
 
@@ -263,15 +295,15 @@ Rows are ordered by severity, highest first (`critical`, `high`, `medium`, then 
 
 The advisories table has one line per draft advisory in the run:
 
-| Column     | Holds                                                                                                                             |
-| ---------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| Advisory   | The full GHSA id.                                                                                                                 |
-| Created    | The date the advisory was created.                                                                                                |
-| Rows       | How many finding rows it has.                                                                                                     |
-| State      | One of the [Advisory state](#advisory-state) values.                                                                              |
-| CVE        | `not requested`, `requested <date>`, or the CVE id once assigned.                                                                 |
-| Fork clone | The local path of the private fork's clone, or `—`.                                                                               |
-| Next       | Why it is not yet publishable (`wait: 3 rows not final`), `close once <canonical advisory> is final` for a duplicate, or `final`. |
+| Column     | Holds                                                                                                                                                                                      |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Advisory   | The full GHSA id.                                                                                                                                                                          |
+| Created    | The date the advisory was created.                                                                                                                                                         |
+| Rows       | How many finding rows it has.                                                                                                                                                              |
+| State      | One of the [Advisory state](#advisory-state) values.                                                                                                                                       |
+| CVE        | `not requested`, `requested <date>`, or the CVE id once assigned.                                                                                                                          |
+| Fork clone | The local path of the private fork's clone, or `—`.                                                                                                                                        |
+| Next       | Why it is not yet publishable (`wait: 3 rows not final`), `you: approve publish` once every row under it is final, `close once <canonical advisory> is final` for a duplicate, or `final`. |
 
 `status` prints the board as it is after the run is opened or resumed and then reconciled, in the local terminal only.
 

@@ -4,7 +4,8 @@ The skill is prose, so this pins the sentences a run relies on (where the run
 folder lives, the ignore gate, the layout, the board, the state lists and what
 is final, the modes, reconcile: its sources, who wins, and the rules that it
 never deletes a row, keeps a contradicted final row final and moves nothing on
-an unavailable source), not what they mean. What a sentence means is for review.
+an unavailable source), the closed `record` set and what each form verifies,
+and the gates on publishing, closing and requesting a CVE, not what they mean. What a sentence means is for review.
 It also keeps the retired status-format file gone, with nothing linking to it.
 """
 
@@ -496,6 +497,46 @@ def test_each_transition_leaves_its_record() -> None:
     assert "in the row's Record" in flat(records)
 
 
+def advisory_actions() -> str:
+    return section(read(RUN), "Advisory actions")
+
+
+def test_approve_then_the_run_acts_through_gh_api() -> None:
+    actions = flat(advisory_actions())
+    assert "Only `record approve` lets the run publish, close, or request a CVE" in actions
+    assert "[SKILL.md](SKILL.md#advisory-actions)" in actions
+    calls = flat(section(read(SKILL), "Advisory actions"))
+    for call in (
+        "gh api --method PATCH repos/<owner>/<repo>/security-advisories/<GHSA-id> -f state=published",
+        "gh api --method PATCH repos/<owner>/<repo>/security-advisories/<GHSA-id> -f state=closed",
+        "gh api --method POST repos/<owner>/<repo>/security-advisories/<GHSA-id>/cve",
+    ):
+        assert f"`{call}`" in calls, f"SKILL.md must name the call {call!r}"
+    assert "only after `record approve`" in calls and "RUN.md#advisory-actions" in calls
+    assert "(#advisory-actions)" in mode_line("record <what>")
+
+
+def test_publish_gate() -> None:
+    publish = flat(subsection(advisory_actions(), "Publish"))
+    assert "Publish is refused while any row under the advisory is not final" in publish
+    assert "A duplicate advisory is never published" in publish
+    assert "fork PR numbers and fix SHAs are in the Record of every row under it before the publish" in publish
+    assert "refuses the publish" in publish
+
+
+def test_a_duplicate_advisory_is_closed_once_its_canonical_rows_advisory_is_final() -> None:
+    close = flat(subsection(advisory_actions(), "Close"))
+    assert "A duplicate advisory is closed, not published, once its canonical row's advisory is final" in close
+    assert "Close is refused while any row under the advisory is not final" in close
+
+
+def test_a_cve_request_needs_a_confirmed_row_and_is_recorded() -> None:
+    cve = flat(subsection(advisory_actions(), "CVE request"))
+    assert "only after a row under the advisory is `confirmed`" in cve
+    assert "`requested <date>`" in cve and "in the advisory's CVE column" in cve
+    assert "logged in `activity.md`" in cve
+
+
 if __name__ == "__main__":
     test_argument_hint_and_mode_list()
     test_every_mode_opens_or_resumes_the_run()
@@ -534,4 +575,8 @@ if __name__ == "__main__":
     test_ack_clears_a_contradicted_final_entry()
     test_each_record_is_logged_as_a_human_report()
     test_each_transition_leaves_its_record()
+    test_approve_then_the_run_acts_through_gh_api()
+    test_publish_gate()
+    test_a_duplicate_advisory_is_closed_once_its_canonical_rows_advisory_is_final()
+    test_a_cve_request_needs_a_confirmed_row_and_is_recorded()
     print("security-response contract: ok")
