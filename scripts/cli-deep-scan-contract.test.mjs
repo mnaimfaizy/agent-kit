@@ -26,6 +26,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { createServer as createNetServer } from "node:net";
@@ -154,7 +155,7 @@ process.exit(reply.status ?? 0);
 let stdinFiles = 0;
 
 /** An in-process child process for a fake CLI call, answering as the shim does. */
-function fakeChild(host, cmd, args) {
+function fakeChild(host, cmd, args, cwd) {
   const child = new EventEmitter();
   child.stdout = new PassThrough();
   child.stderr = new PassThrough();
@@ -185,9 +186,25 @@ function fakeChild(host, cmd, args) {
       writeFileSync(join(host.dir, file), Buffer.concat(input));
       record.push({ stdin: file });
     }
+    // `sbx cp <local> <sandbox>:<path>`: keep the bytes of the local file,
+    // which is relative to the call's folder.
+    const cp = args.indexOf("cp");
+    if (cmd === "sbx" && cp >= 0 && cwd && existsSync(join(cwd, args[cp + 1]))) {
+      const file = `copied-${stdinFiles++}.bin`;
+      writeFileSync(join(host.dir, file), readFileSync(join(cwd, args[cp + 1])));
+      record.push({ stdin: file });
+    }
     appendFileSync(join(host.dir, "calls.jsonl"), `${JSON.stringify(record)}\n`);
     const answer = JSON.parse(readFileSync(join(host.dir, `${cmd}.json`), "utf8"));
     const reply = replyFor(answer, args.join(" "));
+    // `writes` puts entries in the call's folder: { name, text }, { name,
+    // dir: true } or { name, link }, as `sbx cp <sandbox>:<path> .` would.
+    for (const w of reply.writes ?? []) {
+      const at = join(cwd, w.name);
+      if (w.dir) mkdirSync(at);
+      else if (w.link) symlinkSync(w.link, at);
+      else writeFileSync(at, w.text);
+    }
     if (reply.probe) {
       const env = args.find((a) => a.startsWith("HTTPS_PROXY="));
       const proxy = env ? new URL(env.slice("HTTPS_PROXY=".length)) : null;
@@ -266,6 +283,34 @@ function docker({
     ...extra,
   };
 }
+/**
+ * `sbx policy ls --json` on a deny-all global policy, verbatim as sbx
+ * v0.54.0 printed it on the maintainer's machine (the run's evidence).
+ */
+const SBX_DENY_ALL = readFileSync(
+  join(import.meta.dirname, "fixtures", "deep-scan", "sbx-policy-ls-deny-all.txt"),
+  "utf8",
+);
+
+/**
+ * Docker Sandboxes (`sbx` v0.54.0) as a working install answers: its
+ * version, a deny-all global policy, the same for one sandbox, and the
+ * report copied out into the call's folder. `extra` adds or overrides.
+ */
+function sbxAnswers(extra = {}) {
+  return {
+    version: { status: 0, stdout: "sbx version v0.54.0 4bec4a5c\n" },
+    "--no-input policy ls --json": { status: 0, stdout: SBX_DENY_ALL },
+    "--no-input policy ls agent-kit-deep-": { status: 0, stdout: SBX_DENY_ALL },
+    "--no-input cp agent-kit-deep-": {
+      status: 0,
+      writes: [{ name: "report.md", text: REPORT_TEXT }],
+    },
+    "*": { status: 0 },
+    ...extra,
+  };
+}
+
 const RUNC = { "io.containerd.runc.v2": { path: "runc" }, runc: { path: "runc" } };
 const KATA = { kata: { path: "/opt/kata/bin/containerd-shim-kata-v2" } };
 const FC = { "kata-fc": { path: "/opt/kata/bin/kata-fc" } };
@@ -300,7 +345,7 @@ function spawnAsyncFor(host, spawned, onSpawn = () => {}) {
     else if (!existsSync(join(host.dir, `${cmd}.json`))) {
       throw Object.assign(new Error(`spawn ${cmd} ENOENT`), { code: "ENOENT" });
     } else {
-      child = fakeChild(host, cmd, args);
+      child = fakeChild(host, cmd, args, opts.cwd);
     }
     onSpawn(cmd, args, child);
     return child;
@@ -829,7 +874,7 @@ function assertNothingStarted(res) {
 }
 
 const ALL_RUNTIMES = {
-  sbx: ok("sbx version 0.7.0\n"),
+  sbx: sbxAnswers(),
   docker: docker({ runtimes: { ...RUNC, ...KATA, ...FC, ...RUNSC } }),
   "kata-runtime": ok("kata-runtime  : 3.10.1\n"),
   firecracker: ok("Firecracker v1.10.1\n"),
@@ -905,15 +950,13 @@ describe("the sandbox runtime is chosen from the host in preference order", () =
       const line = res.out.split("\n").find((l) => l.startsWith("Sandbox runtime: "));
       assert.ok(line, res.text);
       assert.match(line, chosen);
-      if (/sbx/.test(line)) {
-        // The Docker Sandboxes lifecycle is not built yet: it stops before
-        // anything starts.
-        assert.equal(res.code, 1, res.text);
-        assert.match(res.err, /Docker Sandboxes \(sbx\) sandbox lifecycle is not built yet/);
-        assertNothingStarted(res);
-      } else {
-        assert.equal(res.code, 0, res.text);
-      }
+      assert.equal(res.code, 0, res.text);
+      // The lifecycle ran on the chosen runtime's own CLI.
+      const cli = /sbx/.test(line) ? "sbx" : "docker";
+      assert.ok(
+        res.shims.some(([c, ...a]) => c === cli && a.some((x) => /^agent-kit-deep-/.test(x))),
+        `${cli} ran the sandbox`,
+      );
     });
   }
 
@@ -1302,14 +1345,6 @@ describe("the sandbox lifecycle runs in order on the chosen runtime", () => {
     assert.ok(!calls.find((a) => a[0] === "run").includes("--runtime"));
     const setup = calls.find(isSetupStep);
     assert.ok(setup.some((a) => /^HTTPS_PROXY=http:\/\/host\.docker\.internal:\d+$/.test(a)));
-  });
-
-  it("stops before anything starts when Docker Sandboxes is chosen, as its lifecycle is not built yet", async () => {
-    const host = makeHost("win32", { sbx: ok("sbx version 0.7.0\n") });
-    const res = await run(recipeRepo(VALID), [], { host });
-    assert.equal(res.code, 1, res.text);
-    assert.match(res.err, /not built yet, so nothing was started/);
-    assert.deepEqual(res.shims, [["sbx", "version"]]);
   });
 });
 
@@ -1787,8 +1822,302 @@ describe("the sandbox docs", () => {
       "every exit path",
       "interrupt",
       "agent-kit.deep-scan",
+      "On Docker Sandboxes",
+      "must be deny-all",
+      "`sbx policy ls --json`",
+      "never changes your global policy",
+      "A `dockerfile` recipe is refused",
     ]) {
       assert.ok(section.includes(fact), `the section says ${fact}`);
     }
+  });
+});
+
+// --- The Docker Sandboxes driver (#369, the human's option 1) ---------------
+
+/** The sbx commands a run sent, `--no-input` dropped, as arg lists. */
+function sbxCalls(res) {
+  return res.shims
+    .filter(([cli]) => cli === "sbx")
+    .map(([, ...args]) => args.filter((a) => typeof a === "string" && a !== "--no-input"));
+}
+
+/** A Windows host with only Docker Sandboxes; `extra` overrides its answers. */
+const sbxHost = (extra) => makeHost("win32", { sbx: sbxAnswers(extra) });
+
+const sbxVerb = (a) => (a[0] === "policy" ? a.slice(0, a[1] === "ls" ? 2 : 3).join(" ") : a[0]);
+
+/** The deny-all policy with one more active network rule. */
+const withRule = (rule) => {
+  const policy = JSON.parse(SBX_DENY_ALL);
+  policy.rules.push({
+    id: "extra-rule",
+    scope: "global",
+    applies_to: "all",
+    resource_type: "network",
+    status: "active",
+    resources: ["**"],
+    ...rule,
+  });
+  return JSON.stringify(policy);
+};
+
+const sandboxName = (calls) => {
+  const create = calls.find((a) => a[0] === "create");
+  return create[create.indexOf("--name") + 1];
+};
+
+describe("Docker Sandboxes runs the same lifecycle, on a deny-all global policy", () => {
+  it("checks the policy, creates a mountless sandbox, installs Claude Code, sets up, cuts, runs the agent, copies out and removes it", async () => {
+    const res = await run(recipeRepo(VALID), [], { host: sbxHost() });
+    assert.equal(res.code, 0, res.text);
+    const calls = sbxCalls(res);
+    assert.deepEqual(calls.map(sbxVerb), [
+      "version",
+      "policy ls",
+      "create",
+      "cp",
+      "exec",
+      "cp",
+      "exec",
+      "policy allow network",
+      "exec",
+      "policy rm network",
+      "policy allow network",
+      "exec",
+      "exec",
+      "exec",
+      "exec",
+      "policy rm network",
+      "policy ls",
+      "exec",
+      "cp",
+      "rm",
+    ]);
+    assert.equal(readFileSync(join(res.reportDir, "report.md"), "utf8"), REPORT_TEXT);
+    assert.ok(isAgentStep(calls[17]), calls[17].join(" "));
+    assert.match(res.out, /Network policy: Docker Sandboxes' global policy is deny-all/);
+  });
+
+  it("creates the sandbox mountless, from the recipe's image, with the auto-updater off", async () => {
+    const res = await run(recipeRepo(VALID), [], { host: sbxHost() });
+    const create = sbxCalls(res).find((a) => a[0] === "create");
+    assert.match(sandboxName(sbxCalls(res)), /^agent-kit-deep-[0-9a-f]{12}$/);
+    assert.equal(create[create.indexOf("-t") + 1], "node:22-bookworm");
+    assert.equal(create[create.indexOf("-e") + 1], "DISABLE_AUTOUPDATER=1");
+    assert.equal(create.at(-1), "shell", "the agent, and no workspace path after it");
+    for (const flag of ["--mount", "-v", "--volume", "--env-file", "--clone", "--cloud"]) {
+      assert.ok(!create.includes(flag), `create uses ${flag}`);
+    }
+  });
+
+  it("installs the pinned Claude Code with only registry.npmjs.org allowed, for that step alone", async () => {
+    const res = await run(recipeRepo(VALID), [], { host: sbxHost() });
+    const calls = sbxCalls(res);
+    const name = sandboxName(calls);
+    const install = calls.findIndex(
+      (a) => a[0] === "exec" && /claude-code@\d+\.\d+\.\d+/.test(a.at(-1)),
+    );
+    assert.ok(install > 0);
+    assert.deepEqual(calls[install - 1], [
+      "policy",
+      "allow",
+      "network",
+      "--sandbox",
+      name,
+      "registry.npmjs.org:443",
+    ]);
+    assert.deepEqual(calls[install + 1].slice(-3), [
+      "--resource",
+      "registry.npmjs.org:443",
+      "--force",
+    ]);
+    assert.match(calls[install].at(-1), /managed-settings\.json/);
+    assert.deepEqual(calls[install].slice(1, 3), ["-u", "root"]);
+  });
+
+  it("allows only the registries for setup, per sandbox, and removes them before the agent step", async () => {
+    const res = await run(recipeRepo(VALID), [], { host: sbxHost() });
+    const calls = sbxCalls(res);
+    const name = sandboxName(calls);
+    const allows = calls.filter((a) => a[0] === "policy" && a[1] === "allow");
+    assert.deepEqual(allows.at(-1), [
+      "policy",
+      "allow",
+      "network",
+      "--sandbox",
+      name,
+      "registry.npmjs.org:80,registry.npmjs.org:443",
+    ]);
+    for (const a of calls.filter((x) => x[0] === "policy")) {
+      assert.ok(a.includes("--sandbox") || a[1] === "ls", `sbx ${a.join(" ")} is not per sandbox`);
+      assert.ok(!["init", "reset"].includes(a[1]), "never changes the global policy");
+    }
+    const cut = calls.findLastIndex((a) => a[0] === "policy" && a[1] === "rm");
+    const check = calls.findLastIndex((a) => a[0] === "policy" && a[1] === "ls");
+    const agent = calls.findIndex(isAgentStep);
+    assert.deepEqual(calls[cut].slice(-3), [
+      "--resource",
+      "registry.npmjs.org:80,registry.npmjs.org:443",
+      "--force",
+    ]);
+    assert.deepEqual(calls[check], ["policy", "ls", name, "--json"]);
+    assert.ok(cut < check && check < agent);
+    assert.ok(!calls.some((a) => a[0] === "reset"));
+    // Setup steps get no proxy variables: sbx's own host proxy enforces it.
+    for (const a of calls.filter((x) => x[0] === "exec")) {
+      assert.ok(!a.some((x) => /PROXY=/.test(x)), a.join(" "));
+    }
+  });
+
+  it("copies in the default branch's tree through a private host file, never a mount", async () => {
+    const dir = makeRepo({
+      committed: { ".security/scan-recipe.yml": VALID, "src/app.js": "committed\n" },
+      working: { "src/app.js": "edited\n" },
+    });
+    const res = await run(dir, [], { host: sbxHost() });
+    assert.equal(res.code, 0, res.text);
+    const cp = res.shims.find((c) => c[0] === "sbx" && c[2] === "cp");
+    assert.match(cp[3], /^in-\d+\.tar$/, "a relative host path, never a drive letter");
+    assert.match(cp[4], /^agent-kit-deep-[0-9a-f]+:\/tmp\/agent-kit-in-\d+\.tar$/);
+    const tree = tarEntries(readFileSync(join(res.host.dir, cp.find((a) => a?.stdin).stdin)));
+    const app = tree.find((e) => e.name === "workspace/src/app.js");
+    assert.equal(app.data.toString("utf8"), "committed\n");
+    const unpack = sbxCalls(res)[4];
+    assert.match(unpack.at(-1), /^tar -xf \/tmp\/agent-kit-in-0\.tar -C \/ && rm -f /);
+  });
+
+  it("ends before the agent step when unpacking the copied-in tree fails", async () => {
+    const host = sbxHost({ "~tar -xf": { status: 2, stderr: "tar: not found\n" } });
+    const res = await run(recipeRepo(VALID), [], { host });
+    assert.equal(res.code, 1, res.text);
+    assert.match(res.err, /FAILED {2}copying the repository in \(unpacking it\): tar: not found/);
+    assert.ok(!sbxCalls(res).some(isAgentStep));
+    assert.equal(sbxCalls(res).at(-1)[0], "rm");
+  });
+
+  it("refuses an uninitialised global policy, says what to run, and starts nothing", async () => {
+    const host = sbxHost({
+      "--no-input policy ls --json": {
+        status: 1,
+        stderr:
+          "error: global network policy has not been initialized\n  try: sbx policy init <allow-all|balanced|deny-all>\n",
+      },
+    });
+    const res = await run(recipeRepo(VALID), [], { host });
+    assert.equal(res.code, 1, res.text);
+    assert.match(
+      res.err,
+      /REFUSED {2}Docker Sandboxes' global network policy has not been initialized/,
+    );
+    assert.match(res.err, /Run `sbx policy init deny-all` yourself/);
+    assert.deepEqual(sbxCalls(res).map(sbxVerb), ["version", "policy ls"]);
+  });
+
+  it("refuses a global policy with a network allow rule, naming it, and starts nothing", async () => {
+    const host = sbxHost({
+      "--no-input policy ls --json": {
+        status: 0,
+        stdout: withRule({ id: "balanced-npm", decision: "allow" }),
+      },
+    });
+    const res = await run(recipeRepo(VALID), [], { host });
+    assert.equal(res.code, 1, res.text);
+    assert.match(res.err, /global network policy is not deny-all/);
+    assert.match(res.err, /Global allow rules: balanced-npm\./);
+    assert.ok(!sbxCalls(res).some((a) => a[0] === "create"));
+  });
+
+  it("refuses a policy without the active deny-all rule, or one it cannot read", async () => {
+    const noDeny = JSON.parse(SBX_DENY_ALL);
+    noDeny.rules = noDeny.rules.filter((r) => r.id !== "default-deny-all");
+    for (const stdout of [JSON.stringify(noDeny), "not json\n", '{"rules": "x"}']) {
+      const host = sbxHost({ "--no-input policy ls --json": { status: 0, stdout } });
+      const res = await run(recipeRepo(VALID), [], { host });
+      assert.equal(res.code, 1, res.text);
+      assert.match(res.err, /REFUSED {2}/);
+      assert.ok(!sbxCalls(res).some((a) => a[0] === "create"));
+    }
+  });
+
+  it("refuses a dockerfile recipe, as sbx cannot build one, before touching anything", async () => {
+    const text = recipe({ drop: ["image"], add: "dockerfile: docker/scan.Dockerfile" });
+    const res = await run(recipeRepo(text), [], { host: sbxHost() });
+    assert.equal(res.code, 1, res.text);
+    assert.match(res.err, /Docker Sandboxes cannot build a Dockerfile/);
+    assert.deepEqual(sbxCalls(res).map(sbxVerb), ["version"]);
+  });
+
+  it("ends before the agent step when the sandbox's policy still allows a host", async () => {
+    const host = sbxHost({
+      "--no-input policy ls agent-kit-deep-": {
+        status: 0,
+        stdout: withRule({ scope: "local", decision: "allow", resources: ["evil.example:443"] }),
+      },
+    });
+    const res = await run(recipeRepo(VALID), [], { host });
+    assert.equal(res.code, 1, res.text);
+    assert.match(res.err, /the network is not cut: sbx policy ls still allows evil\.example:443/);
+    assert.ok(!sbxCalls(res).some(isAgentStep));
+    assert.equal(sbxCalls(res).at(-1)[0], "rm");
+  });
+
+  it("ends before the agent step when the Claude Code install fails, removing its rule and the sandbox", async () => {
+    const host = sbxHost({ "~claude-code@": { status: 127, stderr: "sh: npm: not found\n" } });
+    const res = await run(recipeRepo(VALID), [], { host });
+    assert.equal(res.code, 1, res.text);
+    assert.match(res.err, /installing Claude Code exited 127 \(the image needs Node\.js and npm\)/);
+    const calls = sbxCalls(res);
+    assert.ok(!calls.some(isAgentStep));
+    assert.deepEqual(calls.slice(-2).map(sbxVerb), ["policy rm network", "rm"]);
+    assert.deepEqual(calls.at(-2).slice(-3), ["--resource", "registry.npmjs.org:443", "--force"]);
+  });
+
+  it("removes the setup rule and the sandbox on an interrupt during setup", async () => {
+    const host = sbxHost({ "~npm ci": { hang: true } });
+    const signals = new EventEmitter();
+    const res = await run(recipeRepo(VALID), [], {
+      host,
+      signals,
+      onSpawn: (cmd, args, child) => {
+        if (cmd === "sbx" && args.at(-1) === "npm ci") {
+          child.stdout.once("data", () => signals.emit("SIGINT"));
+        }
+      },
+    });
+    assert.equal(res.code, 130, res.text);
+    const calls = sbxCalls(res);
+    assert.deepEqual(calls.slice(-2).map(sbxVerb), ["policy rm network", "rm"]);
+    assert.deepEqual(calls.at(-1).slice(0, 2), ["rm", "--force"]);
+  });
+
+  const outs = [
+    ["a folder", [{ name: "report.md", dir: true }], /report\.md is not a regular file/],
+    [
+      "two entries",
+      [
+        { name: "report.md", text: "a" },
+        { name: "x.sh", text: "b" },
+      ],
+      /holds 2 entries, not one file/,
+    ],
+  ];
+  for (const [what, writes, why] of outs) {
+    it(`refuses a copy-out that is ${what}, and writes no report`, async () => {
+      const host = sbxHost({ "--no-input cp agent-kit-deep-": { status: 0, writes } });
+      const res = await run(recipeRepo(VALID), [], { host });
+      assert.equal(res.code, 1, res.text);
+      assert.match(res.err, why);
+      assert.equal(readdirSync(res.reportDir).length, 0);
+      assert.equal(sbxCalls(res).at(-1)[0], "rm");
+    });
+  }
+
+  it("copies the report out into a private folder, relative to it", async () => {
+    const res = await run(recipeRepo(VALID), [], { host: sbxHost() });
+    const out = sbxCalls(res).filter((a) => a[0] === "cp" && a[1].startsWith("agent-kit-deep-"));
+    assert.equal(out.length, 1);
+    assert.match(out[0][1], /^agent-kit-deep-[0-9a-f]+:\/agent-kit\/out\/report\.md$/);
+    assert.equal(out[0][2], ".");
   });
 });
