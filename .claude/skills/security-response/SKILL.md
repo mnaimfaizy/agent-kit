@@ -10,7 +10,7 @@ metadata:
 
 # Security response
 
-Backlog and remediation orchestrator for security findings, tracked as a Security Response Run: one pass of the maintainer's response to every open draft security advisory, kept in a private local board with one row per concept id.
+Drives the backlog and remediation of security findings as a Security Response Run: one pass of the maintainer's response to every open draft security advisory, kept in a private local board with one row per concept id.
 
 This skill is portable and does not include product-specific playbooks, threat packs, or ledgers. Consumers provide those assets.
 

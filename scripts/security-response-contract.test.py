@@ -34,6 +34,17 @@ def section(text: str, heading: str) -> str:
     return text.split(f"\n## {heading}\n", 1)[1].split("\n## ", 1)[0]
 
 
+def subsection(text: str, heading: str) -> str:
+    """The body under `### <heading>`, up to the next `### ` heading."""
+    assert f"\n### {heading}\n" in text, f"missing subsection: ### {heading}"
+    return text.split(f"\n### {heading}\n", 1)[1].split("\n### ", 1)[0]
+
+
+def item(text: str, starts_with: str) -> str:
+    """The `- ` list item of `text` that starts with `starts_with`."""
+    return next(s for s in text.split("- ") if s.startswith(starts_with))
+
+
 def flat(text: str) -> str:
     """The text with each run of whitespace made one space, so a sentence is found however it wraps."""
     return re.sub(r"\s+", " ", text)
@@ -65,6 +76,9 @@ def test_every_mode_opens_or_resumes_the_run() -> None:
     assert "opens a run" in runs
     assert "no draft advisories and no open run" in runs.lower()
     assert "nothing to respond to" in runs and "writes nothing" in runs
+    opening = next(s for s in runs.split(" 3. ", 1)[1:])
+    gate, folder = opening.find("Pass the ignore gate"), opening.find("make the folder")
+    assert 0 <= gate < folder, "opening a run passes the ignore gate before it makes the folder"
 
 
 def test_status_prints_the_board() -> None:
@@ -121,6 +135,7 @@ def table_rows(text: str) -> str:
 
 
 def test_board_format() -> None:
+    # The board's fenced example holds `## Findings` and `## Advisories`, so cut at the next real section.
     board = table_rows(read(RUN).split("\n## Board\n", 1)[1].split("\n## States\n", 1)[0])
     assert "Default branch: main@<sha>, checked <time>" in board
     assert "not checked: <source> unavailable" in board
@@ -129,7 +144,10 @@ def test_board_format() -> None:
     findings, advisories = board.find(FINDINGS_COLUMNS), board.find(ADVISORIES_COLUMNS)
     assert agent < findings < advisories, "the findings table, then the advisories table"
     order = flat(board)
-    assert "ordered by severity, high first, then by advisory" in order
+    assert (
+        "ordered by severity, highest first (`critical`, `high`, `medium`, then anything below), then by advisory"
+        in order
+    )
     assert "Final rows stay in place" in order
 
 
@@ -138,10 +156,9 @@ def bullets(text: str) -> dict[str, str]:
 
 
 def test_state_lists() -> None:
-    states = read(RUN)
-    evidence = section(states, "States").split("\n### Evidence\n", 1)[1].split("\n### ", 1)[0]
-    delivery = section(states, "States").split("\n### Delivery\n", 1)[1].split("\n### ", 1)[0]
-    advisory = section(states, "States").split("\n### Advisory state\n", 1)[1].split("\n### ", 1)[0]
+    states = section(read(RUN), "States")
+    evidence, delivery = subsection(states, "Evidence"), subsection(states, "Delivery")
+    advisory = subsection(states, "Advisory state")
     assert "`untriaged | confirmed | rejected | duplicate | below-floor`" in evidence
     assert list(bullets(evidence)) == EVIDENCE
     assert "`open → fix PR open → merged → released`, plus `fixed` and `accepted-risk`" in delivery
@@ -151,12 +168,12 @@ def test_state_lists() -> None:
 
 
 def test_final_states() -> None:
-    final = flat(section(read(RUN), "States").split("\n### Final\n", 1)[1].split("\n### ", 1)[0])
-    row = next(s for s in final.split("- ") if s.startswith("**A row**"))
+    final = flat(subsection(section(read(RUN), "States"), "Final"))
+    row = item(final, "**A row**")
     assert code_values(row) == ["rejected", "duplicate", "released", "fixed", "accepted-risk"], row
-    advisory = next(s for s in final.split("- ") if s.startswith("**An advisory**"))
+    advisory = item(final, "**An advisory**")
     assert code_values(advisory) == ["published", "closed"], advisory
-    run = next(s for s in final.split("- ") if s.startswith("**The run**"))
+    run = item(final, "**The run**")
     assert "every row and every advisory is final" in run, run
     assert "Final values stay final for the run" in final
 

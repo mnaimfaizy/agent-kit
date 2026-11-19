@@ -19,8 +19,8 @@ When a run opens, warn the human once:
 
 Every mode starts here, before it does its own work:
 
-1. Look for the open run. A run is open until its board's header carries `Closed <date>`; a run that reads `Closing: ledger PR #n` is still open. The newest folder under `tmp/security-response/` whose board is open is the open run.
-2. **An open run:** the mode resumes the open run. Opening while a run is open always resumes it, and never starts a second one. At most one run is open at a time. If more than one board is open, write nothing: name the folders and ask the human which one is current.
+1. Look for the open run. A run is open until its board's header carries `Closed <date>`; a run that reads `Closing: ledger PR #n` is still open. The folder under `tmp/security-response/` whose board is open is the open run.
+2. **An open run:** the mode resumes the open run. Opening while a run is open always resumes it, and never starts a second one. At most one run is open at a time. If more than one board is open, which should never happen, resume none and write nothing: name the folders and ask the human which one is current.
 3. **No open run, and draft advisories exist:** the mode opens a run. List the drafts with `gh api --paginate "repos/<owner>/<repo>/security-advisories?state=draft"`. Pass the ignore gate above, make the folder (the next free `<run>` name), save each draft to `originals/<GHSA-id>.json`, give each finding its provisional concept id ([Concept ids](#concept-ids)), and write the board and the first `activity.md` entry.
 4. **No draft advisories and no open run:** report "nothing to respond to", and stop. The mode writes nothing: no folder, no board, no log.
 
@@ -95,11 +95,11 @@ The findings table has one row per concept id:
 | Advisory   | Each advisory finding in the row, short id and `F<n>` (`hg89 F2, xmp7 F1`); `none yet` for a finding found in triage with no draft yet; `n/a` for a `below-floor` row.                      |
 | Severity   | Before triage, the severity the advisory claims, with a `?` (`high?`); after triage, the triaged severity. `—` for a `duplicate` row.                                                       |
 | Evidence   | One of the [Evidence](#evidence) values.                                                                                                                                                    |
-| Delivery   | One of the [Delivery](#delivery) values; `—` for a row whose Evidence is final.                                                                                                             |
+| Delivery   | One of the [Delivery](#delivery) values; `—` for a row whose Evidence is `rejected` or `duplicate`.                                                                                         |
 | Record     | One free-text cell that collects the row's transition records as it moves: the fork PR number, the fix SHA, the release tag, `of <canonical id>`, a one-line reason, `in ledger: <status>`. |
 | Next       | The row's next step, prefixed `agent:` or `you:`, or `final`.                                                                                                                               |
 
-Rows are ordered by severity, high first, then by advisory. Final rows stay in place, so the table keeps its shape as the work moves.
+Rows are ordered by severity, highest first (`critical`, `high`, `medium`, then anything below), then by advisory. Final rows stay in place, so the table keeps its shape as the work moves.
 
 The advisories table has one line per draft advisory in the run:
 
