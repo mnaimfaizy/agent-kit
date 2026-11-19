@@ -302,6 +302,25 @@ def test_prepare_writes_no_table_without_entries_for_the_release() -> None:
     assert "### Consumer action\n\n- TODO(release-notes): what a Consumer must do" in without
 
 
+def test_prepare_leaves_the_register_s_release_fields_alone() -> None:
+    """#361: a register entry's `release` is the release its change shipped in, history, not a pin."""
+    with sandbox():
+        on_main({"docs/deprecations.yml": REGISTER_FIXTURE})
+        code, out = run("prepare", "--tag", "v1.0.0-beta.2", "--date", "2026-11-14")
+        assert code == 0, out
+        # The entry that shipped in the previous tag keeps it; those written ahead keep the new one.
+        assert read("docs/deprecations.yml") == REGISTER_FIXTURE
+        # A re-run on the release branch reads that branch's register: its notes still list
+        # only the new release's entries, never the previous release's.
+        Path("release-notes/v1.0.0-beta.2.md").unlink()
+        code, out = run("prepare", "--tag", "v1.0.0-beta.2", "--date", "2026-11-14")
+        assert code == 0, out
+        assert read("docs/deprecations.yml") == REGISTER_FIXTURE
+        notes = read("release-notes/v1.0.0-beta.2.md")
+        assert "`OLD_FLAG`" in notes and "`gone_input`" in notes
+        assert "EARLIER_FLAG" not in notes, "the previous release's entry is not in these notes"
+
+
 def test_prepare_never_adds_the_table_to_existing_notes() -> None:
     with sandbox():
         on_main({"docs/deprecations.yml": REGISTER_FIXTURE, "release-notes/v1.0.0-beta.2.md": "Written by hand.\n"})
@@ -472,6 +491,8 @@ def test_bump_leaves_pre_releases_prose_and_tooling_of_a_stable_tag_alone() -> N
         "cli/uv.lock",
     ):
         assert release.is_history(path), path
+    # The Deprecation register records the release each change shipped in (#361).
+    assert release.is_history("docs/deprecations.yml")
     assert not release.is_history("docs/getting-started.md")
 
 
