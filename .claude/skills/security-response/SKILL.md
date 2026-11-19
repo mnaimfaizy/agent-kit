@@ -1,6 +1,6 @@
 ---
 name: security-response
-description: Run a maintainer's response to private draft security advisories as a Security Response Run, a private local board that tracks and resumes the work; reconcile findings against current code, prioritize next work, run triage, and coordinate guarded remediation when explicitly authorized.
+description: Run a maintainer's response to private draft security advisories as a Security Response Run, a private local board that tracks and resumes the work; reconcile the run against GitHub and git, prioritize next work, run triage, and coordinate guarded remediation when explicitly authorized.
 argument-hint: "status | next | triage <target> | fix <target> | reconcile | record <what> | close"
 user-invocable: true
 disable-model-invocation: true
@@ -34,7 +34,7 @@ A `<target>` is a concept id or a `GHSA:F<n>`; `fix` also takes `next`.
 
 Every mode starts by opening or resuming the Security Response Run, as [RUN.md](RUN.md#open-resume-or-nothing-to-respond-to) says: an open run is resumed; with none open and draft advisories present, a run is opened; with no drafts and no open run, the skill reports "nothing to respond to" and writes nothing. There are no `open` or `resume` modes.
 
-Reconcile is step one of every mode: once the run is opened or resumed, check it against GitHub and git, as [RUN.md](RUN.md#reconcile) says, before the mode does its own work. Verified moves (`merged`, `released`) happen on their own; judgements never do. A source that cannot be reached is shown as `not checked: <source> unavailable`, and moves no row. Reconcile never deletes a row.
+Reconcile is step one of every mode: once the run is opened or resumed, check it against GitHub and git, as [RUN.md](RUN.md#reconcile) says, before the mode does its own work.
 
 Before the first write of a run, pass the ignore gate in [RUN.md](RUN.md#where-the-run-folder-lives): if `tmp/security-response/` is not ignored, offer the `.gitignore` line and write nothing without a yes.
 

@@ -203,6 +203,8 @@ def reconcile_doc() -> str:
 def test_reconcile_is_step_one_of_every_mode() -> None:
     skill = flat(read(SKILL))
     assert "Reconcile is step one of every mode" in skill
+    flow = section(read(SKILL), "Flow")
+    assert "2. Reconcile the run against GitHub and git ([RUN.md](RUN.md#reconcile))" in flow
     mode = next(line for line in read(SKILL).splitlines() if line.startswith("- `reconcile`"))
     assert "reconcile only" in mode and "RUN.md#reconcile" in mode, f"reconcile must run reconcile alone: {mode!r}"
     when = flat(reconcile_doc())
@@ -221,14 +223,15 @@ SOURCES = {
 }
 
 
+def table_cells(table: str) -> list[list[str]]:
+    """The cells of each row of a three-column table that `table_rows` has evened out."""
+    return [line.strip(" |").split(" | ") for line in table.splitlines() if line.count(" | ") == 4]
+
+
 def test_source_table() -> None:
     sources = table_rows(subsection(reconcile_doc(), "Sources"))
     assert "| Board fact | Source | Check |" in sources
-    rows = {
-        cells[1]: cells[2:4]
-        for line in sources.splitlines()
-        if line.lstrip().startswith("|") and len(cells := line.split(" | ")) >= 4
-    }
+    rows = {fact: (source, check) for fact, source, check in table_cells(sources)}
     for fact, (source, checks) in SOURCES.items():
         assert fact in rows, f"the source table must have a row for {fact}"
         assert rows[fact][0] == source, f"{fact} is checked against {source}, got {rows[fact][0]!r}"
@@ -258,6 +261,8 @@ def test_an_unavailable_source_moves_no_row() -> None:
     unavailable = flat(subsection(reconcile_doc(), "An unavailable source"))
     assert "`not checked: <source> unavailable`" in unavailable
     assert "moves no row on that source" in unavailable
+    assert "A row is never moved, and an advisory never dropped, on a source the run could not read." in unavailable
+    assert "A fork that publish has deleted is not unavailable" in unavailable
     assert "the board is still shown" in unavailable
 
 
@@ -279,7 +284,7 @@ def test_reconcile_never_deletes_rows() -> None:
 
 def test_a_concept_id_in_the_ledger_enters_untriaged() -> None:
     rows = flat(subsection(reconcile_doc(), "Rows are never deleted"))
-    assert "enters `untriaged`, with Record `in ledger: <status>`" in rows
+    assert "already in the findings ledger gets its row as [Concept ids](#concept-ids) says" in rows
     ids = flat(section(read(RUN), "Concept ids"))
     assert "`untriaged`, with Record `in ledger: <status>`" in ids
 

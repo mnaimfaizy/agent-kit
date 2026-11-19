@@ -24,7 +24,7 @@ Every mode starts here, before it does its own work:
 3. **No open run, and draft advisories exist:** the mode opens a run. List the drafts with `gh api --paginate "repos/<owner>/<repo>/security-advisories?state=draft"`. Pass the ignore gate above, make the folder (the next free `<run>` name), save each draft to `originals/<GHSA-id>.json`, give each finding its provisional concept id ([Concept ids](#concept-ids)), and write the board and the first `activity.md` entry.
 4. **No draft advisories and no open run:** report "nothing to respond to", and stop. The mode writes nothing: no folder, no board, no log.
 
-When the advisory list cannot be read (no access, no network), say so and write nothing. A run is never opened, or "nothing to respond to" reported, on a list the run could not read.
+When no run is open and the advisory list cannot be read (no access, no network), say so and write nothing. A run is never opened, or "nothing to respond to" reported, on a list the run could not read. An open run is still resumed, and reconcile shows its board with the advisory API not checked ([An unavailable source](#an-unavailable-source)).
 
 A closed run is read-only, and stays on disk until the human deletes it. The next invocation after a close opens a new run.
 
@@ -65,24 +65,24 @@ Judgements never happen on their own: Evidence, Severity, accepted-risk, `fixed`
 
 ### An unavailable source
 
-When a source cannot be reached (no advisory access, the fork gone or unreachable, no network for `git fetch`), the board is still shown. Its header carries `not checked: <source> unavailable` for that source in place of its `checked <time>`, and reconcile moves no row on that source. A row is never moved, and an advisory never dropped, on a source the run could not read.
+When a source cannot be reached (no advisory access, a draft advisory's private fork unreachable, no network for `git fetch`), the board is still shown. The header's `checked <time>` covers the sources the run did read, and the header adds `not checked: <source> unavailable` for each one it could not: `Default branch: main@<sha>, checked <time>; not checked: advisory API unavailable.` Reconcile moves no row on that source. A fork that publish has deleted is not unavailable: it is no longer a source, and the board keeps what it recorded. A row is never moved, and an advisory never dropped, on a source the run could not read.
 
 ### Final rows and advisories
 
-Final rows and advisories are not checked again. A source the run reads for something else can still contradict one: a `published` advisory back in the draft list, or a `released` fix SHA no longer on `origin/main`. A contradicted final row stays final, and so does a contradicted final advisory: it goes to the top of Waiting on you, naming what the source now shows, and is logged in `activity.md`. Final values stay final for the run; `record ack` clears the entry.
+Final rows and advisories are not checked again. A source the run reads for something else can still contradict one: a `published` advisory back in the draft list, or a `released` fix SHA no longer on `origin/main`. A contradicted final row stays final, and so does a contradicted final advisory: it goes to the top of Waiting on you, naming what the source now shows, and is logged in `activity.md`. Final values stay final for the run; the entry stays at the top of Waiting on you until the human acknowledges it.
 
 ### Rows are never deleted
 
 Reconcile never deletes a row. It only adds rows, and moves them as above:
 
 - A new draft advisory joins the open run, and each of its findings gets a provisional concept id and an `untriaged` row, as on open ([Concept ids](#concept-ids)). Its original is saved to `originals/<GHSA-id>.json`.
-- A draft the human made for a row with advisory `none yet` is matched to that row by the concept id in its title or body.
+- A draft the human made for a row with advisory `none yet` is matched to that row by the concept id in its title or body. A draft with no concept id to match is raised in Waiting on you, for the human to confirm the match.
 - An advisory's findings are compared with `originals/<GHSA-id>.json`: a new `F<n>` with no row gets an `untriaged` row. A missing `F<n>` keeps its row, and is raised in Waiting on you.
-- A finding whose concept id is already in the findings ledger enters `untriaged`, with Record `in ledger: <status>`.
+- A finding whose concept id is already in the findings ledger gets its row as [Concept ids](#concept-ids) says.
 
 ### The log
 
-Each correction is logged in `activity.md` as `reconciled: <old> → <new>, checked <how>`, with the row or advisory it is about: `reconciled: fix PR open → merged, checked git merge-base --is-ancestor c2d0bd5 origin/main`. A new row, a contradicted final row and an unavailable source are logged too. A reconcile that changes nothing but the header's `checked <time>` logs nothing.
+Each correction is logged in `activity.md` as `reconciled: <old> → <new>, checked <how>`, with the row or advisory it is about: `reconciled: fix PR open → merged, checked git merge-base --is-ancestor c2d0bd5 origin/main`. A new row, a contradicted final row and an unavailable source are logged too. One change is not logged: a reconcile that changes nothing but the header's `checked <time>` logs nothing.
 
 ## Layout
 
