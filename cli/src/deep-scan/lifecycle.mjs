@@ -5,9 +5,12 @@
 // files, and nothing else; run the setup phase (`setup`, `start`, `ready`,
 // `seed`) with no agent and no model credential, its egress limited to the
 // recipe's `registries`; cut the network and check from the host that it is
-// cut; run the agent step (a stand-in until the real scan lands); copy out
-// the one report file; and destroy the sandbox on every exit path, an
-// interrupt included.
+// cut; open the model route (the key-injecting model proxy on the host, the
+// scan's only way out) and check from the host that nothing else is open;
+// hand the agent its brief and run the real Claude Code (#370); copy out the
+// one report file; and destroy the sandbox on every exit path, an interrupt
+// included. The real model credential reaches only the model proxy, in this
+// process: the sandbox gets a placeholder.
 //
 // The runtime's own commands live in a driver: docker-driver.mjs (gVisor,
 // Kata, Firecracker, Docker Desktop on macOS) and sbx-driver.mjs (Docker
@@ -18,8 +21,10 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { firstLine } from "../exec.mjs";
+import { AGENT_ENV, agentBrief, agentScript, BRIEF_PATH } from "./agent.mjs";
 import { CLAUDE_CODE_VERSION, layerDockerfile } from "./claude-code.mjs";
 import { dockerDriver, LABEL } from "./docker-driver.mjs";
+import { startModelProxy } from "./model-proxy.mjs";
 import { sbxDriver } from "./sbx-driver.mjs";
 import { ENDS_HERE, indent, Interrupted, outputLines, StepFailed } from "./steps.mjs";
 import { tarOf } from "./tar.mjs";
@@ -35,19 +40,8 @@ export const MAX_REPORT_BYTES = 10 * 1024 * 1024;
 export const MAX_GROUNDING_BYTES = 10 * 1024 * 1024;
 const GROUNDING_TIMEOUT_MS = 60_000;
 
-/**
- * The agent step until the real scan lands: it writes a placeholder report
- * where the real agent will, and runs no model.
- */
-export const STAND_IN_AGENT = [
-  "set -eu",
-  "mkdir -p /agent-kit/out",
-  `cat > ${REPORT_PATH} <<'AGENT_KIT_REPORT'`,
-  "# Deep scan report (stand-in agent)",
-  "",
-  "agent-kit deep-scan ran its sandbox lifecycle with a stand-in agent step: no model ran, and nothing was scanned.",
-  "AGENT_KIT_REPORT",
-].join("\n");
+/** How many lines of Claude Code's error output a failed agent step shows. */
+const AGENT_ERROR_LINES = 20;
 
 /** The setup phase's fields, in the order they run: services before seeding. */
 const SETUP_ORDER = ["setup", "start", "ready", "seed"];
@@ -66,6 +60,7 @@ const SETUP_ORDER = ["setup", "start", "ready", "seed"];
  *   exec: (script: string, opts?: { env?: string[], workdir?: string | null }) => Promise<import("../exec.mjs").StartResult>,
  *   cutEgress: () => Promise<void>,
  *   egressLeft: () => Promise<string | null>,
+ *   openModelRoute: (startProxy: (bind: string) => Promise<{ port: number, close: () => Promise<void> }>) => Promise<{ url: string, note: string }>,
  *   copyOut: (path: string, opts: { maxBytes: number }) => Promise<{ name: string, data: Buffer } | { error: string } | { missing: import("../exec.mjs").StartResult }>,
  *   close: () => Promise<void>,
  *   teardown: () => Array<{ what: string, cmd: string, args: string[] }>,
@@ -85,6 +80,11 @@ const SETUP_ORDER = ["setup", "start", "ready", "seed"];
  *   branch: string,
  *   commit: string,
  *   steps: ReturnType<typeof import("./recipe.mjs").recipeSteps>,
+ *   handIn: import("./agent.mjs").HandIn,
+ *   recipePath: string,
+ *   recipeText: string,
+ *   credential: string,
+ *   modelApi?: string,
  *   platform: string,
  *   fetch: typeof globalThis.fetch,
  *   signals: { on: Function, off: Function },
@@ -154,6 +154,11 @@ async function lifecycle({
   branch,
   commit,
   steps,
+  handIn,
+  recipePath,
+  recipeText,
+  credential,
+  modelApi,
   fetch,
   reportDir,
   out,
@@ -203,14 +208,19 @@ async function lifecycle({
   );
   out(`Copied in: ${branch} at ${short} (a git archive, not your working tree) to ${WORKSPACE}.`);
   const fetched = [];
+  /** Each grounding source, and where the agent finds it. */
+  const grounding = [];
   for (const [i, source] of steps.grounding.entries()) {
     const where = `grounding[${i}]`;
     if (/^https?:\/\//i.test(source)) {
+      const path = `agent-kit/grounding/urls/${i}-${basename(source)}`;
       fetched.push({
-        path: `agent-kit/grounding/urls/${i}-${basename(source)}`,
+        path,
         data: await fetchGrounding(fetch, source, where, signal, interrupted),
       });
+      grounding.push({ source, at: `/${path}` });
     } else {
+      grounding.push({ source, at: `${GROUNDING_DIR}/${source}` });
       const files = archive(
         { prefix: "agent-kit/grounding/", paths: [source] },
         `${where}: ${source} is not on ${branch}`,
@@ -280,14 +290,72 @@ async function lifecycle({
   }
   out("Network: cut (checked from the host); the agent step has no network.");
 
-  // 6. The agent step: a stand-in, with no model and no credential.
-  out("Agent step: the stand-in agent (no model, no credential).");
-  const agent = await driver.exec(STAND_IN_AGENT);
+  // 6. The model route: the key-injecting model proxy on this machine, the
+  // scan's only way out, and the check from the host that nothing else is.
+  let proxy = null;
+  const route = await driver.openModelRoute(async (bind) => {
+    proxy = await startModelProxy({
+      credential,
+      bind,
+      ...(modelApi !== undefined ? { upstream: modelApi } : {}),
+    });
+    return proxy;
+  });
+  const extra = await driver.egressLeft();
+  if (extra !== null) {
+    throw new StepFailed([`FAILED  more than the model route is open: ${extra}.`, ENDS_HERE]);
+  }
+  out(
+    `Model route: only the model proxy on your machine (${route.note}), which forwards to the model API alone, with your key; checked from the host.`,
+  );
+
+  // 7. The agent step: Claude Code with a placeholder key, handed its brief.
+  const brief = agentBrief({
+    branch,
+    short,
+    recipePath,
+    recipeText,
+    handIn,
+    grounding,
+    paths: { workspace: WORKSPACE, grounding: GROUNDING_DIR, report: REPORT_PATH },
+  });
+  await driver.copyIn(
+    tarOf([
+      { path: "agent-kit", dir: true },
+      { path: "agent-kit/in", dir: true },
+      { path: BRIEF_PATH.slice(1), data: Buffer.from(brief, "utf8") },
+    ]),
+    "copying the launcher's brief in",
+  );
+  out(
+    `Agent step: Claude Code ${CLAUDE_CODE_VERSION} (--bare, web tools off, a placeholder key), handed the deep procedure, the Threat pack and the Scan recipe.`,
+  );
+  const agent = await driver.exec(
+    agentScript({ baseUrl: route.url, report: REPORT_PATH, workspace: WORKSPACE }),
+    { env: [...AGENT_ENV] },
+  );
+  // The scan is over: no route out is left open while the report comes out.
+  await driver.close();
+  out(`Model proxy: ${proxy?.summary() ?? "not started"}.`);
   if (agent.status !== 0) {
-    err(`The agent step exited ${agent.status ?? "abnormally"}; copying out what report it left.`);
+    const lines = agent.stderr
+      .trimEnd()
+      .split(/\r\n|\r|\n/)
+      .filter(Boolean);
+    err(
+      [
+        `The agent step exited ${agent.status ?? "abnormally"}; copying out what report it left.`,
+        ...(lines.length
+          ? [
+              `Claude Code's error output (its last ${AGENT_ERROR_LINES} lines at most; the rest of its output stays in the sandbox):`,
+              ...indent(lines.slice(-AGENT_ERROR_LINES).join("\n")),
+            ]
+          : []),
+      ].join("\n"),
+    );
   }
 
-  // 7. Copy out the one report file, and nothing else.
+  // 8. Copy out the one report file, and nothing else.
   const file = await driver.copyOut(REPORT_PATH, { maxBytes: MAX_REPORT_BYTES });
   if ("missing" in file) {
     const r = file.missing;
@@ -302,6 +370,9 @@ async function lifecycle({
   const path = join(dir, "report.md");
   writeFileSync(path, file.data, { mode: 0o600, flag: "wx" });
   out(`Report: ${path} (the only file copied out of the sandbox).`);
+  out(
+    "Nothing was filed or posted. To file a draft advisory, follow the security-audit skill's by-hand rule.",
+  );
   return agent.status === 0 ? 0 : 1;
 }
 

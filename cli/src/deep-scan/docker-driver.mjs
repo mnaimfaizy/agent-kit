@@ -7,6 +7,12 @@
 // out), and its only way to the recipe's registries is a proxy the launcher
 // runs on the host (egress.mjs). The cut disconnects that network and stops
 // the proxy; `docker inspect`, run on the host, confirms no network is left.
+//
+// The model route (#370): for the agent step, the sandbox joins a second
+// `--internal` network, and the key-injecting model proxy listens on its
+// gateway (on 127.0.0.1, reached as host.docker.internal, on Docker Desktop
+// for macOS), so the proxy is the scan's only route out. `docker inspect`
+// then confirms the sandbox is on that network alone.
 
 import { layerDockerfile } from "./claude-code.mjs";
 import { startEgressProxy } from "./egress.mjs";
@@ -35,6 +41,11 @@ export function dockerDriver({ runtime, platform, id, call }) {
   let network = null;
   let proxy = null;
   let proxyEnv = [];
+  let modelNetwork = null;
+  let modelProxy = null;
+  // Docker Desktop on macOS runs the engine in a VM: the host is
+  // host.docker.internal there, not the network's gateway.
+  const desktop = platform === "darwin";
 
   return {
     container: name,
@@ -156,7 +167,39 @@ export function dockerDriver({ runtime, platform, id, call }) {
         attached = null;
       }
       if (attached === null) return "docker inspect shows an unknown network state";
-      return attached.length ? `docker inspect shows the sandbox on ${attached.join(", ")}` : null;
+      const extra = attached.filter((n) => n !== modelNetwork);
+      return extra.length ? `docker inspect shows the sandbox on ${extra.join(", ")}` : null;
+    },
+
+    /** Join the model network, with the model proxy on its gateway. */
+    async openModelRoute(startProxy) {
+      if (!network) {
+        // Setup had no network: the sandbox is on `none`, which no other
+        // network may join.
+        must(
+          await docker(["network", "disconnect", "none", name]),
+          "taking the sandbox off the none network",
+        );
+      }
+      modelNetwork = `${name}-model`;
+      const bind = await internalNetwork(modelNetwork, "the model network");
+      try {
+        modelProxy = await startProxy(bind);
+      } catch (e) {
+        throw failed(`starting the model proxy on ${bind}`, {
+          status: null,
+          stdout: Buffer.alloc(0),
+          stderr: e.message,
+        });
+      }
+      must(
+        await docker(["network", "connect", modelNetwork, name]),
+        "connecting the sandbox to the model network",
+      );
+      return {
+        url: `http://${hostOf(bind)}:${modelProxy.port}`,
+        note: `on the internal network ${modelNetwork}`,
+      };
     },
 
     /** The file at `path`, read from the tar `docker cp` writes. */
@@ -166,11 +209,27 @@ export function dockerDriver({ runtime, platform, id, call }) {
       return singleFileOf(r.stdout, { maxBytes });
     },
 
-    close: closeProxy,
+    async close() {
+      await closeProxy();
+      if (modelProxy) {
+        const p = modelProxy;
+        modelProxy = null;
+        await p.close();
+      }
+    },
 
-    /** The commands that remove every resource asked for, newest first. */
+    /**
+     * The commands that remove every resource asked for: the container
+     * first (a network still in use cannot be removed), then the rest,
+     * newest first.
+     */
     teardown() {
-      return [...resources].reverse().map(([kind, n]) => ({
+      const newest = [...resources].reverse();
+      const ordered = [
+        ...newest.filter(([kind]) => kind === "container"),
+        ...newest.filter(([kind]) => kind !== "container"),
+      ];
+      return ordered.map(([kind, n]) => ({
         what: `${kind} ${n}`,
         cmd: "docker",
         args:
@@ -191,12 +250,21 @@ export function dockerDriver({ runtime, platform, id, call }) {
     }
   }
 
-  async function setupNetwork(registries) {
-    network = name;
-    resources.push(["network", network]);
+  /** The host name the sandbox reaches a proxy bound on `bind` by. */
+  function hostOf(bind) {
+    if (desktop) return "host.docker.internal";
+    return bind.includes(":") ? `[${bind}]` : bind;
+  }
+
+  /**
+   * Create an `--internal` network, and return the host address to put a
+   * proxy on: its gateway (127.0.0.1 on Docker Desktop for macOS).
+   */
+  async function internalNetwork(net, what) {
+    resources.push(["network", net]);
     must(
-      await docker(["network", "create", "--internal", "--label", label, network]),
-      "creating the setup network",
+      await docker(["network", "create", "--internal", "--label", label, net]),
+      `creating ${what}`,
     );
     const inspect = must(
       await docker([
@@ -204,21 +272,24 @@ export function dockerDriver({ runtime, platform, id, call }) {
         "inspect",
         "--format",
         "{{range .IPAM.Config}}{{.Gateway}}{{end}}",
-        network,
+        net,
       ]),
-      "reading the setup network's gateway",
+      `reading ${what}'s gateway`,
     );
     const gateway = inspect.stdout.toString("utf8").trim();
-    // Docker Desktop on macOS runs the engine in a VM: the host is
-    // host.docker.internal there, not the network's gateway.
-    const desktop = platform === "darwin";
     const bind = desktop ? "127.0.0.1" : gateway;
     if (!/^[0-9a-f.:]+$/i.test(bind)) {
       throw new StepFailed([
-        "FAILED  the setup network has no gateway address to put the registry proxy on.",
+        `FAILED  ${what} has no gateway address to put a proxy on.`,
         ENDS_HERE,
       ]);
     }
+    return bind;
+  }
+
+  async function setupNetwork(registries) {
+    network = name;
+    const bind = await internalNetwork(network, "the setup network");
     try {
       proxy = await startEgressProxy({ registries, bind });
     } catch (e) {
@@ -228,8 +299,7 @@ export function dockerDriver({ runtime, platform, id, call }) {
         stderr: e.message,
       });
     }
-    const host = desktop ? "host.docker.internal" : bind.includes(":") ? `[${bind}]` : bind;
-    const url = `http://${host}:${proxy.port}`;
+    const url = `http://${hostOf(bind)}:${proxy.port}`;
     proxyEnv = [
       ...["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"].map((v) => `${v}=${url}`),
       "NO_PROXY=localhost,127.0.0.1",

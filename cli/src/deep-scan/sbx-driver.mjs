@@ -20,6 +20,11 @@
 // - Files move with `sbx cp`, whose host side is a path, not stdin (377-408):
 //   tars are written to a private host folder and unpacked inside; the
 //   report is copied into a private host folder and checked there.
+// - The model route (#370): the key-injecting model proxy listens on the
+//   host's 127.0.0.1, and one per-sandbox rule allows only
+//   host.docker.internal:<its port>. No per-sandbox deny "**" is added: a
+//   deny beats every allow (676), so it would block the proxy too, and the
+//   global deny-all already decides everything else.
 // - Teardown: `sbx rm --force` (449-457, 480).
 // Every call passes `--no-input` (180), so sbx never waits on a prompt.
 
@@ -120,6 +125,8 @@ export function sbxDriver({ id, call }) {
   const allowed = [];
   let host = null; // a private host folder for the files sbx cp moves
   let copies = 0;
+  let modelRoute = null; // the one allow rule the scan may have
+  let modelProxy = null;
 
   const hostDir = () => (host ??= mkdtempSync(join(tmpdir(), "agent-kit-deep-scan-sbx-")));
 
@@ -246,7 +253,15 @@ export function sbxDriver({ id, call }) {
       if (rules === null) return "sbx policy ls shows no readable rules";
       const open = rules.filter(
         (rule) =>
-          rule.resource_type === "network" && rule.decision === "allow" && rule.status === "active",
+          rule.resource_type === "network" &&
+          rule.decision === "allow" &&
+          rule.status === "active" &&
+          !(
+            modelRoute &&
+            Array.isArray(rule.resources) &&
+            rule.resources.length > 0 &&
+            rule.resources.every((r) => r === modelRoute)
+          ),
       );
       if (open.length) {
         return `sbx policy ls still allows ${open.map((o) => (Array.isArray(o.resources) ? o.resources.join(",") : String(o.id))).join("; ")}`;
@@ -259,6 +274,25 @@ export function sbxDriver({ id, call }) {
           rule.status === "active",
       );
       return denied ? null : "sbx policy ls no longer shows the deny-all rule";
+    },
+
+    /** Allow only host.docker.internal:<port>, the model proxy on the host. */
+    async openModelRoute(startProxy) {
+      const bind = "127.0.0.1";
+      try {
+        modelProxy = await startProxy(bind);
+      } catch (e) {
+        throw new StepFailed([
+          `FAILED  starting the model proxy on ${bind}: ${e.message}`,
+          ENDS_HERE,
+        ]);
+      }
+      modelRoute = `host.docker.internal:${modelProxy.port}`;
+      await allow([modelRoute], "allowing the model proxy, and nothing else, for the scan");
+      return {
+        url: `http://${modelRoute}`,
+        note: `a per-sandbox sbx policy allowing only ${modelRoute}`,
+      };
     },
 
     async copyOut(path, { maxBytes }) {
@@ -275,7 +309,13 @@ export function sbxDriver({ id, call }) {
       return { name: entries[0], data: readFileSync(file) };
     },
 
-    async close() {},
+    async close() {
+      if (modelProxy) {
+        const p = modelProxy;
+        modelProxy = null;
+        await p.close();
+      }
+    },
 
     teardown() {
       if (!created) return [];

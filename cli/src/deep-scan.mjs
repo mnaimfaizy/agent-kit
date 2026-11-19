@@ -55,7 +55,7 @@ const CREDENTIALS_DOCS_URL = `https://github.com/mnaimfaizy/agent-kit/blob/v${CL
  */
 export async function runDeepScan({
   cwd,
-  runner,
+  runner: hostRunner,
   recipePath,
   defaultBranch,
   credentialFrom,
@@ -87,6 +87,13 @@ export async function runDeepScan({
     err(source.error);
     return 2;
   }
+  // No command this launcher runs inherits a model credential: the key
+  // lives only in this process, for the model proxy.
+  const runner = withoutCredentials(
+    hostRunner,
+    [env, process.env],
+    source.kind === "env" ? [source.name] : [],
+  );
 
   if (defaultBranch !== undefined) {
     const answer = parseAnswer("defaultBranch", defaultBranch);
@@ -201,24 +208,18 @@ export async function runDeepScan({
     `Threat pack: ${handIn.threatModel.path} and ${handIn.findingsLedger.path} (${handIn.from ? `from ${handIn.from}` : "the default paths"}); the deep procedure: the security-audit skill's DEEP.md, on the same branch.`,
   );
 
-  // The model credential: read once, kept only in this process for the
-  // model proxy, and removed from every command's environment from here on.
-  const runs = withoutCredentials(
-    runner,
-    [env, process.env],
-    source.kind === "env" ? [source.name] : [],
-  );
-  const key = readCredential({ source, env, runner: runs });
+  // The model credential: read once, and kept only in this process.
+  const key = readCredential({ source, env, runner });
   if ("refused" in key) return refuse(key.refused, CREDENTIALS_DOCS_URL);
   out(
     `Model credential: an API key from ${key.from}; it stays in the model proxy, outside the sandbox.`,
   );
 
-  const choice = selectRuntime({ runner: runs, platform });
+  const choice = selectRuntime({ runner, platform });
   if ("refused" in choice) return refuse(choice.refused, RUNTIMES_DOCS_URL);
   out(`Sandbox runtime: ${choice.runtime.name}.`);
   return runLifecycle({
-    runner: runs,
+    runner,
     credential: key.credential,
     ...(modelApi !== undefined ? { modelApi } : {}),
     runtime: choice.runtime,
