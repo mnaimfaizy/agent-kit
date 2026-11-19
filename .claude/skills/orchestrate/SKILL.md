@@ -176,7 +176,9 @@ The human's "go" approves the whole plan: every row, the routine writes they tic
 
 For each Delegation in the wave, write its brief to its folder in the run, carrying every item of the Brief Contract ([BRIEF.md](BRIEF.md)), and `spawn` its Executor with that brief. Record the Executor's handle, its branch and its start time on the board.
 
-**Done when:** every Delegation in the wave is running, with its handle on the board.
+Where the harness file says its `spawn` can only propose a session for the human to start (on Claude Code desktop, a turn the app started), the Delegation is `waiting` on the human to start it, with what the human must do queued as a Decision Request. Step 6 checks `waiting` rows on every wake-up, so the turn that finds the session records its handle and start time, sets the row to `running`, and arms its waits, as the harness file says.
+
+**Done when:** every Delegation in the wave is running, with its handle on the board, or is `waiting` on the human to start it, as above.
 
 ### 6. Run the loop
 
