@@ -345,6 +345,28 @@ def test_outcome_format_gains_below_floor_and_a_proposed_ledger_row() -> None:
     assert "a new finding" in found and "its own concept id" in found
 
 
+def test_the_shared_outcome_definitions_match_the_evidence_states() -> None:
+    """Both skills are User-scope, so neither may link the other's file: the copies are kept equal here."""
+    outcomes = bullets(subsection(read(OUTCOME_FORMAT), "Outcomes"))
+    evidence = bullets(subsection(section(read(RUN), "States"), "Evidence"))
+    for outcome in ("confirmed", "rejected", "below-floor"):
+        assert evidence[outcome].startswith(outcomes[outcome]), (
+            f"RUN.md's {outcome} must start with OUTCOME-FORMAT.md's definition: "
+            f"{outcomes[outcome]!r} vs {evidence[outcome]!r}"
+        )
+
+    def first_sentence(text: str) -> str:
+        return text.split(". ", 1)[0]
+
+    # Each file then says where it records the canonical id: **Duplicate of**, or the Record.
+    assert first_sentence(evidence["duplicate"]) == first_sentence(outcomes["duplicate"]), (
+        outcomes["duplicate"],
+        evidence["duplicate"],
+    )
+    for text in (read(RUN), read(OUTCOME_FORMAT)):
+        assert "a contract test keeps them the same" in flat(text)
+
+
 LANDING = "Landing a triage outcome"
 OUTCOME_TO_EVIDENCE = {outcome: outcome for outcome in OUTCOMES} | {"accepted-risk": "confirmed"}
 
@@ -818,6 +840,7 @@ if __name__ == "__main__":
     test_each_correction_is_logged()
     test_triage_does_not_write_the_ledger()
     test_outcome_format_gains_below_floor_and_a_proposed_ledger_row()
+    test_the_shared_outcome_definitions_match_the_evidence_states()
     test_triage_output_is_saved_verbatim()
     test_outcome_maps_to_evidence_and_severity()
     test_a_same_concept_finding_is_kept_as_a_duplicate()

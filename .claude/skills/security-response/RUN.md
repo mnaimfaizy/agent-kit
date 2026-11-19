@@ -423,10 +423,12 @@ What is known about the finding: `untriaged | confirmed | rejected | duplicate |
 - `untriaged`: not yet triaged against the current tree.
 - `confirmed`: repeatable, safe evidence supports a reachable finding at or above the Medium floor.
 - `rejected`: a false positive, or out of the threat model. Its Record gives one public-safe line on why, or on what would reopen it.
-- `duplicate`: the same concept as another row. Its Record names the canonical concept id, `of <canonical id>`. The row stays on the board, because its advisory still needs closing.
-- `below-floor`: real, but under the Medium floor, so it gets hardening rather than an advisory. It is not `rejected`, which means false.
+- `duplicate`: the same concept as another finding, or as a concept id already in the findings ledger. Its Record names the canonical concept id, `of <canonical id>`. The row stays on the board, because its advisory still needs closing.
+- `below-floor`: real, but under the Medium floor, so it gets hardening rather than an advisory. Its severity is `low`. It is not `rejected`, which means false.
 
 `accepted-risk` is not evidence: it is a Delivery ending.
+
+`security-finding-triage`'s outcome format defines `confirmed`, `rejected`, `below-floor` and `duplicate` in the same words, and each skill keeps its own copy: a contract test keeps them the same.
 
 ### Delivery
 

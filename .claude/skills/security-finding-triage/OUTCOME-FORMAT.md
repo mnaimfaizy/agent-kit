@@ -27,7 +27,9 @@ The **Concept id** is the triaged finding's own id, final from this triage on. A
 - `rejected`: a false positive, or out of the threat model.
 - `below-floor`: real, but under the Medium floor, so it gets hardening rather than an advisory. Its severity is `low`. It is not `rejected`, which means false.
 - `accepted-risk`: real, and the triager recommends accepting the risk rather than fixing it. It is a recommendation, not a decision: it maps to the Delivery ending `accepted-risk`, which only the human records.
-- `duplicate`: the same concept as another finding. **Duplicate of** names the canonical concept id.
+- `duplicate`: the same concept as another finding, or as a concept id already in the findings ledger. **Duplicate of** names the canonical concept id.
+
+`security-response` repeats `confirmed`, `rejected`, `below-floor` and `duplicate` in the same words as its Evidence states, and each skill keeps its own copy: a contract test keeps them the same.
 
 ### Evidence
 
