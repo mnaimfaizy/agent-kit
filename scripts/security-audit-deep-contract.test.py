@@ -138,6 +138,35 @@ def test_deep_runs_on_the_trusted_ref_only() -> None:
         assert needed in scope, f"DEEP.md's scope must say {needed!r}: {scope}"
 
 
+def test_report_format_keeps_severity_and_adds_the_deep_mode() -> None:
+    text = read(REPORT_FORMAT)
+    assert "- **Mode:** full | pr | deep\n" in text, "the header's Mode line must offer deep"
+    # Reproduction never changes severity: the scale and the Medium floor are as before.
+    assert "- **Severity:** Critical | High | Medium\n" in text
+    assert "- **Max severity:** none | medium | high | critical\n" in text
+
+
+def test_report_format_defines_the_deep_additions() -> None:
+    deep = markdown_section(read(REPORT_FORMAT), "`deep` additions")
+    assert "- **Reproduced:** yes | no | not attempted" in deep, "deep findings carry the three Reproduced values"
+    assert "- **Observation:**" in deep and "one-line reason" in deep
+    for needed in OBSERVATION_NAMES + OBSERVATION_NEVER:
+        assert needed in deep, f"the Observation line must follow the ADR 0016 boundary: missing {needed!r}"
+    assert "### Open questions" in deep, "deep reports carry an Open questions section"
+    assert "- **Stopped:** wall clock | turns | tokens" in deep, "the Stopped: header line and its limits"
+    assert "The launcher adds it" in deep and "The agent never writes this line" in deep, "only the launcher writes Stopped:"
+    assert "Medium floor" in deep and "A reproduced Low is still dropped" in deep
+    assert "entry point" in deep and "not pinned down" in deep, "the Location fallback when tracing fails"
+
+
+def test_report_format_defines_the_verification_run_variant() -> None:
+    variant = markdown_section(read(REPORT_FORMAT), "Verification-run variant")
+    assert "- **Mode:** deep (Verification run)" in variant
+    assert "- **Reproduced:** yes | no" in variant and "not attempted" not in variant, "a verify answer is yes or no"
+    assert "the fix does not hold" in variant and "the fix holds" in variant
+    assert "no new findings" in variant.lower()
+
+
 if __name__ == "__main__":
     test_skill_lists_deep_and_links_its_procedure()
     test_full_and_pr_never_reference_the_deep_procedure()
@@ -147,3 +176,6 @@ if __name__ == "__main__":
     test_deep_hard_rules()
     test_deep_states_the_ledger_interplay()
     test_deep_runs_on_the_trusted_ref_only()
+    test_report_format_keeps_severity_and_adds_the_deep_mode()
+    test_report_format_defines_the_deep_additions()
+    test_report_format_defines_the_verification_run_variant()
