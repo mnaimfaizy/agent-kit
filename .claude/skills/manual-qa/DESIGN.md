@@ -20,6 +20,12 @@ These are word for word the definitions in Agent-kit's root glossary, where a co
 
 **Session**: One signed-in identity in a QA Plan's scenario, with cookies and storage no other session shares; a scenario has one or more.
 
+**Cut**: A step in a multi-session scenario whose Session is not the previous step's; the story moves to that Session there, and it shows that Session's own on-screen result before it moves on.
+
+**Scene**: A run of consecutive steps in one Session, from the scenario's first step or a Cut up to the next Cut; a single-session scenario is one Scene.
+
+**Title card**: The full-frame board, one centred sentence from the plan, that opens each Scene in a scenario's MP4 and heads its steps in the Storyboard.
+
 **Surface**: What a scenario drives (`web`, `desktop`, `mobile` or `api`). The Run brief gives the plan's default; a scenario may override it.
 
 **Driver**: The tool a run uses to drive a Surface. It can observe some things and not others.
