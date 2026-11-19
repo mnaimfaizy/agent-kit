@@ -109,6 +109,10 @@ _Avoid_: triage comment, spec comment
 The Consumer-owned threat model and findings ledger the security audit reads.
 _Avoid_: security config, threat files
 
+**Scan recipe**:
+The Consumer-owned file that tells a Deep scan how to build, start and seed the repository's own app and what it may probe; it sits beside the Threat pack, not in it.
+_Avoid_: deep scan config, sandbox config
+
 **Public-log rule**:
 Security finding bodies never appear in Actions logs, artifacts, or public issue/PR text.
 
@@ -119,6 +123,10 @@ _Avoid_: report upload, publishing findings
 **Deep scan**:
 A `security-audit` run that also builds, runs and probes the repository's own code inside a sandbox, to reproduce its findings and find more along the Threat pack's attack paths.
 _Avoid_: pen test, dynamic audit, DAST
+
+**Verification run**:
+A confirm-only Deep scan, run locally on the maintainer's own branch or a reviewed branch of the advisory's private fork, that re-attempts the Reproduction of known findings to check whether a fix holds; its report never leaves the machine.
+_Avoid_: retest, regression scan
 
 **Reproduction**:
 Confirming a security finding by triggering it in a running copy of the code inside a sandbox. It is recorded as an observation, never as a runnable recipe.
