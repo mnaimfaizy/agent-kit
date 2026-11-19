@@ -1,6 +1,6 @@
 ---
 name: security-finding-triage
-description: Stress-check one security finding, confirm or reject with evidence, and produce a durable triage outcome, with a proposed findings-ledger row, for the Consumer's advisory workflow.
+description: Stress-check one security finding, confirm or reject with evidence, and produce a durable triage outcome, with a proposed findings-ledger row, for the advisory workflow.
 disable-model-invocation: true
 metadata:
   agent-kit-scope: user
@@ -18,7 +18,7 @@ Outcome shape: [OUTCOME-FORMAT.md](OUTCOME-FORMAT.md)
 2. Keep private detail out of public channels.
 3. Prefer current-tree evidence (`file:line`) over stale advisory text.
 4. Do not open fix PRs unless explicitly requested.
-5. Never edit the findings ledger. The outcome carries a Proposed ledger row instead, and only a Security Response Run's `close` applies it. Outside a run, the Consumer edits the ledger by hand.
+5. Never edit the findings ledger. The outcome carries a Proposed ledger row instead, and only a Security Response Run's `close` applies it. Outside a run, the maintainer edits the ledger by hand.
 
 ## Process
 

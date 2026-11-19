@@ -19,7 +19,7 @@ Then:
 - **Date:** <YYYY-MM-DD>
 ```
 
-The **Concept id** is final from this triage on. A regression of a concept id already in the findings ledger gets a new concept id here.
+The **Concept id** is the triaged finding's own id, final from this triage on. A regression of a concept id already in the findings ledger gets a new concept id here.
 
 ### Outcomes
 
@@ -62,7 +62,7 @@ The line this outcome proposes for the findings ledger, in the ledger's five col
 | ---------- | ------ | ---------- | -------- | ----- |
 ```
 
-Status is `rejected` for `rejected` and `duplicate`, and otherwise the ending expected (`released <tag>`, `fixed` or `accepted-risk`). Notes is one public-safe line: never the attack path, evidence, file location or exploit detail. Triage never writes it to the ledger: a Security Response Run's `close` applies it, and outside a run the Consumer edits the ledger by hand.
+Status is `rejected` for `rejected` and `duplicate`, and otherwise the ending expected (`released <tag>`, `fixed` or `accepted-risk`). A `duplicate` of a concept id already in the ledger proposes no row: write `none`. Notes is one public-safe line: never the attack path, evidence, file location or exploit detail. Triage never writes it to the ledger: a Security Response Run's `close` applies it, and outside a run the maintainer edits the ledger by hand.
 
 ### Notes
 

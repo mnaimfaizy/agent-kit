@@ -303,7 +303,6 @@ def test_triage_does_not_write_the_ledger() -> None:
     process = section(triage, "Process")
     steps = re.findall(r"^\d+\. (.+)$", process, re.MULTILINE)
     assert not any("ledger" in step.lower() for step in steps), f"no process step may edit the ledger: {steps}"
-    assert "fingerprint-safe" not in triage, "the step that updated the ledger's fingerprint-safe fields is gone"
     rules = flat(section(triage, "Hard rules"))
     assert "Never edit the findings ledger." in rules
     assert "Proposed ledger row" in rules, "the rule must name what triage emits instead"
@@ -337,13 +336,7 @@ def test_outcome_format_gains_below_floor_and_a_proposed_ledger_row() -> None:
 
 
 LANDING = "Landing a triage outcome"
-OUTCOME_TO_EVIDENCE = {
-    "`confirmed`": "`confirmed`",
-    "`rejected`": "`rejected`",
-    "`below-floor`": "`below-floor`",
-    "`duplicate`": "`duplicate`",
-    "`accepted-risk`": "`confirmed`",
-}
+OUTCOME_TO_EVIDENCE = {outcome: outcome for outcome in OUTCOMES} | {"accepted-risk": "confirmed"}
 
 
 def landing() -> str:
@@ -353,19 +346,23 @@ def landing() -> str:
 def test_triage_output_is_saved_verbatim() -> None:
     text = flat(landing())
     assert "saved verbatim to `triage/<concept-id>.md`" in text
-    assert "under the final concept id" in text
+    assert "under the final concept id: one file per row" in text
 
 
 def test_outcome_maps_to_evidence_and_severity() -> None:
     mapping = table_rows(subsection(landing(), "Outcome to Evidence"))
     assert "| Outcome | Evidence | Delivery |" in mapping
     rows = {outcome: evidence for outcome, evidence, _ in table_cells(mapping)}
+    assert {o for o in rows if o.startswith("`")} == {f"`{outcome}`" for outcome in OUTCOMES}, (
+        f"one mapping row per outcome: {list(rows)}"
+    )
     for outcome, evidence in OUTCOME_TO_EVIDENCE.items():
-        got = rows.get(outcome)
+        got, evidence = rows.get(f"`{outcome}`"), f"`{evidence}`"
         assert got == evidence, f"Outcome {outcome} must map to Evidence {evidence}, got {got!r}"
     text = flat(landing())
     assert "**Severity (after triage)** becomes the row's Severity, with no `?`" in text
     assert "The concept id becomes final" in text
+    assert "Once a row's id is final it is never renamed" in text
 
 
 def test_a_same_concept_finding_is_kept_as_a_duplicate() -> None:
@@ -385,7 +382,7 @@ def test_accepted_risk_is_only_a_recommendation() -> None:
 def test_a_finding_found_in_triage_enters_untriaged() -> None:
     found = flat(subsection(landing(), "Found in triage"))
     assert "a new `untriaged` row, with advisory `none yet`" in found
-    assert "Record `found in triage of <concept id>, <date>`" in found
+    assert "Record `found in triage of <concept-id>, <date>`" in found
     assert "confirmed at Medium or above" in found
     assert "needs a draft advisory before `fix PR open`" in found
 
@@ -395,11 +392,15 @@ def test_a_standalone_triage_run_is_not_picked_up() -> None:
     assert "A standalone `security-finding-triage` run is not picked up" in text
 
 
+def mode_line(mode: str) -> str:
+    return next(line for line in read(SKILL).splitlines() if line.startswith(f"- `{mode}`"))
+
+
 def test_triage_mode_lands_the_outcome() -> None:
-    mode = next(line for line in read(SKILL).splitlines() if line.startswith("- `triage <target>`"))
+    mode = mode_line("triage <target>")
     assert "`security-finding-triage`" in mode, mode
     assert "land its outcome on the board" in mode and "RUN.md#landing-a-triage-outcome" in mode, mode
-    fix = next(line for line in read(SKILL).splitlines() if line.startswith("- `fix <target>`"))
+    fix = mode_line("fix <target>")
     assert "a draft advisory" in fix and "RUN.md#found-in-triage" in fix, fix
 
 
