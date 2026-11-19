@@ -23,12 +23,12 @@ The run folder, the board and the states: [RUN.md](RUN.md). Load it before any m
 A `<target>` is a concept id or a `GHSA:F<n>`; `fix` also takes `next`.
 
 - `status`: prints the board ([RUN.md](RUN.md#board)) in the local terminal
-- `next`: recommend one prioritized next action
+- `next`: recommend one prioritized next action. Once every row and every advisory is final, it recommends `close` ([RUN.md](RUN.md#closable)), and nothing closes on its own
 - `triage <target>`: run evidence-first triage for one finding with the `security-finding-triage` skill, and land its outcome on the board ([RUN.md](RUN.md#landing-a-triage-outcome))
 - `fix <target>`: only with explicit authorization; implement and validate fix. Opening the fix pull request on the private fork moves the row to `fix PR open`, with the fork PR number in its Record ([RUN.md](RUN.md#what-each-transition-records)). A row found in triage and confirmed at Medium or above needs a draft advisory first ([RUN.md](RUN.md#found-in-triage))
 - `reconcile`: reconcile only ([RUN.md](RUN.md#reconcile)): check the run against GitHub and git, and do nothing else
 - `record <what>`: land a human step from a closed set, and verify whatever the run can ([RUN.md](RUN.md#record)); after `record approve`, publish, close or request a CVE for an advisory through `gh api` ([Advisory actions](#advisory-actions))
-- `close`: write the findings ledger and close the run (not available yet: say so, and close nothing)
+- `close`: once every row and every advisory is final, write the findings ledger through one public pull request the human merges, and close the run ([RUN.md](RUN.md#close-and-the-findings-ledger))
 
 ## The run
 
@@ -58,6 +58,7 @@ After each call, the run reads the advisory back and moves the board only on wha
 - Prefer `concept-id` over report-local `F<n>` identifiers.
 - `status`/`next`/`triage` do not authorize code fixes by default.
 - The findings ledger is not edited before close: `triage` lands its outcome on the board, and triage's Proposed ledger row waits in `triage/<concept-id>.md`.
+- `close` writes the findings ledger through one ledger PR the human merges: the ledger is never pushed to the default branch directly, and nothing private is copied into it.
 - `fix` still requires safe reproducible evidence before implementation.
 - Save each advisory to the run's `originals/` before any PATCH that rewrites it publicly.
 - Never publish, close, or request a CVE for an advisory without `record approve` for that action, and never past its gate.

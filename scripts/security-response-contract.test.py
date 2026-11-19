@@ -5,8 +5,9 @@ folder lives, the ignore gate, the layout, the board, the state lists and what
 is final, the modes, reconcile: its sources, who wins, and the rules that it
 never deletes a row, keeps a contradicted final row final and moves nothing on
 an unavailable source), the closed `record` set and what each form verifies,
-and the gates on publishing, closing and requesting a CVE, not what they
-mean. What a sentence means is for review.
+the gates on publishing, closing and requesting a CVE, and `close`: the
+preview, one ledger PR, `closing` → `closed`, the Row → line mapping and
+append only, not what they mean. What a sentence means is for review.
 It also keeps the retired status-format file gone, with nothing linking to it.
 """
 
@@ -437,8 +438,122 @@ def test_record_is_a_closed_set() -> None:
     assert "a missing argument, or a concept id or GHSA id that is not on the board is refused the same way" in text
 
 
-def test_close_is_not_available_yet() -> None:
-    assert "not available yet" in mode_line("close"), "close stays for a later slice"
+def close_doc() -> str:
+    return section(read(RUN), "Close and the findings ledger")
+
+
+def test_close_mode_writes_the_ledger_and_next_recommends_it() -> None:
+    mode = mode_line("close")
+    assert "not available yet" not in mode, f"close is available now: {mode!r}"
+    assert "RUN.md#close-and-the-findings-ledger" in mode, mode
+    assert "findings ledger" in mode and "one public pull request" in mode, mode
+    nxt = mode_line("next")
+    assert "recommends `close`" in nxt and "every row and every advisory is final" in nxt, nxt
+    assert "nothing closes on its own" in nxt, nxt
+
+
+def test_close_rechecks_and_refuses_with_the_list_of_anything_not_final() -> None:
+    closable = flat(subsection(close_doc(), "Closable"))
+    assert "closable only when every row and every advisory is final" in closable
+    assert "`next` then recommends `close`" in closable
+    assert "Nothing closes on its own" in closable
+    assert "`close` checks again" in closable
+    assert "refuses, and lists each row and advisory that is not final" in closable
+
+
+def test_close_previews_the_exact_lines_and_writes_nothing_without_a_yes() -> None:
+    preview = flat(subsection(close_doc(), "Preview"))
+    assert "the exact ledger lines" in preview
+    assert "Nothing is written without a yes" in preview
+    assert "The human may edit the Notes of any line" in preview
+
+
+def test_the_ledger_path_is_the_callers_or_the_default() -> None:
+    path = flat(subsection(close_doc(), "Ledger path"))
+    assert "the Caller's `findings_ledger_path`, otherwise `.security/findings-ledger.md`" in path
+    assert "the same lookup `security-audit` uses" in path
+
+
+def test_one_ledger_pr_per_run_with_one_commit_and_never_a_direct_push() -> None:
+    pr = flat(subsection(close_doc(), "The ledger PR"))
+    assert "One ledger PR per run" in pr
+    assert "`chore/security-ledger-<run>`" in pr
+    assert "one commit" in pr
+    assert "Never a direct push" in pr
+    assert "The human merges it" in pr and "the run never merges it" in pr
+    assert "no second one is opened" in pr
+    steps = flat(close_doc())
+    shown, branch = steps.find("the exact ledger lines"), steps.find("`chore/security-ledger-<run>`")
+    assert 0 <= shown < branch, "the preview comes before the ledger branch"
+    guard = flat(section(read(SKILL), "Guardrails"))
+    assert "never pushed to the default branch" in guard
+
+
+def test_closing_until_the_ledger_pr_is_merged_and_its_lines_are_on_main() -> None:
+    closing = flat(subsection(close_doc(), "While closing"))
+    assert "`Closing: ledger PR #n`" in closing
+    assert "Waiting on you holds only `Merge ledger PR #n`" in closing
+    assert "the lines are on `origin/main`" in closing
+    assert "Only then is the run `closed`" in closing
+    assert "new draft waiting for the next run" in closing
+    assert "does not join the run" in closing
+    rows = flat(subsection(reconcile_doc(), "Rows are never deleted"))
+    assert "unless the run is closing" in rows, "a draft that appears while closing does not join"
+    board = flat(board_doc())
+    assert "`Closing: ledger PR #n`" in board and "`Closed <date>, ledger PR #n`" in board
+
+
+ROW_TO_LINE = {
+    "Concept id": ["the row's final concept id"],
+    "Status": ["`rejected`", "Evidence is `rejected` or `duplicate`", "`released <tag>`", "`fixed`", "`accepted-risk`"],
+    "First seen": ["the advisory's Created date", "the triage date"],
+    "Advisory": ["the full GHSA id", "`n/a` for a `below-floor` row"],
+    "Notes": ["Proposed ledger row", "the public parts of the Record"],
+}
+
+
+def test_row_to_line_mapping() -> None:
+    mapping = table_rows(subsection(close_doc(), "Row to line"))
+    cells = {row[0]: row[1] for row in table_cells(mapping, 2)}
+    for column, phrases in ROW_TO_LINE.items():
+        assert column in cells, f"Row to line must map {column}"
+        for phrase in phrases:
+            assert phrase in cells[column], f"{column} must say {phrase!r}: {cells[column]!r}"
+
+
+def test_notes_carry_only_the_public_parts_of_the_record() -> None:
+    notes = flat(subsection(close_doc(), "Notes"))
+    for convention in ("`fixed in <sha>`", "duplicate of `<id>`", "`below the Medium floor`", "`found in triage of <GHSA>`"):
+        assert convention in notes, f"Notes must use {convention}"
+    assert "`found in triage of <concept-id>, <date>`" in notes, "the found-in-triage Record maps to its public form"
+    assert "never copied" in notes
+    for private in ("fork PR numbers", "clone paths", "`in ledger: <status>`"):
+        assert private in notes, f"Notes never copies {private}"
+
+
+def test_the_ledger_is_appended_only_and_its_format_is_unchanged() -> None:
+    rules = flat(subsection(close_doc(), "Ledger rules"))
+    assert "A `duplicate` of a concept id already in the ledger adds no line" in rules
+    assert "`activity.md` records the repeat" in rules
+    assert "No concept id gets a second line" in rules
+    assert "Append only" in rules
+    assert "ordered by first seen, then by advisory" in rules
+    assert "never edits, reorders or removes an existing line" in rules
+    assert "The ledger format is unchanged: the same header text and the same five columns" in rules
+
+def test_a_run_with_no_ledger_lines_closes_with_no_pr() -> None:
+    closed = flat(subsection(close_doc(), "No ledger lines"))
+    assert "only no-findings drafts, or only duplicates of concept ids already in the ledger" in closed
+    assert "goes straight to `closed`" in closed and "no ledger PR" in closed
+
+
+def test_a_closed_run_stays_read_only_and_is_the_humans_to_delete() -> None:
+    closed = flat(subsection(close_doc(), "Closed"))
+    assert "`Closed <date>, ledger PR #n`" in closed
+    assert "The folder stays" in closed
+    assert "the folder is private and the human's to delete" in closed
+    assert "A closed run is read-only" in closed
+    assert "the next invocation starts a new run" in closed
 
 
 def test_merged_and_released_run_reconciles_checks() -> None:
@@ -446,6 +561,8 @@ def test_merged_and_released_run_reconciles_checks() -> None:
     assert "`git merge-base --is-ancestor <fix SHA> origin/main`" in checks
     assert "`git tag --contains <fix SHA>`" in checks
     assert "The report alone moves nothing" in checks
+    assert "with the admin bypass where the branch rules ask for it" in checks
+    assert "the run never merges one" in checks
     assert "the same checks reconcile runs" in checks
     assert "When both pass, each row whose Record names that fork PR moves `fix PR open` → `merged`" in checks
 
@@ -670,7 +787,17 @@ if __name__ == "__main__":
     test_a_standalone_triage_run_is_not_picked_up()
     test_triage_mode_lands_the_outcome()
     test_record_is_a_closed_set()
-    test_close_is_not_available_yet()
+    test_close_mode_writes_the_ledger_and_next_recommends_it()
+    test_close_rechecks_and_refuses_with_the_list_of_anything_not_final()
+    test_close_previews_the_exact_lines_and_writes_nothing_without_a_yes()
+    test_the_ledger_path_is_the_callers_or_the_default()
+    test_one_ledger_pr_per_run_with_one_commit_and_never_a_direct_push()
+    test_row_to_line_mapping()
+    test_notes_carry_only_the_public_parts_of_the_record()
+    test_the_ledger_is_appended_only_and_its_format_is_unchanged()
+    test_closing_until_the_ledger_pr_is_merged_and_its_lines_are_on_main()
+    test_a_run_with_no_ledger_lines_closes_with_no_pr()
+    test_a_closed_run_stays_read_only_and_is_the_humans_to_delete()
     test_merged_and_released_run_reconciles_checks()
     test_fixed_and_accepted_risk_are_the_humans_judgement()
     test_match_joins_a_human_made_draft_to_a_found_in_triage_row()

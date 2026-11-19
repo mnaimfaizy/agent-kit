@@ -75,7 +75,7 @@ Final rows and advisories are not checked again. A source the run reads for some
 
 Reconcile never deletes a row. It only adds rows, and moves them as above:
 
-- A new draft advisory joins the open run, and each of its findings gets a provisional concept id and an `untriaged` row, as on open ([Concept ids](#concept-ids)); a new draft with no `F<n>` gets its no-findings line ([No-findings advisories](#no-findings-advisories)). Its original is saved to `originals/<GHSA-id>.json`.
+- A new draft advisory joins the open run, unless the run is closing ([While closing](#while-closing)), and each of its findings gets a provisional concept id and an `untriaged` row, as on open ([Concept ids](#concept-ids)); a new draft with no `F<n>` gets its no-findings line ([No-findings advisories](#no-findings-advisories)). Its original is saved to `originals/<GHSA-id>.json`.
 - A draft the human made for a row with advisory `none yet` is matched to that row by the concept id in its title or body. A draft with no concept id to match is raised in Waiting on you, for the human to confirm the match with `record match <GHSA> <concept-id>` ([Match](#match)).
 - An advisory's findings are compared with `originals/<GHSA-id>.json`: a new `F<n>` with no row gets an `untriaged` row. A missing `F<n>` keeps its row, and is raised in Waiting on you.
 - A finding whose concept id is already in the findings ledger gets its row as [Concept ids](#concept-ids) says.
@@ -203,7 +203,7 @@ Anything else is refused, with the list shown, and records nothing. A misspelt f
 
 ### Merged and released
 
-`record merged <fork PR>` names a pull request on an advisory's private fork by the advisory's short id and the pull request's number, as Waiting on you names it (`hg89#2`, which a row's Record writes `fork PR #2`), or by its URL. The run then runs the same checks reconcile runs ([Sources](#sources)): `gh pr view` on the fork shows the pull request merged, and after `git fetch`, `git merge-base --is-ancestor <fix SHA> origin/main` passes for its fix SHA, the commit that carries the fix onto `main`. When both pass, each row whose Record names that fork PR moves `fix PR open` → `merged`, and the fix SHA goes into its Record. Reconcile, run first, may already have made the move on its own: then `record merged` finds the rows `merged`, says so, and logs the report with what reconcile verified.
+Merging a fork PR is the human's step: in the advisory's web UI, with the admin bypass where the branch rules ask for it, and the run never merges one. A fix may go through more than one fork PR, one per fix branch, and one fork PR may fix more than one row; each row's Record names its own. `record merged <fork PR>` names a pull request on an advisory's private fork by the advisory's short id and the pull request's number, as Waiting on you names it (`hg89#2`, which a row's Record writes `fork PR #2`), or by its URL. The run then runs the same checks reconcile runs ([Sources](#sources)): `gh pr view` on the fork shows the pull request merged, and after `git fetch`, `git merge-base --is-ancestor <fix SHA> origin/main` passes for its fix SHA, the commit that carries the fix onto `main`. When both pass, each row whose Record names that fork PR moves `fix PR open` → `merged`, and the fix SHA goes into its Record. Reconcile, run first, may already have made the move on its own: then `record merged` finds the rows `merged`, says so, and logs the report with what reconcile verified.
 
 `record released <tag>` checks each `merged` row: after `git fetch --tags`, `git tag --contains <fix SHA>` lists the tag. Each row whose fix SHA the tag contains moves `merged` → `released`, and the tag goes into its Record. A `merged` row whose fix SHA the tag does not contain stays `merged`, and the reply names it.
 
@@ -279,6 +279,81 @@ What closing does to the private fork is not documented, so before a close the r
 
 `record approve cve <GHSA…>` requests a CVE for each advisory. The run requests it only after a row under the advisory is `confirmed`. It refuses the request when no row is, when the advisory is `closed`, and when the CVE column already reads `requested <date>` or a CVE id. GitHub answers `202 Accepted`, for a public repository only, and its `cve_id` stays empty until a CVE is assigned. So on that answer the run writes `requested <date>` in the advisory's CVE column, and the request is logged in `activity.md`; the board keeps the request until the advisory API shows the CVE id, which then replaces it ([Who wins](#who-wins)). Any other answer records nothing.
 
+## Close and the findings ledger
+
+`security-response close` writes the findings ledger once, through one public pull request the human merges, and the run closes only when those lines are on `main`. The ledger is the run's only public projection: nothing else in the run folder leaves the machine.
+
+### Closable
+
+A run is closable only when every row and every advisory is final ([Final](#final)). `next` then recommends `close`: Waiting on you holds one item, `Run security-response close to preview the ledger lines`, and Next (agent) reads `nothing until one of the above lands`. Nothing closes on its own.
+
+`close` reconciles first, like every mode, and then `close` checks again. When any row or advisory is not final, it refuses, and lists each row and advisory that is not final, with its Evidence and Delivery or its state. A refused close writes nothing.
+
+### Preview
+
+Before anything is written, `close` shows the exact ledger lines it would append ([Row to line](#row-to-line)), in the ledger's five columns, with the ledger's path and each row that adds no line and why. Nothing is written without a yes. The human may edit the Notes of any line; the other four columns come from the board and are not edited. After an edit the run checks the Notes for what it never copies ([Notes](#notes)), shows the preview again, and asks again.
+
+### Ledger path
+
+The ledger is the Consumer's: the Caller's `findings_ledger_path`, otherwise `.security/findings-ledger.md`. The Caller is the workflow under `.github/workflows/` that uses `security-audit-reusable.yml`. This is the same lookup `security-audit` uses, and the one reconcile reads ([Sources](#sources)). When no ledger is at that path, `close` says so and writes nothing.
+
+### Row to line
+
+Each row on the board gives one ledger line, unless [Ledger rules](#ledger-rules) say it adds none:
+
+| Column     | Value                                                                                                                                                                            |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Concept id | the row's final concept id                                                                                                                                                       |
+| Status     | `rejected` when the row's Evidence is `rejected` or `duplicate`; otherwise its Delivery: `released <tag>` with the tag from its Record, `fixed`, or `accepted-risk`              |
+| First seen | the advisory's Created date for a finding from a draft advisory (the earliest, for a row folded from two); the triage date for a finding found in triage, from its Record        |
+| Advisory   | the full GHSA id of the row's advisory (the earliest created, for a row folded from two); `n/a` for a `below-floor` row, which keeps its advisory on the board ([Board](#board)) |
+| Notes      | drafted from the Notes of the Proposed ledger row in `triage/<concept-id>.md`, plus the public parts of the Record ([Notes](#notes)); the human may edit it in the preview       |
+
+### Notes
+
+The Notes cell is one public-safe line. From the Record, it takes only these, in this form:
+
+- `fixed in <sha>`, from the row's fix SHA;
+- duplicate of `<id>`, from the Record `of <canonical id>`;
+- `below the Medium floor`, for a `below-floor` row;
+- `found in triage of <GHSA>`, from the Record `found in triage of <concept-id>, <date>`: the full GHSA id of that concept id's row's advisory, or the concept id itself when that row has none;
+- `also reported in <GHSA>`, for a row folded from two advisories;
+- the one public-safe line a `fixed`, `accepted-risk` or `rejected` record gives.
+
+Everything else in the Record is never copied: fork PR numbers, clone paths, `in ledger: <status>`, and anything private. Nor is anything else from the triage output: never the attack path, evidence, file location or exploit detail.
+
+### Ledger rules
+
+- A `duplicate` of a concept id already in the ledger adds no line: the existing line stays as it is, and `activity.md` records the repeat. A regression, which triage gives a new concept id, gets its own line. No concept id gets a second line.
+- Append only: the new lines go at the end of the ledger's table, ordered by first seen, then by advisory. Close never edits, reorders or removes an existing line. Only the padding a Markdown formatter re-aligns may change on an existing line, never its cells.
+- The ledger format is unchanged: the same header text and the same five columns.
+
+### No ledger lines
+
+A run with no ledger lines, because it held only no-findings drafts, or only duplicates of concept ids already in the ledger, needs no ledger PR. Once the preview shows that it writes no line, and why, `close` goes straight to `closed`, with no ledger PR: the header gets `Closed <date>, no ledger PR` ([Closed](#closed)).
+
+### The ledger PR
+
+One ledger PR per run. On a yes, the run runs `git fetch`, cuts the branch `chore/security-ledger-<run>` from `origin/main` in a temporary `git worktree` outside the run folder, so the human's checkout is left as it was, appends the previewed lines to the ledger in one commit, pushes the branch, and opens one public pull request with `gh pr create`. Never a direct push to the default branch, and never one pull request per advisory. The commit message and the pull request's title and body name the run and the concept ids, and carry nothing the ledger lines do not: no advisory body, fork PR number or clone path. Once the pull request is open, the run removes its temporary worktree. A step that fails moves nothing on the board: the reply says which step failed, and `close` may be run again.
+
+Before it cuts the branch, the run looks for the branch's pull request with `gh pr list --head chore/security-ledger-<run> --state all`. When there is one, it is the run's ledger PR, and no second one is opened.
+
+The human merges it, with the admin bypass where the branch rules ask for it, after CI, like every other pull request; the run never merges it.
+
+### While closing
+
+Once the ledger PR is open, the run is `closing`: the header gains `Closing: ledger PR #n`, Waiting on you holds only `Merge ledger PR #n`, and Next (agent) reads `nothing until ledger PR #n is merged`. `activity.md` logs the pull request. Nothing else on the board changes: every row and advisory is final.
+
+Reconcile checks the ledger PR with `gh pr view <n>`. Once it shows merged, the run runs `git fetch` and checks that the lines are on `origin/main`: each appended line is in the ledger as `git show origin/main:<ledger path>` reads it. Only then is the run `closed` ([Closed](#closed)). A ledger PR closed without merging leaves the run `closing`, and Waiting on you asks the human to reopen it. A ledger PR or a ledger the run cannot read moves nothing ([An unavailable source](#an-unavailable-source)).
+
+A draft advisory that appears while the run is closing does not join the run, because every row is final: it gets no row and no saved original, and Waiting on you lists it below the merge, as `new draft waiting for the next run: <GHSA-id>`. It opens the next run once this one is closed.
+
+### Closed
+
+When the run closes, the header's `Closing:` line becomes `Closed <date>, ledger PR #n`, and `activity.md` logs the close with what was verified. The folder stays: nothing is deleted automatically, and `originals/` still holds the bodies of advisories that were closed and never published. The close message names the folder, and says the folder is private and the human's to delete: it holds advisory bodies and triage detail, and is never committed or shared.
+
+A closed run is read-only: no mode writes to it again, and the next invocation starts a new run ([Open, resume, or nothing to respond to](#open-resume-or-nothing-to-respond-to)). A draft that waited while the run was closing opens it.
+
 ## Board
 
 ```markdown
@@ -306,7 +381,7 @@ Started <date> <time>. Default branch: main@<sha>, checked <time>.
 | GHSA-hg89-9pp4-v549 | 2026-10-12 | 2    | draft | not requested | ../agent-kit-ghsa-hg89 | wait: 2 rows not final |
 ```
 
-The header names the run and when it started. Its `Default branch` line is the default branch's name and tip, and when it was last checked; every invocation checks it again. When a source cannot be reached, the line for it reads `not checked: <source> unavailable` (for the default branch, `Default branch: not checked: git unavailable`), and nothing on the board moves on that source.
+The header names the run and when it started. While the run is closing, the header adds `Closing: ledger PR #n`; once it is closed, `Closed <date>, ledger PR #n`, or `Closed <date>, no ledger PR` ([Close and the findings ledger](#close-and-the-findings-ledger)). Its `Default branch` line is the default branch's name and tip, and when it was last checked; every invocation checks it again. When a source cannot be reached, the line for it reads `not checked: <source> unavailable` (for the default branch, `Default branch: not checked: git unavailable`), and nothing on the board moves on that source.
 
 **Waiting on you:** is a numbered list of the human's steps, each naming the pull request, setting, release or draft advisory it is about, or reads `nothing`. **Next (agent):** is one action, or `nothing until one of the above lands`. Both are rewritten on every update: they are what the human reads first, so nobody has to scan the Next column of every row.
 
