@@ -22,6 +22,7 @@ RUN = SKILL_DIR / "RUN.md"
 TRIAGE_DIR = ROOT / ".claude" / "skills" / "security-finding-triage"
 TRIAGE = TRIAGE_DIR / "SKILL.md"
 OUTCOME_FORMAT = TRIAGE_DIR / "OUTCOME-FORMAT.md"
+LEDGER_SKELETON = ROOT / "examples" / "threat-pack" / "findings-ledger.md"
 OUTCOMES = ["confirmed", "rejected", "below-floor", "accepted-risk", "duplicate"]
 RETIRED = "STATUS-FORMAT.md"
 MODES = "status | next | triage <target> | fix <target> | reconcile | record <what> | close"
@@ -575,6 +576,20 @@ def test_the_ledger_is_appended_only_and_its_format_is_unchanged() -> None:
     assert "The ledger format is unchanged: the same header text and the same five columns" in rules
 
 
+def test_the_ledger_skeleton_describes_close() -> None:
+    """`agent-kit init` copies this skeleton to Consumers, so it must tell the flow `close` runs."""
+    text = flat(read(LEDGER_SKELETON))
+    assert "updates the row after triage" not in text, "triage never edits the ledger"
+    assert "Only a Security Response Run's `close`" in text and "`security-finding-triage` never edits it" in text
+    assert "or the maintainer, by hand" in text
+    assert "Replace the example row" not in text, "close only appends: the maintainer deletes the example row"
+    assert "Delete the example row by hand before your first real line" in text
+    statuses = next(line for line in read(LEDGER_SKELETON).splitlines() if line.startswith("Status values"))
+    assert code_values(statuses) == ["released <tag>", "fixed", "accepted-risk", "rejected"], statuses
+    rows = table_rows(read(LEDGER_SKELETON))
+    assert "| Concept id | Status | First seen | Advisory | Notes |" in rows, "the header text and five columns stay"
+
+
 def test_a_run_with_no_ledger_lines_closes_with_no_pr() -> None:
     no_lines = flat(subsection(close_doc(), "No ledger lines"))
     assert "only no-findings drafts, or only duplicates of concept ids already in the ledger" in no_lines
@@ -858,6 +873,7 @@ if __name__ == "__main__":
     test_notes_carry_only_the_public_parts_of_the_record()
     test_the_ledger_is_appended_only_and_its_format_is_unchanged()
     test_closing_until_the_ledger_pr_is_merged_and_its_lines_are_on_main()
+    test_the_ledger_skeleton_describes_close()
     test_a_run_with_no_ledger_lines_closes_with_no_pr()
     test_a_closed_run_stays_read_only_and_is_the_humans_to_delete()
     test_merged_and_released_run_reconciles_checks()
