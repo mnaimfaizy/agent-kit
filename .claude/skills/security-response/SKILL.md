@@ -27,7 +27,7 @@ A `<target>` is a concept id or a `GHSA:F<n>`; `fix` also takes `next`.
 - `triage <target>`: run evidence-first triage for one finding with the `security-finding-triage` skill, and land its outcome on the board ([RUN.md](RUN.md#landing-a-triage-outcome))
 - `fix <target>`: only with explicit authorization; implement and validate fix. A row found in triage and confirmed at Medium or above needs a draft advisory first ([RUN.md](RUN.md#found-in-triage))
 - `reconcile`: reconcile only ([RUN.md](RUN.md#reconcile)): check the run against GitHub and git, and do nothing else
-- `record <what>`: land a human step on the board (not available yet: say so, and record nothing)
+- `record <what>`: land a human step from a closed set, and verify whatever the run can ([RUN.md](RUN.md#record))
 - `close`: write the findings ledger and close the run (not available yet: say so, and close nothing)
 
 ## The run

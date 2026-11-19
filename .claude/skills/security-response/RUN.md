@@ -69,14 +69,14 @@ When a source cannot be reached (no advisory access, a draft advisory's private 
 
 ### Final rows and advisories
 
-Final rows and advisories are not checked again. A source the run reads for something else can still contradict one: a `published` advisory back in the draft list, or a `released` fix SHA no longer on `origin/main`. A contradicted final row stays final, and so does a contradicted final advisory: it goes to the top of Waiting on you, naming what the source now shows, and is logged in `activity.md`. Final values stay final for the run; the entry stays at the top of Waiting on you until the human acknowledges it.
+Final rows and advisories are not checked again. A source the run reads for something else can still contradict one: a `published` advisory back in the draft list, or a `released` fix SHA no longer on `origin/main`. A contradicted final row stays final, and so does a contradicted final advisory: it goes to the top of Waiting on you, naming what the source now shows, and is logged in `activity.md`. Final values stay final for the run; the entry stays at the top of Waiting on you until the human acknowledges it with `record ack <concept-id|GHSA>` ([Ack](#ack)).
 
 ### Rows are never deleted
 
 Reconcile never deletes a row. It only adds rows, and moves them as above:
 
 - A new draft advisory joins the open run, and each of its findings gets a provisional concept id and an `untriaged` row, as on open ([Concept ids](#concept-ids)). Its original is saved to `originals/<GHSA-id>.json`.
-- A draft the human made for a row with advisory `none yet` is matched to that row by the concept id in its title or body. A draft with no concept id to match is raised in Waiting on you, for the human to confirm the match.
+- A draft the human made for a row with advisory `none yet` is matched to that row by the concept id in its title or body. A draft with no concept id to match is raised in Waiting on you, for the human to confirm the match with `record match <GHSA> <concept-id>` ([Match](#match)).
 - An advisory's findings are compared with `originals/<GHSA-id>.json`: a new `F<n>` with no row gets an `untriaged` row. A missing `F<n>` keeps its row, and is raised in Waiting on you.
 - A finding whose concept id is already in the findings ledger gets its row as [Concept ids](#concept-ids) says.
 
@@ -144,13 +144,77 @@ A finding triage shows to be the same concept as another row, or as a concept id
 
 ### Accepted risk
 
-An `accepted-risk` outcome is only a recommendation. Its Evidence lands as above, and its Delivery stays as it is until the human records it: Waiting on you gets one item, to accept the risk on the row with `record accepted-risk <concept-id>: <reason>` or to ask for a fix, and the row's Next reads `you: decide accepted risk`. The run never sets the Delivery `accepted-risk` from a triage outcome.
+An `accepted-risk` outcome is only a recommendation. Its Evidence lands as above, and its Delivery stays as it is until the human records it: Waiting on you gets one item, to accept the risk on the row with `record accepted-risk <concept-id>: <reason>` or to ask for a fix, and the row's Next reads `you: decide accepted risk`. Recording it: [Accepted risk, recorded](#accepted-risk-recorded). The run never sets the Delivery `accepted-risk` from a triage outcome.
 
 ### Found in triage
 
 Each finding in the output's **Found in triage** section enters as a new `untriaged` row, with advisory `none yet`, the severity claimed with a `?`, and Record `found in triage of <concept-id>, <date>`: the triaged row's concept id and the triage date. A concept id already in the findings ledger also gets `in ledger: <status>`, as [Concept ids](#concept-ids) says. Its own judgement comes from its own triage, `security-response triage <its concept-id>`. When its concept id is already a row on the board, no row is added, and the run raises it in Waiting on you.
 
 A found-in-triage row confirmed at Medium or above needs a draft advisory before `fix PR open`, because the private fork that holds the fix lives on the advisory. Until reconcile matches a draft to the row ([Rows are never deleted](#rows-are-never-deleted)), Waiting on you asks the human to create a draft advisory for it, and `fix` refuses the row.
+
+## Record
+
+`security-response record <what>` lands a step only the human can take, or a judgement only the human can make, and the run verifies whatever it can. A judgement never happens on its own ([Moves](#moves)): accepting risk, a `fixed` with no check behind it, and approving a publish, a close or a CVE request come only from one of these commands.
+
+### The set
+
+`record` takes exactly these:
+
+- `merged <fork PR>`: the human merged a private-fork pull request; the run checks the fix SHA is on `main` ([Merged and released](#merged-and-released))
+- `released <tag>`: the human cut a release; the run checks the tag contains the fix SHA ([Merged and released](#merged-and-released))
+- `fixed <concept-id>: <how>`: the row is done with a change that needs no release ([Fixed](#fixed))
+- `accepted-risk <concept-id>: <reason>`: the human accepts the risk on the row ([Accepted risk, recorded](#accepted-risk-recorded))
+- `approve publish|close|cve <GHSA…>`: the run then publishes, closes, or requests a CVE for each named advisory
+- `match <GHSA> <concept-id>`: joins a human-made draft to a row with advisory `none yet` ([Match](#match))
+- `ack <concept-id|GHSA>`: clears a contradicted-final entry from Waiting on you ([Ack](#ack))
+
+Anything else is refused, with the list shown, and records nothing. A misspelt form, a missing argument, or a concept id or GHSA id that is not on the board is refused the same way; the run never guesses which step was meant.
+
+### Merged and released
+
+`record merged <fork PR>` names a pull request on an advisory's private fork, the way the board's Record names it (`hg89#2`), or by its URL. The run then runs the same checks reconcile runs ([Sources](#sources)): `gh pr view` on the fork shows the pull request merged, and after `git fetch`, `git merge-base --is-ancestor <fix SHA> origin/main` passes for its fix SHA, the commit that carries the fix onto `main`. When both pass, each row whose Record names that fork PR moves `fix PR open` → `merged`, and the fix SHA goes into its Record.
+
+`record released <tag>` checks each `merged` row: after `git fetch --tags`, `git tag --contains <fix SHA>` lists the tag. Each row whose fix SHA the tag contains moves `merged` → `released`, and the tag goes into its Record. A `merged` row whose fix SHA the tag does not contain stays `merged`, and the reply names it.
+
+The report alone moves nothing. When a check fails, or its source cannot be reached ([An unavailable source](#an-unavailable-source)), no row moves on it: the run says which check failed, and the step stays in Waiting on you. A final row is never moved.
+
+### Fixed
+
+`record fixed <concept-id>: <how>` lands a change that needs no release (a ruleset or a setting, say) on a row that is not final, whose Evidence is `confirmed` or `below-floor`. The run first checks the change through `gh api` where there is an endpoint for it; otherwise the human's report stands, and the log says nothing could be verified. A check that contradicts the report moves nothing, and the reply says what the source shows. The Delivery becomes `fixed`, and `<how>` goes into the Record as one public-safe line.
+
+### Accepted risk, recorded
+
+`record accepted-risk <concept-id>: <reason>` lands the human's decision to accept the risk, on a row that is not final, whose Evidence is `confirmed` or `below-floor`. The Delivery becomes `accepted-risk`, the reason goes into the Record as one public-safe line, and the item triage's recommendation raised in Waiting on you is cleared ([Accepted risk](#accepted-risk)). The human may accept the risk on such a row whether or not triage recommended it. There is nothing to verify: it is a judgement.
+
+### Match
+
+`record match <GHSA> <concept-id>` joins a draft that names no concept id, which the human made for a found-in-triage row, to a row with advisory `none yet`: the case reconcile raises in Waiting on you ([Rows are never deleted](#rows-are-never-deleted)). The run checks that the GHSA is a draft it has read and saved to `originals/`, joined to no row, and that the row's advisory reads `none yet`; otherwise the match is refused. The row's Advisory becomes the draft's short id, the draft gets its line in the advisories table, and the item in Waiting on you is cleared.
+
+A draft that names the concept id in its title or body is matched by reconcile on its own, and needs no `record match`.
+
+### Ack
+
+`record ack <concept-id|GHSA>` clears the contradicted-final entry from Waiting on you for that row or advisory ([Final rows and advisories](#final-rows-and-advisories)). The row or advisory stays final, its values unchanged: the ack says the human has seen what the source now shows, and nothing more. The same contradiction is not raised again in this run; a new one is. With no such entry for it, the ack is refused.
+
+### What each transition records
+
+Each transition leaves its record in the row's Record, so nothing the API later loses is lost:
+
+| Transition      | Record                                                               |
+| --------------- | -------------------------------------------------------------------- |
+| `fix PR open`   | the fork PR number (`fork PR #2`), written when `fix` opens it       |
+| `merged`        | the fix SHA (`fix c2d0bd5`), written before publish deletes the fork |
+| `released`      | the release tag                                                      |
+| `fixed`         | how, in one public-safe line                                         |
+| `duplicate`     | `of <canonical id>`                                                  |
+| `accepted-risk` | one public-safe line on why                                          |
+| `rejected`      | one public-safe line on why, or on what would reopen it              |
+
+The Record collects these as the row moves: a later record is added after the earlier ones, never written over them (`fork PR #2, fix 763af3a, v1.0.0-alpha.9`).
+
+### The log
+
+Each `record` is logged in `activity.md` as a human report, with what was verified: `<time> human: record <what>; verified: <check and result>`, or `verified: nothing to check` for a judgement. A refused `record` writes nothing, not even a log entry.
 
 ## Board
 

@@ -404,6 +404,98 @@ def test_triage_mode_lands_the_outcome() -> None:
     assert "a draft advisory" in fix and "RUN.md#found-in-triage" in fix, fix
 
 
+RECORD_SET = [
+    "merged <fork PR>",
+    "released <tag>",
+    "fixed <concept-id>: <how>",
+    "accepted-risk <concept-id>: <reason>",
+    "approve publish|close|cve <GHSA…>",
+    "match <GHSA> <concept-id>",
+    "ack <concept-id|GHSA>",
+]
+
+
+def record_doc() -> str:
+    return section(read(RUN), "Record")
+
+
+def test_record_is_a_closed_set() -> None:
+    doc = record_doc()
+    listed = [m.group(1) for m in re.finditer(r"^- `([^`]+)`", subsection(doc, "The set"), re.MULTILINE)]
+    assert listed == RECORD_SET, f"the record set must read {RECORD_SET}, got {listed}"
+    text = flat(doc)
+    assert "Anything else is refused, with the list shown, and records nothing." in text
+    mode = mode_line("record <what>")
+    assert "not available yet" not in mode, f"record is available now: {mode!r}"
+    assert "RUN.md#record" in mode and "closed set" in mode, mode
+    assert "not available yet" in mode_line("close"), "close stays for a later slice"
+
+
+def test_merged_and_released_run_reconciles_checks() -> None:
+    checks = flat(subsection(record_doc(), "Merged and released"))
+    assert "`git merge-base --is-ancestor <fix SHA> origin/main`" in checks
+    assert "`git tag --contains <fix SHA>`" in checks
+    assert "The report alone moves nothing" in checks
+    assert "the same checks reconcile runs" in checks
+
+
+def test_fixed_and_accepted_risk_are_the_humans_judgement() -> None:
+    fixed = flat(subsection(record_doc(), "Fixed"))
+    assert "Delivery becomes `fixed`" in fixed and "through `gh api` where there is an endpoint" in fixed
+    assert "otherwise the human's report stands" in fixed
+    accepted = flat(subsection(record_doc(), "Accepted risk, recorded"))
+    assert "Delivery becomes `accepted-risk`" in accepted and "public-safe" in accepted
+    landing_item = flat(subsection(landing(), "Accepted risk"))
+    assert "[Accepted risk, recorded](#accepted-risk-recorded)" in landing_item
+
+
+def test_match_joins_a_human_made_draft_to_a_found_in_triage_row() -> None:
+    match = flat(subsection(record_doc(), "Match"))
+    assert "a draft that names no concept id" in match and "advisory `none yet`" in match
+    assert "A draft that names the concept id in its title or body is matched by reconcile on its own" in match
+    rows = flat(subsection(reconcile_doc(), "Rows are never deleted"))
+    assert "`record match <GHSA> <concept-id>`" in rows
+
+
+def test_ack_clears_a_contradicted_final_entry() -> None:
+    ack = flat(subsection(record_doc(), "Ack"))
+    assert "clears the contradicted-final entry from Waiting on you" in ack
+    assert "stays final" in ack
+    final = flat(subsection(reconcile_doc(), "Final rows and advisories"))
+    assert "`record ack <concept-id|GHSA>`" in final
+
+
+def test_each_record_is_logged_as_a_human_report() -> None:
+    log = flat(subsection(record_doc(), "The log"))
+    assert "Each `record` is logged in `activity.md` as a human report, with what was verified" in log
+    assert "`<time> human: record <what>; verified: <check and result>`" in log
+
+
+TRANSITION_RECORDS = {
+    "`fix PR open`": "the fork PR number",
+    "`merged`": "the fix SHA",
+    "`released`": "the release tag",
+    "`fixed`": "how, in one public-safe line",
+    "`duplicate`": "`of <canonical id>`",
+    "`accepted-risk`": "one public-safe line on why",
+    "`rejected`": "one public-safe line on why, or on what would reopen it",
+}
+
+
+def test_each_transition_leaves_its_record() -> None:
+    records = table_rows(subsection(record_doc(), "What each transition records"))
+    assert "| Transition | Record |" in records
+    rows = {
+        cells[0]: cells[1]
+        for cells in (line.strip(" |").split(" | ") for line in records.splitlines())
+        if len(cells) == 2
+    }
+    for transition, record in TRANSITION_RECORDS.items():
+        assert transition in rows, f"the records table must have a row for {transition}"
+        assert record in rows[transition], f"{transition} records {record!r}, got {rows[transition]!r}"
+    assert "in the row's Record" in flat(records)
+
+
 if __name__ == "__main__":
     test_argument_hint_and_mode_list()
     test_every_mode_opens_or_resumes_the_run()
@@ -435,4 +527,11 @@ if __name__ == "__main__":
     test_a_finding_found_in_triage_enters_untriaged()
     test_a_standalone_triage_run_is_not_picked_up()
     test_triage_mode_lands_the_outcome()
+    test_record_is_a_closed_set()
+    test_merged_and_released_run_reconciles_checks()
+    test_fixed_and_accepted_risk_are_the_humans_judgement()
+    test_match_joins_a_human_made_draft_to_a_found_in_triage_row()
+    test_ack_clears_a_contradicted_final_entry()
+    test_each_record_is_logged_as_a_human_report()
+    test_each_transition_leaves_its_record()
     print("security-response contract: ok")
