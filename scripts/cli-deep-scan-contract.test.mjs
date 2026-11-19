@@ -5,7 +5,7 @@
 // (no network); no other command is ever run.
 
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, before, describe, it } from "node:test";
@@ -438,5 +438,109 @@ describe("--recipe", () => {
     const res = await run(dir, ["--tag", "v1.0.0"]);
     assert.equal(res.code, 2);
     assert.match(res.err, /deep-scan does not take --tag/);
+  });
+});
+
+describe("review fixes: shapes the YAML reader would otherwise let through", () => {
+  const cases = [
+    [
+      "a __proto__ key that hides fields from the key check",
+      `__proto__:\n  image: node:22\n  max_turns: 999\n${recipe({ drop: ["image"] })}`,
+      /__proto__: is not a Scan recipe field/,
+    ],
+    [
+      "a __proto__ key inside an entry point",
+      recipe({
+        drop: ["entry_points", "start", "ready"],
+        add: "entry_points:\n  - __proto__:\n      command: x\n    note: Sneaky.",
+      }),
+      /entry_points\[0\]\.__proto__: is not an entry point field/,
+    ],
+    [
+      "a container command later in a block scalar",
+      recipe({ drop: ["setup"], add: "setup: |\n  npm ci\n  docker compose up -d" }),
+      /setup\[0\]: no compose file and no sibling containers/,
+    ],
+    [
+      "a container command after &&",
+      recipe({ drop: ["setup"], add: "setup:\n  - npm ci && docker run x" }),
+      /setup\[0\]: no compose file and no sibling containers/,
+    ],
+    [
+      "a container as an entry point command",
+      recipe({
+        drop: ["entry_points"],
+        add: "entry_points:\n  - command: docker exec app sh\n    note: The app.\n  - url: http://localhost/\n    note: Web.",
+      }),
+      /entry_points\[0\]\.command: no compose file and no sibling containers/,
+    ],
+    [
+      "indented lines under a single-value key",
+      recipe({ drop: ["image"], add: "image: node:22\n  max_turns: 50" }),
+      /line \d+: is indented under image, which holds a single value/,
+    ],
+    [
+      "the Docker socket on a line the reader drops",
+      recipe({ drop: ["image"], add: "image: node:22\n  sock: /var/run/docker.sock" }),
+      /names the Docker socket/,
+    ],
+    [
+      "a top-level line that is not a key",
+      recipe({ add: "limits" }),
+      /line \d+: is not a `key: value` line/,
+    ],
+    [
+      "a quoted key with a space before its colon",
+      recipe({ add: '"max_turns" : 50' }),
+      /line \d+: is not a `key: value` line/,
+    ],
+    [
+      "a key given twice, once quoted",
+      recipe({ add: '"image": evil:1' }),
+      /image: is given more than once/,
+    ],
+    ["an empty start", recipe({ drop: ["start"], add: "start: []" }), /start: is empty/],
+    ["an empty ready", recipe({ drop: ["ready"], add: "ready: []" }), /ready: is empty/],
+    [
+      "a port with a leading zero",
+      recipe({ drop: ["entry_points"], add: "entry_points:\n  - port: 08080\n    note: Zero." }),
+      /entry_points\[0\]\.port: must be a port number/,
+    ],
+  ];
+  for (const [name, text, message] of cases) {
+    it(`refuses ${name}`, async () => {
+      const res = await run(recipeRepo(text));
+      assert.equal(res.code, 1, res.text);
+      assert.match(res.err, message);
+    });
+  }
+});
+
+describe("--default-branch", () => {
+  it("names the trusted ref when origin's HEAD is not set and it is not main", async () => {
+    const dir = makeRepo({ committed: { ".security/scan-recipe.yml": VALID }, branch: "master" });
+    const refused = await run(dir);
+    assert.equal(refused.code, 1);
+    assert.match(refused.err, /--default-branch/);
+    const res = await run(dir, ["--default-branch", "master"]);
+    assert.equal(res.code, 0, res.text);
+    assert.match(res.out, /on master/);
+  });
+
+  it("refuses a branch name git would read as an option, running nothing", async () => {
+    const res = await run(makeRepo(), ["--default-branch", "--output=x"]);
+    assert.equal(res.code, 2);
+    assert.equal(res.calls.length, 0);
+  });
+});
+
+describe("the docs", () => {
+  it("show an example recipe that deep-scan accepts", async () => {
+    const page = readFileSync(join(import.meta.dirname, "..", "docs", "security-audit.md"), "utf8");
+    const section = page.slice(page.indexOf("## Scan recipe"));
+    const example = /```yaml\n([\s\S]*?)```/.exec(section);
+    assert.ok(example, "docs/security-audit.md#scan-recipe has a yaml example");
+    const res = await run(recipeRepo(example[1]));
+    assert.equal(res.code, 0, res.text);
   });
 });

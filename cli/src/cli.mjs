@@ -57,8 +57,10 @@ Options for init (each one is asked for when missing, on a terminal):
                           Kit-owned paths (use upgrade to change tags).
 
 Options for deep-scan:
-  --recipe <path>  The Scan recipe, relative to the repository root
-                   (default .security/scan-recipe.yml).
+  --recipe <path>         The Scan recipe, relative to the repository root
+                          (default .security/scan-recipe.yml).
+  --default-branch <b>    The branch whose tip the recipe is read from
+                          (default: origin's HEAD, else main).
 
 Options for upgrade:
   --tag <vY>      The Agent-kit tag to move to (asked for when missing).
@@ -86,7 +88,7 @@ const COMMAND_OPTIONS = {
     "force",
   ],
   upgrade: ["tag", "from", "yes", "force"],
-  "deep-scan": ["recipe"],
+  "deep-scan": ["recipe", "default-branch"],
 };
 
 /**
@@ -188,7 +190,14 @@ export async function main(argv, io) {
   }
   if (command === "deep-scan") {
     stdout(`agent-kit deep-scan ${VERSION}`);
-    return runDeepScan({ cwd, runner, recipePath: values.recipe, out: stdout, err: stderr });
+    return runDeepScan({
+      cwd,
+      runner,
+      recipePath: values.recipe,
+      defaultBranch: values["default-branch"],
+      out: stdout,
+      err: stderr,
+    });
   }
   if (command === "upgrade") {
     return upgrade(values, { cwd, runner, openRepo, prompt, stdout, stderr });

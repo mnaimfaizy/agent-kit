@@ -8,7 +8,7 @@
 import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { firstLine } from "./exec.mjs";
-import { detectDefaultBranch } from "./init.mjs";
+import { detectDefaultBranch, parseAnswer } from "./init.mjs";
 import { checkSafePath, UnsafePathError } from "./safe-paths.mjs";
 import {
   DEFAULT_RECIPE_PATH,
@@ -23,12 +23,13 @@ import {
  *   cwd: string,
  *   runner: import("./exec.mjs").Runner,
  *   recipePath?: string,
+ *   defaultBranch?: string,
  *   out: (s: string) => void,
  *   err: (s: string) => void,
  * }} opts
  * @returns {number} exit code: 0 the recipe is valid, 1 refused, 2 usage error
  */
-export function runDeepScan({ cwd, runner, recipePath, out, err }) {
+export function runDeepScan({ cwd, runner, recipePath, defaultBranch, out, err }) {
   const refuse = (lines) => {
     err([`REFUSED  ${lines[0]}`, ...lines.slice(1), `See ${RECIPE_DOCS_URL}`].join("\n"));
     return 1;
@@ -43,14 +44,25 @@ export function runDeepScan({ cwd, runner, recipePath, out, err }) {
     return 2;
   }
 
+  if (defaultBranch !== undefined) {
+    const answer = parseAnswer("defaultBranch", defaultBranch);
+    if (answer.error) {
+      err(answer.error);
+      return 2;
+    }
+  }
+
   const top = runner("git", ["-C", cwd, "rev-parse", "--show-toplevel"]);
+  if (top.status === null) {
+    return refuse([`Could not run git: ${firstLine(top.stderr)}`]);
+  }
   if (top.status !== 0) {
     return refuse([`${cwd} is not a git repository; deep-scan reads the Scan recipe from git.`]);
   }
   const root = top.stdout.trim();
 
   // The trusted ref: the default branch's tip as this checkout has it.
-  const branch = detectDefaultBranch(runner, root);
+  const branch = defaultBranch ?? detectDefaultBranch(runner, root);
   const tip = runner("git", [
     "-C",
     root,
@@ -63,6 +75,11 @@ export function runDeepScan({ cwd, runner, recipePath, out, err }) {
     return refuse([
       `No local branch ${branch} (the default branch) to read the Scan recipe from.`,
       `deep-scan reads ${path} as committed on the default branch, never the working tree: create or fetch ${branch}, then run it again.`,
+      ...(defaultBranch === undefined
+        ? [
+            `If your default branch is not ${branch} (origin's HEAD is not set here), name it with --default-branch <name>.`,
+          ]
+        : []),
     ]);
   }
   const commit = tip.stdout.trim();

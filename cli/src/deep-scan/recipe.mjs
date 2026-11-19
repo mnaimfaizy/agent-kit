@@ -7,7 +7,13 @@
 
 import { CLI_VERSION } from "../tags.mjs";
 import { checkSafePath } from "../safe-paths.mjs";
-import { isMapping, parseYamlSubset, stripBom, stripComment } from "../yaml-subset.mjs";
+import {
+  isMapping,
+  parseScalar,
+  parseYamlSubset,
+  stripBom,
+  stripComment,
+} from "../yaml-subset.mjs";
 
 export const DEFAULT_RECIPE_PATH = ".security/scan-recipe.yml";
 
@@ -41,7 +47,7 @@ const COMPOSE_KEY =
   /^(?:compose|compose_file|docker_compose|services|containers|sidecars|sibling_containers)$/i;
 const SOCKET_KEY = /^(?:docker_socket|socket|docker_host)$/i;
 const COMPOSE_FILE = /(?:^|\/)(?:docker-)?compose\.ya?ml$/i;
-const CONTAINER_COMMAND = /^\s*(?:sudo\s+)?(?:docker|docker-compose|podman|nerdctl)(?:\s|$)/;
+const CONTAINER_COMMAND = /(?:^|[\s;&|(`])(?:docker|docker-compose|podman|nerdctl)(?=\s|$)/m;
 
 // Shapes of real credentials. Fixtures and every other field hold fake
 // values only: the recipe is committed, and the sandbox is not a secret store.
@@ -98,8 +104,12 @@ export function validateRecipe(text) {
   const say = (field, problem) => problems.push(`${field}: ${problem}`);
   if (stripBom(text).trim() === "") return ["the recipe is empty."];
 
-  for (const key of duplicateTopLevelKeys(text)) say(key, "is given more than once.");
-  const recipe = parseYamlSubset(text);
+  const lines = lineProblems(text);
+  for (const key of lines.twice) say(key, "is given more than once.");
+  for (const problem of lines.problems) problems.push(problem);
+  // A null-prototype copy: a `__proto__:` key becomes an ordinary key that
+  // the field checks see and refuse, never a hidden prototype.
+  const recipe = ownCopy(parseYamlSubset(text));
 
   for (const key of Object.keys(recipe)) {
     const problem = keyProblem(key, RECIPE_FIELDS);
@@ -140,6 +150,9 @@ export function validateRecipe(text) {
   for (const field of ["setup", "start", "ready", "seed"]) {
     if (!(field in recipe)) continue;
     commands[field] = commandList(recipe[field], field, say);
+    if ((field === "start" || field === "ready") && commands[field]?.length === 0) {
+      say(field, "is empty; leave start and ready out when every entry point is a command.");
+    }
   }
   if (!("setup" in recipe)) {
     say("setup", "is missing; list the commands that install dependencies (or write setup: []).");
@@ -218,8 +231,12 @@ export function validateRecipe(text) {
   }
 
   // Anywhere in the recipe: no Docker socket, no real credential.
+  let socket = false;
   walkStrings(recipe, "", (where, value) => {
-    if (/docker\.sock/i.test(value)) say(where, socketProblem());
+    if (/docker\.sock/i.test(value)) {
+      socket = true;
+      say(where, socketProblem());
+    }
     for (const [pattern, kind] of CREDENTIALS) {
       if (pattern.test(value)) {
         say(where, `looks like ${kind}; the recipe is committed, so it holds fake values only.`);
@@ -228,11 +245,19 @@ export function validateRecipe(text) {
     }
   });
 
+  // Even on a line the reader dropped.
+  if (!socket && /docker\.sock/i.test(text)) say("(recipe)", socketProblem());
+
   for (const [field, list] of Object.entries(commands)) {
     list?.forEach((cmd, i) => {
       if (CONTAINER_COMMAND.test(cmd)) say(`${field}[${i}]`, composeProblem());
     });
   }
+  entries?.forEach((entry, i) => {
+    if (isMapping(entry) && typeof entry.command === "string" && CONTAINER_COMMAND.test(entry.command)) {
+      say(`entry_points[${i}].command`, composeProblem());
+    }
+  });
   return problems;
 }
 
@@ -273,7 +298,7 @@ function entryProblems(entry, where, say) {
   }
   if ("port" in entry) {
     const port = Number(entry.port);
-    if (!/^\d+$/.test(String(entry.port ?? "")) || port < 1 || port > 65535) {
+    if (!/^[1-9]\d*$/.test(String(entry.port ?? "")) || port > 65535) {
       say(`${where}.port`, "must be a port number from 1 to 65535.");
     }
   }
@@ -324,15 +349,66 @@ function walkStrings(value, where, visit) {
   }
 }
 
-/** Top-level keys written more than once (the YAML reader keeps the last). */
-function duplicateTopLevelKeys(text) {
+/**
+ * A copy of the reader's output in which every mapping has a null
+ * prototype. The reader assigns keys with `obj[key] = value`, so a
+ * `__proto__:` mapping became the object's prototype: it comes back here as
+ * an own `__proto__` key.
+ */
+function ownCopy(value) {
+  if (Array.isArray(value)) return value.map(ownCopy);
+  if (!isMapping(value)) return value;
+  const copy = Object.create(null);
+  for (const [k, v] of Object.entries(value)) copy[k] = ownCopy(v);
+  const proto = Object.getPrototypeOf(value);
+  if (proto !== Object.prototype && proto !== null) copy.__proto__ = ownCopy(proto);
+  return copy;
+}
+
+const TOP_KEY = /^("[^"]*"|'[^']*'|[^\s#:"'-][^:]*?):(?:\s+(.*))?$/;
+
+/**
+ * Problems the YAML reader would pass over without a word, found from the
+ * top-level lines: a line that is not `key: value`, a line indented under a
+ * key that holds a single value (the reader drops it), and a key given twice
+ * (the reader keeps the last). Keys are compared unquoted.
+ */
+function lineProblems(text) {
+  const problems = [];
   const seen = new Set();
   const twice = new Set();
-  for (const line of stripBom(text).replace(/\r\n?/g, "\n").split("\n")) {
-    const m = /^([^\s#:"'-][^:]*?):(?:\s|$)/.exec(stripComment(line));
-    if (!m) continue;
-    if (seen.has(m[1])) twice.add(m[1]);
-    seen.add(m[1]);
-  }
-  return [...twice];
+  let current = null; // { key, single } for the last top-level key
+  const all = stripBom(text).replace(/\r\n?/g, "\n").split("\n");
+  all.forEach((raw, index) => {
+    const line = stripComment(raw).trimEnd();
+    if (line.trim() === "") return;
+    const n = index + 1;
+    if (/^\s/.test(line)) {
+      if (current?.single) {
+        problems.push(
+          `line ${n}: is indented under ${current.key}, which holds a single value; the reader would drop it.`,
+        );
+      }
+      return;
+    }
+    if (line === "---" && seen.size === 0) return;
+    if (line === "-" || line.startsWith("- ")) {
+      // A list at the key's own indent: valid only under a key with no value.
+      if (current && !current.single) return;
+      problems.push(`line ${n}: is a list item with no key above it to belong to.`);
+      return;
+    }
+    const m = TOP_KEY.exec(line);
+    if (!m) {
+      problems.push(`line ${n}: is not a \`key: value\` line; the reader would drop it.`);
+      current = null;
+      return;
+    }
+    const key = parseScalar(m[1]);
+    if (seen.has(key)) twice.add(key);
+    seen.add(key);
+    const value = (m[2] ?? "").trim();
+    current = { key, single: value !== "" && !/^[|>][-+0-9]*$/.test(value) };
+  });
+  return { problems, twice: [...twice] };
 }
