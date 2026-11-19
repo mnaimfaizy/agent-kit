@@ -8,7 +8,7 @@ Today's static audit is CI-first. A **Deep scan** is the other way round: **loca
 
 Recorded in [#337](https://github.com/mnaimfaizy/agent-kit/issues/337), as corrected by [#338](https://github.com/mnaimfaizy/agent-kit/issues/338) and [#346](https://github.com/mnaimfaizy/agent-kit/issues/346), on the wayfinder map [#332](https://github.com/mnaimfaizy/agent-kit/issues/332), and specified in [#362](https://github.com/mnaimfaizy/agent-kit/issues/362).
 
-This is the real trade-off: CI has the stronger destruction story at lower cost, because a fresh runner VM is thrown away after the job. Local stays the default anyway, and the local launcher is also the only home for a **Verification run**, which cannot run in CI because its input names a concept id that is private until release ([#358](https://github.com/mnaimfaizy/agent-kit/issues/358)).
+This is the real trade-off: CI has the stronger destruction story at lower cost, because a fresh runner VM is thrown away after the job. Local stays the default anyway. The map recorded that choice without a stated reason, so none is given here. The local launcher is also the only home for a **Verification run**, which cannot run in CI because its input names a concept id that is private until release ([#358](https://github.com/mnaimfaizy/agent-kit/issues/358)).
 
 ## The local boundary rule
 
