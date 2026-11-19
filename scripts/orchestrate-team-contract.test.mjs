@@ -911,6 +911,21 @@ describe("The remote a Team Run uses survives `--resume`", () => {
     assert.match(team, /before step 3, and before any fetch or push/);
     assert.match(team, /a null `remote` from `check` is not asked again/);
     assert.match(team, /no longer among the repository's remotes/);
+    assert.match(
+      team,
+      /reports a remote other than the line's, .*said and logged in the Activity Log, and the line's still holds/,
+    );
+  });
+
+  it("is defined in TEAM.md as the line's on `--resume`", () => {
+    assert.match(
+      section(TEAM, "## Find the tracker"),
+      /`<remote>` is the remote `check` reports in its `remote` field \(on `--resume`, the one the board's `Team Run:` line names\)/,
+    );
+    assert.match(
+      section(TEAM, "## Find the tracker"),
+      /`--resume` reads `<remote>` from the board, so it asks this only when that remote is gone/,
+    );
   });
 
   it("is said in the guide's resume section", () => {
