@@ -4,7 +4,7 @@
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { parseScalar, parseYamlSubset, stripBom, stripComment } from "./yaml-subset.mjs";
+import { isMapping, parseScalar, parseYamlSubset, stripBom, stripComment } from "./yaml-subset.mjs";
 
 export const KIT_REPO_NAME = "agent-kit";
 export const DEFAULT_KIT_REPO = "mnaimfaizy/agent-kit";
@@ -143,7 +143,7 @@ function unsupportedSecrets(value) {
     if (value.startsWith("&")) return "`secrets:` uses a YAML anchor";
     return `\`secrets:\` is ${JSON.stringify(value)}`;
   }
-  if (value.$seq) return "`secrets:` is a list";
+  if (Array.isArray(value)) return "`secrets:` is a list";
   if ("<<" in value) return "`secrets:` uses a YAML merge key (<<)";
   return null;
 }
@@ -157,11 +157,11 @@ function dispatchInputs(on) {
   const named = (text) => /(?:^|[\s,[])workflow_dispatch(?:$|[\s,\]])/.test(text);
   if (typeof on === "string") return named(on) ? [] : null;
   if (!on || typeof on !== "object") return null;
-  if (on.$seq) return on.$seq.some((line) => named(String(line))) ? [] : null;
+  if (Array.isArray(on)) return on.some((event) => named(String(event))) ? [] : null;
   if (!("workflow_dispatch" in on)) return null;
   const trigger = on.workflow_dispatch;
-  const inputs = trigger && typeof trigger === "object" && !trigger.$seq ? trigger.inputs : null;
-  return inputs && typeof inputs === "object" && !inputs.$seq ? Object.keys(inputs) : [];
+  const inputs = isMapping(trigger) ? trigger.inputs : null;
+  return isMapping(inputs) ? Object.keys(inputs) : [];
 }
 
 /**
@@ -173,12 +173,12 @@ function dispatchInputs(on) {
 export function parseCaller(text) {
   const doc = parseYamlSubset(text);
   const jobs = [];
-  const jobMap = doc.jobs && typeof doc.jobs === "object" && !doc.jobs.$seq ? doc.jobs : {};
+  const jobMap = isMapping(doc.jobs) ? doc.jobs : {};
   for (const [name, job] of Object.entries(jobMap)) {
     if (!job || typeof job !== "object" || typeof job.uses !== "string") continue;
     const uses = parseKitUses(job.uses);
     if (!uses) continue;
-    const withBlock = job.with && typeof job.with === "object" && !job.with.$seq ? job.with : {};
+    const withBlock = isMapping(job.with) ? job.with : {};
     const secretsUnsupported = unsupportedSecrets(job.secrets);
     let secrets = {};
     if (job.secrets === "inherit") secrets = "inherit";
