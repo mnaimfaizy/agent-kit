@@ -265,6 +265,26 @@ describe("harnesses/claude-code-desktop.md", () => {
     assert.match(spawn, /`git switch`/);
   });
 
+  it("the card path keeps the permission mode, and the turn that finds the session records and subscribes it", () => {
+    const spawn = section(DESKTOP, "## Verbs")
+      .split("\n")
+      .find((l) => l.startsWith("- `spawn`:"));
+    assert.match(spawn, /A card keeps `permission_mode`/);
+    assert.match(spawn, /records its handle and name/);
+    assert.match(spawn, /moves the row off `planned`/);
+    assert.match(spawn, /arms its `notify_when_idle` subscription/);
+  });
+
+  it("`message` takes the `local_…` id, and the Support Level rests on the spec-314 run", () => {
+    const msg = section(DESKTOP, "## Verbs")
+      .split("\n")
+      .find((l) => l.startsWith("- `message`:"));
+    assert.match(msg, /`local_…` id, which a plain message takes/);
+    const level = DESKTOP.split("\n").find((l) => l.startsWith("- **Support Level:**"));
+    assert.match(level, /It rests on `\/orchestrate --spec 314`/);
+    assert.ok(!level.includes("not on a recorded Activity Log"));
+  });
+
   it("`notify_when_idle` is sent to the session's name, and is not re-armed on an idle session", () => {
     assert.match(wait, /ListAgents/);
     assert.match(wait, /not its `local_…` id/);
