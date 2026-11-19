@@ -864,3 +864,12 @@ describe("HARNESSES.md: Support Level covers a tracker file", () => {
     assert.match(level, /tracker file/);
   });
 });
+
+describe("SKILL.md: a Ruling's id after a lost machine", () => {
+  it("points from `R1` to RUN.md's exception for a new Team Run", () => {
+    const step = SKILL.split("**Making a Ruling:**")[1].split("\n2. ")[0];
+    assert.match(step, /`R1`/);
+    assert.match(step, /\(RUN\.md#after-a-lost-machine\)/);
+    assert.match(step, /past the highest `R<n>`/);
+  });
+});

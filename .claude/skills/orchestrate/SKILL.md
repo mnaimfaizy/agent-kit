@@ -72,7 +72,7 @@ A run whose Dispatch Plan was approved with **Decision authority: autonomous** (
 
 **Making a Ruling:**
 
-1. Give it the next run-wide id, `R<n>`: `R1`, `R2`, and so on, never reused.
+1. Give it the next run-wide id, `R<n>`: `R1`, `R2`, and so on, never reused. A new Team Run after a lost machine starts one past the highest `R<n>` on the old run's pull requests instead ([RUN.md](RUN.md#after-a-lost-machine)).
 2. Append it to the Ruling Ledger, `unreviewed`, with its question, options, choice and reason, evidence, and the earlier Rulings it cites. Mark the Decision Request in the Delegation's `decisions.md` as answered by the Chief of Staff, as `R<n>`.
 3. `message` it to the Delegation that asked, in the Ruling form ([BRIEF.md](BRIEF.md#ruling)), or for a stall, a crash or a merge order, to the Delegation it acts on. Record it where `decisions.to` says, labelled "Chief of Staff ruling, not yet reviewed". With `pull-request`, the line goes in the building Delegation's own pull request body: for a building Delegation's Ruling, its Ruling form tells it to add the line; for a QA Delegation's, whose brief allows no such write, the QA Delegation's form says `Record: none`, and the Chief of Staff sends the line to the building Delegation whose pull request it tests. With `issue-comment`, the Chief of Staff drafts the comment, a write as the human handled as step 6 says. The Delegation goes on with the Ruling while that write waits.
 4. Log it in the Activity Log, then act on it as on the human's answer: the nudge or restart, the merge order, the send back, the new QA run, or the delivery.
