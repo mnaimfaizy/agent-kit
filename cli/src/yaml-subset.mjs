@@ -50,6 +50,11 @@ export function parseYamlSubset(text) {
   const lines = stripBom(text).replace(/\r\n?/g, "\n").split("\n");
   const indentOf = (l) => l.length - l.trimStart().length;
   const isBlank = (l) => stripComment(l).trim() === "";
+  // A list item's marker: `-` alone or followed by a space, never `-foo:`.
+  const isItem = (l) => {
+    const c = stripComment(l).trim();
+    return c === "-" || c.startsWith("- ");
+  };
 
   function nextContent(i) {
     while (i < lines.length && isBlank(lines[i])) i++;
@@ -81,11 +86,7 @@ export function parseYamlSubset(text) {
       const value = (m[2] ?? "").trim();
       if (value === "") {
         const j = nextContent(i);
-        if (
-          j < lines.length &&
-          stripComment(lines[j]).trimStart().startsWith("-") &&
-          indentOf(lines[j]) >= childIndent
-        ) {
+        if (j < lines.length && isItem(lines[j]) && indentOf(lines[j]) >= childIndent) {
           const [seq, next] = parseSequence(j, indentOf(lines[j]));
           obj[key] = seq;
           i = next;
@@ -126,19 +127,26 @@ export function parseYamlSubset(text) {
         i++;
         continue;
       }
-      if (!(content === "-" || content.startsWith("- "))) break;
+      if (!isItem(content)) break;
       const rest = content.slice(1).trimStart();
       if (rest === "") {
         // A bare `-`: the item is the deeper block that follows, if any.
         const j = nextContent(i + 1);
         if (j < lines.length && indentOf(lines[j]) > seqIndent) {
-          const nested = stripComment(lines[j]).trimStart();
-          const [item, next] =
-            nested === "-" || nested.startsWith("- ")
-              ? parseSequence(j, indentOf(lines[j]))
-              : parseMapping(j, seqIndent);
-          list.push(item);
-          i = next;
+          const nested = stripComment(lines[j]).trim();
+          if (isItem(nested)) {
+            const [item, next] = parseSequence(j, indentOf(lines[j]));
+            list.push(item);
+            i = next;
+          } else if (KEY.test(nested) && !/^[[{]/.test(nested)) {
+            const [item, next] = parseMapping(j, seqIndent);
+            list.push(item);
+            i = next;
+          } else {
+            const [item, next] = foldScalar(nested, j + 1, seqIndent);
+            list.push(item);
+            i = next;
+          }
         } else {
           list.push(null);
           i++;
@@ -164,10 +172,24 @@ export function parseYamlSubset(text) {
         }
         list.push(raw.join("\n"));
       } else {
-        list.push(parseScalar(rest));
+        const [item, next] = foldScalar(rest, i, seqIndent);
+        list.push(item);
+        i = next;
       }
     }
     return [list, i];
+  }
+
+  // A scalar item whose text starts with `first` and runs on over the
+  // non-blank lines from `i` that sit deeper than the item's `-`. The lines
+  // fold into one, joined by spaces.
+  function foldScalar(first, i, seqIndent) {
+    const parts = [first];
+    while (i < lines.length && !isBlank(lines[i]) && indentOf(lines[i]) > seqIndent) {
+      parts.push(stripComment(lines[i]).trim());
+      i++;
+    }
+    return [parseScalar(parts.join(" ")), i];
   }
 
   return parseMapping(0, -1)[0];

@@ -94,6 +94,17 @@ describe("parseYamlSubset block sequences", () => {
       items: ["{ name: api, port: 8080 }", "[a, b]", "    line one\n    line two", null, "last"],
     });
   });
+
+  it("folds a plain scalar item over several lines, after a dash or a bare dash", () => {
+    const doc = parseYamlSubset("notes:\n  -\n    workflows stay\n    static-only\n  - prompts\n");
+    assert.deepEqual(doc, { notes: ["workflows stay static-only", "prompts"] });
+    const inline = parseYamlSubset("notes:\n  - workflows stay\n    static-only\n  - prompts\n");
+    assert.deepEqual(inline, { notes: ["workflows stay static-only", "prompts"] });
+  });
+
+  it("does not take a key that starts with a dash for a list item", () => {
+    assert.deepEqual(parseYamlSubset("a:\n-foo: 1\n"), { a: null, "-foo": "1" });
+  });
 });
 
 // The readers built on parseYamlSubset treat a list where they expect a
