@@ -467,7 +467,7 @@ def test_ack_clears_a_contradicted_final_entry() -> None:
 
 
 def test_each_record_is_logged_as_a_human_report() -> None:
-    log = flat(subsection(record_doc(), "The log"))
+    log = flat(subsection(record_doc(), "Logging a record"))
     assert "Each `record` is logged in `activity.md` as a human report, with what was verified" in log
     assert "`<time> human: record <what>; verified: <check and result>`" in log
 

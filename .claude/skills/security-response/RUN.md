@@ -214,7 +214,7 @@ The Record collects these as the row moves: a later record is added after the ea
 
 An advisory's CVE request is recorded in its CVE column, not in a row's Record ([CVE request](#cve-request)).
 
-### The log
+### Logging a record
 
 Each `record` is logged in `activity.md` as a human report, with what was verified: `<time> human: record <what>; verified: <check and result>`, or `verified: nothing to check` for a judgement. A refused `record` writes nothing, not even a log entry.
 
@@ -224,7 +224,7 @@ Only `record approve` lets the run publish, close, or request a CVE for an advis
 
 An approval is for that one action on that advisory. A refused or failed action needs a new `record approve`, and an approval never carries over to a later action.
 
-After each call, the run reads the advisory back with `gh api repos/<owner>/<repo>/security-advisories/<GHSA-id>`, and moves the board only on what the read shows. A call that fails moves nothing: the reply gives GitHub's error. Each action is logged in `activity.md`: the human's approval ([The log](#the-log)), then the call and what the read showed.
+After each call, the run reads the advisory back with `gh api repos/<owner>/<repo>/security-advisories/<GHSA-id>`, and moves the board only on what the read shows. A call that fails moves nothing: the reply gives GitHub's error. Each action is logged in `activity.md`: the human's approval ([Logging a record](#logging-a-record)), then the call and what the read showed.
 
 An advisory with no finding rows is refused here for now: say so, and act on nothing for it. A **duplicate advisory** is one whose every row is `duplicate`.
 
