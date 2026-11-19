@@ -21,7 +21,7 @@ Every mode starts here, before it does its own work:
 
 1. Look for the open run. A run is open until its board's header carries `Closed <date>`; a run that reads `Closing: ledger PR #n` is still open. The folder under `tmp/security-response/` whose board is open is the open run.
 2. **An open run:** the mode resumes the open run. Opening while a run is open always resumes it, and never starts a second one. At most one run is open at a time. If more than one board is open, which should never happen, resume none and write nothing: name the folders and ask the human which one is current.
-3. **No open run, and draft advisories exist:** the mode opens a run. List the drafts with `gh api --paginate "repos/<owner>/<repo>/security-advisories?state=draft"`. Pass the ignore gate above, make the folder (the next free `<run>` name), save each draft to `originals/<GHSA-id>.json`, give each finding its provisional concept id ([Concept ids](#concept-ids)), and write the board and the first `activity.md` entry.
+3. **No open run, and draft advisories exist:** the mode opens a run. List the drafts with `gh api --paginate "repos/<owner>/<repo>/security-advisories?state=draft"`. Pass the ignore gate above, make the folder (the next free `<run>` name), save each draft to `originals/<GHSA-id>.json`, give each finding its provisional concept id ([Concept ids](#concept-ids)) and each draft with no `F<n>` its no-findings line ([No-findings advisories](#no-findings-advisories)), and write the board and the first `activity.md` entry.
 4. **No draft advisories and no open run:** report "nothing to respond to", and stop. The mode writes nothing: no folder, no board, no log.
 
 When no run is open and the advisory list cannot be read (no access, no network), say so and write nothing. A run is never opened, or "nothing to respond to" reported, on a list the run could not read. An open run is still resumed, and reconcile shows its board with the advisory API not checked ([An unavailable source](#an-unavailable-source)).
@@ -75,7 +75,7 @@ Final rows and advisories are not checked again. A source the run reads for some
 
 Reconcile never deletes a row. It only adds rows, and moves them as above:
 
-- A new draft advisory joins the open run, and each of its findings gets a provisional concept id and an `untriaged` row, as on open ([Concept ids](#concept-ids)). Its original is saved to `originals/<GHSA-id>.json`.
+- A new draft advisory joins the open run, and each of its findings gets a provisional concept id and an `untriaged` row, as on open ([Concept ids](#concept-ids)); a new draft with no `F<n>` gets its no-findings line ([No-findings advisories](#no-findings-advisories)). Its original is saved to `originals/<GHSA-id>.json`.
 - A draft the human made for a row with advisory `none yet` is matched to that row by the concept id in its title or body. A draft with no concept id to match is raised in Waiting on you, for the human to confirm the match with `record match <GHSA> <concept-id>` ([Match](#match)).
 - An advisory's findings are compared with `originals/<GHSA-id>.json`: a new `F<n>` with no row gets an `untriaged` row. A missing `F<n>` keeps its row, and is raised in Waiting on you.
 - A finding whose concept id is already in the findings ledger gets its row as [Concept ids](#concept-ids) says.
@@ -111,6 +111,37 @@ A draft advisory filed by the audit numbers its findings `F<n>`, each under a `#
 A provisional id may be renamed until triage. It is final at triage, and stable from then on: a later change of mind is a new concept id, never a rename.
 
 A finding whose concept id is already in the findings ledger still gets its row, `untriaged`, with Record `in ledger: <status>`. The run reads the ledger only; it never edits it before close.
+
+## No-findings advisories
+
+A draft with zero parsed `F<n>` is a **no-findings advisory**: one line in the advisories table, with Rows `0` and its kind, and never a finding row, because it has no concept id. It is not left outside the run either, because then it would never be closed. The run counts each draft's `F<n>` when it opens and when a new draft joins it ([Concept ids](#concept-ids)).
+
+A no-findings advisory stays one while no row is joined to it. Once a row is (`record match`, or reconcile matching a draft that names a concept id), it has finding rows and follows the rules for any advisory. When a `format mismatch` turns out to hold real findings, the human files them in a new draft or edits this one, and reconcile adds a row for each new `F<n>` ([Rows are never deleted](#rows-are-never-deleted)).
+
+### Kinds
+
+| Kind              | Recognised by                                                                 | Advisories-table Next                    |
+| ----------------- | ----------------------------------------------------------------------------- | ---------------------------------------- |
+| `clean run`       | CI title `[Security audit] <date> — clean run (0 Medium+ findings)`           | `you: clean run, read and approve close` |
+| `format mismatch` | CI title `[Security audit] <date> — FORMAT MISMATCH (header=<n>, headings=0)` | `you: read; findings may be hidden`      |
+| `failed run`      | CI title `[Security audit] <date> — failed run: empty report`                 | `you: read transcript, approve close`    |
+| `other`           | anything else with no `F<n>`: a human-made draft, a probe                     | `you: match or close`                    |
+
+The parsed `F<n>` count decides whether a draft is a no-findings advisory; the title only names its kind. The run matches the title's text after the date (`clean run (0 Medium+ findings)`, `FORMAT MISMATCH`, `failed run: empty report`), as the audit workflow writes it. A draft whose title matches none of them is `other`. A `format mismatch` may hide findings: its report's header counts findings that no `F<n>` heading carries. A `failed run` holds only the session transcript. An `other` draft may be one the human made for a found-in-triage row: match it with `record match <GHSA> <concept-id>` ([Match](#match)), or close it.
+
+### Waiting on you
+
+No-findings advisories get one numbered item per kind, naming each draft by its full GHSA id: `Read and approve close 4 clean-run drafts: <GHSA-id>, <GHSA-id>, <GHSA-id>, <GHSA-id>`. The `format mismatch` item comes first, then `failed run`, then `other`, and the `clean run` item last: format mismatches and failed runs come before clean runs, so a draft that may hide findings is read before routine ones. The advisories table keeps one line per draft.
+
+### Closing
+
+`record approve close <GHSA…>` takes a list of GHSAs, each named: `record approve close <GHSA-id> <GHSA-id> <GHSA-id>`. There is no wildcard: no `clean`, no `all`, no pattern. The human names each draft, because the draft exists so that it gets read. Within the list, the run refuses any GHSA with non-final rows, and a duplicate whose canonical row is not final ([Close](#close)); a no-findings advisory has no rows, so it passes once it is `draft`.
+
+Its only final state is `closed`. It is never published, and staying a draft is not final, so the run cannot close while one is still a draft. Closing it writes no findings-ledger line, because the ledger holds concept ids only; `activity.md` logs the close.
+
+### A run of only no-findings drafts
+
+A run whose drafts are all no-findings advisories opens like any other: drafts exist ([Open, resume, or nothing to respond to](#open-resume-or-nothing-to-respond-to)). Its board has zero rows, an empty findings table and only advisories lines. It can close once every one is `closed`, and writes no ledger line.
 
 ## Landing a triage outcome
 
@@ -226,11 +257,11 @@ An approval is for that one action on that advisory. A refused or failed action 
 
 After each call, the run reads the advisory back with `gh api repos/<owner>/<repo>/security-advisories/<GHSA-id>`, and moves the board only on what the read shows. A call that fails moves nothing: the reply gives GitHub's error. Each action is logged in `activity.md`: the human's approval ([Logging a record](#logging-a-record)), then the call and what the read showed.
 
-An advisory with no finding rows is not one these actions take: the run refuses it, and acts on nothing for it. A **duplicate advisory** is one whose every row is `duplicate`. An advisory whose every row is `rejected`, `duplicate` or `below-floor` has nothing to publish: it is closed, not published, once its rows are final. A `below-floor` row keeps the advisory it came from ([Board](#board)), so the run can tell when an advisory whose findings all fell under the Medium floor may close.
+A no-findings advisory ([No-findings advisories](#no-findings-advisories)) is taken by `close` only: publish and a CVE request refuse it. A **duplicate advisory** is one whose every row is `duplicate`. An advisory whose every row is `rejected`, `duplicate` or `below-floor` has nothing to publish: it is closed, not published, once its rows are final. A `below-floor` row keeps the advisory it came from ([Board](#board)), so the run can tell when an advisory whose findings all fell under the Medium floor may close.
 
 ### Publish
 
-`record approve publish <GHSA…>` publishes each advisory. Publish is refused while any row under the advisory is not final, or while the advisory is not `draft`. A duplicate advisory is never published: the run refuses it, and says to close it once its canonical row's advisory is final ([Close](#close)). Nor is an advisory whose every row is `rejected`, `duplicate` or `below-floor`: the run refuses it, and says to close it. A `below-floor` row under an advisory with other rows holds its publish until the row is final, as any row does: the published advisory would disclose it.
+`record approve publish <GHSA…>` publishes each advisory. Publish is refused while any row under the advisory is not final, or while the advisory is not `draft`. A duplicate advisory is never published: the run refuses it, and says to close it once its canonical row's advisory is final ([Close](#close)). Nor is an advisory whose every row is `rejected`, `duplicate` or `below-floor`: the run refuses it, and says to close it. A `below-floor` row under an advisory with other rows holds its publish until the row is final, as any row does: the published advisory would disclose it. A no-findings advisory is never published: the run refuses it, and says to close it.
 
 Publishing deletes the private fork, and its pull requests with it. So the run checks that the fork PR numbers and fix SHAs are in the Record of every row under it before the publish. For a row that went through the fork and lacks either, the run reads them from the fork (`gh pr list` and `gh pr view`), writes them into the row's Record, and logs it, before it publishes. When a record is missing and the fork cannot be read, the run refuses the publish.
 
@@ -238,7 +269,7 @@ Once the read shows `published`, the advisory's State becomes `published` and it
 
 ### Close
 
-`record approve close <GHSA…>` closes each advisory without publishing it. Close is refused while any row under the advisory is not final, or while the advisory is not `draft`.
+`record approve close <GHSA…>` closes each advisory without publishing it. It takes a list of full GHSA ids, each one named, with no wildcard ([Closing](#closing)). Close is refused while any row under the advisory is not final, or while the advisory is not `draft`.
 
 A duplicate advisory is closed, not published, once its canonical row's advisory is final. For each of its rows, the row named in its `of <canonical id>` record must have an advisory that is `published` or `closed`; a canonical row with advisory `n/a` must itself be final, and a canonical id that is only in the findings ledger counts as final. Until then the close is refused, and the advisory's Next reads `close once <canonical advisory> is final`.
 
@@ -295,15 +326,15 @@ Rows are ordered by severity, highest first (`critical`, `high`, `medium`, then 
 
 The advisories table has one line per draft advisory in the run:
 
-| Column     | Holds                                                                                                                                                                                                                                                                                                                                   |
-| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Advisory   | The full GHSA id.                                                                                                                                                                                                                                                                                                                       |
-| Created    | The date the advisory was created.                                                                                                                                                                                                                                                                                                      |
-| Rows       | How many finding rows it has.                                                                                                                                                                                                                                                                                                           |
-| State      | One of the [Advisory state](#advisory-state) values.                                                                                                                                                                                                                                                                                    |
-| CVE        | `not requested`, `requested <date>`, or the CVE id once assigned.                                                                                                                                                                                                                                                                       |
-| Fork clone | The local path of the private fork's clone, or `—`.                                                                                                                                                                                                                                                                                     |
-| Next       | Why it is not yet publishable (`wait: 3 rows not final`), `you: approve publish` once every row under it is final, `close once <canonical advisory> is final` for a duplicate, `you: approve close` once a duplicate's canonical advisory is final or when every row is `rejected`, `duplicate` or `below-floor` and final, or `final`. |
+| Column     | Holds                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Advisory   | The full GHSA id.                                                                                                                                                                                                                                                                                                                                                                                     |
+| Created    | The date the advisory was created.                                                                                                                                                                                                                                                                                                                                                                    |
+| Rows       | How many finding rows it has; `0 (<kind>)` for a no-findings advisory ([Kinds](#kinds)).                                                                                                                                                                                                                                                                                                              |
+| State      | One of the [Advisory state](#advisory-state) values.                                                                                                                                                                                                                                                                                                                                                  |
+| CVE        | `not requested`, `requested <date>`, or the CVE id once assigned.                                                                                                                                                                                                                                                                                                                                     |
+| Fork clone | The local path of the private fork's clone, or `—`.                                                                                                                                                                                                                                                                                                                                                   |
+| Next       | Why it is not yet publishable (`wait: 3 rows not final`), `you: approve publish` once every row under it is final, `close once <canonical advisory> is final` for a duplicate, `you: approve close` once a duplicate's canonical advisory is final or when every row is `rejected`, `duplicate` or `below-floor` and final, its kind's Next for a no-findings advisory ([Kinds](#kinds)), or `final`. |
 
 `status` prints the board as it is after the run is opened or resumed and then reconciled, in the local terminal only.
 
@@ -349,5 +380,7 @@ A CVE request is recorded beside the state, in the CVE column. GitHub's `cve_id`
 - **A row** is final when its Evidence is `rejected` or `duplicate`, or its Delivery is `released`, `fixed` or `accepted-risk`.
 - **An advisory** is final when its state is `published` or `closed`.
 - **The run** can close only when every row and every advisory is final.
+
+A no-findings advisory is final only once `closed` ([No-findings advisories](#no-findings-advisories)).
 
 A row that is not final may move backward: a closed fix pull request takes it back to `open`, and new evidence takes it back to `untriaged`. Final values stay final for the run: reopening a final row means a new concept id, or the next run.

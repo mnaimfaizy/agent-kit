@@ -542,6 +542,83 @@ def test_a_cve_request_needs_a_confirmed_row_and_is_recorded() -> None:
     assert "logged in `activity.md`" in cve
 
 
+NO_FINDINGS = "No-findings advisories"
+# Kind: (what CI's title says, from `.github/security-audit/publish-draft-advisory.sh`; its Advisories-table Next).
+KINDS = {
+    "`clean run`": ("`clean run (0 Medium+ findings)`", "`you: clean run, read and approve close`"),
+    "`format mismatch`": ("`FORMAT MISMATCH`", "`you: read; findings may be hidden`"),
+    "`failed run`": ("`failed run: empty report`", "`you: read transcript, approve close`"),
+    "`other`": ("anything else with no `F<n>`", "`you: match or close`"),
+}
+PUBLISH_DRAFT = ROOT / ".github" / "security-audit" / "publish-draft-advisory.sh"
+
+
+def no_findings() -> str:
+    return section(read(RUN), NO_FINDINGS)
+
+
+def test_a_no_findings_draft_is_one_rows_0_line_never_a_finding_row() -> None:
+    text = flat(no_findings())
+    assert "A draft with zero parsed `F<n>` is a **no-findings advisory**" in text
+    assert "one line in the advisories table, with Rows `0` and its kind" in text
+    assert "never a finding row" in text
+    board = flat(read(RUN).split("\n## Board\n", 1)[1].split("\n## States\n", 1)[0])
+    assert "`0 (<kind>)` for a no-findings advisory" in board, "the Rows column must show the kind"
+
+
+def test_no_findings_kinds_come_from_cis_titles() -> None:
+    kinds = table_rows(subsection(no_findings(), "Kinds"))
+    assert "| Kind | Recognised by | Advisories-table Next |" in kinds
+    rows = {kind: (by, nxt) for kind, by, nxt in table_cells(kinds)}
+    assert [k for k in rows if k.startswith("`")] == list(KINDS), f"the kinds must read {list(KINDS)}, got {list(rows)}"
+    script = read(PUBLISH_DRAFT)
+    for kind, (by, nxt) in KINDS.items():
+        assert by.strip("`") in rows[kind][0], f"{kind} is recognised by {by!r}, got {rows[kind][0]!r}"
+        assert rows[kind][1] == nxt, f"{kind}'s Next must read {nxt}, got {rows[kind][1]!r}"
+        if kind != "`other`":
+            assert by.strip("`") in script, f"CI's draft title must still say {by}"
+    text = flat(subsection(no_findings(), "Kinds"))
+    assert (
+        "The parsed `F<n>` count decides whether a draft is a no-findings advisory; the title only names its kind"
+        in text
+    )
+
+
+def test_waiting_on_you_has_one_item_per_kind_mismatch_and_failed_first() -> None:
+    waiting = flat(subsection(no_findings(), "Waiting on you"))
+    assert "one numbered item per kind" in waiting
+    order = [waiting.find(f"`{kind}`") for kind in ("format mismatch", "failed run", "clean run")]
+    assert -1 < order[0] < order[1] < order[2], "format mismatch, then failed run, then clean run"
+    assert "before clean runs" in waiting
+
+
+def test_approve_close_takes_an_explicit_list_with_no_wildcard() -> None:
+    close = flat(subsection(no_findings(), "Closing"))
+    assert "`record approve close <GHSA…>` takes a list of GHSAs, each named" in close
+    assert "There is no wildcard" in close
+    assert "refuses any GHSA with non-final rows, and a duplicate whose canonical row is not final" in close
+    actions = flat(subsection(advisory_actions(), "Close"))
+    assert "a list of full GHSA ids" in actions and "no wildcard" in actions
+    calls = flat(section(read(SKILL), "Advisory actions"))
+    assert "`record approve close` takes a list of GHSAs, each named, with no wildcard" in calls
+
+
+def test_a_no_findings_drafts_only_final_state_is_closed() -> None:
+    close = flat(subsection(no_findings(), "Closing"))
+    assert "Its only final state is `closed`" in close
+    assert "never published" in close and "staying a draft is not final" in close
+    final = flat(subsection(section(read(RUN), "States"), "Final"))
+    assert "A no-findings advisory is final only once `closed`" in final
+    publish = flat(subsection(advisory_actions(), "Publish"))
+    assert "A no-findings advisory is never published" in publish
+
+
+def test_a_run_of_only_no_findings_drafts_opens_like_any_other() -> None:
+    text = flat(subsection(no_findings(), "A run of only no-findings drafts"))
+    assert "opens like any other" in text
+    assert "zero rows" in text and "writes no ledger line" in text
+
+
 def test_a_below_floor_row_keeps_its_advisory_so_the_advisory_can_close() -> None:
     board = flat(read(RUN).split("\n## Board\n", 1)[1].split("\n## States\n", 1)[0])
     assert "A `below-floor` row keeps the advisory it came from" in board
@@ -598,5 +675,11 @@ if __name__ == "__main__":
     test_publish_gate()
     test_a_duplicate_advisory_is_closed_once_its_canonical_rows_advisory_is_final()
     test_a_cve_request_needs_a_confirmed_row_and_is_recorded()
+    test_a_no_findings_draft_is_one_rows_0_line_never_a_finding_row()
+    test_no_findings_kinds_come_from_cis_titles()
+    test_waiting_on_you_has_one_item_per_kind_mismatch_and_failed_first()
+    test_approve_close_takes_an_explicit_list_with_no_wildcard()
+    test_a_no_findings_drafts_only_final_state_is_closed()
+    test_a_run_of_only_no_findings_drafts_opens_like_any_other()
     test_a_below_floor_row_keeps_its_advisory_so_the_advisory_can_close()
     print("security-response contract: ok")
