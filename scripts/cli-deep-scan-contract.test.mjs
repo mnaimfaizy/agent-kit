@@ -1124,7 +1124,9 @@ describe("pre-flight: a stray credential refuses the run before any runtime is t
   }
 
   it("lets an empty GH_TOKEN through, as it holds no token", async () => {
-    const res = await run(recipeRepo(VALID), [], { env: { PATH: "/usr/bin", GH_TOKEN: "" } });
+    const res = await run(recipeRepo(VALID), [], {
+      env: { PATH: "/usr/bin", GH_TOKEN: "", ANTHROPIC_API_KEY: REAL_KEY },
+    });
     assert.equal(res.code, 0, res.text);
   });
 
