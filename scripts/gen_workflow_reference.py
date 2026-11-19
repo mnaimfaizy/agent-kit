@@ -19,6 +19,7 @@ OUTPUT = ROOT / "docs" / "reference.md"
 
 FLOWS = [
     ("security-audit-reusable.yml", "Security audit", "security-audit.md"),
+    ("deep-scan-reusable.yml", "Deep scan", "security-audit.md#deep-scan-in-ci"),
     ("agent-plan-reusable.yml", "Plan", "plan-implement-review.md"),
     ("agent-implement-reusable.yml", "Implement", "plan-implement-review.md"),
     ("agent-review-reusable.yml", "Review", "plan-implement-review.md"),

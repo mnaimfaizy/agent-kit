@@ -171,7 +171,7 @@ The recipe never holds:
 - **Docker Desktop on Windows with the WSL 2 backend.** Its VM shares one Linux kernel and network namespace with your other WSL distros, so the target would share a kernel with them and could reach their network. Use Docker Sandboxes on Windows instead.
 - **Anything else**: no runtime found, a Docker daemon that does not answer, Docker on macOS that is not Docker Desktop, Docker Desktop with the Hyper-V backend, Docker Desktop on Linux, and gVisor, Kata or Firecracker on a host that is not Linux.
 
-Every refusal names the accepted runtimes and the CI path, and exits 1. There is **no override**: no flag, setting or variable lets a refused runtime through. On a host without an accepted runtime, use the CI path: the deep-scan reusable workflow runs the scan in a gVisor container on an ephemeral GitHub-hosted runner.
+Every refusal names the accepted runtimes and the CI path, and exits 1. There is **no override**: no flag, setting or variable lets a refused runtime through. On a host without an accepted runtime, use the CI path: the deep-scan reusable workflow runs the scan in a gVisor container on an ephemeral GitHub-hosted runner (see [Deep scan in CI](#deep-scan-in-ci)).
 
 **Pre-flight refusals.** Before it touches any runtime, `deep-scan` also refuses, with exit 1:
 
@@ -201,9 +201,9 @@ Once a runtime is chosen, `agent-kit deep-scan` runs the sandbox on it: see [Wha
    - with web tools off: WebFetch and WebSearch are not in its tool set (`--tools`), and are disallowed and denied as well. Its tools are Bash, Read, Write, Edit, Glob and Grep, pre-approved, with nothing else asked;
    - within the run's [limits](#limits): the launcher's `--max-turns`, the scan wall clock and the model proxy's token cap.
 
-   Claude Code's own output stays in the sandbox. When the step fails, `deep-scan` prints its exit code and the last lines of its error output, and in every case the model proxy's counts: requests forwarded (by the model API's answer status) and requests refused, never their content. The proxy stops as soon as the agent step ends.
+   Claude Code's own output stays in the sandbox. When the step fails, `deep-scan` prints its exit code and the last lines of its error output, and in every case the model proxy's counts: requests forwarded (by the model API's answer status) and requests refused, never their content. The proxy stops as soon as the agent step ends. In GitHub Actions (`GITHUB_ACTIONS=true`) it prints neither: see [Deep scan in CI](#deep-scan-in-ci).
 
-8. **Copy out.** Exactly one file comes out: that report, refused unless it is a single regular file (no folder, link or second file) of at most 10 MiB. It is written to `report.md` in a new private folder under your temporary folder, and `deep-scan` prints its path. The transcript, shell history, app logs and scratch files stay in the sandbox and are destroyed with it. Nothing is filed or posted: to file a draft advisory, follow the skill's by-hand rule.
+8. **Copy out.** Exactly one file comes out: that report, refused unless it is a single regular file (no folder, link or second file) of at most 10 MiB. It is written to `report.md` in a new private folder under your temporary folder (or to the new file `--report <path>` names, in a folder that exists), and `deep-scan` prints its path. The transcript, shell history, app logs and scratch files stay in the sandbox and are destroyed with it. Nothing is filed or posted: to file a draft advisory, follow the skill's by-hand rule.
 9. **Teardown.** It removes the sandbox, then the model and setup networks and the layered images on every exit path: success, a failed step, and an interrupt (Ctrl+C or `SIGTERM`), which stops the running step first and exits 130 or 143. Each resource carries the label `agent-kit.deep-scan`; if one cannot be removed, `deep-scan` names it and exits 1. The recipe's own base image stays in your image cache.
 
 Those steps are the ones on gVisor, Kata Containers and Firecracker registered as a Docker runtime on Linux, and on Docker Desktop on macOS. **On Docker Sandboxes** (`sbx`) the same lifecycle runs, with these differences:
@@ -260,7 +260,7 @@ Backstops beyond these limits:
 
 - **On the API-key path**, the Console workspace's spend limit (see [Credentials](#credentials)) is the hard ceiling on what any run can cost, whatever the limits are set to.
 - **On the subscription path** (not available yet), there is no Console spend limit, so the proxy's token cap is the only spend lever.
-- **In CI**, the deep-scan workflow (not released yet) sets its job's `timeout-minutes` above the sum of the phase limits.
+- **In CI**, the deep-scan workflow sets its job's `timeout-minutes` (180) above the sum of the phase limits, and refuses a `setup_minutes` plus `scan_minutes` above 150 before anything runs (see [Deep scan in CI](#deep-scan-in-ci)).
 
 ## Running a deep scan
 
@@ -279,3 +279,31 @@ Backstops beyond these limits:
 6. **Read the report** at the path `deep-scan` prints last (`Report: …/report.md`), in a new private folder under your temporary folder. It is the only thing the scan leaves on your machine. Nothing is filed or posted: to file a draft advisory, follow the skill's by-hand rule.
 
 A good run prints the recipe, the Threat pack and the key's source, the runtime, each setup step `ok`, `Network: cut`, `Model route: only the model proxy…`, the agent step, `Model proxy: forwarded N request(s) to api.anthropic.com (answers: 200 xN)`, the report's path, and `Teardown: removed …`, and exits 0. A model proxy answer of `401` means the key was refused; `refused` lists hosts or paths the agent tried that the proxy turned away, and `counted N of the …-token cap` is the run's token count. A run a [limit](#limits) stopped prints `Stopped: …` and exits 3; to let a scan run longer, raise that limit with its option, for example `--scan-minutes 120`.
+
+To choose the model the agent runs on, pass `--model <id>`, a plain model id such as `claude-opus-5-5` (letters, digits and `. _ : @ / [ ] -`; anything else is a usage error, exit 2). Without it, Claude Code runs on its own default.
+
+## Deep scan in CI
+
+The CI path is opt-in: a separate reusable workflow, `deep-scan-reusable.yml`, which calls the same `agent-kit deep-scan` launcher as a local run. Adopting it leaves your static security-audit Caller and `security-audit-reusable.yml`, with its "no Bash" rule, unchanged. Use it when you have no accepted runtime on your own machine, or to scan on a schedule. `--verify` has no CI form ([ADR 0018](adr/0018-a-deep-scan-runs-locally-by-default.md)).
+
+What the workflow does, in one job on an ephemeral GitHub-hosted runner (`ubuntu-latest`):
+
+1. **Checks its inputs** (the model and the limits) and refuses anything but plain values, and a `setup_minutes` plus `scan_minutes` above 150, so the job's `timeout-minutes: 180` stays above the phase limits.
+2. **Runs on the default branch only.** The job runs only from a `schedule` or `workflow_dispatch` event, and the gate refuses a run whose ref is not the repository's default branch. It never checks out a pull request head: the checkout takes no ref, and `deep-scan` exports the default branch's tip, not the working tree. The gate also preflights the advisory token, as the static audit does, before any model spend.
+3. **Stages the delivery scripts** (`.github/security-audit/publish-draft-advisory.sh` and `notify-email.sh`, the same ones the static audit uses) from the commit object to a folder outside the workspace, and records their SHA-256 digests, before the scan.
+4. **Installs gVisor** (`runsc`), a pinned release checked against its SHA-512, and registers it as a Docker runtime. `deep-scan` then chooses it, and the agent and the target run together in the gVisor container. The runner holds only `deep-scan`'s model proxy and the delivery steps.
+5. **Installs the CLI** at this tag's version, without the model key in reach and with install scripts off.
+6. **Runs `agent-kit deep-scan`** with the inputs as its options and `--report` pointing at a private folder on the runner. The model key is a separate Caller secret, `anthropic_api_key`, in this step's environment alone. The job token and the advisory token are never in it, and `deep-scan` refuses to start if `GH_TOKEN` or `GITHUB_TOKEN` is set. `deep-scan` tears the sandbox down before it exits.
+7. **Delivers the report** after teardown: each staged script runs only after its digest check. The report becomes a private draft advisory, and is emailed when the email secrets are set (in full if the draft could not be filed).
+8. **Prints a status** with no counts: whether a report came out and was filed, or which limit stopped the run.
+
+**The Public-log rule in CI.** The Actions log of a public repository is world-readable, so nothing from the scan is printed or uploaded. In GitHub Actions (`GITHUB_ACTIONS=true`, which the runner always sets), `deep-scan` withholds everything the scan shaped: Claude Code's error output (it prints only the exit code), the model proxy's refused hosts and paths and its answer counts (it prints `Model proxy: closed`), and why a report could not be copied out. A failed `setup`, `start` or `ready` step still prints its output: that is your own build output, from before any probing. The publisher's metadata lines (finding counts, severity) are discarded, so the log never says how many findings there were. No artifact, cache or job summary is written. On a stop with no report, the only public output is the status naming the limit. To see what the run withheld, run `deep-scan` locally.
+
+**Adopt it:**
+
+1. Have the static flow and a valid [Scan recipe](#scan-recipe) on the default branch (`agent-kit doctor` checks the recipe).
+2. Make an API key in a dedicated Console workspace with its own spend limit (see [Credentials](#credentials)), and store it as the repository secret `AGENT_KIT_DEEP_SCAN_ANTHROPIC_API_KEY`. The advisory token and the email secrets are the ones the static audit already uses.
+3. Copy [`examples/deep-scan-caller.yml`](../examples/deep-scan-caller.yml) to `.github/workflows/`, pinned to the same tag as your other Callers. It runs weekly and on dispatch, with `permissions: contents: read`.
+4. Set the repository variable `CLAUDE_DEEP_SCAN_ENABLED` to `true` to turn it on (the kill switch is on otherwise). `CLAUDE_DEEP_SCAN_MODEL`, else `CLAUDE_MODEL`, chooses the model.
+
+Its inputs are only the kill switch, the model and the [limits](#limits) (`setup_minutes`, `scan_minutes`, `max_turns`, `max_tokens`, with the launcher's defaults); everything about your app comes from the recipe. The full contract is in [reference.md](reference.md#deep-scan).

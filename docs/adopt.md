@@ -62,6 +62,14 @@ The copied paths and workflow references should always move together on upgrade.
 2. Pin the reusable workflow reference to a release tag for stable adoption.
 3. Supply Consumer-owned Threat pack paths and secrets.
 
+## Deep-scan reusable job (opt-in)
+
+1. Copy the Caller pattern from `examples/deep-scan-caller.yml`; your security-audit Caller stays as it is.
+2. Pin `uses: <owner>/agent-kit/.github/workflows/deep-scan-reusable.yml@<tag>` to the same tag as your other Callers.
+3. Commit a Scan recipe on the default branch, add the `anthropic_api_key` secret (an API key from a dedicated Console workspace with its own spend limit), and turn it on with the `CLAUDE_DEEP_SCAN_ENABLED` repository variable.
+
+It runs on the default branch only, from a schedule or `workflow_dispatch`, and delivers privately like the static audit. What it does and what stays out of the log: [Deep scan in CI](security-audit.md#deep-scan-in-ci).
+
 ## Consumer-owned contract surface
 
 - Caller workflow triggers and allowlist policy
@@ -144,7 +152,7 @@ Move the `uses:` pins and the copied files to the new tag in the same commit. Re
 - [Workflow reference](reference.md) — every input, secret, and permission
 - [Releases](releases.md) — SemVer, pre-releases, changelog policy
 - [Security model](security-model.md) — public-log rule, private delivery, gates
-- [Security audit](security-audit.md) — `full` / `pr` Caller
+- [Security audit](security-audit.md) — `full` / `pr` Caller, and the opt-in [deep-scan Caller](security-audit.md#deep-scan-in-ci)
 - [Plan → implement → review](plan-implement-review.md) — labels, Verified plan, draft PR
 - [Copilot restore](copilot-restore.md) — inert archive, choose-one generation
 - [Issuebridge reference Consumer](issuebridge.md) — target state + stand-up checklist (not an extract runbook)
