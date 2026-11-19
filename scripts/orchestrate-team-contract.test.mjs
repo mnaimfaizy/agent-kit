@@ -853,3 +853,14 @@ describe("DESIGN.md: when TEAM.md is loaded", () => {
     );
   });
 });
+
+describe("HARNESSES.md: Support Level covers a tracker file", () => {
+  it("defines it for a harness or a tracker, in the glossary's words", () => {
+    const level = section(read(`${SKILL_DIR}/HARNESSES.md`), "### Support Level");
+    const words = "How far `orchestrate` has been proven on a harness or a tracker";
+    assert.ok(level.trimStart().startsWith(words), "HARNESSES.md opens with the definition");
+    assert.ok(GLOSSARY.includes(`**Support Level**:\n${words}:`), "GLOSSARY.md");
+    assert.ok(DESIGN.includes(`**Support Level**: ${words}:`), "DESIGN.md");
+    assert.match(level, /tracker file/);
+  });
+});
