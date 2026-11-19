@@ -81,7 +81,7 @@ Triage and response happen after delivery using the shipped skills.
 A Deep scan needs a **Scan recipe**: one Consumer-owned YAML file, beside the Threat pack and not in it, that says how to build, start and seed your app and what the scan may probe. Agent-kit supplies everything else (the image layering, the sandbox, the network policy, the proxy, the limits and the teardown). The Threat pack is unchanged, so a static-only Consumer never needs a recipe.
 
 - **Where it lives.** `.security/scan-recipe.yml` by default. Pass `agent-kit deep-scan --recipe <path>` (relative to the repository root) to keep it elsewhere, as the Caller's Threat pack paths do.
-- **Which copy is read.** The copy committed on the default branch (origin's HEAD, else `main`), as your checkout has that branch. Never the working tree, the checked-out branch or uncommitted changes, and never anything from issue or pull request text. Treat it like a Caller workflow: it says what runs.
+- **Which copy is read.** The copy committed on the default branch (origin's HEAD, else `main`; name another with `--default-branch <name>`), as your checkout has that branch. Never the working tree, the checked-out branch or uncommitted changes, and never anything from issue or pull request text. Treat it like a Caller workflow: it says what runs.
 - **No recipe, no scan.** With no recipe, or an invalid one, `agent-kit deep-scan` refuses, lists every problem with its field, points here, and exits 1. It never falls back to a `full` audit.
 
 ```yaml
@@ -125,13 +125,13 @@ notes: # what stays static-only, so a report never implies it was exercised
 | `grounding`    | no                                                         | URLs or repository paths that `setup` fetches, since the agent has no web access.            |
 | `notes`        | yes                                                        | A line or a list of lines: what stays static-only.                                           |
 
-A command field takes one command or a list of them. Lists are block lists, one `- item` per line; only an empty `[]` may be written inline.
+A command field takes one command or a list of them; `start` and `ready`, when given, are not empty. Lists are block lists, one `- item` per line; only an empty `[]` may be written inline.
 
 The recipe never holds:
 
 - **Limits.** Time, turn and token limits come from `deep-scan`'s options or the deep-scan workflow's inputs, so a merged recipe change cannot raise a run's spend. A key such as `limits`, `max_turns`, `tokens` or `setup_timeout` is refused.
 - **A compose file, sibling containers or the Docker socket.** Services share the one sandbox and its one boundary. A `compose` or `services` key, a compose file as `dockerfile`, a command that starts a container (`docker`, `podman`), and any mention of `docker.sock` are refused.
 - **A real credential.** Values shaped like a GitHub, Anthropic, AWS or Slack token, or a private key, are refused anywhere in the recipe.
-- **Anything else.** An unknown key, or a key given twice, is refused.
+- **Anything else.** An unknown key, a key given twice, a top-level line that is not `key: value`, and a line indented under a key that holds a single value are refused.
 
 `agent-kit doctor` reports whether `.security/scan-recipe.yml` is in your working tree and, if so, whether it is valid (a warning when it is not; having none passes). Today `agent-kit deep-scan` stops once the recipe is valid, with exit 0: the runtime, sandbox, proxy and scan stages are not built yet.
