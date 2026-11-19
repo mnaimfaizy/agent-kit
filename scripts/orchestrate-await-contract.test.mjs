@@ -243,16 +243,32 @@ describe("harnesses/claude-code-desktop.md", () => {
     assert.match(limits, /\*\*Keep computer awake\*\*/);
   });
 
-  it("check before use carries the research's unconfirmed desktop items", () => {
+  it("check before use carries the desktop items no run has confirmed yet", () => {
     const check = section(DESKTOP, "## Check before use");
-    for (const phrase of [
-      "every turn-end",
-      "any sibling still working",
-      "as its own turn ends",
-      "in the background",
-      "`notify_when_idle` reaches",
-    ])
+    for (const phrase of ["any sibling still working", "as its own turn ends", "in the background"])
       assert.ok(check.includes(phrase), `check before use says "${phrase}"`);
+  });
+
+  it("check before use drops the items the spec-314 run confirmed", () => {
+    const check = section(DESKTOP, "## Check before use");
+    for (const phrase of ["every turn-end", "`notify_when_idle` reaches", "Which permission mode"])
+      assert.ok(!check.includes(phrase), `check before use no longer says "${phrase}"`);
+  });
+
+  it("`spawn` starts in the Chief of Staff's permission mode, and a turn the app started proposes a card", () => {
+    const spawn = section(DESKTOP, "## Verbs")
+      .split("\n")
+      .find((l) => l.startsWith("- `spawn`:"));
+    assert.match(spawn, /`permission_mode`/);
+    assert.match(spawn, /`user_asked`/);
+    assert.match(spawn, /`own_initiative`/);
+    assert.match(spawn, /`git switch`/);
+  });
+
+  it("`notify_when_idle` is sent to the session's name, and is not re-armed on an idle session", () => {
+    assert.match(wait, /ListAgents/);
+    assert.match(wait, /not its `local_…` id/);
+    assert.match(wait, /fires at once/);
   });
 });
 
