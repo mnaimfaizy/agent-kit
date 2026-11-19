@@ -485,6 +485,11 @@ describe("RUN.md: `--status` of a Team Run", () => {
 });
 
 describe("RUN.md: the observer form `--status --spec <n>`", () => {
+  it("does not ask about a null `remote`, since it fetches and pushes nothing", () => {
+    const observer = section(read(`${SKILL_DIR}/RUN.md`), "### `--status --spec <n>`");
+    assert.match(observer, /A null `remote` is not asked about/);
+  });
+
   const observer = section(RUN, "### `--status --spec <n>`");
   /** The operation ids TRACKERS.md lists, each with its Kind. */
   const kinds = new Map(
@@ -838,7 +843,7 @@ describe("The tracker files: the remote `check` read", () => {
   it("is named in `check`'s report, and a null `remote` is asked about even with a pin", () => {
     const find = section(TEAM, "## Find the tracker");
     assert.match(find, /`remote`, the name of the repository's git remote/);
-    assert.match(find, /`<remote>` is the remote `remote` names/);
+    assert.match(find, /`<remote>` is the remote `check` reports in its `remote` field/);
     assert.match(find, /When `remote` is null, .*a Decision Request.*whatever `pinned` says/);
   });
 });
