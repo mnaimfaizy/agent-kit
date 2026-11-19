@@ -36,6 +36,7 @@ import { dirname, join } from "node:path";
 import { after, before, describe, it } from "node:test";
 import { main } from "../cli/src/cli.mjs";
 import { allowedCommands, RUNTIME_CLIS, runnerFor, systemRunner } from "../cli/src/exec.mjs";
+import { agentScript, TURNS_MARKER } from "../cli/src/deep-scan/agent.mjs";
 import { withStopped } from "../cli/src/deep-scan/limits.mjs";
 import { startModelProxy } from "../cli/src/deep-scan/model-proxy.mjs";
 import { tarOf } from "../cli/src/deep-scan/tar.mjs";
@@ -2618,7 +2619,7 @@ const claudeLine = (call) =>
   call
     .at(-1)
     .split("\n")
-    .find((l) => l.startsWith("claude "));
+    .find((l) => /^(\{ )?claude /.test(l));
 
 /** Every file a run's fake CLIs got on stdin or copied in, as bytes. */
 function stdinFilesOf(res) {
@@ -3238,19 +3239,69 @@ describe("a limit that fires stops the run, marks the report Stopped:, and still
 
   it("the agent script prints the turn signal only from Claude Code's error output", async () => {
     const res = await run(recipeRepo(VALID), ["--max-turns", "7"]);
-    const script = agentCall(lifecycle(res)).at(-1);
-    assert.match(
-      claudeLine(agentCall(lifecycle(res))),
-      / --max-turns 7 .*2> \/agent-kit\/logs\/agent\.err \|\| status=\$\?$/,
-    );
-    assert.ok(
-      script.includes(
-        "if grep -q '^Error: Reached max turns' /agent-kit/logs/agent.err; then echo 'agent-kit-deep-scan: Claude Code reached its turn limit'; fi",
-      ),
-      script,
-    );
-    assert.ok(script.endsWith('\nexit "$status"'), script);
+    assert.match(claudeLine(agentCall(lifecycle(res))), / --max-turns 7 /);
   });
+
+  // The script itself, run by a real sh with a fake claude on PATH and the
+  // sandbox's paths moved into a temporary folder.
+  const sh = spawnSync("sh", ["-c", "exit 0"]).status === 0;
+  const runScript = (claude) => {
+    const dir = mkdtempSync(join(tmp, "script-")).replace(/\\/g, "/");
+    mkdirSync(join(dir, "bin"));
+    mkdirSync(join(dir, "workspace"));
+    mkdirSync(join(dir, "agent-kit", "in"), { recursive: true });
+    writeFileSync(join(dir, "agent-kit", "in", "brief.md"), "the brief\n");
+    writeFileSync(join(dir, "bin", "claude"), `#!/bin/sh\n${claude}\n`, { mode: 0o755 });
+    const script = agentScript({
+      baseUrl: "http://127.0.0.1:1",
+      report: "/agent-kit/out/report.md",
+      workspace: "/workspace",
+      maxTurns: 7,
+    })
+      .replaceAll("/agent-kit/", `${dir}/agent-kit/`)
+      .replaceAll("/workspace", `${dir}/workspace`);
+    const r = spawnSync("sh", ["-c", script], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        PATH: `${dir}/bin${process.platform === "win32" ? ";" : ":"}${process.env.PATH}`,
+        LOGS: `${dir}/agent-kit/logs`,
+      },
+    });
+    return { ...r, dir };
+  };
+
+  it(
+    "passes Claude Code's own error output on, keeps its exit, and prints the turn signal from it",
+    { skip: !sh && "no sh" },
+    () => {
+      const r = runScript(
+        'cat > /dev/null; echo "the final answer"; echo "Error: Reached max turns (7)" >&2; exit 1',
+      );
+      assert.equal(r.status, 1, r.stderr);
+      assert.equal(r.stdout, `${TURNS_MARKER}\n`);
+      assert.equal(r.stderr, "Error: Reached max turns (7)\n");
+      assert.equal(
+        readFileSync(join(r.dir, "agent-kit", "logs", "agent.log"), "utf8"),
+        "the final answer\n",
+      );
+    },
+  );
+
+  it(
+    "prints no turn signal from the agent's answer, and nothing the agent writes to the log files",
+    { skip: !sh && "no sh" },
+    () => {
+      // The agent can write the log files from Bash, and its answer is its own.
+      const r = runScript(
+        'cat > /dev/null; echo "Error: Reached max turns (7)"; echo "planted by the agent, longer than what Claude Code says" >> "$LOGS/agent.err"; echo "Claude Code says" >&2; exit 0',
+      );
+      assert.equal(r.stdout.includes(TURNS_MARKER), false, r.stdout);
+      assert.doesNotMatch(r.stderr, /planted/);
+      assert.equal(r.stderr, "Claude Code says\n");
+      assert.equal(r.status, 0);
+    },
+  );
 
   it("the token cap: the proxy refuses past it, the agent step stops, the report is marked Stopped: tokens", async () => {
     const api = await fakeModelApi();

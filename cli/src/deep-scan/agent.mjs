@@ -310,14 +310,21 @@ export function agentScript({ baseUrl, report, workspace, maxTurns }) {
     String(maxTurns),
   ];
   const outDir = report.slice(0, report.lastIndexOf("/"));
+  const logs = "/agent-kit/logs";
+  // Claude Code's error output reaches the launcher through a pipe, as it
+  // happens, and a copy goes to agent.err for the turn check. The agent can
+  // write that file (and agent.status), so the file is only searched, never
+  // printed, and a planted status that is not a number counts as a failure.
   return [
     "set -eu",
-    `mkdir -p ${outDir} /agent-kit/logs`,
+    `mkdir -p ${outDir} ${logs}`,
     `cd ${workspace}`,
+    `rm -f ${logs}/agent.status`,
+    `{ ${args.map(shQuote).join(" ")} < ${BRIEF_PATH} 2>&1 > ${logs}/agent.log || echo "$?" > ${logs}/agent.status; } | tee ${logs}/agent.err >&2`,
     "status=0",
-    `${args.map(shQuote).join(" ")} < ${BRIEF_PATH} > /agent-kit/logs/agent.log 2> /agent-kit/logs/agent.err || status=$?`,
-    "cat /agent-kit/logs/agent.err >&2",
-    `if grep -q '^Error: Reached max turns' /agent-kit/logs/agent.err; then echo ${shQuote(TURNS_MARKER)}; fi`,
+    `if [ -s ${logs}/agent.status ]; then status=$(cat ${logs}/agent.status); fi`,
+    `case "$status" in ''|*[!0-9]*) status=1 ;; esac`,
+    `if grep -q '^Error: Reached max turns' ${logs}/agent.err; then echo ${shQuote(TURNS_MARKER)}; fi`,
     'exit "$status"',
   ].join("\n");
 }
