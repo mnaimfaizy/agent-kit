@@ -256,6 +256,11 @@ function fakeChild(host, cmd, args, cwd) {
 }
 
 const ok = (stdout = "") => ({ "*": { status: 0, stdout } });
+
+/** The model credential a test's environment holds: fake, shaped like a real key. */
+const REAL_KEY = "sk-ant-api03-fake-real-key-for-tests-only-0123456789";
+/** The non-secret key the sandboxed Claude Code gets instead. */
+const PLACEHOLDER = "agent-kit-deep-scan-placeholder";
 const failing = (stderr = "boom") => ({ "*": { status: 1, stderr } });
 
 /** A report file as `docker cp <container>:<file> -` writes it: a tar of one file. */
@@ -384,7 +389,7 @@ async function run(
   args = [],
   {
     host = gvisorHost(),
-    env = { PATH: "/usr/bin" },
+    env = { PATH: "/usr/bin", ANTHROPIC_API_KEY: REAL_KEY },
     fetch = groundingFetch,
     signals = new EventEmitter(),
     onSpawn,
@@ -1171,19 +1176,20 @@ describe("the process allowlist widens for deep-scan alone", () => {
     return { status: 0, stdout: Buffer.from(""), stderr: Buffer.from("") };
   };
 
-  it("lets deep-scan run git and every runtime CLI, and nothing else", () => {
-    assert.deepEqual([...allowedCommands("deep-scan")].sort(), ["git", ...RUNTIME_CLIS].sort());
+  it("lets deep-scan run git, every runtime CLI and the 1Password CLI, and nothing else", () => {
+    const allowed = ["git", ...RUNTIME_CLIS, "op"];
+    assert.deepEqual([...allowedCommands("deep-scan")].sort(), [...allowed].sort());
     const seen = [];
     const runner = runnerFor("deep-scan", { spawn: recordingSpawn(seen) });
-    for (const cli of ["git", ...RUNTIME_CLIS]) runner(cli, ["--version"]);
+    for (const cli of allowed) runner(cli, ["--version"]);
     assert.deepEqual(
       seen.map((c) => c[0]),
-      ["git", ...RUNTIME_CLIS],
+      allowed,
     );
-    for (const cli of ["gh", "op", "sh", "bash", "node", "cmd.exe", "powershell", "podman"]) {
+    for (const cli of ["gh", "sh", "bash", "node", "cmd.exe", "powershell", "podman", "claude"]) {
       assert.throws(() => runner(cli, []), /refusing to run .*: deep-scan may run only/);
     }
-    assert.equal(seen.length, 1 + RUNTIME_CLIS.length);
+    assert.equal(seen.length, allowed.length);
   });
 
   for (const command of ["init", "upgrade", "doctor"]) {
@@ -2125,9 +2131,6 @@ describe("Docker Sandboxes runs the same lifecycle, on a deny-all global policy"
 
 // --- The key-injecting model proxy (#370) -----------------------------------
 
-const REAL_KEY = "sk-ant-api03-fake-real-key-for-tests-only-0123456789";
-const PLACEHOLDER = "agent-kit-deep-scan-placeholder";
-
 /**
  * A fake model API on 127.0.0.1: it records each request's method, path,
  * headers and body, and answers like the Messages API (`stream` makes it
@@ -2265,5 +2268,121 @@ describe("the model proxy forwards only to the model API, with the real key swap
     assert.match(summary, /200/);
     assert.match(summary, /refused 3/);
     assert.ok(!summary.includes(REAL_KEY));
+  });
+});
+
+// --- The model credential (#370) --------------------------------------------
+
+/** A gVisor host that also has the 1Password CLI, answering `op` with `answer`. */
+const gvisorWithOp = (answer) =>
+  makeHost("linux", {
+    docker: docker({ runtimes: { ...RUNC, ...RUNSC } }),
+    runsc: ok("runsc version release-20251110.0\n"),
+    op: answer,
+  });
+
+const startedAnything = (res) => lifecycle(res).length > 0;
+
+describe("the model credential comes from the environment or 1Password, and never from the command line", () => {
+  it("reads ANTHROPIC_API_KEY by default", async () => {
+    const res = await run(recipeRepo(VALID));
+    assert.equal(res.code, 0, res.text);
+    assert.match(res.out, /Model credential: an API key from ANTHROPIC_API_KEY/);
+  });
+
+  it("refuses, before any runtime is touched, when there is no key", async () => {
+    for (const env of [{ PATH: "/usr/bin" }, { PATH: "/usr/bin", ANTHROPIC_API_KEY: "" }]) {
+      const res = await run(recipeRepo(VALID), [], { env });
+      assert.equal(res.code, 1, res.text);
+      assert.match(res.err, /REFUSED {2}No model credential: ANTHROPIC_API_KEY is not set/);
+      assert.match(res.err, /--credential-from op:\/\//);
+      assert.match(res.err, /op run --/);
+      assert.ok(!startedAnything(res));
+    }
+  });
+
+  it("reads another variable with --credential-from env:<NAME>, and only that one", async () => {
+    const res = await run(recipeRepo(VALID), ["--credential-from", "env:SCAN_KEY"], {
+      env: { PATH: "/usr/bin", SCAN_KEY: REAL_KEY },
+    });
+    assert.equal(res.code, 0, res.text);
+    assert.match(res.out, /Model credential: an API key from SCAN_KEY/);
+  });
+
+  it("reads a 1Password reference with op read, through deep-scan's allowlist", async () => {
+    const host = gvisorWithOp({ "*": { status: 0, stdout: `${REAL_KEY}\n` } });
+    const ref = "op://Private/Anthropic deep scan/credential";
+    const res = await run(recipeRepo(VALID), ["--credential-from", ref], {
+      host,
+      env: { PATH: "/usr/bin" },
+    });
+    assert.equal(res.code, 0, res.text);
+    const op = res.shims.filter((c) => c[0] === "op");
+    assert.deepEqual(op, [["op", "read", "--no-newline", ref]]);
+    assert.match(res.out, /Model credential: an API key from 1Password \(op read\)/);
+  });
+
+  it("refuses when op read fails, with op's own message and nothing started", async () => {
+    const host = gvisorWithOp({
+      "*": { status: 1, stderr: `[ERROR] 2026/11/19 "Private" isn't a vault in this account\n` },
+    });
+    const res = await run(recipeRepo(VALID), ["--credential-from", "op://Private/x/y"], {
+      host,
+      env: { PATH: "/usr/bin" },
+    });
+    assert.equal(res.code, 1, res.text);
+    assert.match(
+      res.err,
+      /REFUSED {2}Could not read the model credential with op read: .*isn't a vault/,
+    );
+    assert.ok(!startedAnything(res));
+  });
+
+  it("refuses a 1Password reference left unresolved in the environment, pointing to op run", async () => {
+    const res = await run(recipeRepo(VALID), [], {
+      env: { PATH: "/usr/bin", ANTHROPIC_API_KEY: "op://Private/Anthropic/credential" },
+    });
+    assert.equal(res.code, 1, res.text);
+    assert.match(res.err, /holds a 1Password reference, not a key/);
+    assert.match(res.err, /op run -- npx @mnaimfaizy\/agent-kit deep-scan/);
+    assert.ok(!startedAnything(res));
+  });
+
+  it("refuses a key with whitespace or control characters, never printing it", async () => {
+    const bad = `${REAL_KEY}\r\nX-Evil: 1`;
+    const res = await run(recipeRepo(VALID), [], {
+      env: { PATH: "/usr/bin", ANTHROPIC_API_KEY: bad },
+    });
+    assert.equal(res.code, 1, res.text);
+    assert.match(res.err, /ANTHROPIC_API_KEY holds whitespace or a control character/);
+    assert.ok(!res.text.includes(REAL_KEY));
+    assert.ok(!startedAnything(res));
+  });
+
+  it("is a usage error to pass anything but env:<NAME> or op://, and the value is never echoed", async () => {
+    for (const value of [REAL_KEY, "env:", "env:1BAD", "file:/tmp/key", "op:/x"]) {
+      const res = await run(recipeRepo(VALID), ["--credential-from", value]);
+      assert.equal(res.code, 2, `${value}: ${res.text}`);
+      assert.match(res.err, /--credential-from takes env:<NAME> or an op:\/\/ reference/);
+      assert.ok(!res.text.includes(REAL_KEY));
+      assert.ok(!startedAnything(res));
+    }
+  });
+
+  it("refuses a GitHub token variable as the model credential", async () => {
+    const res = await run(recipeRepo(VALID), ["--credential-from", "env:GH_TOKEN"]);
+    assert.equal(res.code, 2, res.text);
+    assert.match(res.err, /GH_TOKEN is a GitHub token variable/);
+  });
+
+  it("is not an option of init, upgrade or doctor", async () => {
+    const err = [];
+    const code = await main(["doctor", "--credential-from", "env:X"], {
+      cwd: tmp,
+      stdout: () => {},
+      stderr: (s) => err.push(s),
+    });
+    assert.equal(code, 2);
+    assert.match(err.join("\n"), /doctor does not take --credential-from/);
   });
 });

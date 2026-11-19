@@ -22,9 +22,13 @@ import {
   recipeSteps,
   validateRecipe,
 } from "./deep-scan/recipe.mjs";
+import { credentialSource, readCredential, withoutCredentials } from "./deep-scan/credential.mjs";
 import { runLifecycle } from "./deep-scan/lifecycle.mjs";
 import { envFilesAtRef, strayTokens } from "./deep-scan/preflight.mjs";
 import { RUNTIMES_DOCS_URL, selectRuntime } from "./deep-scan/runtime.mjs";
+import { CLI_VERSION } from "./tags.mjs";
+
+const CREDENTIALS_DOCS_URL = `https://github.com/mnaimfaizy/agent-kit/blob/v${CLI_VERSION}/docs/security-audit.md#credentials`;
 
 /**
  * @param {{
@@ -32,17 +36,19 @@ import { RUNTIMES_DOCS_URL, selectRuntime } from "./deep-scan/runtime.mjs";
  *   runner: import("./exec.mjs").Runner,
  *   recipePath?: string,
  *   defaultBranch?: string,
+ *   credentialFrom?: string,
  *   platform?: string,
  *   env?: Record<string, string | undefined>,
  *   fetch?: typeof globalThis.fetch,
  *   signals?: { on: Function, off: Function },
  *   reportDir?: string,
+ *   modelApi?: string,
  *   out: (s: string) => void,
  *   err: (s: string) => void,
  * }} opts  `platform`, `env`, `fetch` and `signals` are the host's
  *   (`process.platform`, `process.env`, the global fetch, `process`), and
- *   `reportDir` is a new private temporary folder; only tests pass others,
- *   and no flag can change them.
+ *   `reportDir` is a new private temporary folder, and `modelApi` is the
+ *   real model API; only tests pass others, and no flag can change them.
  * @returns {Promise<number>} exit code: 0 the sandbox ran and the report came
  *   out, 1 refused or a step failed, 2 usage error, 130 or 143 interrupted
  */
@@ -51,11 +57,13 @@ export async function runDeepScan({
   runner,
   recipePath,
   defaultBranch,
+  credentialFrom,
   platform = process.platform,
   env = process.env,
   fetch = globalThis.fetch,
   signals = process,
   reportDir,
+  modelApi,
   out,
   err,
 }) {
@@ -70,6 +78,12 @@ export async function runDeepScan({
   } catch (e) {
     if (!(e instanceof UnsafePathError)) throw e;
     err(`${e.message}; give a path relative to the repository root.`);
+    return 2;
+  }
+
+  const source = credentialSource(credentialFrom);
+  if ("error" in source) {
+    err(source.error);
     return 2;
   }
 
@@ -178,11 +192,26 @@ export async function runDeepScan({
     );
   }
 
-  const choice = selectRuntime({ runner, platform });
+  // The model credential: read once, kept only in this process for the
+  // model proxy, and removed from every command's environment from here on.
+  const runs = withoutCredentials(
+    runner,
+    [env, process.env],
+    source.kind === "env" ? [source.name] : [],
+  );
+  const key = readCredential({ source, env, runner: runs });
+  if ("refused" in key) return refuse(key.refused, CREDENTIALS_DOCS_URL);
+  out(
+    `Model credential: an API key from ${key.from}; it stays in the model proxy, outside the sandbox.`,
+  );
+
+  const choice = selectRuntime({ runner: runs, platform });
   if ("refused" in choice) return refuse(choice.refused, RUNTIMES_DOCS_URL);
   out(`Sandbox runtime: ${choice.runtime.name}.`);
   return runLifecycle({
-    runner,
+    runner: runs,
+    credential: key.credential,
+    ...(modelApi !== undefined ? { modelApi } : {}),
     runtime: choice.runtime,
     root,
     branch,

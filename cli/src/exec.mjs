@@ -2,7 +2,8 @@
 // Consumer file or a GitHub response is ever parsed as shell syntax. Each
 // subcommand gets a runner that runs only the commands on its own allowlist:
 // `init`, `upgrade` and `doctor` reach only `git` and `gh`, and `deep-scan`
-// alone adds the accepted sandbox runtimes' CLIs (ADR 0019). There is no
+// alone adds the accepted sandbox runtimes' CLIs and the 1Password CLI, which
+// reads its model credential (ADR 0019). There is no
 // second runner that bypasses this. Every module takes a runner as a
 // parameter; tests inject a fake one, or a fake spawn behind the real
 // allowlist. A runner also has `start`, the same command run without
@@ -20,11 +21,14 @@ export const RUNTIME_CLIS = Object.freeze([
   "firecracker",
 ]);
 
+/** The secret managers' command-line tools, which only `deep-scan` may run. */
+export const SECRET_MANAGER_CLIS = Object.freeze(["op"]);
+
 const ALLOWLISTS = Object.freeze({
   init: Object.freeze(["git", "gh"]),
   upgrade: Object.freeze(["git", "gh"]),
   doctor: Object.freeze(["git", "gh"]),
-  "deep-scan": Object.freeze(["git", ...RUNTIME_CLIS]),
+  "deep-scan": Object.freeze(["git", ...RUNTIME_CLIS, ...SECRET_MANAGER_CLIS]),
 });
 
 /**

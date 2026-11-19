@@ -66,6 +66,11 @@ Options for deep-scan:
                           (default .security/scan-recipe.yml).
   --default-branch <b>    The branch whose tip the recipe is read from
                           (default: origin's HEAD, else main).
+  --credential-from <s>   Where the Anthropic API key is read from:
+                          env:<NAME> (default env:ANTHROPIC_API_KEY, which
+                          op run can fill) or an op:// reference, read with
+                          op read. Never the key itself. It stays outside
+                          the sandbox, in the model proxy.
 
 Options for upgrade:
   --tag <vY>      The Agent-kit tag to move to (asked for when missing).
@@ -93,7 +98,7 @@ const COMMAND_OPTIONS = {
     "force",
   ],
   upgrade: ["tag", "from", "yes", "force"],
-  "deep-scan": ["recipe", "default-branch"],
+  "deep-scan": ["recipe", "default-branch", "credential-from"],
 };
 
 /**
@@ -110,14 +115,16 @@ const COMMAND_OPTIONS = {
  *   fetch?: typeof globalThis.fetch,
  *   signals?: { on: Function, off: Function },
  *   reportDir?: string,
+ *   modelApi?: string,
  *   openTag?: Function,
  *   openRepo?: Function,
  *   prompt?: ((question: string) => Promise<string>) | null,
  * }} io  `prompt` is null (or absent) when there is no terminal to ask on.
  *   Without `runner`, each command runs through its own allowlist
  *   (`runnerFor`); `spawn` and `spawnAsync` replace only the process
- *   boundary behind it. `platform`, `env`, `fetch`, `signals` and
- *   `reportDir` (default the host's) are for tests, never flags.
+ *   boundary behind it. `platform`, `env`, `fetch`, `signals`, `reportDir`
+ *   and `modelApi` (default the host's, and the real model API) are for
+ *   tests, never flags.
  * @returns {Promise<number>} exit code
  */
 export async function main(argv, io) {
@@ -145,6 +152,7 @@ export async function main(argv, io) {
         preset: { type: "string" },
         "threat-pack-dir": { type: "string" },
         recipe: { type: "string" },
+        "credential-from": { type: "string" },
         yes: { type: "boolean", short: "y" },
         force: { type: "boolean" },
         help: { type: "boolean", short: "h" },
@@ -217,11 +225,13 @@ export async function main(argv, io) {
       runner,
       recipePath: values.recipe,
       defaultBranch: values["default-branch"],
+      credentialFrom: values["credential-from"],
       ...(io.platform !== undefined ? { platform: io.platform } : {}),
       ...(io.env !== undefined ? { env: io.env } : {}),
       ...(io.fetch !== undefined ? { fetch: io.fetch } : {}),
       ...(io.signals !== undefined ? { signals: io.signals } : {}),
       ...(io.reportDir !== undefined ? { reportDir: io.reportDir } : {}),
+      ...(io.modelApi !== undefined ? { modelApi: io.modelApi } : {}),
       out: stdout,
       err: stderr,
     });
