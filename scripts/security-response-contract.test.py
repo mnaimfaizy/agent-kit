@@ -548,7 +548,7 @@ def test_the_ledger_is_appended_only_and_its_format_is_unchanged() -> None:
     assert "`activity.md` records the repeat" in rules
     assert "No concept id gets a second line" in rules
     assert "Append only" in rules
-    assert "ordered by first seen, then by advisory, then by `F<n>`" in rules
+    assert "ordered by first seen, then by advisory (`n/a` last), then by `F<n>`, then by concept id" in rules
     assert "never edits, reorders or removes an existing line" in rules
     assert "The ledger format is unchanged: the same header text and the same five columns" in rules
 

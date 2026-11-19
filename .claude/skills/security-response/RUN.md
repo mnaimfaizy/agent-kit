@@ -326,7 +326,7 @@ Everything else in the Record is never copied: fork PR numbers, clone paths, `in
 ### Ledger rules
 
 - A `duplicate` of a concept id already in the ledger adds no line: the existing line stays as it is, and `activity.md` records the repeat. A `duplicate` of another row in this run keeps its own line, with Status `rejected` and Notes duplicate of `<id>`, because its concept id is not yet in the ledger. A regression, which triage gives a new concept id, gets its own line. No concept id gets a second line.
-- Append only: the new lines go at the end of the ledger's table, ordered by first seen, then by advisory, then by `F<n>`. Close never edits, reorders or removes an existing line. Only the padding a Markdown formatter re-aligns may change on an existing line, never its cells.
+- Append only: the new lines go at the end of the ledger's table, ordered by first seen, then by advisory (`n/a` last), then by `F<n>`, then by concept id, so every preview of the same board gives the same order. Close never edits, reorders or removes an existing line. Only the padding a Markdown formatter re-aligns may change on an existing line, never its cells.
 - The ledger format is unchanged: the same header text and the same five columns.
 
 ### No ledger lines
