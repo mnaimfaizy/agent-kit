@@ -243,16 +243,57 @@ describe("harnesses/claude-code-desktop.md", () => {
     assert.match(limits, /\*\*Keep computer awake\*\*/);
   });
 
-  it("check before use carries the research's unconfirmed desktop items", () => {
+  it("check before use carries the desktop items no run has confirmed yet", () => {
     const check = section(DESKTOP, "## Check before use");
-    for (const phrase of [
-      "every turn-end",
-      "any sibling still working",
-      "as its own turn ends",
-      "in the background",
-      "`notify_when_idle` reaches",
-    ])
+    for (const phrase of ["any sibling still working", "as its own turn ends", "in the background"])
       assert.ok(check.includes(phrase), `check before use says "${phrase}"`);
+  });
+
+  it("check before use drops the items the spec-314 run confirmed", () => {
+    const check = section(DESKTOP, "## Check before use");
+    for (const phrase of ["every turn-end", "`notify_when_idle` reaches", "Which permission mode"])
+      assert.ok(!check.includes(phrase), `check before use no longer says "${phrase}"`);
+  });
+
+  it("`spawn` starts in the Chief of Staff's permission mode, and a turn the app started proposes a card", () => {
+    const spawn = section(DESKTOP, "## Verbs")
+      .split("\n")
+      .find((l) => l.startsWith("- `spawn`:"));
+    assert.match(spawn, /`permission_mode`/);
+    assert.match(spawn, /`user_asked`/);
+    assert.match(spawn, /`own_initiative`/);
+    assert.match(spawn, /`git switch`/);
+  });
+
+  it("the card path keeps the permission mode, and the turn that finds the session records and subscribes it", () => {
+    const spawn = section(DESKTOP, "## Verbs")
+      .split("\n")
+      .find((l) => l.startsWith("- `spawn`:"));
+    assert.match(spawn, /A card keeps `permission_mode`/);
+    assert.match(spawn, /records its handle and name/);
+    assert.match(spawn, /the row is `waiting`, on the open Decision Request "start the card"/);
+    assert.match(spawn, /sets the row to `running`/);
+    assert.match(
+      wait,
+      /looking in `ListAgents` for the session of each row still waiting on a card/,
+    );
+    assert.match(spawn, /arms its `notify_when_idle` subscription/);
+  });
+
+  it("`message` takes the `local_…` id, and the Support Level rests on the spec-314 run", () => {
+    const msg = section(DESKTOP, "## Verbs")
+      .split("\n")
+      .find((l) => l.startsWith("- `message`:"));
+    assert.match(msg, /`local_…` id, which a plain message takes/);
+    const level = DESKTOP.split("\n").find((l) => l.startsWith("- **Support Level:**"));
+    assert.match(level, /It rests on `\/orchestrate --spec 314`/);
+    assert.ok(!level.includes("not on a recorded Activity Log"));
+  });
+
+  it("`notify_when_idle` is sent to the session's name, and is not re-armed on an idle session", () => {
+    assert.match(wait, /ListAgents/);
+    assert.match(wait, /not its `local_…` id/);
+    assert.match(wait, /fires at once/);
   });
 });
 
