@@ -116,7 +116,7 @@ A finding whose concept id is already in the findings ledger still gets its row,
 
 A draft with zero parsed `F<n>` is a **no-findings advisory**: one line in the advisories table, with Rows `0` and its kind, and never a finding row, because it has no concept id. It is not left outside the run either, because then it would never be closed. The run counts each draft's `F<n>` when it opens and when a new draft joins it ([Concept ids](#concept-ids)).
 
-A no-findings advisory stays one while no row is joined to it. Once a row is (`record match`, or reconcile matching a draft that names a concept id), it has finding rows and follows the rules for any advisory. When a `format mismatch` turns out to hold real findings, the human files them in a new draft or edits this one, and reconcile adds a row for each new `F<n>` ([Rows are never deleted](#rows-are-never-deleted)).
+A no-findings advisory stays one while no row is joined to it. Once a row is (`record match`, or reconcile matching a draft that names a concept id), it has finding rows and follows the rules for any advisory: its Rows cell counts them, and no longer names a kind. When a `format mismatch` turns out to hold real findings, the human files them in a new draft or edits this one, and reconcile adds a row for each new `F<n>` ([Rows are never deleted](#rows-are-never-deleted)).
 
 ### Kinds
 
@@ -127,15 +127,15 @@ A no-findings advisory stays one while no row is joined to it. Once a row is (`r
 | `failed run`      | CI title `[Security audit] <date> — failed run: empty report`                 | `you: read transcript, approve close`    |
 | `other`           | anything else with no `F<n>`: a human-made draft, a probe                     | `you: match or close`                    |
 
-The parsed `F<n>` count decides whether a draft is a no-findings advisory; the title only names its kind. The run matches the title's text after the date (`clean run (0 Medium+ findings)`, `FORMAT MISMATCH`, `failed run: empty report`), as the audit workflow writes it. A draft whose title matches none of them is `other`. A `format mismatch` may hide findings: its report's header counts findings that no `F<n>` heading carries. A `failed run` holds only the session transcript. An `other` draft may be one the human made for a found-in-triage row: match it with `record match <GHSA> <concept-id>` ([Match](#match)), or close it.
+The parsed `F<n>` count, with no row joined to the draft, decides whether a draft is a no-findings advisory; the title only names its kind. The run matches the title's text after the date (`clean run (0 Medium+ findings)`, `FORMAT MISMATCH`, `failed run: empty report`), as the audit workflow writes it. A draft whose title matches none of them is `other`. A `format mismatch` may hide findings: its report's header counts findings that no `F<n>` heading carries. A `failed run` holds only the session transcript. An `other` draft may be one the human made for a found-in-triage row: match it with `record match <GHSA> <concept-id>` ([Match](#match)), or close it.
 
 ### Waiting on you
 
-No-findings advisories get one numbered item per kind, naming each draft by its full GHSA id: `Read and approve close 4 clean-run drafts: <GHSA-id>, <GHSA-id>, <GHSA-id>, <GHSA-id>`. The `format mismatch` item comes first, then `failed run`, then `other`, and the `clean run` item last: format mismatches and failed runs come before clean runs, so a draft that may hide findings is read before routine ones. The advisories table keeps one line per draft.
+No-findings advisories get one numbered item per kind, naming each draft by its full GHSA id: `Read and approve close 4 clean-run drafts: <GHSA-id>, <GHSA-id>, <GHSA-id>, <GHSA-id>`. The `format mismatch` item comes first, then `failed run`, then `other`, and the `clean run` item last: format mismatches and failed runs come before clean runs, so a draft that may hide findings is read before routine ones. These items sit below any contradicted-final entry, which stays at the top ([Final rows and advisories](#final-rows-and-advisories)). An `other` draft that reconcile raises for `record match` ([Rows are never deleted](#rows-are-never-deleted)) is named in the `other` item, not in a second one. The advisories table keeps one line per draft.
 
 ### Closing
 
-`record approve close <GHSA…>` takes a list of GHSAs, each named: `record approve close <GHSA-id> <GHSA-id> <GHSA-id>`. There is no wildcard: no `clean`, no `all`, no pattern. The human names each draft, because the draft exists so that it gets read. Within the list, the run refuses any GHSA with non-final rows, and a duplicate whose canonical row is not final ([Close](#close)); a no-findings advisory has no rows, so it passes once it is `draft`.
+`record approve close <GHSA…>` takes a list of GHSAs, each named: `record approve close <GHSA-id> <GHSA-id> <GHSA-id>`. There is no wildcard: no `clean`, no `all`, no pattern. The human names each draft, because the draft exists so that it gets read. Within the list, the run refuses any GHSA with non-final rows, and a duplicate whose canonical row is not final: its canonical row's advisory must be final, as [Close](#close) says. A no-findings advisory has no rows, so it passes while it is `draft`.
 
 Its only final state is `closed`. It is never published, and staying a draft is not final, so the run cannot close while one is still a draft. Closing it writes no findings-ledger line, because the ledger holds concept ids only; `activity.md` logs the close.
 
@@ -219,7 +219,7 @@ The report alone moves nothing. When a check fails, or its source cannot be reac
 
 ### Match
 
-`record match <GHSA> <concept-id>` joins a draft that names no concept id, which the human made for a found-in-triage row, to a row with advisory `none yet`: the case reconcile raises in Waiting on you ([Rows are never deleted](#rows-are-never-deleted)). The run checks that the GHSA is a draft it has read and saved to `originals/`, joined to no row, and that the row's advisory reads `none yet`; otherwise the match is refused. The row's Advisory becomes the draft's short id, the draft gets its line in the advisories table, and the item in Waiting on you is cleared.
+`record match <GHSA> <concept-id>` joins a draft that names no concept id, which the human made for a found-in-triage row, to a row with advisory `none yet`: the case reconcile raises in Waiting on you ([Rows are never deleted](#rows-are-never-deleted)). The run checks that the GHSA is a draft it has read and saved to `originals/`, joined to no row, and that the row's advisory reads `none yet`; otherwise the match is refused. The row's Advisory becomes the draft's short id, the draft's line in the advisories table counts the row and takes the Next of an advisory with finding rows, and the item in Waiting on you is cleared.
 
 A draft that names the concept id in its title or body is matched by reconcile on its own, and needs no `record match`.
 
@@ -261,7 +261,7 @@ A no-findings advisory ([No-findings advisories](#no-findings-advisories)) is ta
 
 ### Publish
 
-`record approve publish <GHSA…>` publishes each advisory. Publish is refused while any row under the advisory is not final, or while the advisory is not `draft`. A duplicate advisory is never published: the run refuses it, and says to close it once its canonical row's advisory is final ([Close](#close)). Nor is an advisory whose every row is `rejected`, `duplicate` or `below-floor`: the run refuses it, and says to close it. A `below-floor` row under an advisory with other rows holds its publish until the row is final, as any row does: the published advisory would disclose it. A no-findings advisory is never published: the run refuses it, and says to close it.
+`record approve publish <GHSA…>` publishes each advisory. Publish is refused while any row under the advisory is not final, a `below-floor` row excepted, or while the advisory is not `draft`. A duplicate advisory is never published: the run refuses it, and says to close it once its canonical row's advisory is final ([Close](#close)). Nor is an advisory whose every row is `rejected`, `duplicate` or `below-floor`: the run refuses it, and says to close it. A `below-floor` row does not hold the publish of an advisory with other rows: its hardening goes on as an ordinary public pull request, and the run still cannot close until the row is final. A no-findings advisory is never published: the run refuses it, and says to close it.
 
 Publishing deletes the private fork, and its pull requests with it. So the run checks that the fork PR numbers and fix SHAs are in the Record of every row under it before the publish. For a row that went through the fork and lacks either, the run reads them from the fork (`gh pr list` and `gh pr view`), writes them into the row's Record, and logs it, before it publishes. When a record is missing and the fork cannot be read, the run refuses the publish.
 
@@ -308,7 +308,7 @@ Started <date> <time>. Default branch: main@<sha>, checked <time>.
 
 The header names the run and when it started. Its `Default branch` line is the default branch's name and tip, and when it was last checked; every invocation checks it again. When a source cannot be reached, the line for it reads `not checked: <source> unavailable` (for the default branch, `Default branch: not checked: git unavailable`), and nothing on the board moves on that source.
 
-**Waiting on you:** is a numbered list of the human's steps, each naming the pull request, setting or release it is about, or reads `nothing`. **Next (agent):** is one action, or `nothing until one of the above lands`. Both are rewritten on every update: they are what the human reads first, so nobody has to scan the Next column of every row.
+**Waiting on you:** is a numbered list of the human's steps, each naming the pull request, setting, release or draft advisory it is about, or reads `nothing`. **Next (agent):** is one action, or `nothing until one of the above lands`. Both are rewritten on every update: they are what the human reads first, so nobody has to scan the Next column of every row.
 
 The findings table has one row per concept id:
 

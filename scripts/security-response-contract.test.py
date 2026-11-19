@@ -142,9 +142,13 @@ def table_rows(text: str) -> str:
     return re.sub(r" *\| *", " | ", text)
 
 
+def board_doc() -> str:
+    """The `## Board` section; its fenced example holds `## Findings` and `## Advisories`, so cut at `## States`."""
+    return read(RUN).split("\n## Board\n", 1)[1].split("\n## States\n", 1)[0]
+
+
 def test_board_format() -> None:
-    # The board's fenced example holds `## Findings` and `## Advisories`, so cut at the next real section.
-    board = table_rows(read(RUN).split("\n## Board\n", 1)[1].split("\n## States\n", 1)[0])
+    board = table_rows(board_doc())
     assert "Default branch: main@<sha>, checked <time>" in board
     assert "not checked: <source> unavailable" in board
     waiting, agent = board.find("**Waiting on you:**"), board.find("**Next (agent):**")
@@ -562,7 +566,7 @@ def test_a_no_findings_draft_is_one_rows_0_line_never_a_finding_row() -> None:
     assert "A draft with zero parsed `F<n>` is a **no-findings advisory**" in text
     assert "one line in the advisories table, with Rows `0` and its kind" in text
     assert "never a finding row" in text
-    board = flat(read(RUN).split("\n## Board\n", 1)[1].split("\n## States\n", 1)[0])
+    board = flat(board_doc())
     assert "`0 (<kind>)` for a no-findings advisory" in board, "the Rows column must show the kind"
 
 
@@ -579,16 +583,17 @@ def test_no_findings_kinds_come_from_cis_titles() -> None:
             assert by.strip("`") in script, f"CI's draft title must still say {by}"
     text = flat(subsection(no_findings(), "Kinds"))
     assert (
-        "The parsed `F<n>` count decides whether a draft is a no-findings advisory; the title only names its kind"
+        "The parsed `F<n>` count, with no row joined to the draft, decides whether a draft is a no-findings advisory"
         in text
     )
+    assert "the title only names its kind" in text
 
 
 def test_waiting_on_you_has_one_item_per_kind_mismatch_and_failed_first() -> None:
     waiting = flat(subsection(no_findings(), "Waiting on you"))
     assert "one numbered item per kind" in waiting
-    order = [waiting.find(f"`{kind}`") for kind in ("format mismatch", "failed run", "clean run")]
-    assert -1 < order[0] < order[1] < order[2], "format mismatch, then failed run, then clean run"
+    order = [waiting.find(f"`{kind}`") for kind in ("format mismatch", "failed run", "other", "clean run")]
+    assert -1 < order[0] < order[1] < order[2] < order[3], "format mismatch, failed run, other, then clean run"
     assert "before clean runs" in waiting
 
 
@@ -620,7 +625,7 @@ def test_a_run_of_only_no_findings_drafts_opens_like_any_other() -> None:
 
 
 def test_a_below_floor_row_keeps_its_advisory_so_the_advisory_can_close() -> None:
-    board = flat(read(RUN).split("\n## Board\n", 1)[1].split("\n## States\n", 1)[0])
+    board = flat(board_doc())
     assert "A `below-floor` row keeps the advisory it came from" in board
     assert "`n/a` for a `below-floor` row with no draft" in board
     assert "the findings ledger still writes `n/a` for a `below-floor` row" in board
@@ -628,6 +633,7 @@ def test_a_below_floor_row_keeps_its_advisory_so_the_advisory_can_close() -> Non
     assert "An advisory whose every row is `rejected`, `duplicate` or `below-floor` has nothing to publish" in actions
     publish = flat(subsection(advisory_actions(), "Publish"))
     assert "Nor is an advisory whose every row is `rejected`, `duplicate` or `below-floor`" in publish
+    assert "A `below-floor` row does not hold the publish of an advisory with other rows" in publish
     found = flat(subsection(landing(), "Found in triage"))
     assert "A found-in-triage row triaged `below-floor` needs no draft: its Advisory becomes `n/a`" in found
 

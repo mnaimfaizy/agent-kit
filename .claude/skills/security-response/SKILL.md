@@ -50,7 +50,7 @@ The run publishes, closes, or requests a CVE for an advisory only after `record 
 
 After each call, the run reads the advisory back and moves the board only on what it shows ([RUN.md](RUN.md#advisory-actions)).
 
-`record approve close` takes a list of GHSAs, each named, with no wildcard: the human names every draft the run closes. A draft with no findings (a clean run, a format mismatch, a failed run, or another draft with no `F<n>`) is one advisories line with `Rows 0` and its kind, and its only final state is `closed` ([RUN.md](RUN.md#no-findings-advisories)).
+`record approve close` takes a list of GHSAs, each named, with no wildcard: the human names every draft the run closes. A draft with no findings (a clean run, a format mismatch, a failed run, or another draft with no `F<n>`) is one advisories line with Rows `0 (<kind>)`, and its only final state is `closed` ([RUN.md](RUN.md#no-findings-advisories)).
 
 ## Guardrails
 
