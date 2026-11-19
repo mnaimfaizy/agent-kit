@@ -3,11 +3,15 @@
 // tree), validating it, and refusing with a pointer to the docs when it is
 // missing or invalid; then the pre-flight refusals (a GitHub token in the
 // environment, a .env the copy-in would carry wholesale) and the choice of a
-// sandbox runtime from the host, or its refusal. git runs for real against
-// local fixture repositories (no network). The sandbox runtimes' CLIs (`sbx`,
-// `docker`, `runsc`, `kata-runtime`, `firecracker`) are fake: shim scripts
-// run as real child processes behind the CLI's real process allowlist, each
-// recording its arguments. Nothing else is ever run.
+// sandbox runtime from the host, or its refusal; then the sandbox lifecycle
+// on that runtime, from image to teardown. git runs for real against local
+// fixture repositories (no network). The sandbox runtimes' CLIs (`sbx`,
+// `docker`, `runsc`, `kata-runtime`, `firecracker`) are fake, behind the CLI's
+// real process allowlist, each call recorded with its arguments and stdin:
+// the blocking runner's calls reach shim scripts run as real child processes,
+// and the non-blocking runner's calls an in-process fake child. The grounding
+// fetch and the interrupt signals are injected too. No real runtime, and no
+// network outside 127.0.0.1, is ever reached.
 
 import assert from "node:assert/strict";
 import { spawn as spawnChild, spawnSync } from "node:child_process";
@@ -206,6 +210,10 @@ function fakeChild(host, cmd, args) {
       appendFileSync(join(host.dir, "probes.jsonl"), `${JSON.stringify([reply.probe, status])}\n`);
     }
     if (closed) return;
+    if (reply.killedBy) {
+      close(null, reply.killedBy);
+      return;
+    }
     if (reply.hang) {
       // The timer first: a listener may kill the child inside the write.
       timer = setInterval(() => {}, 1000);
@@ -1715,6 +1723,17 @@ describe("teardown runs on success, failure and interrupt", () => {
       assert.equal(signals.listenerCount(signal), 0, "the handlers are removed");
     });
   }
+
+  it("counts a step's docker child ended by Ctrl+C as an interrupt, not a failure", async () => {
+    // A terminal sends SIGINT to the whole process group: the child can end
+    // before the launcher's own handler runs.
+    const host = gvisorWith({ "~npm ci": { killedBy: "SIGINT" } });
+    const res = await run(recipeRepo(VALID), [], { host });
+    assert.equal(res.code, 130, res.text);
+    assert.doesNotMatch(res.err, /FAILED/);
+    assert.ok(!lifecycle(res).some(isAgentStep));
+    assert.equal(removed(lifecycle(res)).length, 3);
+  });
 
   it("tears down on an interrupt during setup, before the agent step", async () => {
     const host = gvisorWith({ "~npm ci": { hang: true } });

@@ -1,7 +1,8 @@
 // Argument parsing and dispatch. Exit codes: 0 ok, 1 a check failed (or a
 // warning under --strict, the tag or the change was refused, or deep-scan
-// refused a missing or invalid Scan recipe), 2 usage
-// error (including a missing answer when there is no terminal to ask on).
+// refused, or a sandbox step failed), 2 usage error (including a missing
+// answer when there is no terminal to ask on), 130 or 143 deep-scan was
+// interrupted by SIGINT or SIGTERM (after tearing the sandbox down).
 
 import { parseArgs } from "node:util";
 import { runDeepScan } from "./deep-scan.mjs";

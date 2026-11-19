@@ -139,6 +139,9 @@ export async function runLifecycle(opts) {
       if (signal.aborted) throw interrupted();
       const r = await runner.start("docker", args, { stdin, signal });
       if (r.aborted || signal.aborted) throw interrupted();
+      // Ctrl+C in a terminal reaches the docker child too, and can end it
+      // before the handler above runs: that is an interrupt, not a failure.
+      if (r.signal === "SIGINT" || r.signal === "SIGTERM") throw new Interrupted(r.signal);
       return r;
     },
   });
