@@ -6,6 +6,14 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
+### Added
+
+- `security-response` keeps a **Security Response Run** ([#348](https://github.com/mnaimfaizy/agent-kit/issues/348), part of [#344](https://github.com/mnaimfaizy/agent-kit/issues/344)): a private local board that tracks a maintainer's response to every open draft advisory and is resumed by a later session. Every mode now opens the run when draft advisories exist and none is open, resumes the open run otherwise (at most one is open), and with no drafts and no open run reports "nothing to respond to" and writes nothing. The run lives in `tmp/security-response/<date>/` (`.2`, `.3` when taken), with no config key; before the first write the skill checks the path with `git check-ignore`, offers the `.gitignore` line when it is not ignored, and writes nothing without a yes. It holds `board.md`, an append-only `activity.md`, `triage/<concept-id>.md` and `originals/<GHSA-id>.json`, each advisory saved there before any PATCH that rewrites it publicly. Each `GHSA:F<n>` gets a provisional concept id from its title, and findings with the same id fold into one row. `status` prints the board: Waiting on you, Next (agent), a findings table and an advisories table. The new run doc `RUN.md` defines the board and the Evidence (`untriaged`, `confirmed`, `rejected`, `duplicate`, `below-floor`), Delivery (`open`, `fix PR open`, `merged`, `released`, `fixed`, `accepted-risk`) and advisory states, and what is final. `fixed; Release pending` is now `merged`. The `argument-hint` gains `record <what>` and `close`, not available yet. The glossary's **Concept id** is provisional until triage, and stable from then on. **Consumer action:** add `tmp/security-response/` to your `.gitignore`, or say yes when the skill offers it.
+
+### Removed
+
+- `security-response`'s `STATUS-FORMAT.md` ([#348](https://github.com/mnaimfaizy/agent-kit/issues/348)): `status` prints the run's board, whose format is in the skill's `RUN.md`. **Consumer action:** none, unless you link the file; link `RUN.md` instead.
+
 ### Fixed
 
 - `prepare-release.sh` no longer rewrites the `release:` field of [Deprecation register](docs/deprecations.yml) entries when it bumps the previous tag's pins ([#361](https://github.com/mnaimfaizy/agent-kit/issues/361)). That field is the release each rename shipped in, so the bump left the register claiming the previous release's renames shipped in the new one, and a re-run of `prepare` could list them in the new release's notes. The register is now history, like the CHANGELOG and the ADRs. **Consumer action:** none.
