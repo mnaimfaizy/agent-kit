@@ -60,7 +60,7 @@
     - cli/src/checks/secrets-and-variables.mjs
     - scripts/cli-doctor-contract.test.mjs
 
-# #348: the Security Response Run's board in RUN.md replaces the status format.
+# The Security Response Run's board in RUN.md replaces the status format (#348).
 - kind: path
   old: .claude/skills/security-response/STATUS-FORMAT.md
   replacement: .claude/skills/security-response/RUN.md

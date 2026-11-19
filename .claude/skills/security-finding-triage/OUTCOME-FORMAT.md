@@ -29,8 +29,6 @@ The **Concept id** is the triaged finding's own id, final from this triage on. A
 - `accepted-risk`: real, and the triager recommends accepting the risk rather than fixing it. It is a recommendation, not a decision: it maps to the Delivery ending `accepted-risk`, which only the human records.
 - `duplicate`: the same concept as another finding, or as a concept id already in the findings ledger. **Duplicate of** names the canonical concept id.
 
-`security-response` repeats `confirmed`, `rejected`, `below-floor` and `duplicate` in the same words as its Evidence states, and each skill keeps its own copy: a contract test keeps them the same.
-
 ### Evidence
 
 - What was checked (`path:line`) and whether claim still holds

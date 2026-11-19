@@ -370,8 +370,6 @@ def test_the_shared_outcome_definitions_match_the_evidence_states() -> None:
         outcomes["duplicate"],
         evidence["duplicate"],
     )
-    for text in (read(RUN), read(OUTCOME_FORMAT)):
-        assert "a contract test keeps them the same" in flat(text)
 
 
 LANDING = "Landing a triage outcome"
@@ -635,6 +633,9 @@ def test_a_below_floor_row_reaches_released_through_a_public_pr() -> None:
     checks = flat(subsection(record_doc(), "Merged and released"))
     assert "a `below-floor` row's public pull request on the repository, by `#<n>` or its URL" in checks
     assert "which a row's Record writes `PR #7`" in checks
+    assert "on the repository for a public PR, as Waiting on you names it (`#7`)" in checks
+    record = flat(board_doc())
+    assert "the fork PR number or a `below-floor` row's public PR number" in record
     fix = mode_line("fix <target>")
     assert "for a `below-floor` row, an ordinary public pull request on the repository" in fix, fix
     assert "`fix PR open`, with the PR number in its Record" in fix, fix
@@ -719,7 +720,7 @@ def test_publish_gate() -> None:
     publish = flat(subsection(advisory_actions(), "Publish"))
     assert "Publish is refused while any row under the advisory is not final" in publish
     assert "A duplicate advisory is never published" in publish
-    assert "fork PR numbers and fix SHAs are in the Record of every row under it before the publish" in publish
+    assert "fork PR numbers and fix SHAs are in the Record of every row under it that went through the fork" in publish
     assert "refuses the publish" in publish
 
 
@@ -735,7 +736,18 @@ def test_a_folded_row_has_one_canonical_advisory() -> None:
     assert "then by GHSA id" in ids
     assert "Under each of its other advisories, the folded row counts as a `duplicate` row" in ids
     actions = flat(advisory_actions())
-    assert "or a folded row whose canonical advisory is another" in actions
+    assert "one whose every row is `duplicate` or a folded row whose canonical advisory is another" in actions
+    publish = flat(subsection(advisory_actions(), "Publish"))
+    assert "publish is refused while its body still holds the folded finding's `### F<n>` heading" in publish
+    rows = flat(subsection(reconcile_doc(), "Rows are never deleted"))
+    assert "a folded row's finding the human removed from an advisory that is not its canonical one" in rows
+    cve = flat(subsection(advisory_actions(), "CVE request"))
+    assert "a folded row counts only under its canonical advisory" in cve
+    closing = flat(subsection(no_findings(), "Closing"))
+    assert "or a folded row whose canonical advisory is not final" in closing
+    board = flat(board_doc())
+    assert "for a duplicate advisory, a folded row's other advisory among them" in board
+    assert "the first is the row's canonical advisory" in board
     close = flat(subsection(advisory_actions(), "Close"))
     assert "for a folded row, its canonical advisory must be `published` or `closed`" in close
     notes = flat(subsection(close_doc(), "Notes"))
