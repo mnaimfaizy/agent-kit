@@ -100,14 +100,28 @@ let tmp;
 let n = 0;
 
 /**
- * A fixture repository on branch `main` with `committed` committed, then
- * `working` written over it uncommitted.
+ * What a Consumer that adopted the audit flow has committed: the
+ * security-audit skill and the Threat pack at its default paths. Each file
+ * holds a marker, so a test can see it handed to the agent.
  */
-function makeRepo({ committed = {}, working = {}, branch = "main" } = {}) {
+const ADOPTED = {
+  ".claude/skills/security-audit/SKILL.md": "# security-audit SKILL marker\n",
+  ".claude/skills/security-audit/DEEP.md": "# Deep scan procedure marker\n",
+  ".claude/skills/security-audit/report-format.md": "# report-format marker\n",
+  ".security/threat-model.md": "# Threat model marker\n",
+  ".security/findings-ledger.md": "# Findings ledger marker\n",
+};
+
+/**
+ * A fixture repository on branch `main` with `committed` committed (over the
+ * adopted audit flow's files, unless `adopted` is false), then `working`
+ * written over it uncommitted.
+ */
+function makeRepo({ committed = {}, working = {}, branch = "main", adopted = true } = {}) {
   const dir = join(tmp, `repo-${n++}`);
   mkdirSync(dir);
   git(dir, "init", "-q", "-b", branch);
-  writeTree(dir, { "README.md": "app\n", ...committed });
+  writeTree(dir, { "README.md": "app\n", ...(adopted ? ADOPTED : {}), ...committed });
   git(dir, "add", "-A");
   git(dir, "commit", "-qm", "init");
   writeTree(dir, working);
@@ -2386,5 +2400,69 @@ describe("the model credential comes from the environment or 1Password, and neve
     });
     assert.equal(code, 2);
     assert.match(err.join("\n"), /doctor does not take --credential-from/);
+  });
+});
+
+// --- What the agent is handed (#370) ----------------------------------------
+
+describe("the deep procedure and the Threat pack come from the trusted ref, or the run is refused", () => {
+  it("refuses, before any runtime is touched, when the security-audit skill has no DEEP.md", async () => {
+    const committed = { ...ADOPTED, ".security/scan-recipe.yml": VALID };
+    delete committed[".claude/skills/security-audit/DEEP.md"];
+    const dir = makeRepo({
+      adopted: false,
+      committed,
+      working: { ".claude/skills/security-audit/DEEP.md": "uncommitted\n" },
+    });
+    const res = await run(dir);
+    assert.equal(res.code, 1, res.text);
+    assert.match(
+      res.err,
+      /REFUSED {2}The security-audit skill on main has no \.claude\/skills\/security-audit\/DEEP\.md/,
+    );
+    assert.match(res.err, /agent-kit upgrade/);
+    assert.ok(!startedAnything(res));
+  });
+
+  it("refuses, before any runtime is touched, when the Threat pack is missing", async () => {
+    const committed = { ...ADOPTED, ".security/scan-recipe.yml": VALID };
+    delete committed[".security/findings-ledger.md"];
+    const res = await run(makeRepo({ adopted: false, committed }));
+    assert.equal(res.code, 1, res.text);
+    assert.match(
+      res.err,
+      /REFUSED {2}No Threat pack on main: \.security\/findings-ledger\.md is missing/,
+    );
+    assert.ok(!startedAnything(res));
+  });
+
+  it("takes the Threat pack paths from a security-audit Caller at the trusted ref", async () => {
+    const caller = [
+      "name: audit",
+      "on: workflow_dispatch",
+      "jobs:",
+      "  audit:",
+      "    uses: ./.github/workflows/security-audit-reusable.yml",
+      "    with:",
+      "      mode: full",
+      '      threat_model_path: "security/threat-model.md"',
+      '      findings_ledger_path: "security/findings-ledger.md"',
+      "",
+    ].join("\n");
+    const committed = {
+      ...ADOPTED,
+      ".security/scan-recipe.yml": VALID,
+      ".github/workflows/audit.yml": caller,
+      "security/threat-model.md": "# Caller threat model\n",
+      "security/findings-ledger.md": "# Caller ledger\n",
+    };
+    delete committed[".security/threat-model.md"];
+    delete committed[".security/findings-ledger.md"];
+    const res = await run(makeRepo({ adopted: false, committed }));
+    assert.equal(res.code, 0, res.text);
+    assert.match(
+      res.out,
+      /Threat pack: security\/threat-model\.md and security\/findings-ledger\.md \(from \.github\/workflows\/audit\.yml\)/,
+    );
   });
 });

@@ -22,6 +22,7 @@ import {
   recipeSteps,
   validateRecipe,
 } from "./deep-scan/recipe.mjs";
+import { readHandIn } from "./deep-scan/agent.mjs";
 import { credentialSource, readCredential, withoutCredentials } from "./deep-scan/credential.mjs";
 import { runLifecycle } from "./deep-scan/lifecycle.mjs";
 import { envFilesAtRef, strayTokens } from "./deep-scan/preflight.mjs";
@@ -192,6 +193,14 @@ export async function runDeepScan({
     );
   }
 
+  // What the agent is handed, read at the trusted ref like the recipe.
+  const handed = readHandIn({ runner, root, ref: commit, branch });
+  if ("refused" in handed) return refuse(handed.refused);
+  const { handIn } = handed;
+  out(
+    `Threat pack: ${handIn.threatModel.path} and ${handIn.findingsLedger.path} (${handIn.from ? `from ${handIn.from}` : "the default paths"}); the deep procedure: the security-audit skill's DEEP.md, on the same branch.`,
+  );
+
   // The model credential: read once, kept only in this process for the
   // model proxy, and removed from every command's environment from here on.
   const runs = withoutCredentials(
@@ -217,6 +226,9 @@ export async function runDeepScan({
     branch,
     commit,
     steps: recipeSteps(recipe.text),
+    handIn,
+    recipePath: path,
+    recipeText: recipe.text,
     platform,
     fetch,
     signals,
