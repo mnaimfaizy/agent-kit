@@ -2,8 +2,11 @@
 // Its first stage finds the Consumer's Scan recipe at the trusted ref (the
 // default branch's tip, never the working tree) and validates it, or refuses
 // with what is wrong and a pointer to the docs. There is no fallback to a
-// `full` audit. The later stages (runtime, sandbox, proxy, scan) are not
-// built yet: a valid recipe ends the run with exit 0.
+// `full` audit. Then the pre-flight refusals (a GitHub token in the
+// environment, a .env the copy-in would carry wholesale), then the choice of a
+// sandbox runtime from the host, or its refusal, with no override (ADR 0018).
+// The later stages (sandbox, proxy, scan) are not built yet: a chosen runtime
+// ends the run with exit 0, before anything is started.
 
 import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -17,6 +20,8 @@ import {
   RECIPE_DOCS_URL,
   validateRecipe,
 } from "./deep-scan/recipe.mjs";
+import { envFilesAtRef, strayTokens } from "./deep-scan/preflight.mjs";
+import { RUNTIMES_DOCS_URL, selectRuntime } from "./deep-scan/runtime.mjs";
 
 /**
  * @param {{
@@ -24,14 +29,27 @@ import {
  *   runner: import("./exec.mjs").Runner,
  *   recipePath?: string,
  *   defaultBranch?: string,
+ *   platform?: string,
+ *   env?: Record<string, string | undefined>,
  *   out: (s: string) => void,
  *   err: (s: string) => void,
- * }} opts
- * @returns {number} exit code: 0 the recipe is valid, 1 refused, 2 usage error
+ * }} opts  `platform` and `env` are the host's (`process.platform`,
+ *   `process.env`); only tests pass others, and no flag can change them.
+ * @returns {number} exit code: 0 the recipe is valid and a runtime was chosen,
+ *   1 refused, 2 usage error
  */
-export function runDeepScan({ cwd, runner, recipePath, defaultBranch, out, err }) {
-  const refuse = (lines) => {
-    err([`REFUSED  ${lines[0]}`, ...lines.slice(1), `See ${RECIPE_DOCS_URL}`].join("\n"));
+export function runDeepScan({
+  cwd,
+  runner,
+  recipePath,
+  defaultBranch,
+  platform = process.platform,
+  env = process.env,
+  out,
+  err,
+}) {
+  const refuse = (lines, docs = RECIPE_DOCS_URL) => {
+    err([`REFUSED  ${lines[0]}`, ...lines.slice(1), `See ${docs}`].join("\n"));
     return 1;
   };
 
@@ -120,8 +138,40 @@ export function runDeepScan({ cwd, runner, recipePath, defaultBranch, out, err }
   }
   out(`Scan recipe ${at} is valid.`);
   if (drift) out(drift);
+
+  // Pre-flight, before any runtime CLI runs.
+  const tokens = strayTokens(env);
+  if (tokens.length) {
+    return refuse(
+      [
+        `${tokens.join(" and ")} ${tokens.length > 1 ? "are" : "is"} set in deep-scan's environment, and a GitHub token must never reach the sandbox.`,
+        `Unset ${tokens.length > 1 ? "them" : "it"} for this run, for example:`,
+        "  env -u GH_TOKEN -u GITHUB_TOKEN npx @mnaimfaizy/agent-kit deep-scan",
+        "  In PowerShell: Remove-Item Env:GH_TOKEN, Env:GITHUB_TOKEN -ErrorAction SilentlyContinue, then run it again.",
+      ],
+      RUNTIMES_DOCS_URL,
+    );
+  }
+  const envFiles = envFilesAtRef({ runner, root, ref: commit });
+  if ("error" in envFiles) {
+    return refuse([`Could not list the files on ${branch}: ${envFiles.error}`], RUNTIMES_DOCS_URL);
+  }
+  if (envFiles.files.length) {
+    return refuse(
+      [
+        `${branch} (${commit.slice(0, 12)}) has environment files that the copy-in would carry into the sandbox, forwarded wholesale:`,
+        ...envFiles.files.map((f) => `  - ${f}`),
+        `Remove them from ${branch} (keep a .env.example with placeholder values instead), and rotate any real secret they held.`,
+      ],
+      RUNTIMES_DOCS_URL,
+    );
+  }
+
+  const choice = selectRuntime({ runner, platform });
+  if ("refused" in choice) return refuse(choice.refused, RUNTIMES_DOCS_URL);
+  out(`Sandbox runtime: ${choice.runtime.name}.`);
   out(
-    "The later deep-scan stages (runtime selection, sandbox, proxy, scan) are not built yet, so the run stops here.",
+    "The later deep-scan stages (sandbox, proxy, scan) are not built yet, so the run stops here, before anything is started.",
   );
   return 0;
 }

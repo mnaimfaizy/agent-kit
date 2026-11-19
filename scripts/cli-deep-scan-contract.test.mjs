@@ -1,16 +1,22 @@
 // Contract for `agent-kit deep-scan` (cli/): finding the Consumer's Scan
 // recipe at the trusted ref (the default branch's tip, never the working
 // tree), validating it, and refusing with a pointer to the docs when it is
-// missing or invalid. git runs for real against local fixture repositories
-// (no network); no other command is ever run.
+// missing or invalid; then the pre-flight refusals (a GitHub token in the
+// environment, a .env the copy-in would carry wholesale) and the choice of a
+// sandbox runtime from the host, or its refusal. git runs for real against
+// local fixture repositories (no network). The sandbox runtimes' CLIs (`sbx`,
+// `docker`, `runsc`, `kata-runtime`, `firecracker`) are fake: shim scripts
+// run as real child processes behind the CLI's real process allowlist, each
+// recording its arguments. Nothing else is ever run.
 
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, before, describe, it } from "node:test";
 import { main } from "../cli/src/cli.mjs";
-import { systemRunner } from "../cli/src/exec.mjs";
+import { allowedCommands, RUNTIME_CLIS, runnerFor, systemRunner } from "../cli/src/exec.mjs";
 
 const GIT_ID = [
   "-c",
@@ -88,21 +94,97 @@ function makeRepo({ committed = {}, working = {}, branch = "main" } = {}) {
   return dir;
 }
 
-/** Run the CLI and record every command it runs. */
-async function run(dir, args = []) {
+// The fake runtime CLIs. Each host is a folder of `<cli>.json` files, one per
+// installed CLI, giving that CLI's answer; a CLI with no file is not
+// installed. The shim records every call to calls.jsonl in the host folder.
+// (Windows cannot run a script shim through spawn without a shell, so the
+// shims are reached through an injected spawn, behind the real allowlist.)
+const SHIM = `import { appendFileSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+const [name, ...args] = process.argv.slice(2);
+const dir = process.env.DEEP_SCAN_SHIM_DIR;
+appendFileSync(join(dir, "calls.jsonl"), JSON.stringify([name, ...args]) + "\\n");
+const answer = JSON.parse(readFileSync(join(dir, name + ".json"), "utf8"));
+const reply = answer[args.join(" ")] ?? answer["*"] ?? { status: 0, stdout: "" };
+process.stdout.write(reply.stdout ?? "");
+process.stderr.write(reply.stderr ?? "");
+process.exit(reply.status ?? 0);
+`;
+
+const ok = (stdout = "") => ({ "*": { status: 0, stdout } });
+const failing = (stderr = "boom") => ({ "*": { status: 1, stderr } });
+
+/** `docker info --format {{json .}}` as a Docker Engine on `os` answers it. */
+function docker({
+  os = "Ubuntu 24.04 LTS",
+  kernel = "6.8.0-45-generic",
+  runtimes = { runc: { path: "runc" } },
+} = {}) {
+  const info = { OperatingSystem: os, KernelVersion: kernel, Runtimes: runtimes };
+  return { "info --format {{json .}}": { status: 0, stdout: `${JSON.stringify(info)}\n` } };
+}
+const RUNC = { "io.containerd.runc.v2": { path: "runc" }, runc: { path: "runc" } };
+const KATA = { kata: { path: "/opt/kata/bin/containerd-shim-kata-v2" } };
+const FC = { "kata-fc": { path: "/opt/kata/bin/kata-fc" } };
+const RUNSC = { runsc: { path: "/usr/local/bin/runsc" } };
+
+/** A host: its platform and the fake CLIs installed on it. */
+function makeHost(platform, clis = {}) {
+  const dir = join(tmp, `host-${n++}`);
+  mkdirSync(dir);
+  writeFileSync(join(dir, "shim.mjs"), SHIM);
+  writeFileSync(join(dir, "calls.jsonl"), "");
+  for (const [name, answer] of Object.entries(clis)) {
+    writeFileSync(join(dir, `${name}.json`), JSON.stringify(answer));
+  }
+  return { platform, dir };
+}
+
+/** Every call a host's fake CLIs recorded, as [cli, ...args]. */
+function shimCalls(host) {
+  return readFileSync(join(host.dir, "calls.jsonl"), "utf8")
+    .split("\n")
+    .filter(Boolean)
+    .map((l) => JSON.parse(l));
+}
+
+/** The spawn for a host: git for real, a fake CLI through its shim, else not found. */
+function spawnFor(host, spawned) {
+  return (cmd, args, opts) => {
+    spawned.push([cmd, ...args]);
+    if (cmd === "git") return spawnSync(cmd, args, opts);
+    if (!existsSync(join(host.dir, `${cmd}.json`))) {
+      return { error: Object.assign(new Error(`spawnSync ${cmd} ENOENT`), { code: "ENOENT" }) };
+    }
+    return spawnSync(process.execPath, [join(host.dir, "shim.mjs"), cmd, ...args], {
+      ...opts,
+      env: { ...opts.env, DEEP_SCAN_SHIM_DIR: host.dir },
+    });
+  };
+}
+
+/** A Linux host where gVisor is the only accepted runtime. */
+const gvisorHost = () =>
+  makeHost("linux", {
+    docker: docker({ runtimes: { ...RUNC, ...RUNSC } }),
+    runsc: ok("runsc version release-20251110.0\n"),
+  });
+
+/**
+ * Run the CLI on a host (default: Linux with gVisor) with an environment
+ * (default: none of the GitHub tokens), and record every command it runs.
+ */
+async function run(dir, args = [], { host = gvisorHost(), env = { PATH: "/usr/bin" } } = {}) {
   const out = [];
   const err = [];
   const calls = [];
-  const runner = (cmd, a, opts) => {
-    calls.push([cmd, ...a]);
-    assert.equal(cmd, "git", `deep-scan ran ${cmd}`);
-    return systemRunner(cmd, a, opts);
-  };
   const code = await main(["deep-scan", ...args], {
     cwd: dir,
     stdout: (s) => out.push(s),
     stderr: (s) => err.push(s),
-    runner,
+    spawn: spawnFor(host, calls),
+    platform: host.platform,
+    env,
   });
   return {
     code,
@@ -110,6 +192,8 @@ async function run(dir, args = []) {
     err: err.join("\n"),
     text: [...out, ...err].join("\n"),
     calls,
+    gitCalls: calls.filter((c) => c[0] === "git"),
+    shims: shimCalls(host),
   };
 }
 
@@ -147,7 +231,7 @@ const CLI_ONLY = `entry_points:
     note: A second command.`;
 
 describe("a valid recipe", () => {
-  it("passes, says the later stages are not built yet, and exits 0", async () => {
+  it("passes, chooses a runtime, says the later stages are not built yet, and exits 0", async () => {
     const res = await run(recipeRepo(VALID));
     assert.equal(res.code, 0, res.text);
     assert.match(
@@ -178,10 +262,10 @@ describe("a valid recipe", () => {
     assert.equal(res.code, 0, res.text);
   });
 
-  it("runs only git, and only read-only git commands", async () => {
+  it("runs only read-only git commands, besides the runtime probes", async () => {
     const res = await run(recipeRepo(VALID));
     assert.equal(res.code, 0, res.text);
-    const verbs = res.calls.map((c) => c[c.indexOf("-C") + 2]);
+    const verbs = res.gitCalls.map((c) => c[c.indexOf("-C") + 2]);
     for (const v of verbs) {
       assert.ok(["rev-parse", "symbolic-ref", "ls-tree", "cat-file"].includes(v), `ran git ${v}`);
     }
@@ -542,5 +626,365 @@ describe("the docs", () => {
     assert.ok(example, "docs/security-audit.md#scan-recipe has a yaml example");
     const res = await run(recipeRepo(example[1]));
     assert.equal(res.code, 0, res.text);
+  });
+});
+
+// --- Sandbox runtime selection (#368) -----------------------------------
+
+const ACCEPTED_LIST =
+  /Docker Sandboxes \(sbx\).*Kata Containers or Firecracker on Linux.*gVisor \(runsc\) on Linux.*Docker Desktop on macOS/s;
+const CI_PATH = /CI path: the deep-scan reusable workflow/;
+const NO_OVERRIDE = /There is no override/;
+const RUNTIME_DOCS = /docs\/security-audit\.md#sandbox-runtimes/;
+const START_VERBS = new Set(["run", "create", "start", "exec", "rm", "kill", "pull", "build"]);
+
+/** The fake CLIs ran only host-side probes: nothing was started. */
+function assertNothingStarted(res) {
+  for (const [cli, ...args] of res.shims) {
+    assert.ok(!args.some((a) => START_VERBS.has(a)), `${cli} ${args.join(" ")} starts something`);
+  }
+}
+
+const ALL_RUNTIMES = {
+  sbx: ok("sbx version 0.7.0\n"),
+  docker: docker({ runtimes: { ...RUNC, ...KATA, ...FC, ...RUNSC } }),
+  "kata-runtime": ok("kata-runtime  : 3.10.1\n"),
+  firecracker: ok("Firecracker v1.10.1\n"),
+  runsc: ok("runsc version release-20251110.0\n"),
+};
+const without = (...names) =>
+  Object.fromEntries(Object.entries(ALL_RUNTIMES).filter(([k]) => !names.includes(k)));
+
+describe("the sandbox runtime is chosen from the host in preference order", () => {
+  const desktop = (kernel) => docker({ os: "Docker Desktop", kernel });
+  const cases = [
+    [
+      "Linux with every runtime: Docker Sandboxes",
+      "linux",
+      ALL_RUNTIMES,
+      /Docker Sandboxes \(sbx\)/,
+    ],
+    [
+      "Linux without sbx: Kata before Firecracker and gVisor",
+      "linux",
+      without("sbx"),
+      /Kata Containers, as the Docker runtime "kata"/,
+    ],
+    [
+      "Linux with Firecracker and gVisor: Firecracker",
+      "linux",
+      without("sbx", "kata-runtime"),
+      /Firecracker, as the Docker runtime "kata-fc"/,
+    ],
+    [
+      "Linux with gVisor only: gVisor",
+      "linux",
+      without("sbx", "kata-runtime", "firecracker"),
+      /gVisor \(runsc\), as the Docker runtime "runsc"/,
+    ],
+    [
+      "Linux where sbx fails: the next accepted runtime",
+      "linux",
+      { ...without("kata-runtime", "firecracker"), sbx: failing("sbx: not supported") },
+      /gVisor \(runsc\)/,
+    ],
+    [
+      "macOS with sbx and Docker Desktop: Docker Sandboxes",
+      "darwin",
+      { sbx: ALL_RUNTIMES.sbx, docker: desktop("6.10.14-linuxkit") },
+      /Docker Sandboxes \(sbx\)/,
+    ],
+    [
+      "macOS with Docker Desktop only: Docker Desktop",
+      "darwin",
+      { docker: desktop("6.10.14-linuxkit") },
+      /Docker Desktop on macOS/,
+    ],
+    [
+      "macOS whose Docker Desktop VM has gVisor: Docker Desktop, gVisor being Linux-only",
+      "darwin",
+      {
+        docker: docker({ os: "Docker Desktop", runtimes: { ...RUNC, ...RUNSC } }),
+        runsc: ALL_RUNTIMES.runsc,
+      },
+      /Docker Desktop on macOS/,
+    ],
+    [
+      "Windows with sbx beside Docker Desktop on WSL 2: Docker Sandboxes",
+      "win32",
+      { sbx: ALL_RUNTIMES.sbx, docker: desktop("5.15.167.4-microsoft-standard-WSL2") },
+      /Docker Sandboxes \(sbx\)/,
+    ],
+  ];
+  for (const [name, platform, clis, chosen] of cases) {
+    it(name, async () => {
+      const res = await run(recipeRepo(VALID), [], { host: makeHost(platform, clis) });
+      assert.equal(res.code, 0, res.text);
+      const line = res.out.split("\n").find((l) => l.startsWith("Sandbox runtime: "));
+      assert.ok(line, res.out);
+      assert.match(line, chosen);
+      assert.match(res.out, /not built yet/);
+      assertNothingStarted(res);
+    });
+  }
+
+  it("counts kata-fc on Kata's shared shim path as Firecracker, not Kata", async () => {
+    const host = makeHost("linux", {
+      docker: docker({
+        runtimes: { ...RUNC, "kata-fc": { path: "/opt/kata/bin/containerd-shim-kata-v2" } },
+      }),
+      "kata-runtime": ALL_RUNTIMES["kata-runtime"],
+      firecracker: ALL_RUNTIMES.firecracker,
+    });
+    const res = await run(recipeRepo(VALID), [], { host });
+    assert.equal(res.code, 0, res.text);
+    assert.match(res.out, /Sandbox runtime: Firecracker, as the Docker runtime "kata-fc"/);
+  });
+
+  it("checks the backend from the host: a Kata CLI that Docker does not run is not Kata", async () => {
+    const host = makeHost("linux", {
+      docker: docker({ runtimes: RUNC }),
+      "kata-runtime": ALL_RUNTIMES["kata-runtime"],
+    });
+    const res = await run(recipeRepo(VALID), [], { host });
+    assert.equal(res.code, 1, res.text);
+    assert.match(res.err, /Plain Docker on Linux/);
+  });
+
+  it("probes only from the host: docker info and version checks, nothing inside a container", async () => {
+    const res = await run(recipeRepo(VALID), [], { host: makeHost("linux", without("sbx")) });
+    assert.equal(res.code, 0, res.text);
+    assert.ok(res.shims.length > 0);
+    for (const [cli, ...args] of res.shims) {
+      const probe =
+        (cli === "docker" && args.join(" ") === "info --format {{json .}}") ||
+        (cli === "sbx" && args.join(" ") === "version") ||
+        args.join(" ") === "--version";
+      assert.ok(probe, `${cli} ${args.join(" ")} is not a host-side probe`);
+    }
+  });
+});
+
+describe("a host with no accepted runtime is refused, with no override", () => {
+  const cases = [
+    [
+      "plain Docker on Linux, saying what to install",
+      "linux",
+      { docker: docker({ runtimes: RUNC }) },
+      [
+        /REFUSED  Plain Docker on Linux shares the host's kernel/,
+        /Install one of: gVisor \(runsc\), Kata Containers or Firecracker, each registered as a Docker runtime, or Docker Sandboxes \(sbx\)/,
+      ],
+    ],
+    [
+      "Docker Desktop on Windows with WSL 2, explaining the shared kernel and network namespace",
+      "win32",
+      { docker: docker({ os: "Docker Desktop", kernel: "5.15.167.4-microsoft-standard-WSL2" }) },
+      [
+        /REFUSED  Docker Desktop on Windows with the WSL 2 backend/,
+        /shares one Linux kernel and network namespace with your other WSL distros/,
+      ],
+    ],
+    [
+      "a host with nothing installed",
+      "linux",
+      {},
+      [/REFUSED  No accepted sandbox runtime found on this Linux host/],
+    ],
+    [
+      "a Docker daemon that does not answer",
+      "linux",
+      { docker: failing("Cannot connect to the Docker daemon") },
+      [
+        /REFUSED  No accepted sandbox runtime found on this Linux host/,
+        /docker info failed: Cannot connect to the Docker daemon/,
+      ],
+    ],
+    [
+      "a Docker daemon that is down while docker info exits 0",
+      "linux",
+      {
+        docker: {
+          "info --format {{json .}}": {
+            status: 0,
+            stdout: JSON.stringify({ ServerErrors: ["Cannot connect to the Docker daemon"] }),
+          },
+        },
+      },
+      [/REFUSED  No accepted sandbox runtime found/, /docker info failed: Cannot connect/],
+    ],
+    [
+      "Docker on macOS that is not Docker Desktop",
+      "darwin",
+      { docker: docker({ os: "Ubuntu 24.04 LTS" }) },
+      [/REFUSED  Docker \(Ubuntu 24\.04 LTS\) on macOS is not an accepted sandbox runtime/],
+    ],
+    [
+      "Docker Desktop on Windows with the Hyper-V backend",
+      "win32",
+      { docker: docker({ os: "Docker Desktop", kernel: "6.10.14-linuxkit" }) },
+      [/REFUSED  Docker \(Docker Desktop\) on Windows is not an accepted sandbox runtime/],
+    ],
+    [
+      "gVisor on a host that is not Linux",
+      "win32",
+      { runsc: ok("runsc version\n") },
+      [/REFUSED  No accepted sandbox runtime found on this Windows host/],
+    ],
+  ];
+  for (const [name, platform, clis, messages] of cases) {
+    it(`refuses ${name}, naming the accepted runtimes and the CI path`, async () => {
+      const res = await run(recipeRepo(VALID), [], { host: makeHost(platform, clis) });
+      assert.equal(res.code, 1, res.text);
+      for (const m of messages) assert.match(res.err, m);
+      assert.match(res.err, ACCEPTED_LIST);
+      assert.match(res.err, CI_PATH);
+      assert.match(res.err, NO_OVERRIDE);
+      assert.match(res.err, RUNTIME_DOCS);
+      assertNothingStarted(res);
+    });
+  }
+
+  for (const flag of [
+    "--runtime=docker",
+    "--allow-runtime",
+    "--force",
+    "--unsafe",
+    "--no-sandbox",
+  ]) {
+    it(`has no override flag: ${flag} is a usage error that runs nothing`, async () => {
+      const host = makeHost("linux", { docker: docker({ runtimes: RUNC }) });
+      const res = await run(recipeRepo(VALID), [flag], { host });
+      assert.equal(res.code, 2, res.text);
+      assert.equal(res.calls.length, 0);
+    });
+  }
+});
+
+// --- Pre-flight refusals (#368) --------------------------------------------
+
+describe("pre-flight: a stray credential refuses the run before any runtime is touched", () => {
+  for (const [name, env, named] of [
+    ["GH_TOKEN", { GH_TOKEN: "ghp_x" }, /GH_TOKEN/],
+    ["GITHUB_TOKEN", { GITHUB_TOKEN: "ghs_x" }, /GITHUB_TOKEN/],
+    ["both tokens, naming both", { GH_TOKEN: "a", GITHUB_TOKEN: "b" }, /GH_TOKEN and GITHUB_TOKEN/],
+    ["a token in another letter case", { Gh_Token: "ghp_x" }, /Gh_Token/],
+  ]) {
+    it(`refuses ${name} in the environment, and no runtime CLI runs`, async () => {
+      const host = makeHost("linux", ALL_RUNTIMES);
+      const res = await run(recipeRepo(VALID), [], { host, env: { PATH: "/usr/bin", ...env } });
+      assert.equal(res.code, 1, res.text);
+      assert.match(res.err, /REFUSED  .*must never reach the sandbox/);
+      assert.match(res.err, named);
+      assert.match(res.err, /env -u GH_TOKEN -u GITHUB_TOKEN/);
+      assert.doesNotMatch(res.text, /ghp_x|ghs_x/);
+      assert.deepEqual(res.shims, []);
+      assert.ok(res.calls.every((c) => c[0] === "git"));
+    });
+  }
+
+  it("lets an empty GH_TOKEN through, as it holds no token", async () => {
+    const res = await run(recipeRepo(VALID), [], { env: { PATH: "/usr/bin", GH_TOKEN: "" } });
+    assert.equal(res.code, 0, res.text);
+  });
+
+  for (const path of [".env", "config/.env", ".env.local", "app/.env.production"]) {
+    it(`refuses ${path} committed at the trusted ref, which the copy-in would carry whole`, async () => {
+      const host = makeHost("linux", ALL_RUNTIMES);
+      const dir = makeRepo({
+        committed: { ".security/scan-recipe.yml": VALID, [path]: "SECRET=1\n" },
+      });
+      const res = await run(dir, [], { host });
+      assert.equal(res.code, 1, res.text);
+      assert.match(res.err, /REFUSED  /);
+      assert.ok(res.err.includes(`  - ${path}`), res.err);
+      assert.match(res.err, /forwarded wholesale/);
+      assert.doesNotMatch(res.text, /SECRET=1/);
+      assert.deepEqual(res.shims, []);
+    });
+  }
+
+  for (const path of [
+    ".env.example",
+    ".env.sample",
+    ".env.template",
+    ".env.dist",
+    "docs/.envrc.md",
+  ]) {
+    it(`lets ${path} through, as it is not an environment file`, async () => {
+      const dir = makeRepo({ committed: { ".security/scan-recipe.yml": VALID, [path]: "X=\n" } });
+      const res = await run(dir);
+      assert.equal(res.code, 0, res.text);
+    });
+  }
+
+  it("ignores a .env only in the working tree, which is never copied in", async () => {
+    const dir = makeRepo({
+      committed: { ".security/scan-recipe.yml": VALID },
+      working: { ".env": "SECRET=1\n" },
+    });
+    const res = await run(dir);
+    assert.equal(res.code, 0, res.text);
+  });
+});
+
+// --- The process allowlist (ADR 0019) --------------------------------------
+
+describe("the process allowlist widens for deep-scan alone", () => {
+  const recordingSpawn = (seen) => (cmd, args) => {
+    seen.push([cmd, ...args]);
+    return { status: 0, stdout: Buffer.from(""), stderr: Buffer.from("") };
+  };
+
+  it("lets deep-scan run git and every runtime CLI, and nothing else", () => {
+    assert.deepEqual([...allowedCommands("deep-scan")].sort(), ["git", ...RUNTIME_CLIS].sort());
+    const seen = [];
+    const runner = runnerFor("deep-scan", { spawn: recordingSpawn(seen) });
+    for (const cli of ["git", ...RUNTIME_CLIS]) runner(cli, ["--version"]);
+    assert.deepEqual(
+      seen.map((c) => c[0]),
+      ["git", ...RUNTIME_CLIS],
+    );
+    for (const cli of ["gh", "op", "sh", "bash", "node", "cmd.exe", "powershell", "podman"]) {
+      assert.throws(() => runner(cli, []), /refusing to run .*: deep-scan may run only/);
+    }
+    assert.equal(seen.length, 1 + RUNTIME_CLIS.length);
+  });
+
+  for (const command of ["init", "upgrade", "doctor"]) {
+    it(`keeps ${command} to git and gh`, () => {
+      assert.deepEqual([...allowedCommands(command)], ["git", "gh"]);
+      const seen = [];
+      const runner = runnerFor(command, { spawn: recordingSpawn(seen) });
+      for (const cli of [...RUNTIME_CLIS, "op"]) {
+        assert.throws(() => runner(cli, []), new RegExp(`refusing to run ${cli}`));
+      }
+      assert.deepEqual(seen, []);
+    });
+  }
+});
+
+describe("the runtime docs", () => {
+  it("list the accepted and the refused runtimes and the pre-flight refusals", () => {
+    const page = readFileSync(join(import.meta.dirname, "..", "docs", "security-audit.md"), "utf8");
+    const at = page.indexOf("## Sandbox runtimes");
+    assert.ok(at >= 0, "docs/security-audit.md has a Sandbox runtimes section");
+    const end = page.indexOf("\n## ", at + 1);
+    const section = page.slice(at, end < 0 ? undefined : end);
+    for (const name of [
+      "Docker Sandboxes",
+      "Kata",
+      "Firecracker",
+      "gVisor",
+      "Docker Desktop on macOS",
+      "Plain Docker on Linux",
+      "WSL 2",
+      "no override",
+      "GH_TOKEN",
+      "GITHUB_TOKEN",
+      ".env",
+    ]) {
+      assert.ok(section.includes(name), `the section names ${name}`);
+    }
   });
 });
