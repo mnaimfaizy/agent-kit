@@ -527,7 +527,6 @@ def test_publish_gate() -> None:
     assert "A duplicate advisory is never published" in publish
     assert "fork PR numbers and fix SHAs are in the Record of every row under it before the publish" in publish
     assert "refuses the publish" in publish
-    assert "Nor is an advisory whose every row is `rejected` or `duplicate`" in publish
 
 
 def test_a_duplicate_advisory_is_closed_once_its_canonical_rows_advisory_is_final() -> None:
@@ -541,6 +540,19 @@ def test_a_cve_request_needs_a_confirmed_row_and_is_recorded() -> None:
     assert "only after a row under the advisory is `confirmed`" in cve
     assert "`requested <date>`" in cve and "in the advisory's CVE column" in cve
     assert "logged in `activity.md`" in cve
+
+
+def test_a_below_floor_row_keeps_its_advisory_so_the_advisory_can_close() -> None:
+    board = flat(read(RUN).split("\n## Board\n", 1)[1].split("\n## States\n", 1)[0])
+    assert "A `below-floor` row keeps the advisory it came from" in board
+    assert "`n/a` for a `below-floor` row with no draft" in board
+    assert "the findings ledger still writes `n/a` for a `below-floor` row" in board
+    actions = flat(advisory_actions())
+    assert "An advisory whose every row is `rejected`, `duplicate` or `below-floor` has nothing to publish" in actions
+    publish = flat(subsection(advisory_actions(), "Publish"))
+    assert "Nor is an advisory whose every row is `rejected`, `duplicate` or `below-floor`" in publish
+    found = flat(subsection(landing(), "Found in triage"))
+    assert "A found-in-triage row triaged `below-floor` needs no draft: its Advisory becomes `n/a`" in found
 
 
 if __name__ == "__main__":
@@ -586,4 +598,5 @@ if __name__ == "__main__":
     test_publish_gate()
     test_a_duplicate_advisory_is_closed_once_its_canonical_rows_advisory_is_final()
     test_a_cve_request_needs_a_confirmed_row_and_is_recorded()
+    test_a_below_floor_row_keeps_its_advisory_so_the_advisory_can_close()
     print("security-response contract: ok")
