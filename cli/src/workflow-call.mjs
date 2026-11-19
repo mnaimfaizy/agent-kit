@@ -1,7 +1,7 @@
 // Reads a reusable workflow's `on.workflow_call.secrets` block: which secrets
 // it declares and which of them are required.
 
-import { parseYamlSubset } from "./yaml-subset.mjs";
+import { isMapping, parseYamlSubset } from "./yaml-subset.mjs";
 
 /** @returns {Map<string, { required: boolean }> | null} null when the file is not a reusable workflow. */
 export function parseWorkflowCallSecrets(text) {
@@ -9,8 +9,7 @@ export function parseWorkflowCallSecrets(text) {
   const on = doc.on ?? doc["'on'"] ?? doc['"on"'];
   if (!on || typeof on !== "object" || !("workflow_call" in on)) return null;
   const call = on.workflow_call && typeof on.workflow_call === "object" ? on.workflow_call : {};
-  const secrets =
-    call.secrets && typeof call.secrets === "object" && !call.secrets.$seq ? call.secrets : {};
+  const secrets = isMapping(call.secrets) ? call.secrets : {};
   const out = new Map();
   for (const [name, spec] of Object.entries(secrets)) {
     const required =
@@ -30,8 +29,7 @@ export function parseWorkflowCallInputs(text) {
   const on = doc.on ?? doc["'on'"] ?? doc['"on"'];
   if (!on || typeof on !== "object" || !("workflow_call" in on)) return null;
   const call = on.workflow_call && typeof on.workflow_call === "object" ? on.workflow_call : {};
-  const inputs =
-    call.inputs && typeof call.inputs === "object" && !call.inputs.$seq ? call.inputs : {};
+  const inputs = isMapping(call.inputs) ? call.inputs : {};
   const out = new Map();
   for (const [name, spec] of Object.entries(inputs)) {
     const obj = spec && typeof spec === "object" ? spec : {};
