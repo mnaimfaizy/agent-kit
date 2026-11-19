@@ -6,6 +6,10 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
+### Added
+
+- `security-audit` gains a third mode, `deep`, as skill text ([#366](https://github.com/mnaimfaizy/agent-kit/issues/366), part of [#362](https://github.com/mnaimfaizy/agent-kit/issues/362); [ADR 0016](docs/adr/0016-security-pocs-are-never-delivered-rather-than-never-produced.md), [ADR 0017](docs/adr/0017-deep-scan-is-a-security-audit-mode-not-its-own-skill.md)). Its sandbox procedure is the new `DEEP.md`, read only in `deep` mode: it refuses to scan from the host and points to the `agent-kit deep-scan` launcher, runs the `full` walk, attempts a Reproduction of each candidate, probes further only against the Scan recipe's entry points, writes the report early, and never uses web tools. Every mode gains the "never deliver" contract rule: nothing runnable goes into the report or the draft advisory, not even privately. `report-format.md` gains, for `deep` only, `Reproduced: yes | no | not attempted`, a prose Observation, the ledger reopen and regression marks, `### Open questions`, the launcher-written `Stopped:` header line and the Verification-run variant; severity and the Medium floor are unchanged. `security-finding-triage` reads `Reproduced` and the Observation as evidence and stays static. [docs/security-audit.md](docs/security-audit.md#deep-mode) describes the mode and what a deep report never contains. `full` and `pr` are unchanged. **Consumer action:** none.
+
 ### Fixed
 
 - `prepare-release.sh` no longer rewrites the `release:` field of [Deprecation register](docs/deprecations.yml) entries when it bumps the previous tag's pins ([#361](https://github.com/mnaimfaizy/agent-kit/issues/361)). That field is the release each rename shipped in, so the bump left the register claiming the previous release's renames shipped in the new one, and a re-run of `prepare` could list them in the new release's notes. The register is now history, like the CHANGELOG and the ADRs. **Consumer action:** none.

@@ -16,6 +16,10 @@ AUDIT_SKILL = AUDIT_DIR / "SKILL.md"
 DEEP = AUDIT_DIR / "DEEP.md"
 REPORT_FORMAT = AUDIT_DIR / "report-format.md"
 CI_PROMPT = ROOT / ".github" / "security-audit" / "prompt.md"
+TRIAGE_DIR = ROOT / ".claude" / "skills" / "security-finding-triage"
+TRIAGE_SKILL = TRIAGE_DIR / "SKILL.md"
+TRIAGE_OUTCOME = TRIAGE_DIR / "OUTCOME-FORMAT.md"
+DOC = ROOT / "docs" / "security-audit.md"
 
 
 def read(path: Path) -> str:
@@ -167,6 +171,31 @@ def test_report_format_defines_the_verification_run_variant() -> None:
     assert "no new findings" in variant.lower()
 
 
+
+def test_triage_reads_reproduction_as_evidence_and_stays_static() -> None:
+    evidence = markdown_section(read(TRIAGE_OUTCOME), "Evidence", "###")
+    for needed in ("`Reproduced`", "Observation", "`yes`", "`no`", "`not attempted`"):
+        assert needed in evidence, f"triage's Evidence section must read {needed!r}: {evidence}"
+    skill = read(TRIAGE_SKILL)
+    # Triage keeps its own "never produce" rule; ADR 0016 changes only security-audit's.
+    assert "1. Never produce weaponized exploit instructions or PoCs.\n" in markdown_section(skill, "Hard rules")
+    process = markdown_section(skill, "Process")
+    assert "`Reproduced`" in process and "Observation" in process, "triage's process must read the Reproduction"
+    assert "never build, run or probe" in process, "triage stays static (ADR 0017)"
+    assert "Verification run" in process, "a re-check of a Reproduction is a Verification run, not triage"
+
+
+def test_docs_describe_the_deep_mode_and_what_its_report_never_contains() -> None:
+    deep = markdown_section(read(DOC), "Deep mode")
+    for needed in ("DEEP.md", "agent-kit deep-scan", "sandbox", "`Reproduced`", "Observation", "Verification run"):
+        assert needed in deep, f"the docs' Deep mode section must say {needed!r}"
+    never = deep.split("A deep report never contains", 1)
+    assert len(never) == 2, "the docs must say what a deep report never contains"
+    for needed in OBSERVATION_NEVER + ("script",):
+        assert needed in never[1], f"say a deep report never contains {needed!r}"
+    assert "WebFetch" in deep and "WebSearch" in deep
+
+
 if __name__ == "__main__":
     test_skill_lists_deep_and_links_its_procedure()
     test_full_and_pr_never_reference_the_deep_procedure()
@@ -179,3 +208,5 @@ if __name__ == "__main__":
     test_report_format_keeps_severity_and_adds_the_deep_mode()
     test_report_format_defines_the_deep_additions()
     test_report_format_defines_the_verification_run_variant()
+    test_triage_reads_reproduction_as_evidence_and_stays_static()
+    test_docs_describe_the_deep_mode_and_what_its_report_never_contains()
