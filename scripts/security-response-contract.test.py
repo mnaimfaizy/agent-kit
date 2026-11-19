@@ -2,7 +2,9 @@
 
 The skill is prose, so this pins the sentences a run relies on (where the run
 folder lives, the ignore gate, the layout, the board, the state lists and what
-is final, the modes), not what they mean. What a sentence means is for review.
+is final, the modes, reconcile: its sources, who wins, and the rules that it
+never deletes a row, keeps a contradicted final row final and moves nothing on
+an unavailable source), not what they mean. What a sentence means is for review.
 It also keeps the retired status-format file gone, with nothing linking to it.
 """
 
@@ -194,6 +196,99 @@ def test_status_format_is_retired() -> None:
     assert not linking, f"still naming {RETIRED}: {linking}"
 
 
+def reconcile_doc() -> str:
+    return section(read(RUN), "Reconcile")
+
+
+def test_reconcile_is_step_one_of_every_mode() -> None:
+    skill = flat(read(SKILL))
+    assert "Reconcile is step one of every mode" in skill
+    mode = next(line for line in read(SKILL).splitlines() if line.startswith("- `reconcile`"))
+    assert "reconcile only" in mode and "RUN.md#reconcile" in mode, f"reconcile must run reconcile alone: {mode!r}"
+    when = flat(reconcile_doc())
+    assert "Reconcile is step one of every mode" in when
+    assert "The `reconcile` mode runs it alone" in when
+    assert "the header's `checked <time>` updates" in when
+
+
+SOURCES = {
+    "Advisory list, state, CVE id": ("advisory API", ["security-advisories?state=draft"]),
+    "`fix PR open`": ("private fork", ["gh pr list", "gh pr view", "until publish deletes it"]),
+    "`merged`": ("`origin/main`", ["git fetch", "git merge-base --is-ancestor <fix SHA> origin/main"]),
+    "`released`": ("tags", ["git tag --contains <fix SHA>"]),
+    "`fixed` (no code)": ("the API, where it can", ["otherwise the human's report stands"]),
+    "Concept ids already recorded": ("the findings ledger", ["read only"]),
+}
+
+
+def test_source_table() -> None:
+    sources = table_rows(subsection(reconcile_doc(), "Sources"))
+    assert "| Board fact | Source | Check |" in sources
+    rows = {
+        cells[1]: cells[2:4]
+        for line in sources.splitlines()
+        if line.lstrip().startswith("|") and len(cells := line.split(" | ")) >= 4
+    }
+    for fact, (source, checks) in SOURCES.items():
+        assert fact in rows, f"the source table must have a row for {fact}"
+        assert rows[fact][0] == source, f"{fact} is checked against {source}, got {rows[fact][0]!r}"
+        for check in checks:
+            assert check in rows[fact][1], f"{fact}'s check must say {check!r}: {rows[fact][1]!r}"
+    assert "`findings_ledger_path`" in sources and "`.security/findings-ledger.md`" in sources
+
+
+def test_who_wins() -> None:
+    wins = flat(subsection(reconcile_doc(), "Who wins"))
+    source = item(wins, "**The source wins**")
+    for fact in ("advisory state", "fork PR state", "the fix SHA on `main`", "the tag"):
+        assert fact in source, f"the source owns {fact}: {source!r}"
+    board = item(wins, "**The board wins**")
+    for fact in ("Evidence", "fork PR numbers and fix SHAs after the fork is gone", "a CVE request", "accepted-risk"):
+        assert fact in board, f"the board owns {fact}: {board!r}"
+
+
+def test_verified_moves_happen_on_their_own_and_judgements_never() -> None:
+    moves = flat(subsection(reconcile_doc(), "Moves"))
+    assert "Verified moves happen on their own" in moves
+    assert "`fix PR open` → `merged`" in moves and "`merged` → `released`" in moves
+    assert "Judgements never happen on their own" in moves
+
+
+def test_an_unavailable_source_moves_no_row() -> None:
+    unavailable = flat(subsection(reconcile_doc(), "An unavailable source"))
+    assert "`not checked: <source> unavailable`" in unavailable
+    assert "moves no row on that source" in unavailable
+    assert "the board is still shown" in unavailable
+
+
+def test_a_contradicted_final_row_stays_final() -> None:
+    final = flat(subsection(reconcile_doc(), "Final rows and advisories"))
+    assert "Final rows and advisories are not checked again" in final
+    assert "A contradicted final row stays final" in final
+    assert "goes to the top of Waiting on you" in final
+    assert "is logged in `activity.md`" in final
+
+
+def test_reconcile_never_deletes_rows() -> None:
+    rows = flat(subsection(reconcile_doc(), "Rows are never deleted"))
+    assert "Reconcile never deletes a row." in rows
+    assert "A new draft advisory joins the open run" in rows and "`untriaged`" in rows
+    assert "compared with `originals/<GHSA-id>.json`" in rows
+    assert "A missing `F<n>` keeps its row" in rows and "raised in Waiting on you" in rows
+
+
+def test_a_concept_id_in_the_ledger_enters_untriaged() -> None:
+    rows = flat(subsection(reconcile_doc(), "Rows are never deleted"))
+    assert "enters `untriaged`, with Record `in ledger: <status>`" in rows
+    ids = flat(section(read(RUN), "Concept ids"))
+    assert "`untriaged`, with Record `in ledger: <status>`" in ids
+
+
+def test_each_correction_is_logged() -> None:
+    log = flat(subsection(reconcile_doc(), "The log"))
+    assert "`reconciled: <old> → <new>, checked <how>`" in log
+
+
 if __name__ == "__main__":
     test_argument_hint_and_mode_list()
     test_every_mode_opens_or_resumes_the_run()
@@ -207,4 +302,13 @@ if __name__ == "__main__":
     test_state_lists()
     test_final_states()
     test_status_format_is_retired()
+    test_reconcile_is_step_one_of_every_mode()
+    test_source_table()
+    test_who_wins()
+    test_verified_moves_happen_on_their_own_and_judgements_never()
+    test_an_unavailable_source_moves_no_row()
+    test_a_contradicted_final_row_stays_final()
+    test_reconcile_never_deletes_rows()
+    test_a_concept_id_in_the_ledger_enters_untriaged()
+    test_each_correction_is_logged()
     print("security-response contract: ok")

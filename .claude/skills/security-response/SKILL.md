@@ -26,13 +26,15 @@ A `<target>` is a concept id or a `GHSA:F<n>`; `fix` also takes `next`.
 - `next`: recommend one prioritized next action
 - `triage <target>`: run evidence-first triage for one finding with the `security-finding-triage` skill
 - `fix <target>`: only with explicit authorization; implement and validate fix
-- `reconcile`: refresh stale evidence and state after merges and releases
+- `reconcile`: reconcile only ([RUN.md](RUN.md#reconcile)): check the run against GitHub and git, and do nothing else
 - `record <what>`: land a human step on the board (not available yet: say so, and record nothing)
 - `close`: write the findings ledger and close the run (not available yet: say so, and close nothing)
 
 ## The run
 
 Every mode starts by opening or resuming the Security Response Run, as [RUN.md](RUN.md#open-resume-or-nothing-to-respond-to) says: an open run is resumed; with none open and draft advisories present, a run is opened; with no drafts and no open run, the skill reports "nothing to respond to" and writes nothing. There are no `open` or `resume` modes.
+
+Reconcile is step one of every mode: once the run is opened or resumed, check it against GitHub and git, as [RUN.md](RUN.md#reconcile) says, before the mode does its own work. Verified moves (`merged`, `released`) happen on their own; judgements never do. A source that cannot be reached is shown as `not checked: <source> unavailable`, and moves no row. Reconcile never deletes a row.
 
 Before the first write of a run, pass the ignore gate in [RUN.md](RUN.md#where-the-run-folder-lives): if `tmp/security-response/` is not ignored, offer the `.gitignore` line and write nothing without a yes.
 
@@ -49,7 +51,7 @@ This skill is the only writer of the run folder. Each change to the board is log
 ## Flow
 
 1. Open or resume the run ([The run](#the-run)), and check the default branch's tip for the board header.
-2. Reconcile finding evidence against the current code state.
+2. Reconcile the run against GitHub and git ([RUN.md](RUN.md#reconcile)).
 3. Prioritize based on evidence, impact, exposure, and blast radius.
 4. Triage to confirm or reject before fixing.
 5. If authorized and reproducible, implement a minimal root-cause fix and validate it.

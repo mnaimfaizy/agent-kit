@@ -28,6 +28,62 @@ When the advisory list cannot be read (no access, no network), say so and write 
 
 A closed run is read-only, and stays on disk until the human deletes it. The next invocation after a close opens a new run.
 
+## Reconcile
+
+Reconcile is step one of every mode: after the run is opened or resumed, and before the mode does its own work, the run is checked against GitHub and git, so the board the human reads shows the sources as they are now, and a session days later picks up exactly where the last one stopped. The `reconcile` mode runs it alone. On every reconcile the header's `checked <time>` updates, and the board is rewritten whole with what changed.
+
+### Sources
+
+Each fact on the board is checked against the source that owns it:
+
+| Board fact                   | Source                | Check                                                                                                                                                                       |
+| ---------------------------- | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Advisory list, state, CVE id | advisory API          | `gh api --paginate "repos/<owner>/<repo>/security-advisories?state=draft"`, plus `gh api repos/<owner>/<repo>/security-advisories/<GHSA-id>` for each advisory on the board |
+| `fix PR open`                | private fork          | `gh pr list` and `gh pr view` on the advisory's private fork, until publish deletes it                                                                                      |
+| `merged`                     | `origin/main`         | `git fetch`, then `git merge-base --is-ancestor <fix SHA> origin/main`                                                                                                      |
+| `released`                   | tags                  | `git tag --contains <fix SHA>` lists the recorded tag                                                                                                                       |
+| `fixed` (no code)            | the API, where it can | the setting through `gh api` where there is an endpoint for it (a ruleset, say); otherwise the human's report stands                                                        |
+| Concept ids already recorded | the findings ledger   | read only, to flag a concept id already there; the Caller's `findings_ledger_path`, otherwise `.security/findings-ledger.md`                                                |
+
+### Who wins
+
+When the board and a source disagree:
+
+- **The source wins** for the facts it owns: advisory state, CVE id, fork PR state, the fix SHA on `main`, and the tag.
+- **The board wins** for the facts only it holds: Evidence, fork PR numbers and fix SHAs after the fork is gone, a CVE request, and accepted-risk. A source that no longer shows them (publish deletes the fork, `cve_id` stays empty until a CVE is assigned) changes nothing.
+
+### Moves
+
+Verified moves happen on their own, with no human report:
+
+- `fix PR open` → `merged`, once the fork PR is merged and its fix SHA is an ancestor of `origin/main`. The fix SHA goes into the row's Record.
+- `merged` → `released`, once a release tag contains the fix SHA. The tag goes into the row's Record.
+
+A source may also take a row that is not final backward: a fork PR closed without merging takes its row back to `open`, and a `merged` row whose fix SHA is no longer on `origin/main` goes back to `open`, its Record keeping the SHA. An advisory's state and CVE id follow the advisory API.
+
+Judgements never happen on their own: Evidence, Severity, accepted-risk, `fixed` with no check behind it, and approving a publish, a close or a CVE request come only from triage or the human. A human's report of a merge or a release only prompts the check above.
+
+### An unavailable source
+
+When a source cannot be reached (no advisory access, the fork gone or unreachable, no network for `git fetch`), the board is still shown. Its header carries `not checked: <source> unavailable` for that source in place of its `checked <time>`, and reconcile moves no row on that source. A row is never moved, and an advisory never dropped, on a source the run could not read.
+
+### Final rows and advisories
+
+Final rows and advisories are not checked again. A source the run reads for something else can still contradict one: a `published` advisory back in the draft list, or a `released` fix SHA no longer on `origin/main`. A contradicted final row stays final, and so does a contradicted final advisory: it goes to the top of Waiting on you, naming what the source now shows, and is logged in `activity.md`. Final values stay final for the run; `record ack` clears the entry.
+
+### Rows are never deleted
+
+Reconcile never deletes a row. It only adds rows, and moves them as above:
+
+- A new draft advisory joins the open run, and each of its findings gets a provisional concept id and an `untriaged` row, as on open ([Concept ids](#concept-ids)). Its original is saved to `originals/<GHSA-id>.json`.
+- A draft the human made for a row with advisory `none yet` is matched to that row by the concept id in its title or body.
+- An advisory's findings are compared with `originals/<GHSA-id>.json`: a new `F<n>` with no row gets an `untriaged` row. A missing `F<n>` keeps its row, and is raised in Waiting on you.
+- A finding whose concept id is already in the findings ledger enters `untriaged`, with Record `in ledger: <status>`.
+
+### The log
+
+Each correction is logged in `activity.md` as `reconciled: <old> → <new>, checked <how>`, with the row or advisory it is about: `reconciled: fix PR open → merged, checked git merge-base --is-ancestor c2d0bd5 origin/main`. A new row, a contradicted final row and an unavailable source are logged too. A reconcile that changes nothing but the header's `checked <time>` logs nothing.
+
 ## Layout
 
 ```text
@@ -113,7 +169,7 @@ The advisories table has one line per draft advisory in the run:
 | Fork clone | The local path of the private fork's clone, or `—`.                                                                               |
 | Next       | Why it is not yet publishable (`wait: 3 rows not final`), `close once <canonical advisory> is final` for a duplicate, or `final`. |
 
-`status` prints the board as it is after the run is opened or resumed, in the local terminal only.
+`status` prints the board as it is after the run is opened or resumed and then reconciled, in the local terminal only.
 
 ## States
 
