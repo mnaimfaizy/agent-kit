@@ -158,7 +158,7 @@ Skip if you only use plan → implement → review.
 
 ## 8. Turn the flows on (Kill switch variables)
 
-Callers read every Stage setting from repository variables named `CLAUDE_<STAGE>_<SETTING>`, with the Stage tokens `PLAN`, `IMPLEMENT`, `REVIEW`, `REVIEW_RESPONSE` and `SECURITY_AUDIT` ([ADR 0009](adr/0009-stage-settings-resolve-in-the-caller.md)). Each Stage's **Kill switch** variables keep it off until every condition in its row holds:
+Callers read every Stage setting from repository variables named `CLAUDE_<STAGE>_<SETTING>`, with the Stage tokens `PLAN`, `IMPLEMENT`, `REVIEW`, `REVIEW_RESPONSE`, `SECURITY_AUDIT` and `DEEP_SCAN` ([ADR 0009](adr/0009-stage-settings-resolve-in-the-caller.md)). Each Stage's **Kill switch** variables keep it off until every condition in its row holds:
 
 <!-- generated:stage-kill-switches -->
 
