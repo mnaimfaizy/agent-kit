@@ -49,7 +49,7 @@ import {
 } from "../cli/src/checks/secrets-and-variables.mjs";
 import { main } from "../cli/src/cli.mjs";
 import { formatReport, guarded, LOCAL_ONLY_CHECKS, runDoctor } from "../cli/src/doctor.mjs";
-import { firstLine, systemRunner } from "../cli/src/exec.mjs";
+import { firstLine, RUNTIME_CLIS, runnerFor, systemRunner } from "../cli/src/exec.mjs";
 import { parseKitOwnedPaths } from "../cli/src/kit-owned-paths.mjs";
 import { openKitRepo, openKitTag, PreManifestTagError } from "../cli/src/kit-tag.mjs";
 import { filterDrivers, localTreeHashes } from "../cli/src/local-tree.mjs";
@@ -2397,5 +2397,33 @@ notes: Workflows stay static-only.
     const check = recipeCheck(runDoctor({ cwd: dir, runner: systemRunner, ci: true, openTag }));
     assert.equal(check.status, "warn", JSON.stringify(check));
     assert.match(check.summary, /not a regular file/);
+  });
+});
+
+describe("the process allowlist (ADR 0019)", () => {
+  it("runs doctor through git and gh only, never a sandbox runtime CLI", async () => {
+    const seen = [];
+    const spawn = (cmd) => {
+      seen.push(cmd);
+      return { status: 1, stdout: Buffer.alloc(0), stderr: Buffer.from("fatal: not a repository") };
+    };
+    const dir = mkdtempSync(join(tmpdir(), "agent-kit-allowlist-"));
+    try {
+      await main(["doctor"], { cwd: dir, stdout: () => {}, stderr: () => {}, spawn });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+    assert.ok(seen.length > 0, "doctor ran a command through the spawn");
+    assert.deepEqual(
+      seen.filter((c) => c !== "git" && c !== "gh"),
+      [],
+    );
+    const runner = runnerFor("doctor", { spawn });
+    for (const cli of [...RUNTIME_CLIS, "op"]) {
+      assert.throws(
+        () => runner(cli, []),
+        new RegExp(`refusing to run ${cli}: doctor may run only git and gh`),
+      );
+    }
   });
 });

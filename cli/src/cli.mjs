@@ -7,7 +7,7 @@ import { parseArgs } from "node:util";
 import { runDeepScan } from "./deep-scan.mjs";
 import { formatReport, runDoctor } from "./doctor.mjs";
 import { REPO_PATTERN, sanitizeLine } from "./checks/result.mjs";
-import { systemRunner } from "./exec.mjs";
+import { runnerFor } from "./exec.mjs";
 import { askYesNo } from "./prompt.mjs";
 import { CLI_VERSION, isReleaseTag } from "./tags.mjs";
 import { runInit } from "./init.mjs";
@@ -29,8 +29,10 @@ Commands:
              diff, then run doctor's file and pin checks. Local files only.
   deep-scan  Run a Deep scan of this repository's own code in a sandbox.
              Today it reads the Scan recipe as committed on the default
-             branch and validates it, or refuses; the later stages are not
-             built yet.
+             branch and validates it, refuses a GitHub token in its
+             environment or a committed .env, and chooses a sandbox runtime
+             from the host or refuses (no override); the later stages are
+             not built yet.
 
 Options for doctor:
   --ci            Check only Kit-owned paths and uses: pins (no gh needed).
@@ -98,14 +100,20 @@ const COMMAND_OPTIONS = {
  *   stdout: (s: string) => void,
  *   stderr: (s: string) => void,
  *   runner?: import("./exec.mjs").Runner,
+ *   spawn?: Function,
+ *   platform?: string,
+ *   env?: Record<string, string | undefined>,
  *   openTag?: Function,
  *   openRepo?: Function,
  *   prompt?: ((question: string) => Promise<string>) | null,
  * }} io  `prompt` is null (or absent) when there is no terminal to ask on.
+ *   Without `runner`, each command runs through its own allowlist
+ *   (`runnerFor`); `spawn` replaces only the process boundary behind it.
+ *   `platform` and `env` (default the host's) are for tests, never flags.
  * @returns {Promise<number>} exit code
  */
 export async function main(argv, io) {
-  const { cwd, runner = systemRunner, openTag, openRepo, prompt = null } = io;
+  const { cwd, openTag, openRepo, prompt = null } = io;
   // Anything printed can echo arguments or file contents: sanitize every line.
   const clean = (text) => String(text).split("\n").map(sanitizeLine).join("\n");
   const stdout = (text) => io.stdout(clean(text));
@@ -164,6 +172,7 @@ export async function main(argv, io) {
     stderr(`${command} does not take ${foreign.map((k) => `--${k}`).join(", ")}\n\n${USAGE}`);
     return 2;
   }
+  const runner = io.runner ?? runnerFor(command, io.spawn ? { spawn: io.spawn } : {});
 
   if (command === "init") {
     stdout(`agent-kit init ${VERSION}`);
@@ -195,6 +204,8 @@ export async function main(argv, io) {
       runner,
       recipePath: values.recipe,
       defaultBranch: values["default-branch"],
+      ...(io.platform !== undefined ? { platform: io.platform } : {}),
+      ...(io.env !== undefined ? { env: io.env } : {}),
       out: stdout,
       err: stderr,
     });

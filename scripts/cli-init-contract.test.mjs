@@ -22,7 +22,7 @@ import { after, before, describe, it } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { findKitPins, parseCaller } from "../cli/src/callers.mjs";
 import { main } from "../cli/src/cli.mjs";
-import { systemRunner } from "../cli/src/exec.mjs";
+import { RUNTIME_CLIS, runnerFor, systemRunner } from "../cli/src/exec.mjs";
 import { DEPENDABOT_BLOCK, manualSteps, parseAnswer } from "../cli/src/init.mjs";
 import { openKitTag } from "../cli/src/kit-tag.mjs";
 
@@ -763,5 +763,38 @@ describe("init: answers and flags", () => {
     });
     assert.ok(lines.some((l) => l.includes("--description 'Agent-kit: review this PR'")));
     assert.ok(!lines.some((l) => /AGENT_KIT_ADVISORIES_TOKEN|SECURITY_AUDIT/.test(l)));
+  });
+});
+
+describe("the process allowlist (ADR 0019)", () => {
+  it("runs init through git and gh only, never a sandbox runtime CLI", async () => {
+    const seen = [];
+    const spawn = (cmd) => {
+      seen.push(cmd);
+      return { status: 1, stdout: Buffer.alloc(0), stderr: Buffer.from("fatal: not a repository") };
+    };
+    const dir = mkdtempSync(join(tmpdir(), "agent-kit-allowlist-"));
+    try {
+      await main(["init", "--tag", "v1.0.0", "--flows", "audit", "--actors", "someone", "--yes"], {
+        cwd: dir,
+        stdout: () => {},
+        stderr: () => {},
+        spawn,
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+    assert.ok(seen.length > 0, "init ran a command through the spawn");
+    assert.deepEqual(
+      seen.filter((c) => c !== "git" && c !== "gh"),
+      [],
+    );
+    const runner = runnerFor("init", { spawn });
+    for (const cli of [...RUNTIME_CLIS, "op"]) {
+      assert.throws(
+        () => runner(cli, []),
+        new RegExp(`refusing to run ${cli}: init may run only git and gh`),
+      );
+    }
   });
 });
