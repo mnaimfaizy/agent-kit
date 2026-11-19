@@ -523,7 +523,12 @@ def test_row_to_line_mapping() -> None:
 
 def test_notes_carry_only_the_public_parts_of_the_record() -> None:
     notes = flat(subsection(close_doc(), "Notes"))
-    for convention in ("`fixed in <sha>`", "duplicate of `<id>`", "`below the Medium floor`", "`found in triage of <GHSA>`"):
+    for convention in (
+        "`fixed in <sha>`",
+        "duplicate of `<id>`",
+        "`below the Medium floor`",
+        "`found in triage of <GHSA>`",
+    ):
         assert convention in notes, f"Notes must use {convention}"
     assert "`found in triage of <concept-id>, <date>`" in notes, "the found-in-triage Record maps to its public form"
     assert "never copied" in notes
@@ -540,6 +545,7 @@ def test_the_ledger_is_appended_only_and_its_format_is_unchanged() -> None:
     assert "ordered by first seen, then by advisory" in rules
     assert "never edits, reorders or removes an existing line" in rules
     assert "The ledger format is unchanged: the same header text and the same five columns" in rules
+
 
 def test_a_run_with_no_ledger_lines_closes_with_no_pr() -> None:
     closed = flat(subsection(close_doc(), "No ledger lines"))
