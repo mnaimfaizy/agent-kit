@@ -19,7 +19,7 @@ Then load [TRACKERS.md](TRACKERS.md), which names the operations a Team Run read
 
 The tracker file gives its **Support Level**, in the words harness files use ([HARNESSES.md](HARNESSES.md#support-level)). Below `verified`, the Dispatch Plan says so with what it means for this run, and waits for the human's "go" even when the invocation carried `go`, as for a harness.
 
-Read this teammate's login with the `viewer` operation. Record on the board, under the spec's line, `Team Run: <tracker>, as <login>`, with the tracker file's Support Level, and log both in the Activity Log.
+Read this teammate's login with the `viewer` operation. Record on the board, under the spec's line, `Team Run: <tracker>, as <login>, on <remote>`, with the tracker file's Support Level, and log them in the Activity Log. The line is where a resumed run reads `<remote>` from, so a remote the human named is not lost ([RUN.md](RUN.md#resuming-a-team-run)).
 
 **Done when:** the tracker is named, its file is loaded, and the board says this is a Team Run, for whom.
 

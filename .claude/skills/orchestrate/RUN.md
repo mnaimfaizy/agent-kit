@@ -46,7 +46,7 @@ Default branch: <name> at <SHA>, checked <time>; passed: <Delegation>@<head>, â€
 
 Spec #<n>, <shape>. Landing: <landing>. Integration branch: <name> at <SHA>, pushed: <no, or why>.
 
-Team Run: <tracker>, as <login>. Support Level: <level>.
+Team Run: <tracker>, as <login>, on <remote>. Support Level: <level>.
 
 Shared Board labels: not held, <why>.
 
@@ -68,7 +68,7 @@ The `Default branch` line is the default branch's tip at the last check of it: w
 
 The `Spec` line is there only in a spec run, and its integration branch only with that landing. In that landing, a ticket's **Branch** cell also gives the commit it was cut at, and once it has landed, its landed commit, and its **Pull request** cell is `none`: its work lands through the integration branch, which has a row of its own once its pull request is open ([SPEC.md](SPEC.md#on-an-integration-branch)).
 
-The `Team Run:` line is there only in a Team Run ([TEAM.md](TEAM.md#find-the-tracker)): the tracker the run reads and writes through, this teammate's login, and the tracker file's Support Level. `--resume` and `--status` load TEAM.md when a board has it. The `Shared Board labels:` line under it is there only once a state label write did not hold ([TEAM.md](TEAM.md#states-and-labels)). A Team Run's board also records, under the table, the plan's three lists (Teammates' tickets, `unassigned`, needs one assignee), and, beside each of this teammate's tickets, the row comment that is its Shared Board row, once written: `Shared Board row: #<n> comment <id>` ([TEAM.md](TEAM.md#when-a-row-is-written)). A re-created row's new id replaces the old.
+The `Team Run:` line is there only in a Team Run ([TEAM.md](TEAM.md#find-the-tracker)): the tracker the run reads and writes through, this teammate's login, the remote the run fetches and pushes on (`<remote>`, the one `check` reported or the human named), and the tracker file's Support Level. `--resume` and `--status` load TEAM.md when a board has it. The `Shared Board labels:` line under it is there only once a state label write did not hold ([TEAM.md](TEAM.md#states-and-labels)). A Team Run's board also records, under the table, the plan's three lists (Teammates' tickets, `unassigned`, needs one assignee), and, beside each of this teammate's tickets, the row comment that is its Shared Board row, once written: `Shared Board row: #<n> comment <id>` ([TEAM.md](TEAM.md#when-a-row-is-written)). A re-created row's new id replaces the old.
 
 The **Decision Requests** cell lists each open question by its heading, and in an autonomous run each Ruling for the Delegation by its id and verdict (`R1 unreviewed`, `R3 needs re-review`), so the board shows what still waits on the human: a queued question, or a Ruling not yet upheld.
 
@@ -146,7 +146,7 @@ A Delegation whose Executor no longer answers, and whose work did not finish, is
 
 ### Resuming a Team Run
 
-A board with a `Team Run:` line is a Team Run ([TEAM.md](TEAM.md#find-the-tracker)): load TEAM.md, [TRACKERS.md](TRACKERS.md) and the tracker file the line names. People may have changed the tracker while the run was paused, so after step 3, and before step 4 updates the board, the run is brought back in line with the Shared Board. This part only reads the tracker: what it finds is logged in the Activity Log and acted on as below, and every write it leads to is made later, under TEAM.md's rules.
+A board with a `Team Run:` line is a Team Run ([TEAM.md](TEAM.md#find-the-tracker)): load TEAM.md, [TRACKERS.md](TRACKERS.md) and the tracker file the line names. Its `<remote>` is the one the `Team Run:` line names, taken from it at step 2, before step 3, and before any fetch or push the resumed run makes, so a remote the human named at the start holds, and a null `remote` from `check` is not asked again. When that remote is no longer among the repository's remotes (`git remote`), it is the Decision Request of [TEAM.md](TEAM.md#find-the-tracker), raised before anything is fetched or pushed, and the remote the human names replaces it on the line. People may have changed the tracker while the run was paused, so after step 3, and before step 4 updates the board, the run is brought back in line with the Shared Board. This part only reads the tracker: what it finds is logged in the Activity Log and acted on as below, and every write it leads to is made later, under TEAM.md's rules.
 
 - **Who this is.** Read the login with the `viewer` operation. When it is not the one the `Team Run:` line names, stop and say so: the tracker is signed in as someone else, and no row is read or written until it is this teammate again.
 - **Every assignee, again.** Read every ticket in the run and in the spec with `spec-tickets`, with its assignees and its state label: one read, since a ticket may have joined the spec, or been assigned, while the run was paused. Each open ticket goes in the group [TEAM.md](TEAM.md#whose-tickets) gives for its assignees, and step 4 writes the board's three lists again to match.

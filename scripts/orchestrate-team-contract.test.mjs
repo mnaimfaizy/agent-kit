@@ -889,3 +889,32 @@ describe("CONFIG.md: the `tracker` report", () => {
     assert.match(tracker, /A null `remote` is asked about too, whatever the pin/);
   });
 });
+
+// ── PR #340 review fixes (d314-fix3) ─────────────────────────────────────────
+
+describe("The remote a Team Run uses survives `--resume`", () => {
+  const LINE = "Team Run: <tracker>, as <login>, on <remote>";
+
+  it("is recorded on the board's `Team Run:` line, in TEAM.md's words and RUN.md's form", () => {
+    assert.ok(section(TEAM, "## Find the tracker").includes(`\`${LINE}\``), "TEAM.md");
+    const board = RUN.slice(RUN.indexOf("\n## Board\n"), RUN.indexOf("\n## States\n"));
+    assert.ok(
+      fenced(board, "markdown").includes(`${LINE}. Support Level: <level>.`),
+      "RUN.md form",
+    );
+    assert.match(board, /The `Team Run:` line .*the remote the run fetches and pushes on/);
+  });
+
+  it("is read back from the line before any fetch or push the resume makes, and not asked again", () => {
+    const team = section(section(RUN, "## Resume"), "### Resuming a Team Run");
+    assert.match(team, /`<remote>` is the one the `Team Run:` line names/);
+    assert.match(team, /before step 3, and before any fetch or push/);
+    assert.match(team, /a null `remote` from `check` is not asked again/);
+    assert.match(team, /no longer among the repository's remotes/);
+  });
+
+  it("is said in the guide's resume section", () => {
+    const res = section(section(DOC, "## Team Run"), "### Resuming a Team Run");
+    assert.match(res, /remote you named at the start/);
+  });
+});
