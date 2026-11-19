@@ -46,6 +46,24 @@ The Caller passes two Consumer-owned files:
 
 Both are restored from the PR base in `pr` mode, so a PR cannot edit the Threat pack that audits it. See this repository's [threat model](../security/threat-model.md) and [ledger](../security/findings-ledger.md) for a worked example.
 
+## Deep mode
+
+`security-audit` has a third mode, `deep`, for a Deep scan. It runs the `full` walk, then builds, runs and probes the repository's own code inside a closed, disposable sandbox, to reproduce each Medium+ finding and to find more along the Threat pack's attack paths. Its procedure is the skill's `DEEP.md`, which `full` and `pr` never read. The reusable job above stays static, with `full` and `pr` only.
+
+- **It runs only in the sandbox the `agent-kit deep-scan` launcher starts.** Invoked from an ordinary Claude Code session on your machine, `deep` builds, runs and probes nothing, and points you to the launcher.
+- **It scans the trusted ref**: the whole repository at the default branch, optionally narrowed by path or attack path, never a pull request head.
+- **It probes only the Scan recipe's entry points**, inside the sandbox, never a deployed, production or third-party system.
+- **Web tools are off.** The agent does not use WebFetch or WebSearch, so no search query shaped by a finding leaves the run. Its grounding is what the recipe's `setup` fetched.
+- **Only the report leaves the sandbox.** The transcript, shell history, app logs and scratch scripts are destroyed with it.
+
+Each finding gains `Reproduced: yes | no | not attempted`. With `yes`, a prose Observation names the location, the attacker's position, the kind of input in words and the effect seen. With `no` or `not attempted`, a one-line reason. Reproduction never changes severity: the Medium floor holds, a reproduced Low is still dropped, and an unreproduced Medium+ finding is still reported. A deep report also has an `Open questions` section, listing what the agent could not settle, so you can add grounding and run again, and a `Stopped:` header line, written by the launcher, when a limit ended the run. Fields and examples: the skill's `report-format.md`.
+
+A deep report never contains anything runnable: no payload values, encoded strings, exact requests, command sequences, timing tricks, script or step-by-step recipe, in the report or the draft advisory, not even privately ([ADR 0016](adr/0016-security-pocs-are-never-delivered-rather-than-never-produced.md)). You can understand a finding and check a fix from it, but you cannot paste any of it into anything.
+
+Deep findings share concept ids with static runs. An open ledger concept is skipped, with the report's notes saying whether it reproduced. A `rejected` or `accepted-risk` concept comes back only when reproduced, as reopening that decision, and a fixed concept only when reproduced, as a regression. The public findings ledger gains nothing from a deep scan. `security-finding-triage` reads `Reproduced` and the Observation as evidence and stays static.
+
+A **Verification run** re-attempts the Reproduction of known findings on your fix branch, and answers `yes` (the fix does not hold) or `no` (it holds) for each. It reports no new findings, and its report stays on your machine.
+
 ## Private delivery and public-log rule
 
 - Every successful run must create a draft GHSA with full report details.
