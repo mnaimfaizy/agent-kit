@@ -62,7 +62,7 @@ A deep report never contains anything runnable: no payload values, encoded strin
 
 Deep findings share concept ids with static runs. An open ledger concept is skipped, with the report's notes saying whether it reproduced. A `rejected` or `accepted-risk` concept comes back only when reproduced, as reopening that decision, and a fixed concept only when reproduced, as a regression. The public findings ledger gains nothing from a deep scan. `security-finding-triage` reads `Reproduced` and the Observation as evidence and stays static.
 
-A **Verification run** re-attempts the Reproduction of known findings on your fix branch, and answers `yes` (the fix does not hold) or `no` (it holds) for each. It reports no new findings, and its report stays on your machine.
+A **Verification run** re-attempts the Reproduction of known findings on your fix branch, and answers `yes` (the fix does not hold) or `no` (it holds) for each. It reports no new findings, and its report stays on your machine. How to run one: [Verification run](#verification-run).
 
 ## Private delivery and public-log rule
 
@@ -281,6 +281,22 @@ Backstops beyond these limits:
 A good run prints the recipe, the Threat pack and the key's source, the runtime, each setup step `ok`, `Network: cut`, `Model route: only the model proxy…`, the agent step, `Model proxy: forwarded N request(s) to api.anthropic.com (answers: 200 xN)`, the report's path, and `Teardown: removed …`, and exits 0. A model proxy answer of `401` means the key was refused; `refused` lists hosts or paths the agent tried that the proxy turned away, and `counted N of the …-token cap` is the run's token count. A run a [limit](#limits) stopped prints `Stopped: …` and exits 3; to let a scan run longer, raise that limit with its option, for example `--scan-minutes 120`.
 
 To choose the model the agent runs on, pass `--model <id>`, a plain model id such as `claude-opus-5-5` (letters, digits and `. _ : @ / [ ] -`; anything else is a usage error, exit 2). Without it, Claude Code runs on its own default.
+
+## Verification run
+
+A Verification run checks whether your fix holds, before you merge it or release the advisory. It re-attempts the Reproduction of findings you already have, on a ref you name, and answers each with `Reproduced: yes` (the fix does not hold) or `Reproduced: no` (it holds), with a reason. It is confirm-only: no `full` walk, no exploration and no new findings.
+
+```sh
+npx @mnaimfaizy/agent-kit deep-scan --verify ~/advisories/findings.md --ref fix/upload-traversal
+```
+
+- **`--verify <file>`** is the finding file: Markdown in a deep report's own shape, where each finding is a `###` section with `- **Concept id:**` (kebab-case), `- **Location:**` and `- **Observation:**` lines. The deep report that found them works as it is, once you drop the findings it did not reproduce; other `###` sections (Notes, Open questions) and anything inside a code fence are ignored. Keep the file outside the repository: it names a concept id that is private until release. `deep-scan` refuses, exit 1, before anything runs, a file that is missing, not a regular file, larger than 512 KiB, not UTF-8 text, or has no finding, a finding without a Concept id, Location or Observation, a concept id that is not kebab-case, or the same concept id twice.
+- **`--ref <ref>`** is needed with `--verify`, and taken only with it: the local branch, tag or commit to verify on, such as your own fix branch, or a branch from the advisory's private fork whose commits you have reviewed (fetch it into a local branch first). Never run someone else's pull request head from anywhere else, reviewed or not ([ADR 0017](adr/0017-deep-scan-is-a-security-audit-mode-not-its-own-skill.md)). The ref's committed tree is exported, as the default branch's is for a deep scan, never your working tree. A ref that does not resolve to a local commit is refused, exit 1; one that reads as an option or holds a space is a usage error, exit 2.
+- **What stays on the default branch:** the Scan recipe, the security-audit skill and the Threat pack are still read there, so a fix branch cannot change how its own fix is checked. The `.env` pre-flight runs on the ref, since that tree is what goes in.
+- **What the agent gets:** the Verification-run procedure only (`DEEP.md`'s hard rules, its procedure steps 1, 2 and 6, and its Verification run section), the skill's `report-format.md` for the report's Verification-run variant, the Threat pack, the recipe, and the finding file at `/agent-kit/in/findings.md`. The finding file goes in with the brief, after the setup phase and the network cut, so no `setup` step, which can reach your registries, can read it. A skill whose `DEEP.md` or `report-format.md` lacks those sections is refused before any runtime starts: upgrade it on the default branch.
+- **Its limits:** scan wall clock 15 min, 50 turns, and the same 5,000,000-token cap and 20 min setup wall clock as a deep scan. The [limit options](#limits) change them as for any run.
+- **Its report** uses the Verification-run variant: Mode `deep (Verification run)`, one entry per given finding, in the order given, with its Location, `Reproduced: yes | no` and a reason. `deep-scan` writes it only to a new private folder under your temporary folder (`--report` is a usage error with `--verify`), prints each finding's answer, and exits 1 when the report misses the variant's Mode line or an answer for a given finding. Nothing is filed or posted: file no advisory, pull request comment or ledger note from it, so nothing public says a fix holds before release.
+- **Local only.** `--verify` is refused, exit 1, in GitHub Actions (`GITHUB_ACTIONS=true`), before anything is read or run and without naming the file. It has no CI form, so without an accepted runtime on your machine, your nearest check is the next CI deep scan after the fix reaches the default branch ([ADR 0018](adr/0018-a-deep-scan-runs-locally-by-default.md)).
 
 ## Deep scan in CI
 
