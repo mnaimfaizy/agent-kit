@@ -878,3 +878,14 @@ describe("SKILL.md: a Ruling's id after a lost machine", () => {
     assert.match(step, /past the highest `R<n>`/);
   });
 });
+
+describe("CONFIG.md: the `tracker` report", () => {
+  const tracker = section(read(`${SKILL_DIR}/CONFIG.md`), "### `tracker`");
+  it("lists all four fields, `remote` among them", () => {
+    assert.match(tracker, /`pinned` \(null for `detect`\), `remote`, `remote_host` and `detected`/);
+  });
+  it("says a null `remote` is asked about, and when it is null", () => {
+    assert.match(tracker, /several and none named `origin`/);
+    assert.match(tracker, /A null `remote` is asked about too, whatever the pin/);
+  });
+});

@@ -167,13 +167,13 @@ Read only by a spec run ([SPEC.md](SPEC.md#the-landing)).
 
 Read only by a Team Run ([TEAM.md](TEAM.md#find-the-tracker)).
 
-| Value    | Meaning                                                                                                                                                                                          |
-| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `detect` | The default. The tracker is read from the host of the repository's git remote (`origin`, or its only remote): `github.com` is `github`, `gitlab.com` is `gitlab`. Any other host is asked about. |
-| `github` | GitHub, pinned. Needed for GitHub on any host but `github.com`.                                                                                                                                  |
-| `gitlab` | GitLab, pinned. Needed for a self-hosted GitLab on its own domain.                                                                                                                               |
+| Value    | Meaning                                                                                                                                                                                                                                                    |
+| -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `detect` | The default. The tracker is read from the host of the repository's git remote (`origin`, or its only remote; with several and none named `origin`, the run asks which): `github.com` is `github`, `gitlab.com` is `gitlab`. Any other host is asked about. |
+| `github` | GitHub, pinned. Needed for GitHub on any host but `github.com`.                                                                                                                                                                                            |
+| `gitlab` | GitLab, pinned. Needed for a self-hosted GitLab on its own domain.                                                                                                                                                                                         |
 
-A pinned value that disagrees with what the remote's host points to is a question to the human, never a silent choice. `check` prints a `tracker` report: `pinned` (null for `detect`), `remote_host` and `detected`. Any other value is a problem. A run without `--team` reads neither.
+A pinned value that disagrees with what the remote's host points to is a question to the human, never a silent choice. `check` prints a `tracker` report: `pinned` (null for `detect`), `remote`, `remote_host` and `detected`. A null `remote` is asked about too, whatever the pin, since a Team Run fetches and pushes on that remote ([TEAM.md](TEAM.md#find-the-tracker)). Any other value is a problem. A run without `--team` reads neither.
 
 ### `team`
 
