@@ -133,7 +133,7 @@ Confirming a security finding by triggering it in a running copy of the code ins
 _Avoid_: PoC, exploit
 
 **Concept id**:
-The stable kebab-case name of one security finding, used across advisories, the Security Response Run, and the findings ledger.
+The kebab-case name of one security finding, used across advisories, the Security Response Run, and the findings ledger. It is provisional until triage, and stable from then on.
 _Avoid_: F-number, finding id
 
 **Medium floor**:
