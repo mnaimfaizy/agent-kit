@@ -18,6 +18,7 @@ The proxy, the runtime check and the teardown are security-critical code. They n
 ## Consequences
 
 - **The CLI now handles a secret.** The real model credential is read from the launcher's environment or a secret manager (the 1Password CLI is a named, supported option). It lives only in the proxy process's memory and never enters the sandbox or touches disk.
-- **The CLI now starts processes and containers.** It is no longer true that it writes only local files. `init`, `upgrade` and `doctor` are unchanged, and only `deep-scan` runs anything.
+- **The CLI now starts sandboxes and a proxy.** It is no longer true that it writes only local files. `init`, `upgrade` and `doctor` are unchanged.
+- **The CLI's process allowlist widens.** Today the CLI's process runner runs only `git` and `gh`, as argument arrays with no shell, and refuses everything else. `deep-scan` also needs the accepted runtimes' CLIs (Docker Sandboxes, `docker`, `runsc`, the Kata or Firecracker tooling) and the 1Password CLI. Those commands join the allowlist for `deep-scan` alone, never through a second runner that bypasses it, and `init`, `upgrade` and `doctor` still reach only `git` and `gh`.
 - **The CLI's tests gain a launcher suite**, run against fake runtimes and a fake model API, beside the existing `init`, `upgrade` and `doctor` contract tests.
 - **Running `deep` from an ordinary Claude Code session on the host never scans from the host.** The skill points to the launcher instead.

@@ -27,5 +27,7 @@ _The target never shares a kernel with the host OS or with the maintainer's othe
 ## Consequences
 
 - **In CI the runner holds only the proxy and the delivery steps.** The agent and target run together in a gVisor container on an ephemeral GitHub-hosted runner, the same shape as local. The job's `GITHUB_TOKEN` and the advisory token never enter the container.
+- **A local run scans the trusted ref, not the working tree.** The launcher copies in a clean export of the default branch's tip, never the checkout as it stands: not the checked-out branch, not uncommitted changes, not a fetched pull request head. So a local `deep` run keeps ADR 0017's trusted-refs rule. Only a Verification run takes another ref, which the maintainer names.
 - **A local run's residue is the maintainer's to trust.** The repository goes in as a copy, never a mount, because a mounted workspace survives teardown. Only the report comes out.
+- **A maintainer with no accepted runtime cannot run a Verification run.** It has no CI form, and the local rule has no override. Their nearest check is the next CI deep scan after the fix reaches the default branch, which reports the concept again, as a regression, only if it still reproduces ([#357](https://github.com/mnaimfaizy/agent-kit/issues/357)).
 - **Consumers build habits on the local launcher.** Moving the default to CI later would change how every existing user starts a scan.
