@@ -3,6 +3,7 @@
 // error (including a missing answer when there is no terminal to ask on).
 
 import { parseArgs } from "node:util";
+import { runDeepScan } from "./deep-scan.mjs";
 import { formatReport, runDoctor } from "./doctor.mjs";
 import { REPO_PATTERN, sanitizeLine } from "./checks/result.mjs";
 import { systemRunner } from "./exec.mjs";
@@ -25,6 +26,10 @@ Commands:
   upgrade    Move this repository to another Agent-kit tag: replace the
              Kit-owned paths, rewrite the uses: pins, print the examples/
              diff, then run doctor's file and pin checks. Local files only.
+  deep-scan  Run a Deep scan of this repository's own code in a sandbox.
+             Today it reads the Scan recipe as committed on the default
+             branch and validates it, or refuses; the later stages are not
+             built yet.
 
 Options for doctor:
   --ci            Check only Kit-owned paths and uses: pins (no gh needed).
@@ -49,6 +54,10 @@ Options for init (each one is asked for when missing, on a terminal):
   --yes                   Ask nothing; every answer comes from flags.
   --force                 Overwrite existing Callers, Threat pack files and
                           Kit-owned paths (use upgrade to change tags).
+
+Options for deep-scan:
+  --recipe <path>  The Scan recipe, relative to the repository root
+                   (default .security/scan-recipe.yml).
 
 Options for upgrade:
   --tag <vY>      The Agent-kit tag to move to (asked for when missing).
@@ -76,6 +85,7 @@ const COMMAND_OPTIONS = {
     "force",
   ],
   upgrade: ["tag", "from", "yes", "force"],
+  "deep-scan": ["recipe"],
 };
 
 /**
@@ -115,6 +125,7 @@ export async function main(argv, io) {
         verify: { type: "string" },
         preset: { type: "string" },
         "threat-pack-dir": { type: "string" },
+        recipe: { type: "string" },
         yes: { type: "boolean", short: "y" },
         force: { type: "boolean" },
         help: { type: "boolean", short: "h" },
@@ -173,6 +184,10 @@ export async function main(argv, io) {
       err: stderr,
       ...(openTag ? { openTag } : {}),
     });
+  }
+  if (command === "deep-scan") {
+    stdout(`agent-kit deep-scan ${VERSION}`);
+    return runDeepScan({ cwd, runner, recipePath: values.recipe, out: stdout, err: stderr });
   }
   if (command === "upgrade") {
     return upgrade(values, { cwd, runner, openRepo, prompt, stdout, stderr });
