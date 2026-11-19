@@ -36,30 +36,30 @@ Reconcile is step one of every mode: after the run is opened or resumed, and bef
 
 Each fact on the board is checked against the source that owns it:
 
-| Board fact                   | Source                | Check                                                                                                                                                                       |
-| ---------------------------- | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Advisory list, state, CVE id | advisory API          | `gh api --paginate "repos/<owner>/<repo>/security-advisories?state=draft"`, plus `gh api repos/<owner>/<repo>/security-advisories/<GHSA-id>` for each advisory on the board |
-| `fix PR open`                | private fork          | `gh pr list` and `gh pr view` on the advisory's private fork, until publish deletes it                                                                                      |
-| `merged`                     | `origin/main`         | `git fetch`, then `git merge-base --is-ancestor <fix SHA> origin/main`                                                                                                      |
-| `released`                   | tags                  | `git tag --contains <fix SHA>` lists the recorded tag                                                                                                                       |
-| `fixed` (no code)            | the API, where it can | the setting through `gh api` where there is an endpoint for it (a ruleset, say); otherwise the human's report stands                                                        |
-| Concept ids already recorded | the findings ledger   | read only, to flag a concept id already there; the Caller's `findings_ledger_path`, otherwise `.security/findings-ledger.md`                                                |
+| Board fact                   | Source                                                  | Check                                                                                                                                                                       |
+| ---------------------------- | ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Advisory list, state, CVE id | advisory API                                            | `gh api --paginate "repos/<owner>/<repo>/security-advisories?state=draft"`, plus `gh api repos/<owner>/<repo>/security-advisories/<GHSA-id>` for each advisory on the board |
+| `fix PR open`                | private fork, or the repository for a `below-floor` row | `gh pr list` and `gh pr view` on the advisory's private fork, until publish deletes it; on the repository for a `below-floor` row's public PR                               |
+| `merged`                     | `origin/main`                                           | `git fetch`, then `git merge-base --is-ancestor <fix SHA> origin/main`                                                                                                      |
+| `released`                   | tags                                                    | `git tag --contains <fix SHA>` lists the recorded tag                                                                                                                       |
+| `fixed` (no code)            | the API, where it can                                   | the setting through `gh api` where there is an endpoint for it (a ruleset, say); otherwise the human's report stands                                                        |
+| Concept ids already recorded | the findings ledger                                     | read only, to flag a concept id already there; the Caller's `findings_ledger_path`, otherwise `.security/findings-ledger.md`                                                |
 
 ### Who wins
 
 When the board and a source disagree:
 
-- **The source wins** for the facts it owns: advisory state, CVE id, fork PR state, the fix SHA on `main`, and the tag.
+- **The source wins** for the facts it owns: advisory state, CVE id, fix PR state (on the fork, or on the repository for a `below-floor` row), the fix SHA on `main`, and the tag.
 - **The board wins** for the facts only it holds: Evidence, fork PR numbers and fix SHAs after the fork is gone, a CVE request, and accepted-risk. A source that no longer shows them (publish deletes the fork, `cve_id` stays empty until a CVE is assigned) changes nothing.
 
 ### Moves
 
 Verified moves happen on their own, with no human report:
 
-- `fix PR open` → `merged`, once the fork PR is merged and its fix SHA is an ancestor of `origin/main`. The fix SHA goes into the row's Record.
+- `fix PR open` → `merged`, once the fix PR is merged (the fork PR, or a `below-floor` row's public PR) and its fix SHA is an ancestor of `origin/main`. The fix SHA goes into the row's Record.
 - `merged` → `released`, once a release tag contains the fix SHA. The tag goes into the row's Record.
 
-A source may also take a row that is not final backward: a fork PR closed without merging takes its row back to `open`, and a `merged` row whose fix SHA is no longer on `origin/main` goes back to `open`, its Record keeping the SHA. An advisory's state and CVE id follow the advisory API.
+A source may also take a row that is not final backward: a fix PR closed without merging takes its row back to `open`, and a `merged` row whose fix SHA is no longer on `origin/main` goes back to `open`, its Record keeping the SHA. An advisory's state and CVE id follow the advisory API.
 
 Judgements never happen on their own: Evidence, Severity, accepted-risk, `fixed` with no check behind it, and approving a publish, a close or a CVE request come only from triage or the human. A human's report of a merge or a release only prompts the check above.
 
@@ -191,7 +191,7 @@ A found-in-triage row confirmed at Medium or above needs a draft advisory before
 
 `record` takes exactly these:
 
-- `merged <fork PR>`: the human merged a private-fork pull request; the run checks the fix SHA is on `main` ([Merged and released](#merged-and-released))
+- `merged <fix PR>`: the human merged a fix pull request, on a private fork or, for a `below-floor` row, on the repository; the run checks the fix SHA is on `main` ([Merged and released](#merged-and-released))
 - `released <tag>`: the human cut a release; the run checks the tag contains the fix SHA ([Merged and released](#merged-and-released))
 - `fixed <concept-id>: <how>`: the row is done with a change that needs no release ([Fixed](#fixed))
 - `accepted-risk <concept-id>: <reason>`: the human accepts the risk on the row ([Accepted risk, recorded](#accepted-risk-recorded))
@@ -203,7 +203,7 @@ Anything else is refused, with the list shown, and records nothing. A misspelt f
 
 ### Merged and released
 
-Merging a fork PR is the human's step: in the advisory's web UI, with the admin bypass where the branch rules ask for it, and the run never merges one. A fix may go through more than one fork PR, one per fix branch, and one fork PR may fix more than one row; each row's Record names its own. `record merged <fork PR>` names a pull request on an advisory's private fork by the advisory's short id and the pull request's number, as Waiting on you names it (`hg89#2`, which a row's Record writes `fork PR #2`), or by its URL. The run then runs the same checks reconcile runs ([Sources](#sources)): `gh pr view` on the fork shows the pull request merged, and after `git fetch`, `git merge-base --is-ancestor <fix SHA> origin/main` passes for its fix SHA, the commit that carries the fix onto `main`. When both pass, each row whose Record names that fork PR moves `fix PR open` → `merged`, and the fix SHA goes into its Record. Reconcile, run first, may already have made the move on its own: then `record merged` finds the rows `merged`, says so, and logs the report with what reconcile verified.
+Merging a fix PR is the human's step: in the advisory's web UI for a fork PR, with the admin bypass where the branch rules ask for it, and the run never merges one. A fix may go through more than one fix PR, one per fix branch, and one fix PR may fix more than one row; each row's Record names its own. `record merged <fix PR>` names a pull request on an advisory's private fork by the advisory's short id and the pull request's number, as Waiting on you names it (`hg89#2`, which a row's Record writes `fork PR #2`), or by its URL; or a `below-floor` row's public pull request on the repository, by `#<n>` or its URL (`#7`, which a row's Record writes `PR #7`). The run then runs the same checks reconcile runs ([Sources](#sources)): `gh pr view` on the fork, or on the repository for a public PR, shows the pull request merged, and after `git fetch`, `git merge-base --is-ancestor <fix SHA> origin/main` passes for its fix SHA, the commit that carries the fix onto `main`. When both pass, each row whose Record names that fix PR moves `fix PR open` → `merged`, and the fix SHA goes into its Record. Reconcile, run first, may already have made the move on its own: then `record merged` finds the rows `merged`, says so, and logs the report with what reconcile verified.
 
 `record released <tag>` checks each `merged` row: after `git fetch --tags`, `git tag --contains <fix SHA>` lists the tag. Each row whose fix SHA the tag contains moves `merged` → `released`, and the tag goes into its Record. A `merged` row whose fix SHA the tag does not contain stays `merged`, and the reply names it.
 
@@ -231,15 +231,15 @@ A draft that names the concept id in its title or body is matched by reconcile o
 
 Each transition leaves its record in the row's Record, so nothing the API later loses is lost:
 
-| Transition      | Record                                                               |
-| --------------- | -------------------------------------------------------------------- |
-| `fix PR open`   | the fork PR number (`fork PR #2`), written when `fix` opens it       |
-| `merged`        | the fix SHA (`fix c2d0bd5`), written before publish deletes the fork |
-| `released`      | the release tag                                                      |
-| `fixed`         | how, in one public-safe line                                         |
-| `duplicate`     | `of <canonical id>`                                                  |
-| `accepted-risk` | one public-safe line on why                                          |
-| `rejected`      | one public-safe line on why, or on what would reopen it              |
+| Transition      | Record                                                                                                       |
+| --------------- | ------------------------------------------------------------------------------------------------------------ |
+| `fix PR open`   | the fork PR number (`fork PR #2`), or a `below-floor` row's public PR (`PR #7`), written when `fix` opens it |
+| `merged`        | the fix SHA (`fix c2d0bd5`), written before publish deletes the fork                                         |
+| `released`      | the release tag                                                                                              |
+| `fixed`         | how, in one public-safe line                                                                                 |
+| `duplicate`     | `of <canonical id>`                                                                                          |
+| `accepted-risk` | one public-safe line on why                                                                                  |
+| `rejected`      | one public-safe line on why, or on what would reopen it                                                      |
 
 The Record collects these as the row moves: a later record is added after the earlier ones, never written over them (`fork PR #2, fix 763af3a, v1.0.0-alpha.9`).
 
@@ -431,13 +431,13 @@ What is known about the finding: `untriaged | confirmed | rejected | duplicate |
 What has been shipped: `open → fix PR open → merged → released`, plus `fixed` and `accepted-risk`.
 
 - `open`: no fix yet.
-- `fix PR open`: a fix pull request is open on the advisory's private fork. Its Record gives the fork PR number.
+- `fix PR open`: a fix pull request is open on the advisory's private fork, or, for a `below-floor` row, an ordinary public pull request on the repository. Its Record gives the PR number.
 - `merged`: the fix is on the default branch and its release is pending. Its Record gives the fix SHA, written before publishing deletes the fork.
 - `released`: a release tag contains the fix. Its Record gives the tag.
 - `fixed`: done with a change that needs no release (a ruleset or a setting, say).
 - `accepted-risk`: the human has decided to accept the risk. Its Record gives one public-safe line on why.
 
-A `below-floor` row uses the same values; its pull request is an ordinary public one.
+A `below-floor` row uses the same values, through its public pull request: reconcile and `record merged #<n>` check it on the repository ([Sources](#sources)), and it reaches `merged` and `released` as a fork PR's row does. It needs no fork, so it needs no draft advisory ([Found in triage](#found-in-triage)).
 
 ### Advisory state
 

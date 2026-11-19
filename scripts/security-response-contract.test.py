@@ -226,7 +226,10 @@ def test_reconcile_is_step_one_of_every_mode() -> None:
 
 SOURCES = {
     "Advisory list, state, CVE id": ("advisory API", ["security-advisories?state=draft"]),
-    "`fix PR open`": ("private fork", ["gh pr list", "gh pr view", "until publish deletes it"]),
+    "`fix PR open`": (
+        "private fork, or the repository for a `below-floor` row",
+        ["gh pr list", "gh pr view", "until publish deletes it", "a `below-floor` row's public PR"],
+    ),
     "`merged`": ("`origin/main`", ["git fetch", "git merge-base --is-ancestor <fix SHA> origin/main"]),
     "`released`": ("tags", ["git tag --contains <fix SHA>"]),
     "`fixed` (no code)": ("the API, where it can", ["otherwise the human's report stands"]),
@@ -254,7 +257,7 @@ def test_source_table() -> None:
 def test_who_wins() -> None:
     wins = flat(subsection(reconcile_doc(), "Who wins"))
     source = item(wins, "**The source wins**")
-    for fact in ("advisory state", "fork PR state", "the fix SHA on `main`", "the tag"):
+    for fact in ("advisory state", "fix PR state", "the fix SHA on `main`", "the tag"):
         assert fact in source, f"the source owns {fact}: {source!r}"
     board = item(wins, "**The board wins**")
     for fact in ("Evidence", "fork PR numbers and fix SHAs after the fork is gone", "a CVE request", "accepted-risk"):
@@ -412,7 +415,7 @@ def test_triage_mode_lands_the_outcome() -> None:
 
 
 RECORD_SET = [
-    "merged <fork PR>",
+    "merged <fix PR>",
     "released <tag>",
     "fixed <concept-id>: <how>",
     "accepted-risk <concept-id>: <reason>",
@@ -573,7 +576,21 @@ def test_merged_and_released_run_reconciles_checks() -> None:
     assert "with the admin bypass where the branch rules ask for it" in checks
     assert "the run never merges one" in checks
     assert "the same checks reconcile runs" in checks
-    assert "When both pass, each row whose Record names that fork PR moves `fix PR open` → `merged`" in checks
+    assert "When both pass, each row whose Record names that fix PR moves `fix PR open` → `merged`" in checks
+
+
+def test_a_below_floor_row_reaches_released_through_a_public_pr() -> None:
+    delivery = flat(subsection(section(read(RUN), "States"), "Delivery"))
+    assert "or, for a `below-floor` row, an ordinary public pull request on the repository" in delivery
+    assert "A `below-floor` row uses the same values, through its public pull request" in delivery
+    moves = flat(subsection(reconcile_doc(), "Moves"))
+    assert "`fix PR open` → `merged`, once the fix PR is merged" in moves
+    checks = flat(subsection(record_doc(), "Merged and released"))
+    assert "a `below-floor` row's public pull request on the repository, by `#<n>` or its URL" in checks
+    assert "which a row's Record writes `PR #7`" in checks
+    fix = mode_line("fix <target>")
+    assert "for a `below-floor` row, an ordinary public pull request on the repository" in fix, fix
+    assert "`fix PR open`, with the PR number in its Record" in fix, fix
 
 
 def test_fixed_and_accepted_risk_are_the_humans_judgement() -> None:
@@ -610,7 +627,7 @@ def test_each_record_is_logged_as_a_human_report() -> None:
 
 
 TRANSITION_RECORDS = {
-    "`fix PR open`": "the fork PR number",
+    "`fix PR open`": "the fork PR number (`fork PR #2`), or a `below-floor` row's public PR (`PR #7`)",
     "`merged`": "the fix SHA",
     "`released`": "the release tag",
     "`fixed`": "how, in one public-safe line",
@@ -629,7 +646,7 @@ def test_each_transition_leaves_its_record() -> None:
         assert record in rows[transition], f"{transition} records {record!r}, got {rows[transition]!r}"
     assert "in the row's Record" in flat(records)
     fix = mode_line("fix <target>")
-    assert "`fix PR open`, with the fork PR number in its Record" in fix, fix
+    assert "`fix PR open`, with the PR number in its Record" in fix, fix
 
 
 def advisory_actions() -> str:
@@ -808,6 +825,7 @@ if __name__ == "__main__":
     test_a_run_with_no_ledger_lines_closes_with_no_pr()
     test_a_closed_run_stays_read_only_and_is_the_humans_to_delete()
     test_merged_and_released_run_reconciles_checks()
+    test_a_below_floor_row_reaches_released_through_a_public_pr()
     test_fixed_and_accepted_risk_are_the_humans_judgement()
     test_match_joins_a_human_made_draft_to_a_found_in_triage_row()
     test_ack_clears_a_contradicted_final_entry()
