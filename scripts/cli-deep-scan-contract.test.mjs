@@ -3995,6 +3995,23 @@ describe("--verify: a Verification run re-attempts known findings on a ref you n
     assert.match(res.out, /admin-missing-role-check: Reproduced: yes \(the fix does not hold\)/);
   });
 
+  it("runs on Docker Sandboxes too: the finding file goes in with the brief, and the sandbox is removed", async () => {
+    const host = sbxHost({
+      "--no-input cp agent-kit-deep-": {
+        status: 0,
+        writes: [{ name: "report.md", text: VERIFY_REPORT }],
+      },
+    });
+    const res = await run(verifyRepo(), verifyArgs(), { host });
+    assert.equal(res.code, 0, res.text);
+    const findings = copiedIn(res).filter((e) => e.name === "agent-kit/in/findings.md");
+    assert.equal(findings.length, 1);
+    assert.equal(findings[0].data.toString("utf8"), FINDINGS);
+    assert.ok(briefOf(res).includes("## Verification run"));
+    assert.equal(reportOf(res), VERIFY_REPORT);
+    assert.ok(sbxCalls(res).some((a) => a[0] === "rm"));
+  });
+
   it("exits 1 when the report misses a given finding or the Verification-run Mode line, still writing it", async () => {
     const partial = VERIFY_REPORT.split("### admin-missing-role-check")[0].replace(
       "deep (Verification run)",

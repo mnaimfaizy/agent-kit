@@ -41,6 +41,8 @@ Commands:
              key-injecting model proxy on this machine (its only route
              out), copy-out of the report only, and teardown. Every run
              is bounded by wall clocks, a turn limit and a token cap.
+             With --verify <file> --ref <ref>, a local-only
+             Verification run: does a fix hold for known findings?
 
 Options for doctor:
   --ci            Check only Kit-owned paths and uses: pins (no gh needed).

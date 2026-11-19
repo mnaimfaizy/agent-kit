@@ -83,6 +83,10 @@ export function readFindingFile(file) {
       return cannot(`it is larger than ${MAX_FINDING_FILE_BYTES / 1024} KiB`);
     }
     data = readFileSync(file);
+    // It may have grown since the stat: what goes in is what was checked.
+    if (data.length > MAX_FINDING_FILE_BYTES) {
+      return cannot(`it is larger than ${MAX_FINDING_FILE_BYTES / 1024} KiB`);
+    }
   } catch (e) {
     return cannot(e?.code ?? e?.message ?? String(e));
   }
