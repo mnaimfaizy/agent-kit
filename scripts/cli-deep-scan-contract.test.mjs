@@ -16,7 +16,7 @@
 import assert from "node:assert/strict";
 import { spawn as spawnChild, spawnSync } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { request as httpRequest } from "node:http";
+import { createServer as createHttpServer, request as httpRequest } from "node:http";
 import { PassThrough, Writable } from "node:stream";
 import {
   appendFileSync,
@@ -29,12 +29,13 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { createServer as createNetServer } from "node:net";
+import { connect as connectNet, createServer as createNetServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, before, describe, it } from "node:test";
 import { main } from "../cli/src/cli.mjs";
 import { allowedCommands, RUNTIME_CLIS, runnerFor, systemRunner } from "../cli/src/exec.mjs";
+import { startModelProxy } from "../cli/src/deep-scan/model-proxy.mjs";
 import { tarOf } from "../cli/src/deep-scan/tar.mjs";
 
 const GIT_ID = [
@@ -2119,5 +2120,150 @@ describe("Docker Sandboxes runs the same lifecycle, on a deny-all global policy"
     assert.equal(out.length, 1);
     assert.match(out[0][1], /^agent-kit-deep-[0-9a-f]+:\/agent-kit\/out\/report\.md$/);
     assert.equal(out[0][2], ".");
+  });
+});
+
+// --- The key-injecting model proxy (#370) -----------------------------------
+
+const REAL_KEY = "sk-ant-api03-fake-real-key-for-tests-only-0123456789";
+const PLACEHOLDER = "agent-kit-deep-scan-placeholder";
+
+/**
+ * A fake model API on 127.0.0.1: it records each request's method, path,
+ * headers and body, and answers like the Messages API (`stream` makes it
+ * send two chunks).
+ */
+async function fakeModelApi() {
+  const seen = [];
+  const server = createHttpServer((req, res) => {
+    const body = [];
+    req.on("data", (b) => body.push(b));
+    req.on("end", () => {
+      seen.push({
+        method: req.method,
+        url: req.url,
+        headers: req.headers,
+        body: Buffer.concat(body).toString("utf8"),
+      });
+      if (req.url.includes("stream")) {
+        res.writeHead(200, { "content-type": "text/event-stream" });
+        res.write("event: one\n\n");
+        setTimeout(() => res.end("event: two\n\n"), 10);
+        return;
+      }
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end('{"type":"message","usage":{"input_tokens":3,"output_tokens":5}}');
+    });
+  });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  return {
+    url: `http://127.0.0.1:${server.address().port}`,
+    seen,
+    close: () => new Promise((r) => server.close(r)),
+  };
+}
+
+/** One raw HTTP/1.1 exchange with the proxy, so any request form can be sent. */
+function rawRequest(port, text) {
+  return new Promise((resolve, reject) => {
+    const socket = connectNet(port, "127.0.0.1", () => socket.end(text));
+    const chunks = [];
+    socket.on("data", (b) => chunks.push(b));
+    socket.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+    socket.on("error", reject);
+  });
+}
+
+describe("the model proxy forwards only to the model API, with the real key swapped in", () => {
+  let api;
+  let proxy;
+  before(async () => {
+    api = await fakeModelApi();
+    proxy = await startModelProxy({ credential: REAL_KEY, bind: "127.0.0.1", upstream: api.url });
+  });
+  after(async () => {
+    await proxy.close();
+    await api.close();
+  });
+
+  it("strips the placeholder x-api-key and Authorization and inserts the real key", async () => {
+    const res = await fetch(`http://127.0.0.1:${proxy.port}/v1/messages?beta=true`, {
+      method: "POST",
+      headers: {
+        "x-api-key": PLACEHOLDER,
+        authorization: `Bearer ${PLACEHOLDER}`,
+        "proxy-authorization": `Basic ${PLACEHOLDER}`,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+      },
+      body: '{"model":"m","messages":[]}',
+    });
+    assert.equal(res.status, 200);
+    assert.match(await res.text(), /"usage"/);
+    const got = api.seen.at(-1);
+    assert.equal(got.method, "POST");
+    assert.equal(got.url, "/v1/messages?beta=true");
+    assert.equal(got.headers["x-api-key"], REAL_KEY);
+    assert.equal(got.headers.authorization, undefined);
+    assert.equal(got.headers["proxy-authorization"], undefined);
+    assert.equal(got.headers["anthropic-version"], "2023-06-01");
+    assert.equal(got.body, '{"model":"m","messages":[]}');
+    assert.ok(!JSON.stringify(got.headers).includes(PLACEHOLDER));
+  });
+
+  it("streams the model API's answer back as it arrives", async () => {
+    const res = await fetch(`http://127.0.0.1:${proxy.port}/v1/messages?stream`, {
+      method: "POST",
+      headers: { "x-api-key": PLACEHOLDER },
+      body: "{}",
+    });
+    assert.equal(res.status, 200);
+    assert.equal(await res.text(), "event: one\n\nevent: two\n\n");
+  });
+
+  it("refuses a forward-proxy request for another host, a CONNECT tunnel and a path outside /v1/", async () => {
+    const before = api.seen.length;
+    const forward = await rawRequest(
+      proxy.port,
+      "GET http://evil.example/v1/messages HTTP/1.1\r\nHost: evil.example\r\nConnection: close\r\n\r\n",
+    );
+    assert.match(forward, /^HTTP\/1\.1 403/);
+    const tunnel = await rawRequest(
+      proxy.port,
+      "CONNECT evil.example:443 HTTP/1.1\r\nHost: evil.example:443\r\n\r\n",
+    );
+    assert.match(tunnel, /^HTTP\/1\.1 403/);
+    const other = await fetch(`http://127.0.0.1:${proxy.port}/api/oauth/profile`);
+    assert.equal(other.status, 403);
+    assert.equal(api.seen.length, before, "nothing refused reached the model API");
+    assert.ok(proxy.refused.includes("evil.example"), proxy.refused.join(", "));
+    assert.ok(proxy.refused.includes("evil.example:443"), proxy.refused.join(", "));
+    assert.ok(proxy.refused.includes("/api/oauth/profile"), proxy.refused.join(", "));
+  });
+
+  it("never sends the real key back, even when the model API cannot be reached", async () => {
+    const dead = await startModelProxy({
+      credential: REAL_KEY,
+      bind: "127.0.0.1",
+      upstream: "http://127.0.0.1:9",
+    });
+    try {
+      const res = await fetch(`http://127.0.0.1:${dead.port}/v1/messages`, {
+        method: "POST",
+        body: "{}",
+      });
+      assert.equal(res.status, 502);
+      assert.ok(!(await res.text()).includes(REAL_KEY));
+    } finally {
+      await dead.close();
+    }
+  });
+
+  it("counts what it forwarded and refused, by status, with no content", () => {
+    const summary = proxy.summary();
+    assert.match(summary, /forwarded \d+ request\(s\)/);
+    assert.match(summary, /200/);
+    assert.match(summary, /refused 3/);
+    assert.ok(!summary.includes(REAL_KEY));
   });
 });
