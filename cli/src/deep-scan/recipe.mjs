@@ -254,7 +254,11 @@ export function validateRecipe(text) {
     });
   }
   entries?.forEach((entry, i) => {
-    if (isMapping(entry) && typeof entry.command === "string" && CONTAINER_COMMAND.test(entry.command)) {
+    if (
+      isMapping(entry) &&
+      typeof entry.command === "string" &&
+      CONTAINER_COMMAND.test(entry.command)
+    ) {
       say(`entry_points[${i}].command`, composeProblem());
     }
   });
