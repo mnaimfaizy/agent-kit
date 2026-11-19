@@ -9,7 +9,8 @@
 // process); then the choice of a sandbox runtime from the host, or its
 // refusal, with no override (ADR 0018). Then the sandbox lifecycle on that
 // runtime, from image to teardown (deep-scan/lifecycle.mjs), its agent step
-// the real Claude Code behind the key-injecting model proxy.
+// the real Claude Code behind the key-injecting model proxy, every run
+// bounded by the limits its flags set (deep-scan/limits.mjs).
 
 import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -26,6 +27,7 @@ import {
 } from "./deep-scan/recipe.mjs";
 import { readHandIn } from "./deep-scan/agent.mjs";
 import { credentialSource, readCredential, withoutCredentials } from "./deep-scan/credential.mjs";
+import { describeLimits, parseLimits } from "./deep-scan/limits.mjs";
 import { runLifecycle } from "./deep-scan/lifecycle.mjs";
 import { envFilesAtRef, strayTokens } from "./deep-scan/preflight.mjs";
 import { RUNTIMES_DOCS_URL, selectRuntime } from "./deep-scan/runtime.mjs";
@@ -40,20 +42,25 @@ const CREDENTIALS_DOCS_URL = `https://github.com/mnaimfaizy/agent-kit/blob/v${CL
  *   recipePath?: string,
  *   defaultBranch?: string,
  *   credentialFrom?: string,
+ *   limitFlags?: Record<string, string | undefined>,
  *   platform?: string,
  *   env?: Record<string, string | undefined>,
  *   fetch?: typeof globalThis.fetch,
  *   signals?: { on: Function, off: Function },
  *   reportDir?: string,
  *   modelApi?: string,
+ *   timers?: { setTimeout: Function, clearTimeout: Function },
  *   out: (s: string) => void,
  *   err: (s: string) => void,
- * }} opts  `platform`, `env`, `fetch` and `signals` are the host's
- *   (`process.platform`, `process.env`, the global fetch, `process`), and
- *   `reportDir` is a new private temporary folder, and `modelApi` is the
- *   real model API; only tests pass others, and no flag can change them.
+ * }} opts  `limitFlags` holds the limit flags' values, keyed by flag name.
+ *   `platform`, `env`, `fetch`, `signals` and `timers` are the host's
+ *   (`process.platform`, `process.env`, the global fetch, `process`, the
+ *   real clock), and `reportDir` is a new private temporary folder, and
+ *   `modelApi` is the real model API; only tests pass others, and no flag
+ *   can change them.
  * @returns {Promise<number>} exit code: 0 the sandbox ran and the report came
- *   out, 1 refused or a step failed, 2 usage error, 130 or 143 interrupted
+ *   out, 1 refused or a step failed, 2 usage error, 3 a limit stopped the
+ *   run, 130 or 143 interrupted
  */
 export async function runDeepScan({
   cwd,
@@ -61,12 +68,14 @@ export async function runDeepScan({
   recipePath,
   defaultBranch,
   credentialFrom,
+  limitFlags = {},
   platform = process.platform,
   env = process.env,
   fetch = globalThis.fetch,
   signals = process,
   reportDir,
   modelApi,
+  timers = globalThis,
   out,
   err,
 }) {
@@ -83,6 +92,13 @@ export async function runDeepScan({
     err(`${e.message}; give a path relative to the repository root.`);
     return 2;
   }
+
+  const bounds = parseLimits(limitFlags);
+  if ("error" in bounds) {
+    err(bounds.error);
+    return 2;
+  }
+  const { limits } = bounds;
 
   const source = credentialSource(credentialFrom);
   if ("error" in source) {
@@ -220,7 +236,10 @@ export async function runDeepScan({
   const choice = selectRuntime({ runner, platform });
   if ("refused" in choice) return refuse(choice.refused, RUNTIMES_DOCS_URL);
   out(`Sandbox runtime: ${choice.runtime.name}.`);
+  out(describeLimits(limits));
   return runLifecycle({
+    limits,
+    timers,
     runner,
     credential: key.credential,
     ...(modelApi !== undefined ? { modelApi } : {}),

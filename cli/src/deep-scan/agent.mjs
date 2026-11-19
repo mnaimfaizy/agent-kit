@@ -10,7 +10,8 @@
 // outrank project settings, and project and local settings are not even
 // loaded (`--setting-sources user`), so the scanned repository's
 // `.claude/settings.json` cannot point it elsewhere. Web tools are not in
-// its tool set, and are denied as well.
+// its tool set, and are denied as well. Its turn limit is the launcher's
+// `--max-turns` on the command line (#371).
 
 import { firstLine } from "../exec.mjs";
 import { checkSafePath, UnsafePathError } from "../safe-paths.mjs";
@@ -32,6 +33,14 @@ export const DEFAULT_THREAT_PACK = Object.freeze({
 /** The tools the agent has; the web tools are not among them. */
 export const AGENT_TOOLS = Object.freeze(["Bash", "Read", "Write", "Edit", "Glob", "Grep"]);
 export const WEB_TOOLS = Object.freeze(["WebFetch", "WebSearch"]);
+
+/**
+ * What the agent step's script prints when Claude Code stopped at its turn
+ * limit: a fixed line, so nothing of Claude Code's own output leaves the
+ * sandbox. It is read from Claude Code's error output (where print mode says
+ * "Error: Reached max turns"), never from its answer, which the agent writes.
+ */
+export const TURNS_MARKER = "agent-kit-deep-scan: Claude Code reached its turn limit";
 
 /** Where the brief goes in the sandbox: the launcher's, outside /workspace. */
 export const BRIEF_PATH = "/agent-kit/in/brief.md";
@@ -272,10 +281,12 @@ export const AGENT_ENV = Object.freeze([
 
 /**
  * The agent step's script, run with `sh -c` in the sandbox: Claude Code in
- * print mode, its brief on stdin, its own output kept in the sandbox.
- * @param {{ baseUrl: string, report: string, workspace: string }} opts
+ * print mode, its brief on stdin, its own output kept in the sandbox (its
+ * error output is passed on too), and TURNS_MARKER when it stopped at the
+ * launcher's turn limit.
+ * @param {{ baseUrl: string, report: string, workspace: string, maxTurns: number }} opts
  */
-export function agentScript({ baseUrl, report, workspace }) {
+export function agentScript({ baseUrl, report, workspace, maxTurns }) {
   const args = [
     "claude",
     "--bare",
@@ -295,13 +306,19 @@ export function agentScript({ baseUrl, report, workspace }) {
     "--add-dir",
     "/agent-kit",
     "--no-session-persistence",
+    "--max-turns",
+    String(maxTurns),
   ];
   const outDir = report.slice(0, report.lastIndexOf("/"));
   return [
     "set -eu",
     `mkdir -p ${outDir} /agent-kit/logs`,
     `cd ${workspace}`,
-    `${args.map(shQuote).join(" ")} < ${BRIEF_PATH} > /agent-kit/logs/agent.log`,
+    "status=0",
+    `${args.map(shQuote).join(" ")} < ${BRIEF_PATH} > /agent-kit/logs/agent.log 2> /agent-kit/logs/agent.err || status=$?`,
+    "cat /agent-kit/logs/agent.err >&2",
+    `if grep -q '^Error: Reached max turns' /agent-kit/logs/agent.err; then echo ${shQuote(TURNS_MARKER)}; fi`,
+    'exit "$status"',
   ].join("\n");
 }
 

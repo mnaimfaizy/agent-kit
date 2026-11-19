@@ -6,15 +6,38 @@
 // credential lives only in this process's memory: it is never an argument,
 // an environment variable or a file of any command the launcher runs.
 // Node core only (ADR 0001).
+//
+// It also holds the run's token cap (#371): it counts the `usage` each
+// model API answer returns, and once the count reaches the cap it refuses
+// every further request and tells the launcher, which stops the agent step.
 
 import { createServer, request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
+import { createBrotliDecompress, createGunzip, createInflate } from "node:zlib";
 
 /** The model API every forwarded request goes to. */
 export const MODEL_API = "https://api.anthropic.com";
 
 /** Only the Messages API's paths are forwarded. */
 const MODEL_PATH = /^\/v1\//;
+
+/**
+ * Paths whose spend an answer's `usage` would not show (a batch is billed
+ * later, outside this run), so the token cap could not hold: refused.
+ */
+const UNCOUNTED_PATH = /^\/v1\/(messages\/batches|complete)(\/|$)/i;
+
+/** The `usage` fields the cap counts: every kind of token billed. */
+export const COUNTED_USAGE = Object.freeze([
+  "input_tokens",
+  "cache_creation_input_tokens",
+  "cache_read_input_tokens",
+  "output_tokens",
+]);
+
+/** How much of an answer the meter reads: a line of a stream, or a whole JSON body. */
+const MAX_LINE = 1024 * 1024;
+const MAX_BODY = 16 * 1024 * 1024;
 
 /** How many distinct refused hosts or paths the summary keeps, and how long each. */
 const MAX_KEPT = 5;
@@ -41,11 +64,20 @@ const DROPPED = new Set([
 /**
  * Start the proxy on `bind` (an address the sandbox reaches, never all
  * interfaces). `refused` collects every host or path it turned away.
- * @param {{ credential: string, bind: string, upstream?: string }} opts
+ * With `maxTokens`, the first request once the counted tokens reach it is
+ * refused, as is every one after, and `onCap` is called once. The answer
+ * that crosses the cap is delivered: a request in flight is never cut.
+ * @param {{ credential: string, bind: string, upstream?: string, maxTokens?: number, onCap?: () => void }} opts
  *   `upstream` is the model API; only tests pass another.
- * @returns {Promise<{ port: number, refused: string[], summary: () => string, close: () => Promise<void> }>}
+ * @returns {Promise<{ port: number, refused: string[], tokens: () => number, summary: () => string, close: () => Promise<void> }>}
  */
-export async function startModelProxy({ credential, bind, upstream = MODEL_API }) {
+export async function startModelProxy({
+  credential,
+  bind,
+  upstream = MODEL_API,
+  maxTokens,
+  onCap = () => {},
+}) {
   const target = new URL(upstream);
   const send = target.protocol === "https:" ? httpsRequest : httpRequest;
   const refused = [];
@@ -59,6 +91,8 @@ export async function startModelProxy({ credential, bind, upstream = MODEL_API }
   /** @type {Map<string, number>} upstream status (or "error") to count */
   const statuses = new Map();
   let forwarded = 0;
+  let tokens = 0;
+  let pastCap = 0;
   const sockets = new Set();
   const count = (key) => statuses.set(key, (statuses.get(key) ?? 0) + 1);
 
@@ -78,9 +112,27 @@ export async function startModelProxy({ credential, bind, upstream = MODEL_API }
     }
     const path = raw.split("?")[0];
     // No dot segment, plain or encoded, may walk the path out of /v1/.
-    if (!MODEL_PATH.test(path) || /(^|\/)(\.|%2e){1,2}(\/|$)|%2f|\\/i.test(path)) {
+    if (
+      !MODEL_PATH.test(path) ||
+      UNCOUNTED_PATH.test(path) ||
+      /(^|\/)(\.|%2e){1,2}(\/|$)|%2f|\\/i.test(path)
+    ) {
       refuse(path);
       res.writeHead(403).end("deep-scan model proxy: only the model API's /v1/ paths\n");
+      return;
+    }
+    if (maxTokens !== undefined && tokens >= maxTokens) {
+      pastCap += 1;
+      if (pastCap === 1) onCap();
+      res.writeHead(403, { "content-type": "application/json" }).end(
+        JSON.stringify({
+          type: "error",
+          error: {
+            type: "permission_error",
+            message: `deep-scan model proxy: this run's token cap (${maxTokens}) is reached`,
+          },
+        }),
+      );
       return;
     }
     const headers = {};
@@ -88,6 +140,8 @@ export async function startModelProxy({ credential, bind, upstream = MODEL_API }
       if (!DROPPED.has(name.toLowerCase()) && value !== undefined) headers[name] = value;
     }
     headers["x-api-key"] = credential;
+    // A plain body, so the meter can read its usage.
+    headers["accept-encoding"] = "identity";
     forwarded += 1;
     const upstreamReq = send(
       {
@@ -105,6 +159,9 @@ export async function startModelProxy({ credential, bind, upstream = MODEL_API }
           if (!DROPPED.has(name.toLowerCase()) && value !== undefined) back[name] = value;
         }
         res.writeHead(r.statusCode ?? 502, back);
+        meter(r, (n) => {
+          tokens += n;
+        });
         r.pipe(res);
       },
     );
@@ -138,6 +195,7 @@ export async function startModelProxy({ credential, bind, upstream = MODEL_API }
   return {
     port: typeof address === "object" && address ? address.port : 0,
     refused,
+    tokens: () => tokens,
     summary() {
       const byStatus = [...statuses].map(([s, n]) => `${s} x${n}`).join(", ");
       const parts = [
@@ -147,6 +205,11 @@ export async function startModelProxy({ credential, bind, upstream = MODEL_API }
         const more = refusedCount > refused.length ? ", ..." : "";
         parts.push(`refused ${refusedCount} (${refused.join(", ")}${more})`);
       }
+      if (maxTokens !== undefined) {
+        parts.push(
+          `counted ${tokens} of the ${maxTokens}-token cap${pastCap ? `, and refused ${pastCap} request(s) past it` : ""}`,
+        );
+      }
       return parts.join("; ");
     },
     close: () =>
@@ -155,4 +218,79 @@ export async function startModelProxy({ credential, bind, upstream = MODEL_API }
         server.close(() => resolve(undefined));
       }),
   };
+}
+
+/**
+ * Count the tokens an answer's `usage` reports, as the answer streams past:
+ * each kind in COUNTED_USAGE, from a JSON body or from a stream's
+ * `message_start` and `message_delta` events. A stream's usage is
+ * cumulative, so each kind counts its highest value once. A compressed body
+ * (sent although the proxy asked for none) is decoded for counting only.
+ * @param {import("node:http").IncomingMessage} r
+ * @param {(n: number) => void} add  called with each newly counted amount
+ */
+function meter(r, add) {
+  const seen = Object.fromEntries(COUNTED_USAGE.map((k) => [k, 0]));
+  const take = (obj) => {
+    const usage = obj?.usage ?? obj?.message?.usage;
+    if (!usage || typeof usage !== "object") return;
+    for (const key of COUNTED_USAGE) {
+      const n = usage[key];
+      if (typeof n === "number" && Number.isFinite(n) && n > seen[key]) {
+        add(n - seen[key]);
+        seen[key] = n;
+      }
+    }
+  };
+  const parse = (text) => {
+    try {
+      take(JSON.parse(text));
+    } catch {
+      // Not JSON: nothing to count.
+    }
+  };
+  const stream = /text\/event-stream/i.test(String(r.headers["content-type"] ?? ""));
+  const decoders = {
+    gzip: createGunzip,
+    "x-gzip": createGunzip,
+    deflate: createInflate,
+    br: createBrotliDecompress,
+  };
+  const encoding = String(r.headers["content-encoding"] ?? "identity")
+    .trim()
+    .toLowerCase();
+  /** @type {import("node:stream").Readable} */
+  let body = r;
+  if (encoding !== "identity" && encoding !== "") {
+    const make = decoders[encoding];
+    if (!make) return;
+    const decoder = make();
+    decoder.on("error", () => {});
+    r.on("data", (chunk) => decoder.write(chunk));
+    r.on("end", () => decoder.end());
+    body = decoder;
+  }
+  let pending = "";
+  let size = 0;
+  let overflow = false;
+  body.on("data", (chunk) => {
+    const text = chunk.toString("utf8");
+    if (!stream) {
+      size += text.length;
+      if (size > MAX_BODY) overflow = true;
+      if (!overflow) pending += text;
+      return;
+    }
+    pending += text;
+    const lines = pending.split(/\r?\n/);
+    pending = lines.pop() ?? "";
+    if (pending.length > MAX_LINE) pending = "";
+    for (const line of lines) {
+      if (line.startsWith("data:") && line.includes('"usage"')) parse(line.slice(5).trim());
+    }
+  });
+  body.on("end", () => {
+    if (!stream && !overflow) parse(pending);
+    else if (stream && pending.startsWith("data:")) parse(pending.slice(5).trim());
+  });
 }

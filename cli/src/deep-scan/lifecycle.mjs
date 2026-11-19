@@ -12,6 +12,14 @@
 // included. The real model credential reaches only the model proxy, in this
 // process: the sandbox gets a placeholder.
 //
+// Every run is bounded from out here (#371): the setup wall clock runs from
+// the image step until the agent step starts, the scan wall clock over the
+// agent step, Claude Code runs with the launcher's `--max-turns`, and the
+// model proxy refuses requests past the token cap. A limit that fires stops
+// the running step through the same seam an interrupt does, then the report
+// it left is copied out with the launcher's `Stopped:` line, and the sandbox
+// is torn down as on every exit path.
+//
 // The runtime's own commands live in a driver: docker-driver.mjs (gVisor,
 // Kata, Firecracker, Docker Desktop on macOS) and sbx-driver.mjs (Docker
 // Sandboxes). This module owns the order, the output and every refusal.
@@ -21,9 +29,18 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { firstLine } from "../exec.mjs";
-import { AGENT_ENV, agentBrief, agentScript, BRIEF_PATH } from "./agent.mjs";
+import { AGENT_ENV, agentBrief, agentScript, BRIEF_PATH, TURNS_MARKER } from "./agent.mjs";
 import { CLAUDE_CODE_VERSION, layerDockerfile } from "./claude-code.mjs";
 import { dockerDriver, LABEL } from "./docker-driver.mjs";
+import {
+  LimitReached,
+  STOPPED_EXIT,
+  stoppedStatus,
+  TOKENS,
+  TURNS,
+  WALL_CLOCK,
+  withStopped,
+} from "./limits.mjs";
 import { startModelProxy } from "./model-proxy.mjs";
 import { sbxDriver } from "./sbx-driver.mjs";
 import { ENDS_HERE, indent, Interrupted, outputLines, StepFailed } from "./steps.mjs";
@@ -71,7 +88,7 @@ const SETUP_ORDER = ["setup", "start", "ready", "seed"];
 /**
  * Run the sandbox lifecycle. Returns the exit code: 0 the report came out,
  * 1 a step failed (or the agent step did, or teardown could not finish),
- * 130 or 143 interrupted by SIGINT or SIGTERM.
+ * 3 a limit stopped the run, 130 or 143 interrupted by SIGINT or SIGTERM.
  *
  * @param {{
  *   runner: import("../exec.mjs").Runner,
@@ -84,6 +101,8 @@ const SETUP_ORDER = ["setup", "start", "ready", "seed"];
  *   recipePath: string,
  *   recipeText: string,
  *   credential: string,
+ *   limits: import("./limits.mjs").Limits,
+ *   timers: { setTimeout: Function, clearTimeout: Function },
  *   modelApi?: string,
  *   platform: string,
  *   fetch: typeof globalThis.fetch,
@@ -111,11 +130,48 @@ export async function runLifecycle(opts) {
   for (const [sig, handler] of Object.entries(handlers)) signals.on(sig, handler);
 
   const interrupted = () => new Interrupted(String(signal.reason ?? "SIGINT"));
+
+  // The phase clocks. A limit aborts only the phase's own controller, so the
+  // steps after it (the copy-out, the teardown) still run.
+  const { timers, limits } = opts;
+  /** @type {{ controller: AbortController, timer: unknown } | null} */
+  let phase = null;
+  /** @type {{ limit: string, detail: string } | null} */
+  let stopped = null;
+  const stop = (limit, detail) => {
+    if (stopped || signal.aborted) return;
+    stopped = { limit, detail };
+    err(`${stoppedStatus(stopped)} Stopping the current step.`);
+    phase?.controller.abort(stopped);
+  };
+  const clocks = {
+    begin(name, minutes) {
+      const controller = new AbortController();
+      const timer = timers.setTimeout(
+        () => stop(WALL_CLOCK, `the ${name} phase's ${minutes}-minute limit`),
+        minutes * 60_000,
+      );
+      phase = { controller, timer };
+      if (stopped) controller.abort(stopped);
+    },
+    end() {
+      if (phase) timers.clearTimeout(phase.timer);
+      phase = null;
+    },
+    stop,
+    stopped: () => stopped,
+    /** The signal a step stops on: an interrupt, or its phase's limit. */
+    signal: () => (phase ? AbortSignal.any([signal, phase.controller.signal]) : signal),
+    /** What a step stopped by `clocks.signal()` throws. */
+    reason: () => (signal.aborted ? interrupted() : new LimitReached(stopped)),
+  };
+
   /** @type {import("./docker-driver.mjs").Call} */
   const call = async (cmd, args, { stdin, cwd } = {}) => {
-    if (signal.aborted) throw interrupted();
-    const r = await runner.start(cmd, args, { stdin, cwd, signal });
-    if (r.aborted || signal.aborted) throw interrupted();
+    const stepSignal = clocks.signal();
+    if (stepSignal.aborted) throw clocks.reason();
+    const r = await runner.start(cmd, args, { stdin, cwd, signal: stepSignal });
+    if (r.aborted || stepSignal.aborted) throw clocks.reason();
     // Ctrl+C in a terminal reaches the runtime's child too, and can end it
     // before the handler above runs: that is an interrupt, not a failure.
     if (r.signal === "SIGINT" || r.signal === "SIGTERM") throw new Interrupted(r.signal);
@@ -128,9 +184,13 @@ export async function runLifecycle(opts) {
   let code;
   let thrown = null;
   try {
-    code = await lifecycle({ ...opts, driver, signal, interrupted });
+    code = await lifecycle({ ...opts, driver, clocks });
   } catch (e) {
-    if (e instanceof Interrupted) {
+    if (e instanceof LimitReached) {
+      // A limit before the agent step: there is no report to deliver.
+      out(`${stoppedStatus(e.stop)} No report came out: nothing was written, filed or posted.`);
+      code = STOPPED_EXIT;
+    } else if (e instanceof Interrupted) {
       code = e.signal === "SIGTERM" ? 143 : 130;
     } else if (e instanceof StepFailed) {
       err(e.lines.join("\n"));
@@ -139,12 +199,13 @@ export async function runLifecycle(opts) {
       thrown = e;
     }
   }
+  clocks.end();
   await driver.close();
   const tornDown = teardown(runner, driver.teardown(), out, err);
   driver.cleanup?.();
   for (const [sig, handler] of Object.entries(handlers)) signals.off(sig, handler);
   if (thrown) throw thrown;
-  return code === 0 && !tornDown ? 1 : code;
+  return (code === 0 || code === STOPPED_EXIT) && !tornDown ? 1 : code;
 }
 
 async function lifecycle({
@@ -158,16 +219,18 @@ async function lifecycle({
   recipePath,
   recipeText,
   credential,
+  limits,
   modelApi,
   fetch,
   reportDir,
   out,
   err,
   driver,
-  signal,
-  interrupted,
+  clocks,
 }) {
   const short = commit.slice(0, 12);
+  // The setup wall clock: from the image step until the agent step starts.
+  clocks.begin("setup", limits.setupMinutes);
   // The committed bytes: no line-end conversion from the host's git config.
   const archive = ({ prefix, paths } = {}, what) => {
     const r = runner(
@@ -216,7 +279,7 @@ async function lifecycle({
       const path = `agent-kit/grounding/urls/${i}-${basename(source)}`;
       fetched.push({
         path,
-        data: await fetchGrounding(fetch, source, where, signal, interrupted),
+        data: await fetchGrounding(fetch, source, where, clocks),
       });
       grounding.push({ source, at: `/${path}` });
     } else {
@@ -297,6 +360,8 @@ async function lifecycle({
     proxy = await startModelProxy({
       credential,
       bind,
+      maxTokens: limits.tokens,
+      onCap: () => clocks.stop(TOKENS, `the run's ${limits.tokens}-token cap`),
       ...(modelApi !== undefined ? { upstream: modelApi } : {}),
     });
     return proxy;
@@ -328,16 +393,38 @@ async function lifecycle({
     "copying the launcher's brief in",
   );
   out(
-    `Agent step: Claude Code ${CLAUDE_CODE_VERSION} (--bare, web tools off, a placeholder key), handed the deep procedure, the Threat pack and the Scan recipe.`,
+    `Agent step: Claude Code ${CLAUDE_CODE_VERSION} (--bare, web tools off, a placeholder key, at most ${limits.turns} turns), handed the deep procedure, the Threat pack and the Scan recipe.`,
   );
-  const agent = await driver.exec(
-    agentScript({ baseUrl: route.url, report: REPORT_PATH, workspace: WORKSPACE }),
-    { env: [...AGENT_ENV] },
-  );
+  clocks.end();
+  // The scan wall clock: the agent step alone.
+  clocks.begin("scan", limits.scanMinutes);
+  /** @type {import("../exec.mjs").StartResult | null} null when a limit stopped it */
+  let agent = null;
+  try {
+    agent = await driver.exec(
+      agentScript({
+        baseUrl: route.url,
+        report: REPORT_PATH,
+        workspace: WORKSPACE,
+        maxTurns: limits.turns,
+      }),
+      { env: [...AGENT_ENV] },
+    );
+  } catch (e) {
+    if (!(e instanceof LimitReached)) throw e;
+  }
+  clocks.end();
+  // Claude Code's own turn limit ended it: the script's fixed marker says so.
+  if (agent && agent.stdout.toString("utf8").split(/\r?\n/).includes(TURNS_MARKER)) {
+    clocks.stop(TURNS, `Claude Code's ${limits.turns}-turn limit`);
+  }
   // The scan is over: no route out is left open while the report comes out.
   await driver.close();
   out(`Model proxy: ${proxy?.summary() ?? "not started"}.`);
-  if (agent.status !== 0) {
+  const stopped = clocks.stopped();
+  if (stopped) {
+    out(`${stoppedStatus(stopped)} Copying out what report the agent left.`);
+  } else if (agent && agent.status !== 0) {
     const lines = agent.stderr
       .trimEnd()
       .split(/\r\n|\r|\n/)
@@ -357,6 +444,11 @@ async function lifecycle({
 
   // 8. Copy out the one report file, and nothing else.
   const file = await driver.copyOut(REPORT_PATH, { maxBytes: MAX_REPORT_BYTES });
+  if ("missing" in file && stopped) {
+    // A stop with no report: only a status naming the limit, and no file.
+    out(`${stoppedStatus(stopped)} No report came out: nothing was written, filed or posted.`);
+    return STOPPED_EXIT;
+  }
   if ("missing" in file) {
     const r = file.missing;
     throw new StepFailed([
@@ -364,16 +456,23 @@ async function lifecycle({
     ]);
   }
   if ("error" in file) {
-    throw new StepFailed([`FAILED  the report was not copied out: ${file.error}.`]);
+    throw new StepFailed([
+      `FAILED  the report was not copied out: ${file.error}.`,
+      ...(stopped ? [stoppedStatus(stopped)] : []),
+    ]);
   }
   const dir = reportDir ?? mkdtempSync(join(tmpdir(), "agent-kit-deep-scan-"));
   const path = join(dir, "report.md");
-  writeFileSync(path, file.data, { mode: 0o600, flag: "wx" });
-  out(`Report: ${path} (the only file copied out of the sandbox).`);
+  // The launcher's Stopped: line, when a limit ended the run; never the agent's.
+  writeFileSync(path, withStopped(file.data, stopped?.limit ?? null), { mode: 0o600, flag: "wx" });
+  out(
+    `Report: ${path} (the only file copied out of the sandbox${stopped ? `, partial: marked Stopped: ${stopped.limit}` : ""}).`,
+  );
   out(
     "Nothing was filed or posted. To file a draft advisory, follow the security-audit skill's by-hand rule.",
   );
-  return agent.status === 0 ? 0 : 1;
+  if (stopped) return STOPPED_EXIT;
+  return agent?.status === 0 ? 0 : 1;
 }
 
 /**
@@ -404,7 +503,7 @@ function teardown(runner, commands, out, err) {
   return true;
 }
 
-async function fetchGrounding(fetch, url, where, signal, interrupted) {
+async function fetchGrounding(fetch, url, where, clocks) {
   const fail = (why) =>
     new StepFailed([`FAILED  ${where}: could not fetch ${url}: ${why}`, ENDS_HERE]);
   const tooLarge = `larger than ${MAX_GROUNDING_BYTES / 1024 / 1024} MiB`;
@@ -412,10 +511,10 @@ async function fetchGrounding(fetch, url, where, signal, interrupted) {
   try {
     res = await fetch(url, {
       redirect: "follow",
-      signal: AbortSignal.any([signal, AbortSignal.timeout(GROUNDING_TIMEOUT_MS)]),
+      signal: AbortSignal.any([clocks.signal(), AbortSignal.timeout(GROUNDING_TIMEOUT_MS)]),
     });
   } catch (e) {
-    if (signal.aborted) throw interrupted();
+    if (clocks.signal().aborted) throw clocks.reason();
     throw fail(e?.message ?? String(e));
   }
   if (!res.ok) throw fail(`HTTP ${res.status}`);

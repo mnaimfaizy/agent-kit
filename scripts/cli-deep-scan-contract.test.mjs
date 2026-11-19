@@ -31,10 +31,12 @@ import {
 } from "node:fs";
 import { connect as connectNet, createServer as createNetServer } from "node:net";
 import { tmpdir } from "node:os";
+import { gzipSync } from "node:zlib";
 import { dirname, join } from "node:path";
 import { after, before, describe, it } from "node:test";
 import { main } from "../cli/src/cli.mjs";
 import { allowedCommands, RUNTIME_CLIS, runnerFor, systemRunner } from "../cli/src/exec.mjs";
+import { withStopped } from "../cli/src/deep-scan/limits.mjs";
 import { startModelProxy } from "../cli/src/deep-scan/model-proxy.mjs";
 import { tarOf } from "../cli/src/deep-scan/tar.mjs";
 
@@ -241,7 +243,7 @@ function fakeChild(host, cmd, args, cwd) {
         : "no proxy";
       appendFileSync(join(host.dir, "probes.jsonl"), `${JSON.stringify([reply.probe, status])}\n`);
     }
-    if (reply.model) await playAgent(host, args);
+    if (reply.model) await playAgent(host, args, reply.model);
     if (closed) return;
     if (reply.killedBy) {
       close(null, reply.killedBy);
@@ -364,7 +366,7 @@ function shimCalls(host) {
  * calls the model API through the proxy; then it tries to use the proxy for
  * another host. Each answer is recorded to model.jsonl.
  */
-async function playAgent(host, args) {
+async function playAgent(host, args, turns) {
   const script = args.at(-1);
   const settings = JSON.parse(/--settings '([^']*)'/.exec(script)[1]);
   // The sandbox reaches the host as host.docker.internal; this test is on it.
@@ -372,6 +374,24 @@ async function playAgent(host, args) {
   const key = args.find((a) => a.startsWith("ANTHROPIC_API_KEY=")).split("=")[1];
   const record = (what, answer) =>
     appendFileSync(join(host.dir, "model.jsonl"), `${JSON.stringify([what, answer])}\n`);
+  if (typeof turns === "number") {
+    // That many model calls, one after another, as Claude Code's turns are.
+    for (let i = 0; i < turns; i++) {
+      try {
+        const r = await fetch(`${base}/v1/messages`, {
+          method: "POST",
+          headers: { "x-api-key": key },
+          body: '{"model":"m","messages":[]}',
+        });
+        await r.arrayBuffer();
+        record("messages", r.status);
+      } catch (e) {
+        record("messages", `error ${e.cause?.code ?? e.message}`);
+        return;
+      }
+    }
+    return;
+  }
   const res = await fetch(`${base}/v1/messages`, {
     method: "POST",
     headers: { "x-api-key": key, authorization: `Bearer ${key}` },
@@ -440,6 +460,7 @@ async function run(
     signals = new EventEmitter(),
     onSpawn,
     modelApi = "http://127.0.0.1:9",
+    timers = fakeTimers(),
   } = {},
 ) {
   const out = [];
@@ -461,6 +482,8 @@ async function run(
     reportDir,
     // Never the real model API: a closed port unless a test gives a fake.
     modelApi,
+    // Never the real clock: a limit fires only when a test fires it.
+    timers,
   });
   return {
     code,
@@ -473,6 +496,34 @@ async function run(
     shims: shimCalls(host),
     host,
     reportDir,
+    timers,
+  };
+}
+
+/**
+ * A clock that never fires by itself: each timer the launcher sets is
+ * recorded with its delay, and a test fires the one with a given delay.
+ */
+function fakeTimers() {
+  const set = [];
+  return {
+    set,
+    setTimeout(fn, ms) {
+      const t = { fn, ms, cleared: false };
+      set.push(t);
+      return t;
+    },
+    clearTimeout(t) {
+      if (t) t.cleared = true;
+    },
+    /** The delays of the timers still pending. */
+    pending: () => set.filter((t) => !t.cleared).map((t) => t.ms),
+    fire(ms) {
+      const t = set.find((x) => x.ms === ms && !x.cleared);
+      assert.ok(t, `a pending timer of ${ms} ms (pending: ${set.map((x) => x.ms).join(", ")})`);
+      t.cleared = true;
+      t.fn();
+    },
   };
 }
 
@@ -3008,6 +3059,501 @@ describe("review fixes: the model proxy's path check and what it keeps from the 
       assert.match(proxy.summary(), /refused 8 \(.*, \.\.\.\)$/);
     } finally {
       await proxy.close();
+    }
+  });
+});
+
+// --- Limits and the Stopped line (#371) --------------------------------------
+
+const MINUTE = 60_000;
+
+describe("limits come from launcher flags, with defaults, and never from the recipe", () => {
+  it("runs with the default limits: setup 20 min, scan 60 min, 200 turns, 5,000,000 tokens", async () => {
+    const timers = fakeTimers();
+    const res = await run(recipeRepo(VALID), [], { timers });
+    assert.equal(res.code, 0, res.text);
+    assert.match(claudeLine(agentCall(lifecycle(res))), / --max-turns 200 /);
+    assert.deepEqual(
+      timers.set.map((t) => t.ms),
+      [20 * MINUTE, 60 * MINUTE],
+    );
+    assert.deepEqual(timers.pending(), [], "every clock is cleared when the run ends");
+    assert.match(
+      res.out,
+      /Limits: setup 20 min, scan 60 min, 200 turns, 5000000 tokens \(raise them with --setup-minutes, --scan-minutes, --max-turns, --max-tokens\)\./,
+    );
+    assert.match(res.out, /Model proxy: .*; counted 0 of the 5000000-token cap/);
+  });
+
+  it("takes each limit from its flag", async () => {
+    const timers = fakeTimers();
+    const res = await run(
+      recipeRepo(VALID),
+      [
+        "--setup-minutes",
+        "30",
+        "--scan-minutes",
+        "90.5",
+        "--max-turns",
+        "400",
+        "--max-tokens",
+        "8000000",
+      ],
+      { timers },
+    );
+    assert.equal(res.code, 0, res.text);
+    assert.match(claudeLine(agentCall(lifecycle(res))), / --max-turns 400 /);
+    assert.deepEqual(
+      timers.set.map((t) => t.ms),
+      [30 * MINUTE, 90.5 * MINUTE],
+    );
+    assert.match(res.out, /Limits: setup 30 min, scan 90\.5 min, 400 turns, 8000000 tokens/);
+  });
+
+  for (const [flag, value] of [
+    ["--setup-minutes", "0"],
+    ["--scan-minutes", "-5"],
+    ["--scan-minutes", "abc"],
+    ["--setup-minutes", "1e3"],
+    ["--max-turns", "1.5"],
+    ["--max-turns", "0"],
+    ["--max-tokens", "5M"],
+    ["--max-tokens", ""],
+    ["--max-tokens", "Infinity"],
+    // Past what a timer can hold (2^31 - 1 ms), which would fire at once.
+    ["--scan-minutes", "40000"],
+  ]) {
+    it(`refuses ${flag} ${JSON.stringify(value)} as a usage error, before anything runs`, async () => {
+      // `=` so that a value starting with "-" is the flag's, not an option.
+      const res = await run(recipeRepo(VALID), [`${flag}=${value}`]);
+      assert.equal(res.code, 2, res.text);
+      assert.match(res.err, new RegExp(`${flag} must be a positive`));
+      assert.equal(res.calls.length, 0, "nothing ran");
+    });
+  }
+
+  it("still refuses a limit field in the recipe, naming the flags' route", async () => {
+    const res = await run(recipeRepo(recipe({ add: "max_turns: 900" })));
+    assert.equal(res.code, 1, res.text);
+    assert.match(res.err, /max_turns.*the recipe holds no limits/);
+    assert.equal(lifecycle(res).length, 0);
+  });
+
+  it("names the limit flags in --help", async () => {
+    const res = await run(recipeRepo(VALID), ["--help"]);
+    for (const flag of ["--setup-minutes", "--scan-minutes", "--max-turns", "--max-tokens"]) {
+      assert.ok(res.out.includes(flag), `--help names ${flag}`);
+    }
+  });
+});
+
+/** A deep report's header, as report-format.md lays it out, and one finding. */
+const HEADER_REPORT = [
+  "## Security audit report",
+  "",
+  "- **Mode:** deep",
+  "- **Scope:** the whole repository",
+  "- **Date:** 2026-11-20",
+  "- **Max severity:** high",
+  "- **Finding count:** 1",
+  "",
+  "### F1 — a finding found before the stop",
+  "",
+  "- **Severity:** High",
+  "",
+].join("\n");
+
+/** The report the run wrote, as text. */
+const reportOf = (res) => readFileSync(join(res.reportDir, "report.md"), "utf8");
+
+/** A gVisor host whose report is HEADER_REPORT, with `extra` answers. */
+const reportingHost = (extra = {}) =>
+  gvisorWith({ "cp agent-kit-deep-": { status: 0, base64: reportTar(HEADER_REPORT) }, ...extra });
+
+/** Fire the timer of `ms` as soon as the agent step (or a setup command) is running. */
+const fireOn = (timers, ms, matches) => (cmd, args, child) => {
+  if (matches(cmd, args)) child.stdout.once("data", () => timers.fire(ms));
+};
+
+describe("a limit that fires stops the run, marks the report Stopped:, and still tears down", () => {
+  it("the scan wall clock: stops the agent step, copies out its report with Stopped: wall clock, exits 3", async () => {
+    const timers = fakeTimers();
+    const res = await run(recipeRepo(VALID), [], {
+      host: reportingHost({ "~set -eu": { hang: true } }),
+      timers,
+      onSpawn: fireOn(timers, 60 * MINUTE, (cmd, args) => cmd === "docker" && isAgentStep(args)),
+    });
+    assert.equal(res.code, 3, res.text);
+    assert.match(res.err, /Stopped: wall clock \(the scan phase's 60-minute limit\)\. Stopping/);
+    assert.ok(
+      reportOf(res).includes("- **Finding count:** 1\n- **Stopped:** wall clock\n\n### F1"),
+      reportOf(res),
+    );
+    assert.match(res.out, /Report: .*report\.md \(.*partial: marked Stopped: wall clock\)/);
+    assert.doesNotMatch(res.text, /FAILED|The agent step exited/);
+    assert.deepEqual(removed(lifecycle(res)).map(verb), [
+      "rm",
+      "network rm",
+      "network rm",
+      "image",
+    ]);
+    assert.deepEqual(timers.pending(), []);
+  });
+
+  it("the setup wall clock: stops the setup step, runs no agent, writes no report, names the limit, exits 3", async () => {
+    const timers = fakeTimers();
+    const res = await run(recipeRepo(VALID), ["--setup-minutes", "5"], {
+      host: gvisorWith({ "~npm ci": { hang: true } }),
+      timers,
+      onSpawn: fireOn(timers, 5 * MINUTE, (cmd, args) => args.at(-1) === "npm ci"),
+    });
+    assert.equal(res.code, 3, res.text);
+    assert.match(
+      res.out,
+      /Stopped: wall clock \(the setup phase's 5-minute limit\)\. No report came out: nothing was written, filed or posted\./,
+    );
+    assert.ok(!lifecycle(res).some(isAgentStep), "no agent step");
+    assert.deepEqual(readdirSync(res.reportDir), [], "no report file");
+    assert.doesNotMatch(res.text, /FAILED/);
+    assert.deepEqual(removed(lifecycle(res)).map(verb), ["rm", "network rm", "image"]);
+    assert.deepEqual(timers.pending(), []);
+  });
+
+  it("the turn limit: Claude Code's turn signal marks the report Stopped: turns, exits 3", async () => {
+    const res = await run(recipeRepo(VALID), ["--max-turns", "7"], {
+      host: reportingHost({
+        "~set -eu": {
+          status: 1,
+          stdout: "agent-kit-deep-scan: Claude Code reached its turn limit\n",
+          stderr: "Error: Reached max turns (7)\n",
+        },
+      }),
+    });
+    assert.equal(res.code, 3, res.text);
+    assert.match(res.out, /Stopped: turns \(Claude Code's 7-turn limit\)\. Copying out/);
+    assert.ok(reportOf(res).includes("- **Finding count:** 1\n- **Stopped:** turns\n"));
+    assert.doesNotMatch(res.text, /The agent step exited/);
+    assert.equal(removed(lifecycle(res)).length, 4);
+  });
+
+  it("the agent script prints the turn signal only from Claude Code's error output", async () => {
+    const res = await run(recipeRepo(VALID), ["--max-turns", "7"]);
+    const script = agentCall(lifecycle(res)).at(-1);
+    assert.match(
+      claudeLine(agentCall(lifecycle(res))),
+      / --max-turns 7 .*2> \/agent-kit\/logs\/agent\.err \|\| status=\$\?$/,
+    );
+    assert.ok(
+      script.includes(
+        "if grep -q '^Error: Reached max turns' /agent-kit/logs/agent.err; then echo 'agent-kit-deep-scan: Claude Code reached its turn limit'; fi",
+      ),
+      script,
+    );
+    assert.ok(script.endsWith('\nexit "$status"'), script);
+  });
+
+  it("the token cap: the proxy refuses past it, the agent step stops, the report is marked Stopped: tokens", async () => {
+    const api = await fakeModelApi();
+    try {
+      // Each answer reports 3 + 5 tokens: the second crosses a cap of 10.
+      const res = await run(recipeRepo(VALID), ["--max-tokens", "10"], {
+        host: reportingHost({ "~--bare": { status: 0, model: 3 } }),
+        modelApi: api.url,
+      });
+      assert.equal(res.code, 3, res.text);
+      assert.equal(api.seen.length, 2, "the request past the cap never reached the model API");
+      assert.deepEqual(modelProbes(res.host).slice(0, 2), [
+        ["messages", 200],
+        ["messages", 200],
+      ]);
+      assert.match(res.err, /Stopped: tokens \(the run's 10-token cap\)/);
+      assert.match(res.out, /counted 16 of the 10-token cap, and refused 1 request\(s\) past it/);
+      assert.ok(reportOf(res).includes("- **Finding count:** 1\n- **Stopped:** tokens\n"));
+      assert.equal(removed(lifecycle(res)).length, 4);
+    } finally {
+      await api.close();
+    }
+  });
+
+  it("a stop with no report: only a status naming the limit, no report file, exit 3", async () => {
+    const timers = fakeTimers();
+    const res = await run(recipeRepo(VALID), [], {
+      host: gvisorWith({
+        "~set -eu": { hang: true },
+        "cp agent-kit-deep-": {
+          status: 1,
+          stderr: "Error response from daemon: Could not find the file /agent-kit/out/report.md\n",
+        },
+      }),
+      timers,
+      onSpawn: fireOn(timers, 60 * MINUTE, (cmd, args) => cmd === "docker" && isAgentStep(args)),
+    });
+    assert.equal(res.code, 3, res.text);
+    assert.match(
+      res.out,
+      /Stopped: wall clock \(the scan phase's 60-minute limit\)\. No report came out: nothing was written, filed or posted\./,
+    );
+    assert.deepEqual(readdirSync(res.reportDir), []);
+    assert.doesNotMatch(res.text, /FAILED|Report: /);
+    assert.equal(removed(lifecycle(res)).length, 4);
+  });
+
+  it("removes a Stopped: line the agent wrote itself, when no limit fired", async () => {
+    const forged = HEADER_REPORT.replace(
+      "- **Finding count:** 1\n",
+      "- **Finding count:** 1\n- **Stopped:** tokens\n",
+    );
+    const res = await run(recipeRepo(VALID), [], {
+      host: gvisorWith({ "cp agent-kit-deep-": { status: 0, base64: reportTar(forged) } }),
+    });
+    assert.equal(res.code, 0, res.text);
+    assert.equal(reportOf(res), HEADER_REPORT);
+  });
+
+  it("on Docker Sandboxes too: the scan wall clock stops the agent step, and the sandbox is removed", async () => {
+    const timers = fakeTimers();
+    const res = await run(recipeRepo(VALID), [], {
+      host: sbxHost({ "~--bare": { hang: true } }),
+      timers,
+      onSpawn: fireOn(
+        timers,
+        60 * MINUTE,
+        (cmd, args) =>
+          cmd === "sbx" && args.some((a) => typeof a === "string" && a.includes("--bare")),
+      ),
+    });
+    assert.equal(res.code, 3, res.text);
+    assert.ok(reportOf(res).includes("- **Stopped:** wall clock"), reportOf(res));
+    assert.ok(
+      sbxCalls(res).some((a) => a[0] === "rm"),
+      "the sandbox is removed",
+    );
+  });
+});
+
+describe("the Stopped: line goes where report-format.md puts it", () => {
+  const at = (text, limit) => withStopped(Buffer.from(text, "latin1"), limit).toString("latin1");
+
+  it("keeps CRLF line ends", () => {
+    const crlf = HEADER_REPORT.replace(/\n/g, "\r\n");
+    assert.ok(at(crlf, "turns").includes("- **Finding count:** 1\r\n- **Stopped:** turns\r\n"));
+  });
+
+  it("goes after the heading when the agent wrote no Finding count yet, and first when it wrote no heading", () => {
+    assert.equal(
+      at("## Security audit report\n\n- **Mode:** deep\n", "tokens"),
+      "## Security audit report\n\n- **Stopped:** tokens\n\n- **Mode:** deep\n",
+    );
+    assert.equal(at("notes so far\n", "wall clock"), "- **Stopped:** wall clock\n\nnotes so far\n");
+  });
+
+  it("leaves every other byte alone, even bytes that are not UTF-8", () => {
+    const bytes = Buffer.concat([Buffer.from(HEADER_REPORT), Buffer.from([0xff, 0xfe, 0x0a])]);
+    const out = withStopped(bytes, "turns");
+    assert.equal(out.length, bytes.length + "- **Stopped:** turns\n".length);
+    assert.deepEqual(out.subarray(-3), Buffer.from([0xff, 0xfe, 0x0a]));
+    assert.equal(withStopped(bytes, null), bytes, "no limit and no forged line: the same bytes");
+  });
+});
+
+/**
+ * A fake model API whose every answer is `answer(req, res)`, recording what
+ * it was sent. Only on 127.0.0.1.
+ */
+async function answeringApi(answer) {
+  const seen = [];
+  const server = createHttpServer((req, res) => {
+    seen.push({ url: req.url, headers: req.headers });
+    req.resume();
+    req.on("end", () => answer(req, res));
+  });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  return {
+    url: `http://127.0.0.1:${server.address().port}`,
+    seen,
+    close: () => new Promise((r) => server.close(r)),
+  };
+}
+
+/** A proxy in front of `api`, with a cap; `capped` counts its onCap calls. */
+async function cappedProxy(api, maxTokens) {
+  const capped = { n: 0 };
+  const proxy = await startModelProxy({
+    credential: REAL_KEY,
+    bind: "127.0.0.1",
+    upstream: api.url,
+    maxTokens,
+    onCap: () => {
+      capped.n += 1;
+    },
+  });
+  const post = async (path = "/v1/messages") => {
+    const r = await fetch(`http://127.0.0.1:${proxy.port}${path}`, {
+      method: "POST",
+      headers: { "x-api-key": PLACEHOLDER, "accept-encoding": "gzip, br" },
+      body: "{}",
+    });
+    return { status: r.status, text: await r.text() };
+  };
+  return { proxy, capped, post };
+}
+
+const USAGE_ALL = {
+  input_tokens: 10,
+  cache_creation_input_tokens: 20,
+  cache_read_input_tokens: 30,
+  output_tokens: 40,
+};
+
+describe("the model proxy holds the token cap, counting the model API's returned usage", () => {
+  it("counts input, output, cache-creation and cache-read tokens from a JSON answer", async () => {
+    const api = await answeringApi((req, res) => {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ type: "message", usage: USAGE_ALL }));
+    });
+    const { proxy, post } = await cappedProxy(api, 1000);
+    try {
+      assert.equal((await post()).status, 200);
+      assert.equal((await post()).status, 200);
+      assert.equal(proxy.tokens(), 200);
+      // The proxy asks for a plain body, whatever the sandbox asked for.
+      assert.equal(api.seen[0].headers["accept-encoding"], "identity");
+    } finally {
+      await proxy.close();
+      await api.close();
+    }
+  });
+
+  it("counts a stream's usage once: message_start's, then message_delta's cumulative output", async () => {
+    const api = await answeringApi((req, res) => {
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      const start = JSON.stringify({
+        type: "message_start",
+        message: {
+          usage: { input_tokens: 10, cache_read_input_tokens: 5, output_tokens: 1 },
+        },
+      });
+      // Lines split across writes, as a network splits them.
+      res.write(`event: message_start\ndata: ${start.slice(0, 20)}`);
+      setTimeout(() => {
+        res.write(
+          `${start.slice(20)}\n\nevent: message_delta\ndata: {"type":"message_delta","usage":{"output_tokens":12}}\n\n`,
+        );
+        res.end(
+          `event: message_delta\ndata: {"type":"message_delta","usage":{"output_tokens":30}}\n\n`,
+        );
+      }, 5);
+    });
+    const { proxy, post } = await cappedProxy(api, 1000);
+    try {
+      assert.equal((await post()).status, 200);
+      assert.equal(proxy.tokens(), 10 + 5 + 30);
+    } finally {
+      await proxy.close();
+      await api.close();
+    }
+  });
+
+  it("counts a compressed answer too, though it asked for none", async () => {
+    const api = await answeringApi((req, res) => {
+      res.writeHead(200, { "content-type": "application/json", "content-encoding": "gzip" });
+      res.end(gzipSync(JSON.stringify({ usage: USAGE_ALL })));
+    });
+    const { proxy, post } = await cappedProxy(api, 1000);
+    try {
+      await post();
+      assert.equal(proxy.tokens(), 100);
+    } finally {
+      await proxy.close();
+      await api.close();
+    }
+  });
+
+  it("delivers the answer that crosses the cap, then refuses every request, telling the launcher once", async () => {
+    const api = await answeringApi((req, res) => {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ usage: USAGE_ALL }));
+    });
+    const { proxy, capped, post } = await cappedProxy(api, 150);
+    try {
+      assert.equal((await post()).status, 200); // 100 counted
+      assert.equal((await post()).status, 200); // 200: past the cap, delivered
+      assert.equal(capped.n, 0);
+      const refused = await post();
+      assert.equal(refused.status, 403);
+      assert.deepEqual(JSON.parse(refused.text).error.type, "permission_error");
+      assert.match(JSON.parse(refused.text).error.message, /token cap \(150\) is reached/);
+      assert.equal((await post()).status, 403);
+      assert.equal(capped.n, 1);
+      assert.equal(api.seen.length, 2, "nothing past the cap reaches the model API");
+      assert.match(
+        proxy.summary(),
+        /counted 200 of the 150-token cap, and refused 2 request\(s\) past it$/,
+      );
+    } finally {
+      await proxy.close();
+      await api.close();
+    }
+  });
+
+  it("refuses the batch and legacy completion paths, whose spend no answer's usage shows", async () => {
+    const api = await answeringApi((req, res) => res.writeHead(200).end("{}"));
+    const { proxy, post } = await cappedProxy(api, 1000);
+    try {
+      for (const path of [
+        "/v1/messages/batches",
+        "/v1/messages/batches/x/results",
+        "/v1/complete",
+      ]) {
+        assert.equal((await post(path)).status, 403, path);
+      }
+      assert.equal((await post("/v1/messages/count_tokens")).status, 200);
+      assert.equal(api.seen.length, 1);
+    } finally {
+      await proxy.close();
+      await api.close();
+    }
+  });
+});
+
+describe("the limits docs", () => {
+  const section = (page, heading) => {
+    const at = page.indexOf(`\n## ${heading}\n`);
+    assert.ok(at >= 0, `the page has ## ${heading}`);
+    const next = page.indexOf("\n## ", at + 1);
+    return page.slice(at, next < 0 ? undefined : next);
+  };
+
+  it("give each limit, its default, its option, what enforces it, and the backstops", () => {
+    const page = readFileSync(join(import.meta.dirname, "..", "docs", "security-audit.md"), "utf8");
+    const text = section(page, "Limits");
+    for (const fact of [
+      "--setup-minutes <n>",
+      "--scan-minutes <n>",
+      "--max-turns <n>",
+      "--max-tokens <n>",
+      "20 min",
+      "60 min",
+      "200",
+      "5,000,000",
+      "never sets a limit",
+      "cache-read input",
+      "- **Stopped:** wall clock | turns | tokens",
+      "exits 3",
+      "No report came out: nothing was written, filed or posted.",
+      "spend limit",
+      "the proxy's token cap is the only spend lever",
+      "timeout-minutes",
+    ]) {
+      assert.ok(text.includes(fact), `Limits says ${fact}`);
+    }
+  });
+
+  it("are named by the CLI README, with every limit option", () => {
+    const readme = readFileSync(join(import.meta.dirname, "..", "cli", "README.md"), "utf8");
+    assert.ok(readme.includes("../docs/security-audit.md#limits"));
+    for (const flag of ["--setup-minutes", "--scan-minutes", "--max-turns", "--max-tokens"]) {
+      assert.ok(readme.includes(flag), `cli/README.md names ${flag}`);
     }
   });
 });

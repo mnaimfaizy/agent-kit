@@ -1,8 +1,9 @@
 // Argument parsing and dispatch. Exit codes: 0 ok, 1 a check failed (or a
 // warning under --strict, the tag or the change was refused, or deep-scan
 // refused, or a sandbox step failed), 2 usage error (including a missing
-// answer when there is no terminal to ask on), 130 or 143 deep-scan was
-// interrupted by SIGINT or SIGTERM (after tearing the sandbox down).
+// answer when there is no terminal to ask on), 3 a deep-scan limit stopped
+// the run (after copying out any report and tearing the sandbox down), 130
+// or 143 deep-scan was interrupted by SIGINT or SIGTERM (likewise).
 
 import { parseArgs } from "node:util";
 import { runDeepScan } from "./deep-scan.mjs";
@@ -38,7 +39,8 @@ Commands:
              default branch's tip, setup with egress only to the recipe's
              registries, network cut, the real Claude Code behind a
              key-injecting model proxy on this machine (its only route
-             out), copy-out of the report only, and teardown.
+             out), copy-out of the report only, and teardown. Every run
+             is bounded by wall clocks, a turn limit and a token cap.
 
 Options for doctor:
   --ci            Check only Kit-owned paths and uses: pins (no gh needed).
@@ -74,6 +76,14 @@ Options for deep-scan:
                           op run can fill) or an op:// reference, read with
                           op read. Never the key itself. It stays outside
                           the sandbox, in the model proxy.
+  --setup-minutes <n>     The setup wall clock: image to agent step
+                          (default 20).
+  --scan-minutes <n>      The scan wall clock: the agent step (default 60).
+  --max-turns <n>         Claude Code's turn limit (default 200).
+  --max-tokens <n>        The model proxy's token cap for the run, counting
+                          input, output and cache tokens (default 5000000).
+                          A limit that fires stops the run, copies out its
+                          report with a Stopped: line, and exits 3.
 
 Options for upgrade:
   --tag <vY>      The Agent-kit tag to move to (asked for when missing).
@@ -101,7 +111,15 @@ const COMMAND_OPTIONS = {
     "force",
   ],
   upgrade: ["tag", "from", "yes", "force"],
-  "deep-scan": ["recipe", "default-branch", "credential-from"],
+  "deep-scan": [
+    "recipe",
+    "default-branch",
+    "credential-from",
+    "setup-minutes",
+    "scan-minutes",
+    "max-turns",
+    "max-tokens",
+  ],
 };
 
 /**
@@ -119,15 +137,16 @@ const COMMAND_OPTIONS = {
  *   signals?: { on: Function, off: Function },
  *   reportDir?: string,
  *   modelApi?: string,
+ *   timers?: { setTimeout: Function, clearTimeout: Function },
  *   openTag?: Function,
  *   openRepo?: Function,
  *   prompt?: ((question: string) => Promise<string>) | null,
  * }} io  `prompt` is null (or absent) when there is no terminal to ask on.
  *   Without `runner`, each command runs through its own allowlist
  *   (`runnerFor`); `spawn` and `spawnAsync` replace only the process
- *   boundary behind it. `platform`, `env`, `fetch`, `signals`, `reportDir`
- *   and `modelApi` (default the host's, and the real model API) are for
- *   tests, never flags.
+ *   boundary behind it. `platform`, `env`, `fetch`, `signals`, `reportDir`,
+ *   `modelApi` and `timers` (default the host's, the real model API and
+ *   the real clock) are for tests, never flags.
  * @returns {Promise<number>} exit code
  */
 export async function main(argv, io) {
@@ -156,6 +175,10 @@ export async function main(argv, io) {
         "threat-pack-dir": { type: "string" },
         recipe: { type: "string" },
         "credential-from": { type: "string" },
+        "setup-minutes": { type: "string" },
+        "scan-minutes": { type: "string" },
+        "max-turns": { type: "string" },
+        "max-tokens": { type: "string" },
         yes: { type: "boolean", short: "y" },
         force: { type: "boolean" },
         help: { type: "boolean", short: "h" },
@@ -229,12 +252,19 @@ export async function main(argv, io) {
       recipePath: values.recipe,
       defaultBranch: values["default-branch"],
       credentialFrom: values["credential-from"],
+      limitFlags: {
+        "setup-minutes": values["setup-minutes"],
+        "scan-minutes": values["scan-minutes"],
+        "max-turns": values["max-turns"],
+        "max-tokens": values["max-tokens"],
+      },
       ...(io.platform !== undefined ? { platform: io.platform } : {}),
       ...(io.env !== undefined ? { env: io.env } : {}),
       ...(io.fetch !== undefined ? { fetch: io.fetch } : {}),
       ...(io.signals !== undefined ? { signals: io.signals } : {}),
       ...(io.reportDir !== undefined ? { reportDir: io.reportDir } : {}),
       ...(io.modelApi !== undefined ? { modelApi: io.modelApi } : {}),
+      ...(io.timers !== undefined ? { timers: io.timers } : {}),
       out: stdout,
       err: stderr,
     });
