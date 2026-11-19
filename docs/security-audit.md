@@ -75,3 +75,63 @@ The Caller owns:
 - for `pr` mode, the head SHA, base SHA, base ref, and PR number
 
 Triage and response happen after delivery using the shipped skills.
+
+## Scan recipe
+
+A Deep scan needs a **Scan recipe**: one Consumer-owned YAML file, beside the Threat pack and not in it, that says how to build, start and seed your app and what the scan may probe. Agent-kit supplies everything else (the image layering, the sandbox, the network policy, the proxy, the limits and the teardown). The Threat pack is unchanged, so a static-only Consumer never needs a recipe.
+
+- **Where it lives.** `.security/scan-recipe.yml` by default. Pass `agent-kit deep-scan --recipe <path>` (relative to the repository root) to keep it elsewhere, as the Caller's Threat pack paths do.
+- **Which copy is read.** The copy committed on the default branch (origin's HEAD, else `main`), as your checkout has that branch. Never the working tree, the checked-out branch or uncommitted changes, and never anything from issue or pull request text. Treat it like a Caller workflow: it says what runs.
+- **No recipe, no scan.** With no recipe, or an invalid one, `agent-kit deep-scan` refuses, lists every problem with its field, points here, and exits 1. It never falls back to a `full` audit.
+
+```yaml
+image: node:22-bookworm # or dockerfile: docker/scan.Dockerfile, never both
+setup: # run before the agent enters, with egress limited to registries
+  - npm ci
+registries: # the setup phase's egress allowlist; [] for none
+  - registry.npmjs.org
+start: # start the services as processes in the one sandbox
+  - npm run start &
+ready: # confirm they are up
+  - curl --fail http://localhost:3000/health
+seed: # optional
+  - npm run seed
+entry_points: # what the scan may probe, each with a one-line note
+  - url: http://localhost:3000/
+    note: The web app, signed in or not.
+  - command: node bin/cli.js
+    note: The CLI, with any arguments.
+fixtures: # test users, roles and similar, with fake values only; [] for none
+  - user: alice
+    password: fake-password-1
+    role: admin
+grounding: # optional: sources setup fetches before the agent enters
+  - https://example.com/framework-security.md
+notes: # what stays static-only, so a report never implies it was exercised
+  - The GitHub workflows stay static-only.
+```
+
+| Field          | Required                                                   | Holds                                                                                        |
+| -------------- | ---------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `image`        | one of `image` and `dockerfile`                            | A base image. Agent-kit layers a pinned Claude Code on top.                                  |
+| `dockerfile`   | one of `image` and `dockerfile`                            | A Dockerfile's path in the repository. Not a compose file.                                   |
+| `setup`        | yes (`[]` for none)                                        | Commands run before the agent enters, without the agent or the model credential.             |
+| `registries`   | yes (`[]` for none)                                        | Hosts the setup phase may reach. The network is cut after setup.                             |
+| `start`        | with `ready`; optional when every entry point is a command | Commands that start the services as processes inside the one sandbox.                        |
+| `ready`        | with `start`                                               | Commands that confirm the services are up.                                                   |
+| `seed`         | no                                                         | Commands that load test data.                                                                |
+| `entry_points` | yes, at least one                                          | Each one of `url` (http or https), `port` (1 to 65535) or `command`, with a one-line `note`. |
+| `fixtures`     | yes (`[]` for none)                                        | Mappings of test users, roles and similar. Fake values only.                                 |
+| `grounding`    | no                                                         | URLs or repository paths that `setup` fetches, since the agent has no web access.            |
+| `notes`        | yes                                                        | A line or a list of lines: what stays static-only.                                           |
+
+A command field takes one command or a list of them. Lists are block lists, one `- item` per line; only an empty `[]` may be written inline.
+
+The recipe never holds:
+
+- **Limits.** Time, turn and token limits come from `deep-scan`'s options or the deep-scan workflow's inputs, so a merged recipe change cannot raise a run's spend. A key such as `limits`, `max_turns`, `tokens` or `setup_timeout` is refused.
+- **A compose file, sibling containers or the Docker socket.** Services share the one sandbox and its one boundary. A `compose` or `services` key, a compose file as `dockerfile`, a command that starts a container (`docker`, `podman`), and any mention of `docker.sock` are refused.
+- **A real credential.** Values shaped like a GitHub, Anthropic, AWS or Slack token, or a private key, are refused anywhere in the recipe.
+- **Anything else.** An unknown key, or a key given twice, is refused.
+
+`agent-kit doctor` reports whether `.security/scan-recipe.yml` is in your working tree and, if so, whether it is valid (a warning when it is not; having none passes). Today `agent-kit deep-scan` stops once the recipe is valid, with exit 0: the runtime, sandbox, proxy and scan stages are not built yet.

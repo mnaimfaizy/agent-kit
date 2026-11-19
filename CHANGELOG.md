@@ -6,6 +6,10 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
+### Added
+
+- `agent-kit deep-scan` starts the Deep scan launcher with its first stage: it reads and validates the **Scan recipe** ([#367](https://github.com/mnaimfaizy/agent-kit/issues/367), part of [#362](https://github.com/mnaimfaizy/agent-kit/issues/362)). The recipe lives at `.security/scan-recipe.yml` (or `--recipe <path>`) and is read as committed on the default branch, never from the working tree. It names an `image` or a `dockerfile`, `setup`, `registries`, `start` and `ready` (optional when every entry point is a command), an optional `seed`, `entry_points` each with a one-line note, `fixtures` with fake values, optional `grounding`, and `notes`. Limits, compose files, sibling containers, the Docker socket, real-looking credentials and unknown keys are refused. With no recipe or an invalid one, `deep-scan` lists every problem, points to the [recipe format](docs/security-audit.md#scan-recipe) and exits 1, with no fallback to `full`; a valid recipe exits 0, as the later stages are not built yet. `doctor` gains a `Scan recipe` check: none passes, an invalid one warns. **Consumer action:** none; a static-only Consumer needs no recipe.
+
 ### Fixed
 
 - `prepare-release.sh` no longer rewrites the `release:` field of [Deprecation register](docs/deprecations.yml) entries when it bumps the previous tag's pins ([#361](https://github.com/mnaimfaizy/agent-kit/issues/361)). That field is the release each rename shipped in, so the bump left the register claiming the previous release's renames shipped in the new one, and a re-run of `prepare` could list them in the new release's notes. The register is now history, like the CHANGELOG and the ADRs. **Consumer action:** none.
