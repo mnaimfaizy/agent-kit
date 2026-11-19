@@ -160,6 +160,20 @@ describe("SKILL.md: the heartbeat", () => {
   });
 });
 
+describe("SKILL.md step 5: a wave the human starts", () => {
+  const step5 = section(SKILL, "### 5. Dispatch a wave");
+
+  it("Done when allows a Delegation waiting on the human to start it", () => {
+    const done = step5.split("\n").find((l) => l.startsWith("**Done when:**"));
+    assert.match(done, /is running, with its handle on the board/);
+    assert.match(done, /`waiting` on the human to start it/);
+  });
+
+  it("names the turn that finds the session as the one that records its handle", () => {
+    assert.match(step5, /the turn that finds the session records its handle/);
+  });
+});
+
 describe("RUN.md", () => {
   it("the board records the heartbeat", () => {
     // The board's example opens with a `# Run` heading inside its fence, which ends `section`.
