@@ -130,7 +130,7 @@ For procedure skills such as `implement`, `tdd`, and `wayfinder`, adopt **[Matt 
 | [Plan → implement → review](docs/plan-implement-review.md) | Labels, Verified plan, implementer and reviewer contracts                                |
 | [Review response](docs/review-response.md)                 | `address-pr-review` run by you or in CI; manual and auto mode, refusals, resolution rule |
 | [QA](docs/qa.md)                                           | `qa-plan` → `manual-qa` handoff, `qa.config.yml`, host rule, QA Accounts, Hazard packs   |
-| [Orchestrate](docs/orchestrate.md)                         | Run a set of issues or a spec through other sessions; Dispatch Plan, run state, config   |
+| [Orchestrate](docs/orchestrate.md)                         | Run issues or a spec through other sessions, alone or as a Team Run; plan, state, config |
 | [Workflow reference](docs/reference.md)                    | Every input, secret, and required permission (generated)                                 |
 | [Security model](docs/security-model.md)                   | Public-log rule, trust boundaries, runner controls                                       |
 | [Repository hardening](docs/repository-hardening.md)       | Rulesets for the default branch, release branches and release tags                       |

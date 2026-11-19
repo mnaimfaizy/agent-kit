@@ -69,3 +69,18 @@ ready_to_merge: # what Ready to Merge needs beyond green CI and a clean merge
 spec: # read only by `/orchestrate --spec <n>`
   landing: ask # ask (the Dispatch Plan asks) | integration-branch | per-ticket
   integration_branch: orchestrate/spec-<n> # integration branch name; <n> is the spec's number; kept local unless you say yes
+
+# Read only by a Team Run (`/orchestrate --spec <n> --team`): teammates each run
+# their own Chief of Staff over the spec's tickets assigned to them, with a
+# Shared Board on the tracker. A run without `--team` reads neither key.
+tracker: detect # detect (from the git remote's host: github.com, gitlab.com) | github | gitlab; pin it for any other host
+
+team: # read only by a Team Run
+  labels: # the state label for each of the six coarse states; give all six or leave `labels` out
+    planned: "team: planned" # in the plan, not started
+    parked: "team: parked" # waiting for a blocker's pull request to merge
+    running: "team: running" # its Delegation is working
+    waiting: "team: waiting" # waiting on a decision
+    ready_to_merge: "team: ready to merge" # Ready to Merge
+    merged: "team: merged" # its pull request is merged
+  recent_activity: 5 # milestones a Shared Board row keeps in its Recent activity list
