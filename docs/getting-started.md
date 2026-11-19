@@ -234,7 +234,7 @@ npx @mnaimfaizy/agent-kit doctor
 
 It reads the tag from your Callers' `uses:` pins and fetches that tag from GitHub. Each check reports **fail**, **warn** or **skipped**; the run exits 1 on any fail, and `--strict` turns warnings into failures too. A check it had no permission to run (for example the Claude GitHub App on a personal account, whose installations GitHub does not show to a `gh` login) is reported as skipped, never as passed. The full list of checks is in [Adopt](adopt.md#check-an-adoption-with-doctor).
 
-`doctor --ci` runs only the checks that need no GitHub login: the Kit-owned paths match the pinned tag, and every `uses:` pin agrees. It is also what `doctor` falls back to when your `gh` login is not an admin. Add it as a check on pull requests that touch the kit, so a pin bump without a re-copy fails before it merges:
+`doctor --ci` runs only the checks that need no GitHub login: the Kit-owned paths match the pinned tag, every `uses:` pin agrees, and the [Scan recipe](security-audit.md#scan-recipe), if you have one, is valid. It is also what `doctor` falls back to when your `gh` login is not an admin. Add it as a check on pull requests that touch the kit, so a pin bump without a re-copy fails before it merges:
 
 ```yaml
 name: agent-kit doctor
