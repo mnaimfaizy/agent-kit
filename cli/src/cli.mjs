@@ -84,6 +84,15 @@ Options for deep-scan:
                           input, output and cache tokens (default 5000000).
                           A limit that fires stops the run, copies out its
                           report with a Stopped: line, and exits 3.
+  --model <id>            The Claude model the agent runs on, a plain id
+                          such as claude-opus-5-5 (default: Claude Code's).
+  --report <path>         Write the report to this new file, in a folder
+                          that exists (default: report.md in a new private
+                          folder under your temporary folder). The CI
+                          workflow's delivery steps read it from there.
+In GitHub Actions (GITHUB_ACTIONS=true) deep-scan keeps the Public-log
+rule: it prints nothing the scan shaped (Claude Code's error output, the
+model proxy's refusals), since the Actions log is world-readable.
 
 Options for upgrade:
   --tag <vY>      The Agent-kit tag to move to (asked for when missing).
@@ -119,6 +128,8 @@ const COMMAND_OPTIONS = {
     "scan-minutes",
     "max-turns",
     "max-tokens",
+    "model",
+    "report",
   ],
 };
 
@@ -179,6 +190,8 @@ export async function main(argv, io) {
         "scan-minutes": { type: "string" },
         "max-turns": { type: "string" },
         "max-tokens": { type: "string" },
+        model: { type: "string" },
+        report: { type: "string" },
         yes: { type: "boolean", short: "y" },
         force: { type: "boolean" },
         help: { type: "boolean", short: "h" },
@@ -252,6 +265,8 @@ export async function main(argv, io) {
       recipePath: values.recipe,
       defaultBranch: values["default-branch"],
       credentialFrom: values["credential-from"],
+      model: values.model,
+      reportPath: values.report,
       limitFlags: {
         "setup-minutes": values["setup-minutes"],
         "scan-minutes": values["scan-minutes"],

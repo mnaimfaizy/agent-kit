@@ -3608,3 +3608,119 @@ describe("the limits docs", () => {
     }
   });
 });
+
+describe("the CI path: the model, a known report path, and a public log", () => {
+  it("passes --model on to Claude Code, and runs with Claude Code's own default without it", async () => {
+    const res = await run(recipeRepo(VALID), ["--model", "claude-opus-5-5"]);
+    assert.equal(res.code, 0, res.text);
+    assert.match(agentCall(lifecycle(res)).at(-1), / --model claude-opus-5-5 /);
+    const plain = await run(recipeRepo(VALID));
+    assert.equal(plain.code, 0, plain.text);
+    assert.doesNotMatch(agentCall(lifecycle(plain)).at(-1), / --model /);
+  });
+
+  it("refuses a --model that is not a plain model id, running nothing", async () => {
+    for (const model of [
+      "claude-opus-5-5 --dangerously-skip-permissions",
+      "",
+      "-x",
+      "a\nb",
+      "a'b",
+    ]) {
+      const res = await run(recipeRepo(VALID), [`--model=${model}`]);
+      assert.equal(res.code, 2, `${JSON.stringify(model)}: ${res.text}`);
+      assert.match(res.err, /--model must be a plain model id/);
+      assert.deepEqual(res.calls, []);
+    }
+  });
+
+  it("writes the report to --report's new file, and nowhere else", async () => {
+    const dir = mkdtempSync(join(tmp, "ci-out-"));
+    const target = join(dir, "deep-report.md");
+    const res = await run(recipeRepo(VALID), ["--report", target]);
+    assert.equal(res.code, 0, res.text);
+    assert.equal(readFileSync(target, "utf8"), REPORT_TEXT);
+    assert.deepEqual(readdirSync(res.reportDir), []);
+    assert.ok(res.out.includes(`Report: ${target} (`), res.out);
+  });
+
+  it("refuses a --report that already exists or whose folder does not, before anything runs", async () => {
+    const dir = mkdtempSync(join(tmp, "ci-out-"));
+    const taken = join(dir, "taken.md");
+    writeFileSync(taken, "earlier report\n");
+    for (const [target, why] of [
+      [taken, /--report .* already exists/],
+      [join(dir, "missing", "report.md"), /--report .* folder .* does not exist/],
+    ]) {
+      const res = await run(recipeRepo(VALID), ["--report", target]);
+      assert.equal(res.code, 2, res.text);
+      assert.match(res.err, why);
+      assert.deepEqual(res.calls, []);
+    }
+    assert.equal(readFileSync(taken, "utf8"), "earlier report\n");
+  });
+
+  const IN_ACTIONS = { PATH: "/usr/bin", ANTHROPIC_API_KEY: REAL_KEY, GITHUB_ACTIONS: "true" };
+
+  it("in GitHub Actions, prints nothing the scan shaped: no agent error output, no refused host, no answer", async () => {
+    const api = await fakeModelApi();
+    try {
+      const host = gvisorWith({
+        "~--bare": {
+          status: 1,
+          model: true,
+          stderr: "Error: secret-finding-detail at src/app.js\n",
+        },
+      });
+      const res = await run(recipeRepo(VALID), [], { host, env: IN_ACTIONS, modelApi: api.url });
+      assert.equal(res.code, 1, res.text);
+      assert.deepEqual(modelProbes(host), [
+        ["messages", 200],
+        ["evil.example", 403],
+      ]);
+      for (const shaped of [
+        "secret-finding-detail",
+        "src/app.js",
+        "evil.example",
+        "answers:",
+        "x1",
+      ]) {
+        assert.ok(!res.text.includes(shaped), `the log holds ${shaped}:\n${res.text}`);
+      }
+      // What the launcher itself says still prints: the exit, the report, the teardown.
+      assert.match(res.err, /The agent step exited 1/);
+      assert.match(res.err, /Public-log rule/);
+      assert.match(res.out, /Model proxy: closed/);
+      assert.match(res.out, /Report: .*report\.md/);
+      assert.match(res.out, /Teardown: removed/);
+    } finally {
+      await api.close();
+    }
+  });
+
+  it("in GitHub Actions, gives no detail when the report cannot be copied out", async () => {
+    const link = tarOf([{ path: "report.md", data: Buffer.from("") }]);
+    link[156] = "2".charCodeAt(0);
+    const host = gvisorWith({
+      "cp agent-kit-deep-": { status: 0, base64: link.toString("base64") },
+    });
+    const res = await run(recipeRepo(VALID), [], { host, env: IN_ACTIONS });
+    assert.equal(res.code, 1, res.text);
+    assert.match(res.err, /FAILED {2}the report was not copied out/);
+    assert.doesNotMatch(res.text, /tar type|regular file/);
+  });
+
+  it("in GitHub Actions, still prints a failed setup step's own output, from before any probing", async () => {
+    const host = gvisorWith({ "~npm ci": { status: 1, stderr: "npm ERR! missing script\n" } });
+    const res = await run(recipeRepo(VALID), [], { host, env: IN_ACTIONS });
+    assert.equal(res.code, 1, res.text);
+    assert.match(res.err, /npm ERR! missing script/);
+  });
+
+  it("in GitHub Actions, says the workflow delivers the report, not the by-hand rule", async () => {
+    const res = await run(recipeRepo(VALID), [], { env: IN_ACTIONS });
+    assert.equal(res.code, 0, res.text);
+    assert.match(res.out, /Nothing was filed or posted by deep-scan/);
+    assert.doesNotMatch(res.out, /by-hand rule/);
+  });
+});

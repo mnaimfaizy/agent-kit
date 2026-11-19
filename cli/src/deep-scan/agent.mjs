@@ -284,9 +284,11 @@ export const AGENT_ENV = Object.freeze([
  * print mode, its brief on stdin, its own output kept in the sandbox (its
  * error output is passed on too), and TURNS_MARKER when it stopped at the
  * launcher's turn limit.
- * @param {{ baseUrl: string, report: string, workspace: string, maxTurns: number }} opts
+ * @param {{ baseUrl: string, report: string, workspace: string, maxTurns: number, model?: string }} opts
+ *   `model` is a plain model id, checked by the launcher; without it Claude
+ *   Code runs on its own default.
  */
-export function agentScript({ baseUrl, report, workspace, maxTurns }) {
+export function agentScript({ baseUrl, report, workspace, maxTurns, model }) {
   const args = [
     "claude",
     "--bare",
@@ -308,6 +310,7 @@ export function agentScript({ baseUrl, report, workspace, maxTurns }) {
     "--no-session-persistence",
     "--max-turns",
     String(maxTurns),
+    ...(model !== undefined ? ["--model", model] : []),
   ];
   const outDir = report.slice(0, report.lastIndexOf("/"));
   const logs = "/agent-kit/logs";

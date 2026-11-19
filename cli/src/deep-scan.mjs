@@ -13,7 +13,7 @@
 // bounded by the limits its flags set (deep-scan/limits.mjs).
 
 import { existsSync, lstatSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { firstLine } from "./exec.mjs";
 import { detectDefaultBranch, parseAnswer } from "./init.mjs";
 import { checkSafePath, UnsafePathError } from "./safe-paths.mjs";
@@ -42,6 +42,8 @@ const CREDENTIALS_DOCS_URL = `https://github.com/mnaimfaizy/agent-kit/blob/v${CL
  *   recipePath?: string,
  *   defaultBranch?: string,
  *   credentialFrom?: string,
+ *   model?: string,
+ *   reportPath?: string,
  *   limitFlags?: Record<string, string | undefined>,
  *   platform?: string,
  *   env?: Record<string, string | undefined>,
@@ -68,6 +70,8 @@ export async function runDeepScan({
   recipePath,
   defaultBranch,
   credentialFrom,
+  model,
+  reportPath,
   limitFlags = {},
   platform = process.platform,
   env = process.env,
@@ -91,6 +95,29 @@ export async function runDeepScan({
     if (!(e instanceof UnsafePathError)) throw e;
     err(`${e.message}; give a path relative to the repository root.`);
     return 2;
+  }
+
+  if (model !== undefined && !MODEL_ID.test(model)) {
+    err(
+      `--model must be a plain model id (letters, digits and . _ : @ / [ ] -), got: ${JSON.stringify(model)}`,
+    );
+    return 2;
+  }
+
+  // The CI workflow's delivery steps read the report from a path they name.
+  // Checked before anything runs, so a run never ends with nowhere to write.
+  let reportFile;
+  if (reportPath !== undefined) {
+    reportFile = resolve(cwd, reportPath);
+    if (existsSync(reportFile)) {
+      err(`--report ${reportFile} already exists; name a new file.`);
+      return 2;
+    }
+    const folder = dirname(reportFile);
+    if (!existsSync(folder) || !lstatSync(folder).isDirectory()) {
+      err(`--report ${reportFile}: its folder ${folder} does not exist.`);
+      return 2;
+    }
   }
 
   const bounds = parseLimits(limitFlags);
@@ -239,6 +266,7 @@ export async function runDeepScan({
   out(describeLimits(limits));
   return runLifecycle({
     limits,
+    ...(model !== undefined ? { model } : {}),
     timers,
     runner,
     credential: key.credential,
@@ -255,10 +283,21 @@ export async function runDeepScan({
     fetch,
     signals,
     ...(reportDir !== undefined ? { reportDir } : {}),
+    ...(reportFile !== undefined ? { reportFile } : {}),
+    // The Actions log is world-readable: in GitHub Actions nothing the scan
+    // shaped is printed (the Public-log rule). No CI caller can forget it.
+    publicLog: env.GITHUB_ACTIONS === "true",
     out,
     err,
   });
 }
+
+/**
+ * A model id as Claude Code's --model takes it, and nothing more: it goes
+ * into the agent step's command line, so no space, quote or leading dash.
+ * The same pattern as the static workflow's model input.
+ */
+const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:@/[\]-]*$/;
 
 /** Text with LF line ends, so a CRLF checkout of the same file compares equal. */
 const lf = (text) => text.replace(/\r\n?/g, "\n");

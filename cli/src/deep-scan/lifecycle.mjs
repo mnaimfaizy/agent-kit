@@ -57,6 +57,9 @@ export const MAX_REPORT_BYTES = 10 * 1024 * 1024;
 export const MAX_GROUNDING_BYTES = 10 * 1024 * 1024;
 const GROUNDING_TIMEOUT_MS = 60_000;
 
+/** Why a line is withheld from a world-readable log. */
+const PUBLIC_LOG = "the Public-log rule: this log is world-readable in GitHub Actions";
+
 /** How many lines of Claude Code's error output a failed agent step shows. */
 const AGENT_ERROR_LINES = 20;
 
@@ -102,12 +105,15 @@ const SETUP_ORDER = ["setup", "start", "ready", "seed"];
  *   recipeText: string,
  *   credential: string,
  *   limits: import("./limits.mjs").Limits,
+ *   model?: string,
  *   timers: { setTimeout: Function, clearTimeout: Function },
  *   modelApi?: string,
  *   platform: string,
  *   fetch: typeof globalThis.fetch,
  *   signals: { on: Function, off: Function },
  *   reportDir?: string,
+ *   reportFile?: string,
+ *   publicLog?: boolean,
  *   out: (s: string) => void,
  *   err: (s: string) => void,
  * }} opts
@@ -220,9 +226,12 @@ async function lifecycle({
   recipeText,
   credential,
   limits,
+  model,
   modelApi,
   fetch,
   reportDir,
+  reportFile,
+  publicLog = false,
   out,
   err,
   driver,
@@ -407,6 +416,7 @@ async function lifecycle({
         report: REPORT_PATH,
         workspace: WORKSPACE,
         maxTurns: limits.turns,
+        ...(model !== undefined ? { model } : {}),
       }),
       { env: [...AGENT_ENV] },
     );
@@ -420,10 +430,20 @@ async function lifecycle({
   }
   // The scan is over: no route out is left open while the report comes out.
   await driver.close();
-  out(`Model proxy: ${proxy?.summary() ?? "not started"}.`);
+  // The proxy's summary names what the agent sent: refused hosts and paths,
+  // and the model API's answers. A public log gets none of it.
+  out(
+    publicLog
+      ? `Model proxy: ${proxy ? "closed" : "not started"} (${PUBLIC_LOG}).`
+      : `Model proxy: ${proxy?.summary() ?? "not started"}.`,
+  );
   const stopped = clocks.stopped();
   if (stopped) {
     out(`${stoppedStatus(stopped)} Copying out what report the agent left.`);
+  } else if (agent && agent.status !== 0 && publicLog) {
+    err(
+      `The agent step exited ${agent.status ?? "abnormally"}; copying out what report it left. Claude Code's error output stays in the sandbox (${PUBLIC_LOG}); run deep-scan locally to see it.`,
+    );
   } else if (agent && agent.status !== 0) {
     const lines = agent.stderr
       .trimEnd()
@@ -457,19 +477,24 @@ async function lifecycle({
   }
   if ("error" in file) {
     throw new StepFailed([
-      `FAILED  the report was not copied out: ${file.error}.`,
+      publicLog
+        ? `FAILED  the report was not copied out (why stays out of the log: ${PUBLIC_LOG}).`
+        : `FAILED  the report was not copied out: ${file.error}.`,
       ...(stopped ? [stoppedStatus(stopped)] : []),
     ]);
   }
-  const dir = reportDir ?? mkdtempSync(join(tmpdir(), "agent-kit-deep-scan-"));
-  const path = join(dir, "report.md");
+  const path =
+    reportFile ??
+    join(reportDir ?? mkdtempSync(join(tmpdir(), "agent-kit-deep-scan-")), "report.md");
   // The launcher's Stopped: line, when a limit ended the run; never the agent's.
   writeFileSync(path, withStopped(file.data, stopped?.limit ?? null), { mode: 0o600, flag: "wx" });
   out(
     `Report: ${path} (the only file copied out of the sandbox${stopped ? `, partial: marked Stopped: ${stopped.limit}` : ""}).`,
   );
   out(
-    "Nothing was filed or posted. To file a draft advisory, follow the security-audit skill's by-hand rule.",
+    publicLog
+      ? "Nothing was filed or posted by deep-scan: in CI, the workflow's delivery steps file the report privately."
+      : "Nothing was filed or posted. To file a draft advisory, follow the security-audit skill's by-hand rule.",
   );
   if (stopped) return STOPPED_EXIT;
   return agent?.status === 0 ? 0 : 1;
