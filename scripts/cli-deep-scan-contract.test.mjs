@@ -2963,3 +2963,51 @@ describe("the credentials and how-to-run docs", () => {
     assert.match(res.err, /docs\/security-audit\.md#credentials/);
   });
 });
+
+describe("review fixes: the model proxy's path check and what it keeps from the sandbox", () => {
+  it("refuses a /v1/ path that walks out of /v1/ with dot segments, plain or encoded", async () => {
+    const api = await fakeModelApi();
+    const proxy = await startModelProxy({
+      credential: REAL_KEY,
+      bind: "127.0.0.1",
+      upstream: api.url,
+    });
+    try {
+      for (const path of [
+        "/v1/../api/oauth/profile",
+        "/v1/%2e%2e/api/x",
+        "/v1/.%2E/api/x",
+        "/v1/x%2f..%2fy",
+        "/v1/./messages",
+      ]) {
+        const answer = await rawRequest(
+          proxy.port,
+          `GET ${path} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n`,
+        );
+        assert.match(answer, /^HTTP\/1\.1 403/, path);
+      }
+      assert.equal(api.seen.length, 0);
+    } finally {
+      await proxy.close();
+      await api.close();
+    }
+  });
+
+  it("keeps at most five short refused entries, and counts them all", async () => {
+    const proxy = await startModelProxy({
+      credential: REAL_KEY,
+      bind: "127.0.0.1",
+      upstream: "http://127.0.0.1:9",
+    });
+    try {
+      for (let i = 0; i < 8; i++) {
+        await fetch(`http://127.0.0.1:${proxy.port}/api/${i}${"x".repeat(200)}`);
+      }
+      assert.equal(proxy.refused.length, 5);
+      assert.ok(proxy.refused.every((e) => e.length <= 80));
+      assert.match(proxy.summary(), /refused 8 \(.*, \.\.\.\)$/);
+    } finally {
+      await proxy.close();
+    }
+  });
+});

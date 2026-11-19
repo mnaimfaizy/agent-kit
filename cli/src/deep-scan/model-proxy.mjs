@@ -16,6 +16,10 @@ export const MODEL_API = "https://api.anthropic.com";
 /** Only the Messages API's paths are forwarded. */
 const MODEL_PATH = /^\/v1\//;
 
+/** How many distinct refused hosts or paths the summary keeps, and how long each. */
+const MAX_KEPT = 5;
+const MAX_ENTRY = 80;
+
 // Hop-by-hop headers (RFC 9110 7.6.1), the client's credentials, and the
 // Host, which is the model API's own.
 const DROPPED = new Set([
@@ -45,6 +49,13 @@ export async function startModelProxy({ credential, bind, upstream = MODEL_API }
   const target = new URL(upstream);
   const send = target.protocol === "https:" ? httpsRequest : httpRequest;
   const refused = [];
+  let refusedCount = 0;
+  // What the sandbox sends is untrusted: keep a few short entries, and a count.
+  const refuse = (what) => {
+    refusedCount += 1;
+    const entry = what.slice(0, MAX_ENTRY);
+    if (refused.length < MAX_KEPT && !refused.includes(entry)) refused.push(entry);
+  };
   /** @type {Map<string, number>} upstream status (or "error") to count */
   const statuses = new Map();
   let forwarded = 0;
@@ -59,15 +70,16 @@ export async function startModelProxy({ credential, bind, upstream = MODEL_API }
       try {
         host = new URL(raw).host;
       } catch {
-        host = raw.slice(0, 100);
+        host = raw;
       }
-      refused.push(host);
+      refuse(host);
       res.writeHead(403).end("deep-scan model proxy: only the model API is reachable\n");
       return;
     }
     const path = raw.split("?")[0];
-    if (!MODEL_PATH.test(path)) {
-      refused.push(path.slice(0, 100));
+    // No dot segment, plain or encoded, may walk the path out of /v1/.
+    if (!MODEL_PATH.test(path) || /(^|\/)(\.|%2e){1,2}(\/|$)|%2f|\\/i.test(path)) {
+      refuse(path);
       res.writeHead(403).end("deep-scan model proxy: only the model API's /v1/ paths\n");
       return;
     }
@@ -110,7 +122,7 @@ export async function startModelProxy({ credential, bind, upstream = MODEL_API }
   // A CONNECT tunnel would reach any host: refused.
   server.on("connect", (req, socket) => {
     socket.on("error", () => {});
-    refused.push((req.url ?? "").slice(0, 100));
+    refuse(req.url ?? "");
     socket.end("HTTP/1.1 403 Forbidden\r\n\r\n");
   });
   server.on("connection", (socket) => {
@@ -131,8 +143,9 @@ export async function startModelProxy({ credential, bind, upstream = MODEL_API }
       const parts = [
         `forwarded ${forwarded} request(s) to ${target.host}${byStatus ? ` (answers: ${byStatus})` : ""}`,
       ];
-      if (refused.length) {
-        parts.push(`refused ${refused.length} (${[...new Set(refused)].join(", ")})`);
+      if (refusedCount) {
+        const more = refusedCount > refused.length ? ", ..." : "";
+        parts.push(`refused ${refusedCount} (${refused.join(", ")}${more})`);
       }
       return parts.join("; ");
     },

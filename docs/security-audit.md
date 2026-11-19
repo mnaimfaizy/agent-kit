@@ -129,19 +129,19 @@ notes: # what stays static-only, so a report never implies it was exercised
   - The GitHub workflows stay static-only.
 ```
 
-| Field          | Required                                                   | Holds                                                                                        |
-| -------------- | ---------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `image`        | one of `image` and `dockerfile`                            | A base image. Agent-kit layers a pinned Claude Code on top.                                  |
-| `dockerfile`   | one of `image` and `dockerfile`                            | A Dockerfile's path in the repository. Not a compose file.                                   |
-| `setup`        | yes (`[]` for none)                                        | Commands run before the agent enters, without the agent or the model credential.             |
-| `registries`   | yes (`[]` for none)                                        | Hosts the setup phase may reach. The network is cut after setup.                             |
-| `start`        | with `ready`; optional when every entry point is a command | Commands that start the services as processes inside the one sandbox.                        |
-| `ready`        | with `start`                                               | Commands that confirm the services are up.                                                   |
-| `seed`         | no                                                         | Commands that load test data.                                                                |
-| `entry_points` | yes, at least one                                          | Each one of `url` (http or https), `port` (1 to 65535) or `command`, with a one-line `note`. |
-| `fixtures`     | yes (`[]` for none)                                        | Mappings of test users, roles and similar. Fake values only.                                 |
-| `grounding`    | no                                                         | URLs or repository paths that `setup` fetches, since the agent has no web access.            |
-| `notes`        | yes                                                        | A line or a list of lines: what stays static-only.                                           |
+| Field          | Required                                                   | Holds                                                                                               |
+| -------------- | ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `image`        | one of `image` and `dockerfile`                            | A base image. Agent-kit layers a pinned Claude Code on top.                                         |
+| `dockerfile`   | one of `image` and `dockerfile`                            | A Dockerfile's path in the repository. Not a compose file.                                          |
+| `setup`        | yes (`[]` for none)                                        | Commands run before the agent enters, without the agent or the model credential.                    |
+| `registries`   | yes (`[]` for none)                                        | Hosts the setup phase may reach. The network is cut after setup.                                    |
+| `start`        | with `ready`; optional when every entry point is a command | Commands that start the services as processes inside the one sandbox.                               |
+| `ready`        | with `start`                                               | Commands that confirm the services are up.                                                          |
+| `seed`         | no                                                         | Commands that load test data.                                                                       |
+| `entry_points` | yes, at least one                                          | Each one of `url` (http or https), `port` (1 to 65535) or `command`, with a one-line `note`.        |
+| `fixtures`     | yes (`[]` for none)                                        | Mappings of test users, roles and similar. Fake values only.                                        |
+| `grounding`    | no                                                         | URLs or repository paths `deep-scan` copies in before the agent enters, since it has no web access. |
+| `notes`        | yes                                                        | A line or a list of lines: what stays static-only.                                                  |
 
 A command field takes one command or a list of them; `start` and `ready`, when given, are not empty. Lists are block lists, one `- item` per line; only an empty `[]` may be written inline.
 
