@@ -15,6 +15,16 @@ export const DEFAULT_LIMITS = Object.freeze({
 });
 
 /**
+ * A Verification run's defaults (#372): confirm-only, so a shorter scan and
+ * fewer turns, the same setup clock and the same token cap.
+ */
+export const VERIFY_LIMITS = Object.freeze({
+  ...DEFAULT_LIMITS,
+  scanMinutes: 15,
+  turns: 50,
+});
+
+/**
  * The longest wall clock: what a timer can hold (2^31 - 1 ms, about 24
  * days). A longer one would fire at once.
  */
@@ -41,12 +51,13 @@ export const STOPPED_EXIT = 3;
  * A value that is not a positive number (a whole one for turns and tokens)
  * is a usage error.
  * @param {Record<string, string | undefined>} values  keyed by flag name
+ * @param {Limits} [defaults]  DEFAULT_LIMITS, or VERIFY_LIMITS for a Verification run
  * @returns {{ limits: Limits } | { error: string }}
  *
  * @typedef {{ setupMinutes: number, scanMinutes: number, turns: number, tokens: number }} Limits
  */
-export function parseLimits(values) {
-  const limits = { ...DEFAULT_LIMITS };
+export function parseLimits(values, defaults = DEFAULT_LIMITS) {
+  const limits = { ...defaults };
   for (const [key, { flag, whole, max }] of Object.entries(LIMIT_FLAGS)) {
     const raw = values[flag];
     if (raw === undefined) continue;

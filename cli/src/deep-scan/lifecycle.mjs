@@ -45,6 +45,7 @@ import { startModelProxy } from "./model-proxy.mjs";
 import { sbxDriver } from "./sbx-driver.mjs";
 import { ENDS_HERE, indent, Interrupted, outputLines, StepFailed } from "./steps.mjs";
 import { tarOf } from "./tar.mjs";
+import { checkVerificationReport, FINDINGS_PATH, verificationBrief } from "./verify.mjs";
 
 export { CLAUDE_CODE_VERSION, LABEL, layerDockerfile };
 
@@ -114,10 +115,21 @@ const SETUP_ORDER = ["setup", "start", "ready", "seed"];
  *   reportDir?: string,
  *   reportFile?: string,
  *   publicLog?: boolean,
+ *   target?: { name: string, commit: string },
+ *   verification?: Verification,
  *   out: (s: string) => void,
  *   err: (s: string) => void,
- * }} opts
+ * }} opts  `target` is the ref copied in as the repository, when it is not
+ *   the default branch's tip (`branch` and `commit`), which the grounding
+ *   and a recipe's Dockerfile still come from. `verification` makes the run
+ *   a Verification run (verify.mjs).
  * @returns {Promise<number>}
+ *
+ * @typedef {{
+ *   findings: import("./verify.mjs").Finding[],
+ *   data: Buffer,
+ *   procedure: string,
+ * }} Verification
  */
 export async function runLifecycle(opts) {
   const { runner, runtime, platform, out, err, signals } = opts;
@@ -232,6 +244,8 @@ async function lifecycle({
   reportDir,
   reportFile,
   publicLog = false,
+  target = { name: branch, commit },
+  verification,
   out,
   err,
   driver,
@@ -241,7 +255,7 @@ async function lifecycle({
   // The setup wall clock: from the image step until the agent step starts.
   clocks.begin("setup", limits.setupMinutes);
   // The committed bytes: no line-end conversion from the host's git config.
-  const archive = ({ prefix, paths } = {}, what) => {
+  const archive = ({ prefix, paths, ref = commit } = {}, what) => {
     const r = runner(
       "git",
       [
@@ -252,7 +266,7 @@ async function lifecycle({
         "archive",
         "--format=tar",
         ...(prefix ? [`--prefix=${prefix}`] : []),
-        commit,
+        ref,
         ...(paths ? ["--", ...paths] : []),
       ],
       { encoding: "buffer" },
@@ -273,12 +287,16 @@ async function lifecycle({
   out(`Sandbox: starting ${driver.container} on ${runtime.name}.`);
   await driver.start(steps);
 
-  // 3. Copy in: the trusted ref's tree, then the grounding, and nothing else.
+  // 3. Copy in: the trusted ref's tree (a Verification run's: the ref the
+  // maintainer named), then the grounding, and nothing else.
+  const targetShort = target.commit.slice(0, 12);
   await driver.copyIn(
-    archive({ prefix: "workspace/" }, `export ${branch} (${short})`),
+    archive({ prefix: "workspace/", ref: target.commit }, `export ${target.name} (${targetShort})`),
     "copying the repository in",
   );
-  out(`Copied in: ${branch} at ${short} (a git archive, not your working tree) to ${WORKSPACE}.`);
+  out(
+    `Copied in: ${target.name} at ${targetShort} (a git archive, not your working tree) to ${WORKSPACE}.`,
+  );
   const fetched = [];
   /** Each grounding source, and where the agent finds it. */
   const grounding = [];
@@ -384,25 +402,35 @@ async function lifecycle({
   );
 
   // 7. The agent step: Claude Code with a placeholder key, handed its brief.
-  const brief = agentBrief({
-    branch,
-    short,
-    recipePath,
-    recipeText,
-    handIn,
-    grounding,
-    paths: { workspace: WORKSPACE, grounding: GROUNDING_DIR, report: REPORT_PATH },
-  });
+  // A Verification run's finding file goes in with it, after the setup phase
+  // and the cut, so no setup step, which has registry egress, can read it.
+  const paths = { workspace: WORKSPACE, grounding: GROUNDING_DIR, report: REPORT_PATH };
+  const brief = verification
+    ? verificationBrief({
+        ref: target.name,
+        short: targetShort,
+        findings: verification.findings,
+        procedure: verification.procedure,
+        recipePath,
+        recipeText,
+        handIn,
+        grounding,
+        paths,
+      })
+    : agentBrief({ branch, short, recipePath, recipeText, handIn, grounding, paths });
   await driver.copyIn(
     tarOf([
       { path: "agent-kit", dir: true },
       { path: "agent-kit/in", dir: true },
       { path: BRIEF_PATH.slice(1), data: Buffer.from(brief, "utf8") },
+      ...(verification ? [{ path: FINDINGS_PATH.slice(1), data: verification.data }] : []),
     ]),
-    "copying the launcher's brief in",
+    verification
+      ? "copying the launcher's brief and the finding file in"
+      : "copying the launcher's brief in",
   );
   out(
-    `Agent step: Claude Code ${CLAUDE_CODE_VERSION} (--bare, web tools off, a placeholder key, at most ${limits.turns} turns), handed the deep procedure, the Threat pack and the Scan recipe.`,
+    `Agent step: Claude Code ${CLAUDE_CODE_VERSION} (--bare, web tools off, a placeholder key, at most ${limits.turns} turns), handed ${verification ? "the Verification-run procedure, the finding file" : "the deep procedure"}, the Threat pack and the Scan recipe.`,
   );
   clocks.end();
   // The scan wall clock: the agent step alone.
@@ -487,10 +515,42 @@ async function lifecycle({
     reportFile ??
     join(reportDir ?? mkdtempSync(join(tmpdir(), "agent-kit-deep-scan-")), "report.md");
   // The launcher's Stopped: line, when a limit ended the run; never the agent's.
-  writeFileSync(path, withStopped(file.data, stopped?.limit ?? null), { mode: 0o600, flag: "wx" });
+  const report = withStopped(file.data, stopped?.limit ?? null);
+  writeFileSync(path, report, { mode: 0o600, flag: "wx" });
   out(
     `Report: ${path} (the only file copied out of the sandbox${stopped ? `, partial: marked Stopped: ${stopped.limit}` : ""}).`,
   );
+  if (verification) {
+    // Locally only: --verify is refused in CI, so no public log sees this.
+    const { answers, problems } = checkVerificationReport(
+      report.toString("utf8"),
+      verification.findings,
+    );
+    if (answers.length) {
+      out(
+        [
+          "Verification:",
+          ...answers.map(
+            (a) =>
+              `  - ${a.conceptId}: Reproduced: ${a.reproduced} (${a.reproduced === "yes" ? "the fix does not hold" : "the fix holds"})`,
+          ),
+        ].join("\n"),
+      );
+    }
+    if (problems.length && !stopped) {
+      err(
+        [
+          "The report does not answer every given finding in the Verification-run variant:",
+          ...problems.map((p) => `  - ${p}`),
+        ].join("\n"),
+      );
+    }
+    out(
+      "Nothing was filed or posted. A Verification run's report stays on your machine: file no advisory, comment or ledger note from it.",
+    );
+    if (stopped) return STOPPED_EXIT;
+    return agent?.status === 0 && !problems.length ? 0 : 1;
+  }
   out(
     publicLog
       ? "Nothing was filed or posted by deep-scan: in CI, the workflow's delivery steps file the report privately."
