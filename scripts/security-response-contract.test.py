@@ -9,6 +9,9 @@ the gates on publishing, closing and requesting a CVE, and `close`: the
 preview, one ledger PR, `closing` → `closed`, the Row → line mapping and
 append only, not what they mean. What a sentence means is for review.
 It also keeps the retired status-format file gone, with nothing linking to it.
+The Deprecation register records that path too, but it matches only the full
+path: a relative link from inside the skill folder, or the file itself coming
+back, would pass it, so this test stays.
 """
 
 import re
@@ -198,7 +201,10 @@ def test_status_format_is_retired() -> None:
     linking = []
     for name in tracked.splitlines():
         path = ROOT / name
-        if name == "CHANGELOG.md" or name.startswith("scripts/security-response-contract") or not path.is_file():
+        history = name in ("CHANGELOG.md", "docs/deprecations.yml") or name.startswith(
+            "scripts/security-response-contract"
+        )
+        if history or not path.is_file():
             continue
         try:
             if RETIRED in path.read_text(encoding="utf-8"):
@@ -536,7 +542,11 @@ ROW_TO_LINE = {
     "Concept id": ["the row's final concept id"],
     "Status": ["`rejected`", "Evidence is `rejected` or `duplicate`", "`released <tag>`", "`fixed`", "`accepted-risk`"],
     "First seen": ["the Created date of the row's canonical advisory", "the triage date"],
-    "Advisory": ["the full GHSA id of the row's canonical advisory", "`n/a` for a `below-floor` row", "and for any row with no advisory (`none yet`)"],
+    "Advisory": [
+        "the full GHSA id of the row's canonical advisory",
+        "`n/a` for a `below-floor` row",
+        "and for any row with no advisory (`none yet`)",
+    ],
     "Notes": ["Proposed ledger row", "the public parts of the Record"],
 }
 
