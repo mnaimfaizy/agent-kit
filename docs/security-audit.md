@@ -178,4 +178,24 @@ Every refusal names the accepted runtimes and the CI path, and exits 1. There is
 - **A GitHub token in its environment.** `GH_TOKEN` or `GITHUB_TOKEN` (in any letter case) set to a value must never reach the sandbox. Unset them for the run, for example `env -u GH_TOKEN -u GITHUB_TOKEN npx @mnaimfaizy/agent-kit deep-scan`. The refusal names the variables, never their values.
 - **A `.env` that would be forwarded wholesale.** The sandbox gets a copy of the default branch's whole tree, so a committed `.env` or `.env.<name>` (such as `.env.local` or `config/.env.production`) would go in whole. The refusal lists them, never their contents. Templates (`.env.example`, `.env.sample`, `.env.template`, `.env.dist`, `.env.default`) are fine, and a `.env` that is only in your working tree is never copied in.
 
-Today `agent-kit deep-scan` stops once a runtime is chosen, with exit 0, before it starts anything: the sandbox, proxy and scan stages are not built yet.
+Once a runtime is chosen, `agent-kit deep-scan` runs the sandbox on it: see [What goes into and out of the sandbox](#what-goes-into-and-out-of-the-sandbox).
+
+## What goes into and out of the sandbox
+
+`agent-kit deep-scan` runs the sandbox from image to teardown on the runtime it chose. The agent step is a **stand-in** for now: it writes a placeholder report and runs no model, so the boundary is proven before a model is involved. The model-API proxy and the real scan come next. In order:
+
+1. **Image.** It pulls the recipe's `image`, or builds its `dockerfile` from the default branch's tree (sent to `docker build` as an archive, never your working tree). Then it layers a pinned Claude Code on top, installed with npm, so the image needs Node.js and npm. The Claude Code auto-updater is off, both by environment and by managed settings in `/etc/claude-code/`, which the repository's own project settings cannot override. A Dockerfile is built by your Docker engine's builder, outside the sandbox runtime, so treat it like the recipe: it is read from the default branch only.
+2. **Start.** It starts one sandbox with no mount of any host folder, no host environment variables, no Docker socket and no extra privilege (`no-new-privileges`), under the chosen runtime (`--runtime runsc`, for example).
+3. **Copy in.** Into the sandbox go only:
+   - an export of the default branch's tip (`git archive`), at `/workspace`: never the working tree, the checked-out branch, uncommitted or untracked files, or a pull request head, and never a mount;
+   - the recipe's `grounding`, at `/agent-kit/grounding`: repository paths as committed on the default branch, and URLs fetched by `deep-scan` on your machine, before the agent step.
+
+   Nothing else goes in: no GitHub token, SSH key, cloud config, home folder or `.env`, and no model credential.
+
+4. **Setup.** It runs `setup`, then `start` and `ready`, then `seed`, each command with `sh -c` in `/workspace`, with no agent and no model credential. Egress is limited to `registries`: the sandbox sits on a Docker network with no route out (`--internal`), and its only way out is a proxy that `deep-scan` runs on your machine, which forwards only to the listed hosts (a bare host allows ports 80 and 443; `host:port` or a URL names its port). With `registries: []` the sandbox has no network at all. A failing step ends the run before the agent step, with exit 1, and prints its output (for `start` and `ready`, the services' log too) and any host the proxy refused. That output is your own build output, from before any probing.
+5. **Cut the network.** It disconnects the sandbox from the setup network, stops the proxy, and checks from your machine (`docker inspect`), never from inside the sandbox, that no network is left. If one is, the run ends before the agent step.
+6. **Agent step.** The stand-in agent runs with no network and no credential, and writes the report to `/agent-kit/out/report.md`.
+7. **Copy out.** Exactly one file comes out: that report, refused unless it is a single regular file (no folder, link or second file) of at most 10 MiB. It is written to `report.md` in a new private folder under your temporary folder, and `deep-scan` prints its path. The transcript, shell history, app logs and scratch files stay in the sandbox and are destroyed with it.
+8. **Teardown.** It removes the sandbox, the setup network and the layered images on every exit path: success, a failed step, and an interrupt (Ctrl+C or `SIGTERM`), which stops the running step first and exits 130 or 143. Each resource carries the label `agent-kit.deep-scan`; if one cannot be removed, `deep-scan` names it and exits 1. The recipe's own base image stays in your image cache.
+
+The lifecycle runs today on gVisor, Kata Containers and Firecracker registered as a Docker runtime on Linux, and on Docker Desktop on macOS. When Docker Sandboxes (`sbx`) is the chosen runtime, `deep-scan` stops before it starts anything, with exit 1: its lifecycle is not built yet.
