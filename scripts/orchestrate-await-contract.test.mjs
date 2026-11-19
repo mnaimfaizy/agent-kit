@@ -271,7 +271,12 @@ describe("harnesses/claude-code-desktop.md", () => {
       .find((l) => l.startsWith("- `spawn`:"));
     assert.match(spawn, /A card keeps `permission_mode`/);
     assert.match(spawn, /records its handle and name/);
-    assert.match(spawn, /moves the row off `planned`/);
+    assert.match(spawn, /the row is `waiting`, on the open Decision Request "start the card"/);
+    assert.match(spawn, /sets the row to `running`/);
+    assert.match(
+      wait,
+      /looking in `ListAgents` for the session of each row still waiting on a card/,
+    );
     assert.match(spawn, /arms its `notify_when_idle` subscription/);
   });
 
