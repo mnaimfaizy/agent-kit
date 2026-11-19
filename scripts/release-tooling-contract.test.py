@@ -835,6 +835,18 @@ def test_the_tag_push_creates_the_release_before_npm_publishes() -> None:
                 assert s["with"]["persist-credentials"] is False
 
 
+def test_cutting_doc_lists_every_history_path() -> None:
+    """The doc's list of what the bump leaves alone is typed by hand: keep it in step with HISTORY_PATHS."""
+    doc = (ROOT / "docs" / "cutting-releases.md").read_text(encoding="utf-8")
+    line = next(l for l in doc.splitlines() if "It leaves history and fixtures alone:" in l)
+    for path in release.HISTORY_PATHS:
+        # The register is linked by name from inside docs/, so its link target is the file name.
+        shown = f"]({Path(path).name})" if path == release.REGISTER else f"`{path}`"
+        assert shown in line, f"cutting-releases.md's history list must name {path!r}"
+    for shape in ("*.test.py", "*.test.mjs", "lockfiles", "Broken releases"):
+        assert shape in line, f"cutting-releases.md's history list must name {shape!r}"
+
+
 def test_cutting_doc_describes_the_two_step_flow() -> None:
     doc = (ROOT / "docs" / "cutting-releases.md").read_text(encoding="utf-8")
     for phrase in (
