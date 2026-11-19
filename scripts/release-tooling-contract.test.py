@@ -838,7 +838,7 @@ def test_the_tag_push_creates_the_release_before_npm_publishes() -> None:
 def test_cutting_doc_lists_every_history_path() -> None:
     """The doc's list of what the bump leaves alone is typed by hand: keep it in step with HISTORY_PATHS."""
     doc = (ROOT / "docs" / "cutting-releases.md").read_text(encoding="utf-8")
-    line = next(l for l in doc.splitlines() if "It leaves history and fixtures alone:" in l)
+    line = next(row for row in doc.splitlines() if "It leaves history and fixtures alone:" in row)
     for path in release.HISTORY_PATHS:
         # The register is linked by name from inside docs/, so its link target is the file name.
         shown = f"]({Path(path).name})" if path == release.REGISTER else f"`{path}`"
