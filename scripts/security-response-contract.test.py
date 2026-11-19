@@ -564,6 +564,11 @@ def test_a_found_in_triage_note_names_no_advisory_its_parent_line_keeps_out() ->
     assert "or the concept id itself when that row's own ledger line writes Advisory `n/a`" in rule, rule
     assert "a `below-floor` row, or one with no advisory" in rule, rule
     assert "when that row has none" not in rule, rule
+    cells = {row[0]: row[1] for row in table_cells(table_rows(subsection(close_doc(), "Row to line")), 2)}
+    assert (
+        "for a row folded from two advisories that is not `below-floor`, the preview names the other"
+        in cells["Advisory"]
+    )
 
 
 def test_notes_carry_only_the_public_parts_of_the_record() -> None:
