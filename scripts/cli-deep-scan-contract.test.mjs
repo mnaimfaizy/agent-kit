@@ -10,13 +10,27 @@
 // recording its arguments. Nothing else is ever run.
 
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawn as spawnChild, spawnSync } from "node:child_process";
+import { EventEmitter } from "node:events";
+import { request as httpRequest } from "node:http";
+import { PassThrough, Writable } from "node:stream";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { createServer as createNetServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, before, describe, it } from "node:test";
 import { main } from "../cli/src/cli.mjs";
 import { allowedCommands, RUNTIME_CLIS, runnerFor, systemRunner } from "../cli/src/exec.mjs";
+import { tarOf } from "../cli/src/deep-scan/tar.mjs";
 
 const GIT_ID = [
   "-c",
@@ -95,33 +109,154 @@ function makeRepo({ committed = {}, working = {}, branch = "main" } = {}) {
 }
 
 // The fake runtime CLIs. Each host is a folder of `<cli>.json` files, one per
-// installed CLI, giving that CLI's answer; a CLI with no file is not
-// installed. The shim records every call to calls.jsonl in the host folder.
-// (Windows cannot run a script shim through spawn without a shell, so the
-// shims are reached through an injected spawn, behind the real allowlist.)
+// installed CLI, giving that CLI's answers; a CLI with no file is not
+// installed. Every call is recorded to calls.jsonl in the host folder, with
+// a file holding its stdin when it had any.
+//
+// An answer maps the call's arguments, joined by spaces, to a reply: an exact
+// match, else a "~substring" key, else the longest prefix key, else "*". A
+// reply gives `status`, `stdout` (or `base64` for bytes) and `stderr`; `hang`
+// makes the call print "started" and run until killed; `probe` makes it
+// CONNECT to that host:port through the HTTPS_PROXY its arguments set, and
+// record the proxy's answer to probes.jsonl.
+//
+// The blocking runner reaches the shim as a real child process (Windows cannot
+// run a script shim through spawn without a shell, so it goes through an
+// injected spawn, behind the real allowlist). The non-blocking runner, which
+// drives the sandbox lifecycle's many steps, gets an in-process fake child
+// that answers the same way, behind the same allowlist.
+function replyFor(answer, joined) {
+  const keys = Object.keys(answer);
+  const sub = keys.find((k) => k.startsWith("~") && joined.includes(k.slice(1)));
+  const prefix = keys
+    .filter((k) => !k.startsWith("~") && k !== "*" && joined.startsWith(k))
+    .sort((a, b) => b.length - a.length)[0];
+  return answer[joined] ?? answer[sub] ?? answer[prefix] ?? answer["*"] ?? { status: 0 };
+}
+
 const SHIM = `import { appendFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+${replyFor.toString()}
 const [name, ...args] = process.argv.slice(2);
 const dir = process.env.DEEP_SCAN_SHIM_DIR;
 appendFileSync(join(dir, "calls.jsonl"), JSON.stringify([name, ...args]) + "\\n");
 const answer = JSON.parse(readFileSync(join(dir, name + ".json"), "utf8"));
-const reply = answer[args.join(" ")] ?? answer["*"] ?? { status: 0, stdout: "" };
+const reply = replyFor(answer, args.join(" "));
 process.stdout.write(reply.stdout ?? "");
 process.stderr.write(reply.stderr ?? "");
 process.exit(reply.status ?? 0);
 `;
 
+let stdinFiles = 0;
+
+/** An in-process child process for a fake CLI call, answering as the shim does. */
+function fakeChild(host, cmd, args) {
+  const child = new EventEmitter();
+  child.stdout = new PassThrough();
+  child.stderr = new PassThrough();
+  const input = [];
+  let timer = null;
+  let closed = false;
+  const close = (status, signal) => {
+    if (closed) return;
+    closed = true;
+    clearInterval(timer);
+    let open = 2;
+    const done = () => {
+      if (--open === 0) child.emit("close", status, signal);
+    };
+    child.stdout.once("end", done);
+    child.stderr.once("end", done);
+    child.stdout.end();
+    child.stderr.end();
+  };
+  child.kill = (signal = "SIGTERM") => {
+    close(null, signal);
+    return true;
+  };
+  const respond = async () => {
+    const record = [cmd, ...args];
+    if (input.length) {
+      const file = `stdin-${stdinFiles++}.bin`;
+      writeFileSync(join(host.dir, file), Buffer.concat(input));
+      record.push({ stdin: file });
+    }
+    appendFileSync(join(host.dir, "calls.jsonl"), `${JSON.stringify(record)}\n`);
+    const answer = JSON.parse(readFileSync(join(host.dir, `${cmd}.json`), "utf8"));
+    const reply = replyFor(answer, args.join(" "));
+    if (reply.probe) {
+      const env = args.find((a) => a.startsWith("HTTPS_PROXY="));
+      const proxy = env ? new URL(env.slice("HTTPS_PROXY=".length)) : null;
+      const status = proxy
+        ? await new Promise((resolve) => {
+            const req = httpRequest({
+              host: proxy.hostname,
+              port: proxy.port,
+              method: "CONNECT",
+              path: reply.probe,
+            });
+            req.on("connect", (res, socket) => {
+              socket.destroy();
+              resolve(res.statusCode);
+            });
+            req.on("error", (e) => resolve(`error ${e.code}`));
+            req.end();
+          })
+        : "no proxy";
+      appendFileSync(join(host.dir, "probes.jsonl"), `${JSON.stringify([reply.probe, status])}\n`);
+    }
+    if (closed) return;
+    if (reply.hang) {
+      // The timer first: a listener may kill the child inside the write.
+      timer = setInterval(() => {}, 1000);
+      child.stdout.write("started\n");
+      return;
+    }
+    child.stdout.write(reply.base64 ? Buffer.from(reply.base64, "base64") : (reply.stdout ?? ""));
+    child.stderr.write(reply.stderr ?? "");
+    close(reply.status ?? 0, null);
+  };
+  child.stdin = new Writable({
+    write(chunk, _encoding, callback) {
+      input.push(Buffer.from(chunk));
+      callback();
+    },
+    final(callback) {
+      callback();
+      setImmediate(() => respond().catch((e) => child.emit("error", e)));
+    },
+  });
+  return child;
+}
+
 const ok = (stdout = "") => ({ "*": { status: 0, stdout } });
 const failing = (stderr = "boom") => ({ "*": { status: 1, stderr } });
 
-/** `docker info --format {{json .}}` as a Docker Engine on `os` answers it. */
+/** A report file as `docker cp <container>:<file> -` writes it: a tar of one file. */
+const REPORT_TEXT = "# Deep scan report\n\nFrom the sandbox.\n";
+const reportTar = (text = REPORT_TEXT) =>
+  tarOf([{ path: "report.md", data: Buffer.from(text) }]).toString("base64");
+
+/**
+ * A Docker Engine on `os`: `docker info --format {{json .}}` as it answers
+ * it, and the lifecycle's commands answered as a working engine would (the
+ * setup network's gateway, a sandbox with no network left, the report).
+ * `extra` adds or overrides answers.
+ */
 function docker({
   os = "Ubuntu 24.04 LTS",
   kernel = "6.8.0-45-generic",
   runtimes = { runc: { path: "runc" } },
+  extra = {},
 } = {}) {
   const info = { OperatingSystem: os, KernelVersion: kernel, Runtimes: runtimes };
-  return { "info --format {{json .}}": { status: 0, stdout: `${JSON.stringify(info)}\n` } };
+  return {
+    "info --format {{json .}}": { status: 0, stdout: `${JSON.stringify(info)}\n` },
+    "network inspect": { status: 0, stdout: "127.0.0.1\n" },
+    "inspect --format {{json .NetworkSettings.Networks}}": { status: 0, stdout: "{}\n" },
+    "cp agent-kit-deep-": { status: 0, base64: reportTar() },
+    ...extra,
+  };
 }
 const RUNC = { "io.containerd.runc.v2": { path: "runc" }, runc: { path: "runc" } };
 const KATA = { kata: { path: "/opt/kata/bin/containerd-shim-kata-v2" } };
@@ -146,6 +281,22 @@ function shimCalls(host) {
     .split("\n")
     .filter(Boolean)
     .map((l) => JSON.parse(l));
+}
+
+/** The non-blocking spawn for a host, as `spawnFor`; `onSpawn` sees each child. */
+function spawnAsyncFor(host, spawned, onSpawn = () => {}) {
+  return (cmd, args, opts) => {
+    spawned.push([cmd, ...args]);
+    let child;
+    if (cmd === "git") child = spawnChild(cmd, args, opts);
+    else if (!existsSync(join(host.dir, `${cmd}.json`))) {
+      throw Object.assign(new Error(`spawn ${cmd} ENOENT`), { code: "ENOENT" });
+    } else {
+      child = fakeChild(host, cmd, args);
+    }
+    onSpawn(cmd, args, child);
+    return child;
+  };
 }
 
 /** The spawn for a host: git for real, a fake CLI through its shim, else not found. */
@@ -174,17 +325,33 @@ const gvisorHost = () =>
  * Run the CLI on a host (default: Linux with gVisor) with an environment
  * (default: none of the GitHub tokens), and record every command it runs.
  */
-async function run(dir, args = [], { host = gvisorHost(), env = { PATH: "/usr/bin" } } = {}) {
+async function run(
+  dir,
+  args = [],
+  {
+    host = gvisorHost(),
+    env = { PATH: "/usr/bin" },
+    fetch = groundingFetch,
+    signals = new EventEmitter(),
+    onSpawn,
+  } = {},
+) {
   const out = [];
   const err = [];
   const calls = [];
+  const reportDir = mkdtempSync(join(tmp, "report-"));
   const code = await main(["deep-scan", ...args], {
     cwd: dir,
     stdout: (s) => out.push(s),
     stderr: (s) => err.push(s),
+    // Both process boundaries are fakes: no test ever reaches a real runtime.
     spawn: spawnFor(host, calls),
+    spawnAsync: spawnAsyncFor(host, calls, onSpawn),
     platform: host.platform,
     env,
+    fetch,
+    signals,
+    reportDir,
   });
   return {
     code,
@@ -194,8 +361,13 @@ async function run(dir, args = [], { host = gvisorHost(), env = { PATH: "/usr/bi
     calls,
     gitCalls: calls.filter((c) => c[0] === "git"),
     shims: shimCalls(host),
+    host,
+    reportDir,
   };
 }
+
+/** The grounding fetch when a test gives none: each URL answers with a line naming it. */
+const groundingFetch = async (url) => new Response(`grounding from ${url}\n`);
 
 const recipeRepo = (text, path = ".security/scan-recipe.yml") =>
   makeRepo({ committed: { [path]: text } });
@@ -231,14 +403,14 @@ const CLI_ONLY = `entry_points:
     note: A second command.`;
 
 describe("a valid recipe", () => {
-  it("passes, chooses a runtime, says the later stages are not built yet, and exits 0", async () => {
+  it("passes, chooses a runtime, runs the sandbox and exits 0", async () => {
     const res = await run(recipeRepo(VALID));
     assert.equal(res.code, 0, res.text);
     assert.match(
       res.out,
       /Scan recipe \.security\/scan-recipe\.yml on main \([0-9a-f]{12}\) is valid\./,
     );
-    assert.match(res.out, /not built yet/);
+    assert.match(res.out, /Report: .*report\.md/);
   });
 
   it("may leave out start and ready when every entry point is a command", async () => {
@@ -267,7 +439,10 @@ describe("a valid recipe", () => {
     assert.equal(res.code, 0, res.text);
     const verbs = res.gitCalls.map((c) => c[c.indexOf("-C") + 2]);
     for (const v of verbs) {
-      assert.ok(["rev-parse", "symbolic-ref", "ls-tree", "cat-file"].includes(v), `ran git ${v}`);
+      assert.ok(
+        ["rev-parse", "symbolic-ref", "ls-tree", "cat-file", "archive"].includes(v),
+        `ran git ${v}`,
+      );
     }
   });
 });
@@ -719,12 +894,18 @@ describe("the sandbox runtime is chosen from the host in preference order", () =
   for (const [name, platform, clis, chosen] of cases) {
     it(name, async () => {
       const res = await run(recipeRepo(VALID), [], { host: makeHost(platform, clis) });
-      assert.equal(res.code, 0, res.text);
       const line = res.out.split("\n").find((l) => l.startsWith("Sandbox runtime: "));
-      assert.ok(line, res.out);
+      assert.ok(line, res.text);
       assert.match(line, chosen);
-      assert.match(res.out, /not built yet/);
-      assertNothingStarted(res);
+      if (/sbx/.test(line)) {
+        // The Docker Sandboxes lifecycle is not built yet: it stops before
+        // anything starts.
+        assert.equal(res.code, 1, res.text);
+        assert.match(res.err, /Docker Sandboxes \(sbx\) sandbox lifecycle is not built yet/);
+        assertNothingStarted(res);
+      } else {
+        assert.equal(res.code, 0, res.text);
+      }
     });
   }
 
@@ -754,14 +935,16 @@ describe("the sandbox runtime is chosen from the host in preference order", () =
   it("probes only from the host: docker info and version checks, nothing inside a container", async () => {
     const res = await run(recipeRepo(VALID), [], { host: makeHost("linux", without("sbx")) });
     assert.equal(res.code, 0, res.text);
-    assert.ok(res.shims.length > 0);
-    for (const [cli, ...args] of res.shims) {
-      const probe =
-        (cli === "docker" && args.join(" ") === "info --format {{json .}}") ||
-        (cli === "sbx" && args.join(" ") === "version") ||
-        args.join(" ") === "--version";
-      assert.ok(probe, `${cli} ${args.join(" ")} is not a host-side probe`);
-    }
+    const isProbe = ([cli, ...args]) =>
+      (cli === "docker" && args.join(" ") === "info --format {{json .}}") ||
+      (cli === "sbx" && args.join(" ") === "version") ||
+      args.join(" ") === "--version";
+    // The probes come first, and the first command after them is the image
+    // pull: the runtime is chosen before anything starts.
+    const first = res.shims.findIndex((c) => !isProbe(c));
+    assert.ok(first > 0, JSON.stringify(res.shims));
+    assert.deepEqual(res.shims[first].slice(0, 2), ["docker", "pull"]);
+    assert.ok(!res.shims.slice(first).some(isProbe), "no probe after the lifecycle began");
   });
 });
 
@@ -985,6 +1168,608 @@ describe("the runtime docs", () => {
       ".env",
     ]) {
       assert.ok(section.includes(name), `the section names ${name}`);
+    }
+  });
+});
+
+// --- The sandbox lifecycle (#369) -------------------------------------------
+
+/** The docker commands a run sent after choosing the runtime, as arg lists. */
+function lifecycle(res) {
+  return res.shims
+    .filter(([cli, ...args]) => cli === "docker" && args.join(" ") !== "info --format {{json .}}")
+    .map(([, ...args]) => args.filter((a) => typeof a === "string"));
+}
+
+/** The bytes the first matching docker call got on stdin, or null. */
+function stdinOf(res, predicate) {
+  const call = res.shims.find(
+    (c) => c[0] === "docker" && predicate(c.slice(1).filter((a) => typeof a === "string")),
+  );
+  const tag = call?.find((a) => a && typeof a === "object" && a.stdin);
+  return tag ? readFileSync(join(res.host.dir, tag.stdin)) : null;
+}
+
+/**
+ * The entries of a tar archive, as { name, type, data }, read by hand (an
+ * independent reading, not the CLI's): ustar names with their prefix, PAX
+ * headers skipped.
+ */
+function tarEntries(buf) {
+  const entries = [];
+  const str = (b, s, l) =>
+    b
+      .subarray(s, s + l)
+      .toString("utf8")
+      .replace(/\0.*$/s, "");
+  for (let o = 0; o + 512 <= buf.length;) {
+    const h = buf.subarray(o, o + 512);
+    if (h.every((b) => b === 0)) break;
+    const size = parseInt(str(h, 124, 12).trim() || "0", 8);
+    const type = str(h, 156, 1) || "0";
+    const prefix = str(h, 345, 155);
+    const name = prefix ? `${prefix}/${str(h, 0, 100)}` : str(h, 0, 100);
+    o += 512;
+    if (type !== "x" && type !== "g") {
+      entries.push({ name, type, data: buf.subarray(o, o + size) });
+    }
+    o += Math.ceil(size / 512) * 512;
+  }
+  return entries;
+}
+
+const verb = (args) => args.slice(0, args[0] === "network" ? 2 : 1).join(" ");
+const isAgentStep = (a) => a[0] === "exec" && Boolean(a.at(-1)?.startsWith("set -eu"));
+const isSetupStep = (a) =>
+  a[0] === "exec" && !isAgentStep(a) && a.includes("-c") && !a.at(-1).startsWith("cat ");
+const removed = (calls) =>
+  calls.filter((a) => a[0] === "rm" || (a[0] === "network" && a[1] === "rm") || a[0] === "image");
+const containerOf = (calls) => {
+  const r = calls.find((a) => a[0] === "run");
+  return r ? r[r.indexOf("--name") + 1] : undefined;
+};
+
+/** A gVisor host whose docker answers `extra` over the working engine's answers. */
+const gvisorWith = (extra) =>
+  makeHost("linux", {
+    docker: docker({ runtimes: { ...RUNC, ...RUNSC }, extra }),
+    runsc: ok("runsc version release-20251110.0\n"),
+  });
+
+describe("the sandbox lifecycle runs in order on the chosen runtime", () => {
+  it("pulls, layers, starts, copies in, sets up, cuts the network, runs the agent step, copies out and tears down", async () => {
+    const res = await run(recipeRepo(VALID));
+    assert.equal(res.code, 0, res.text);
+    const calls = lifecycle(res);
+    assert.deepEqual(calls.map(verb), [
+      "pull",
+      "build",
+      "network create",
+      "network inspect",
+      "run",
+      "cp",
+      "cp",
+      "exec",
+      "exec",
+      "exec",
+      "exec",
+      "network disconnect",
+      "inspect",
+      "exec",
+      "cp",
+      "rm",
+      "network rm",
+      "image",
+    ]);
+    assert.deepEqual(calls[0], ["pull", "node:22-bookworm"]);
+    // setup, start, ready, seed, in that order, each through sh -c.
+    const scripts = calls.filter(isSetupStep).map((a) => a.at(-1));
+    assert.equal(scripts.length, 4);
+    assert.equal(scripts[0], "npm ci");
+    assert.match(scripts[1], /\nnpm run start &$/);
+    assert.equal(scripts[2], "curl --fail http://localhost:3000/health");
+    assert.equal(scripts[3], "npm run seed");
+    assert.ok(isAgentStep(calls[13]));
+  });
+
+  it("writes the copied-out report to a private folder and says where", async () => {
+    const res = await run(recipeRepo(VALID));
+    assert.equal(res.code, 0, res.text);
+    assert.deepEqual(readdirSync(res.reportDir), ["report.md"]);
+    assert.equal(readFileSync(join(res.reportDir, "report.md"), "utf8"), REPORT_TEXT);
+    assert.ok(res.out.includes(`Report: ${join(res.reportDir, "report.md")}`), res.out);
+  });
+
+  it("runs the sandbox under the chosen Docker runtime", async () => {
+    const res = await run(recipeRepo(VALID));
+    const runArgs = lifecycle(res).find((a) => a[0] === "run");
+    assert.equal(runArgs[runArgs.indexOf("--runtime") + 1], "runsc");
+  });
+
+  it("runs Docker Desktop on macOS with no --runtime, its registry proxy at host.docker.internal", async () => {
+    const host = makeHost("darwin", { docker: docker({ os: "Docker Desktop" }) });
+    const res = await run(recipeRepo(VALID), [], { host });
+    assert.equal(res.code, 0, res.text);
+    const calls = lifecycle(res);
+    assert.ok(!calls.find((a) => a[0] === "run").includes("--runtime"));
+    const setup = calls.find(isSetupStep);
+    assert.ok(setup.some((a) => /^HTTPS_PROXY=http:\/\/host\.docker\.internal:\d+$/.test(a)));
+  });
+
+  it("stops before anything starts when Docker Sandboxes is chosen, as its lifecycle is not built yet", async () => {
+    const host = makeHost("win32", { sbx: ok("sbx version 0.7.0\n") });
+    const res = await run(recipeRepo(VALID), [], { host });
+    assert.equal(res.code, 1, res.text);
+    assert.match(res.err, /not built yet, so nothing was started/);
+    assert.deepEqual(res.shims, [["sbx", "version"]]);
+  });
+});
+
+describe("the image layers a pinned Claude Code with the auto-updater off", () => {
+  it("builds FROM the recipe's image, installing an exact Claude Code version", async () => {
+    const res = await run(recipeRepo(VALID));
+    const dockerfile = stdinOf(res, (a) => a[0] === "build")?.toString("utf8");
+    assert.ok(dockerfile, "the layer's Dockerfile comes on stdin");
+    assert.match(dockerfile, /^FROM node:22-bookworm\n/);
+    assert.match(dockerfile, /npm install --global @anthropic-ai\/claude-code@\d+\.\d+\.\d+ /);
+    assert.match(dockerfile, /^ENV DISABLE_AUTOUPDATER=1$/m);
+    assert.match(
+      dockerfile,
+      /'\{"env":\{"DISABLE_AUTOUPDATER":"1"\}\}' > \/etc\/claude-code\/managed-settings\.json/,
+    );
+    const build = lifecycle(res).find((a) => a[0] === "build");
+    assert.equal(build.at(-1), "-", "built from stdin, with no host folder as context");
+  });
+
+  it("builds a recipe's Dockerfile from the trusted ref's tree, then layers on it", async () => {
+    const text = recipe({ drop: ["image"], add: "dockerfile: docker/scan.Dockerfile" });
+    const dir = makeRepo({
+      committed: {
+        ".security/scan-recipe.yml": text,
+        "docker/scan.Dockerfile": "FROM node:22\n",
+      },
+      working: { "docker/scan.Dockerfile": "FROM evil:latest\n", "untracked.txt": "x\n" },
+    });
+    const res = await run(dir);
+    assert.equal(res.code, 0, res.text);
+    const builds = lifecycle(res).filter((a) => a[0] === "build");
+    assert.equal(builds.length, 2);
+    assert.deepEqual(builds[0].slice(0, 3), ["build", "--file", "docker/scan.Dockerfile"]);
+    const base = builds[0][builds[0].indexOf("--tag") + 1];
+    const context = tarEntries(stdinOf(res, (a) => a[0] === "build" && a[1] === "--file"));
+    const names = context.map((e) => e.name);
+    assert.ok(names.includes("docker/scan.Dockerfile"), names.join(", "));
+    assert.ok(!names.includes("untracked.txt"));
+    const df = context.find((e) => e.name === "docker/scan.Dockerfile");
+    assert.equal(df.data.toString("utf8"), "FROM node:22\n");
+    const layer = stdinOf(res, (a) => a[0] === "build" && a[1] !== "--file").toString("utf8");
+    assert.ok(layer.startsWith(`FROM ${base}\n`), layer);
+  });
+});
+
+describe("the repository is copied in, never mounted, and only the listed inputs go in", () => {
+  it("starts the sandbox with no mount, no host environment, no socket and no privilege", async () => {
+    const res = await run(recipeRepo(VALID), [], {
+      env: { PATH: "/usr/bin", HOME: "/home/me", AWS_PROFILE: "prod", ANTHROPIC_API_KEY: "sk" },
+    });
+    assert.equal(res.code, 0, res.text);
+    const banned = ["-v", "--volume", "--mount", "--privileged", "--env-file", "--volumes-from"];
+    for (const args of lifecycle(res)) {
+      for (const a of args) {
+        assert.ok(!banned.includes(a), `docker ${args.join(" ")} uses ${a}`);
+        assert.doesNotMatch(a, /docker\.sock|\/home\/me|\.ssh|\.aws|gcloud|AWS_PROFILE/);
+      }
+      // The only variables set in the sandbox are the setup proxy's.
+      args.forEach((a, i) => {
+        if (a === "--env" || a === "-e") {
+          assert.match(args[i + 1], /^(HTTPS?_PROXY|https?_proxy|NO_PROXY|no_proxy)=/);
+        }
+      });
+    }
+  });
+
+  it("copies in a git archive of the default branch's tip, not a dirty working tree", async () => {
+    const dir = makeRepo({
+      committed: { ".security/scan-recipe.yml": VALID, "src/app.js": "committed\n" },
+      working: { "src/app.js": "uncommitted edit\n", "scratch.txt": "untracked\n" },
+    });
+    const res = await run(dir);
+    assert.equal(res.code, 0, res.text);
+    const calls = lifecycle(res);
+    const cp = calls.find((a) => a[0] === "cp" && a[1] === "-");
+    assert.deepEqual(cp, ["cp", "-", `${containerOf(calls)}:/`]);
+    const tree = tarEntries(stdinOf(res, (a) => a[0] === "cp" && a[1] === "-"));
+    const files = tree.filter((e) => e.type === "0");
+    assert.deepEqual(files.map((e) => e.name).sort(), [
+      "workspace/.security/scan-recipe.yml",
+      "workspace/README.md",
+      "workspace/src/app.js",
+    ]);
+    assert.equal(
+      files.find((e) => e.name === "workspace/src/app.js").data.toString("utf8"),
+      "committed\n",
+    );
+    assert.match(
+      res.out,
+      /Copied in: main at [0-9a-f]{12} \(a git archive, not your working tree\)/,
+    );
+  });
+
+  it("copies the default branch's tip when another branch is checked out", async () => {
+    const dir = recipeRepo(VALID);
+    git(dir, "switch", "-qc", "feature");
+    writeTree(dir, { "feature.js": "off-branch\n" });
+    git(dir, "add", "-A");
+    git(dir, "commit", "-qm", "feature");
+    const res = await run(dir);
+    assert.equal(res.code, 0, res.text);
+    const names = tarEntries(stdinOf(res, (a) => a[0] === "cp" && a[1] === "-")).map((e) => e.name);
+    assert.ok(names.includes("workspace/README.md"));
+    assert.ok(!names.includes("workspace/feature.js"), names.join(", "));
+  });
+
+  it("copies the grounding in: repository paths from the trusted ref, URLs as fetched", async () => {
+    const text = recipe({
+      drop: ["grounding"],
+      add: "grounding:\n  - docs/security.md\n  - https://example.com/guides/framework-security.md",
+    });
+    const dir = makeRepo({
+      committed: { ".security/scan-recipe.yml": text, "docs/security.md": "committed doc\n" },
+      working: { "docs/security.md": "edited doc\n" },
+    });
+    const fetched = [];
+    const res = await run(dir, [], {
+      fetch: async (url, init) => {
+        fetched.push(url);
+        assert.ok(init.signal, "the fetch can be stopped");
+        return new Response("framework guide\n");
+      },
+    });
+    assert.equal(res.code, 0, res.text);
+    assert.deepEqual(fetched, ["https://example.com/guides/framework-security.md"]);
+    const copies = res.shims.filter((c) => c[0] === "docker" && c[1] === "cp" && c[2] === "-");
+    assert.equal(copies.length, 3, "the tree, the repository path and the fetched URL");
+    const entries = copies.flatMap((c) =>
+      tarEntries(readFileSync(join(res.host.dir, c.find((a) => a?.stdin).stdin))),
+    );
+    const file = (name) => entries.find((e) => e.name === name && e.type === "0");
+    assert.equal(
+      file("agent-kit/grounding/docs/security.md").data.toString("utf8"),
+      "committed doc\n",
+    );
+    assert.equal(
+      file("agent-kit/grounding/urls/1-framework-security.md").data.toString("utf8"),
+      "framework guide\n",
+    );
+    for (const e of entries) {
+      assert.match(e.name, /^(workspace|agent-kit)(\/|$)/, `${e.name} is not a listed input`);
+    }
+  });
+
+  it("ends the run before the agent step when a grounding URL cannot be fetched", async () => {
+    const res = await run(recipeRepo(VALID), [], {
+      fetch: async () => new Response("gone", { status: 404 }),
+    });
+    assert.equal(res.code, 1, res.text);
+    assert.match(
+      res.err,
+      /FAILED {2}grounding\[0\]: could not fetch https:\/\/example\.com\/framework-security\.md: HTTP 404/,
+    );
+    assert.ok(!lifecycle(res).some(isAgentStep));
+    assert.ok(
+      lifecycle(res).some((a) => a[0] === "rm"),
+      "torn down",
+    );
+  });
+});
+
+describe("setup runs with the registry allowlist and no credential, and the network is cut before the agent step", () => {
+  it("puts the sandbox on an internal network and sends setup through the host-side proxy", async () => {
+    const res = await run(recipeRepo(VALID));
+    assert.equal(res.code, 0, res.text);
+    const calls = lifecycle(res);
+    const create = calls.find((a) => a[0] === "network" && a[1] === "create");
+    assert.ok(create.includes("--internal"), create.join(" "));
+    const net = create.at(-1);
+    const runArgs = calls.find((a) => a[0] === "run");
+    assert.equal(runArgs[runArgs.indexOf("--network") + 1], net);
+    for (const step of calls.filter(isSetupStep)) {
+      assert.ok(
+        step.some((a) => /^HTTPS_PROXY=http:\/\/127\.0\.0\.1:\d+$/.test(a)),
+        step.join(" "),
+      );
+    }
+    assert.match(res.out, /Setup: egress limited to registry\.npmjs\.org/);
+  });
+
+  it("passes no model credential or agent to the setup phase", async () => {
+    const res = await run(recipeRepo(VALID), [], {
+      env: { PATH: "/usr/bin", ANTHROPIC_API_KEY: "sk-real", CLAUDE_CODE_OAUTH_TOKEN: "oauth" },
+    });
+    assert.equal(res.code, 0, res.text);
+    const all = JSON.stringify(lifecycle(res));
+    assert.doesNotMatch(all, /ANTHROPIC|CLAUDE_CODE_OAUTH|sk-real|oauth/);
+    for (const step of lifecycle(res).filter(isSetupStep)) {
+      assert.doesNotMatch(step.at(-1), /\bclaude\b/);
+    }
+  });
+
+  it("lets setup reach a listed registry and refuses any other host", async () => {
+    const server = createNetServer((socket) => socket.end("hi"));
+    await new Promise((r) => server.listen(0, "127.0.0.1", r));
+    const port = server.address().port;
+    try {
+      const text = recipe({ drop: ["registries"], add: `registries:\n  - 127.0.0.1:${port}` });
+      const host = gvisorWith({
+        "~npm ci": { status: 0, probe: `127.0.0.1:${port}` },
+        "~npm run seed": { status: 0, probe: "evil.example:443" },
+      });
+      const res = await run(recipeRepo(text), [], { host });
+      assert.equal(res.code, 0, res.text);
+      const probes = readFileSync(join(host.dir, "probes.jsonl"), "utf8")
+        .split("\n")
+        .filter(Boolean)
+        .map((l) => JSON.parse(l));
+      assert.deepEqual(probes, [
+        [`127.0.0.1:${port}`, 200],
+        ["evil.example:443", 403],
+      ]);
+    } finally {
+      server.close();
+    }
+  });
+
+  it("gives setup no network at all when the recipe lists no registries", async () => {
+    const text = recipe({ drop: ["registries"], add: "registries: []" });
+    const res = await run(recipeRepo(text));
+    assert.equal(res.code, 0, res.text);
+    const calls = lifecycle(res);
+    assert.ok(!calls.some((a) => a[0] === "network"), "no network is created");
+    const runArgs = calls.find((a) => a[0] === "run");
+    assert.equal(runArgs[runArgs.indexOf("--network") + 1], "none");
+    assert.ok(!JSON.stringify(calls).includes("PROXY"));
+  });
+
+  it("cuts the network, and checks it from the host, before the agent step", async () => {
+    const res = await run(recipeRepo(VALID));
+    const calls = lifecycle(res);
+    const cut = calls.findIndex((a) => a[0] === "network" && a[1] === "disconnect");
+    const check = calls.findIndex((a) => a[0] === "inspect");
+    const agent = calls.findIndex(isAgentStep);
+    const lastSetup = calls.findLastIndex(isSetupStep);
+    assert.ok(lastSetup < cut && cut < check && check < agent, calls.map(verb).join(", "));
+    assert.ok(!calls[agent].some((a) => /PROXY/.test(a)), "the agent step has no proxy");
+    assert.match(res.out, /Network: cut \(checked from the host\)/);
+  });
+
+  it("ends the run before the agent step when the host still sees a network", async () => {
+    const host = gvisorWith({
+      "inspect --format {{json .NetworkSettings.Networks}}": {
+        status: 0,
+        stdout: '{"bridge":{}}\n',
+      },
+    });
+    const res = await run(recipeRepo(VALID), [], { host });
+    assert.equal(res.code, 1, res.text);
+    assert.match(res.err, /the network is not cut: docker inspect shows the sandbox on bridge/);
+    assert.ok(!lifecycle(res).some(isAgentStep));
+    assert.ok(lifecycle(res).some((a) => a[0] === "rm"));
+  });
+});
+
+describe("a failing setup, start or ready step ends the run before the agent step, with its output", () => {
+  const cases = [
+    ["setup", "~npm ci", 1],
+    ["start", "~npm run start &", 1],
+    ["ready", "~curl --fail", 7],
+  ];
+  for (const [field, key, status] of cases) {
+    it(`ends at a failing ${field} step and shows its output`, async () => {
+      const host = gvisorWith({
+        [key]: { status, stdout: `${field} says hello\n`, stderr: `${field} broke\n` },
+        "~cat /agent-kit/logs/start-": { status: 0, stdout: "server log: port in use\n" },
+      });
+      const res = await run(recipeRepo(VALID), [], { host });
+      assert.equal(res.code, 1, res.text);
+      assert.match(res.err, new RegExp(`FAILED {2}${field}\\[0\\] exited ${status}`));
+      assert.match(res.err, new RegExp(`${field} says hello`));
+      assert.match(res.err, new RegExp(`${field} broke`));
+      assert.match(res.err, /the run ends here, before the agent step/);
+      if (field !== "setup") assert.match(res.err, /Output of start:\n {2}server log: port in use/);
+      const calls = lifecycle(res);
+      assert.ok(!calls.some(isAgentStep), "the agent step never ran");
+      assert.ok(!calls.some((a) => a[0] === "cp" && a[1] !== "-"), "nothing was copied out");
+      assert.equal(readdirSync(res.reportDir).length, 0);
+      assert.deepEqual(removed(calls).map(verb), ["rm", "network rm", "image"]);
+    });
+  }
+
+  it("names the hosts the setup proxy refused", async () => {
+    const host = gvisorWith({ "~npm ci": { status: 1, probe: "evil.example:443" } });
+    const res = await run(recipeRepo(VALID), [], { host });
+    assert.equal(res.code, 1, res.text);
+    assert.match(res.err, /The setup proxy refused: evil\.example:443 \(not in registries\)/);
+  });
+
+  it("shows the output when the image cannot be pulled", async () => {
+    const host = gvisorWith({ pull: { status: 1, stderr: "manifest unknown\n" } });
+    const res = await run(recipeRepo(VALID), [], { host });
+    assert.equal(res.code, 1, res.text);
+    assert.match(res.err, /FAILED {2}pulling node:22-bookworm: manifest unknown/);
+    assert.ok(!lifecycle(res).some((a) => a[0] === "run"));
+  });
+});
+
+describe("only the report file comes out", () => {
+  it("copies out the one report path, and nothing else", async () => {
+    const res = await run(recipeRepo(VALID));
+    const out = lifecycle(res).filter((a) => a[0] === "cp" && a[1] !== "-");
+    assert.equal(out.length, 1);
+    assert.match(out[0][1], /^agent-kit-deep-[0-9a-f]+:\/agent-kit\/out\/report\.md$/);
+    assert.equal(out[0][2], "-");
+  });
+
+  const file = (path, text) => ({ path, data: Buffer.from(text) });
+  const bad = [
+    [
+      "two files",
+      () => tarOf([file("report.md", "a"), file("x.sh", "b")]),
+      /holds 2 files, not one/,
+    ],
+    ["a folder", () => tarOf([{ path: "report.md", dir: true }]), /is not a regular file/],
+    ["nothing", () => tarOf([]), /holds no file/],
+  ];
+  for (const [name, archive, why] of bad) {
+    it(`refuses a copy-out that is ${name}, and writes no report`, async () => {
+      const host = gvisorWith({
+        "cp agent-kit-deep-": { status: 0, base64: archive().toString("base64") },
+      });
+      const res = await run(recipeRepo(VALID), [], { host });
+      assert.equal(res.code, 1, res.text);
+      assert.match(res.err, why);
+      assert.equal(readdirSync(res.reportDir).length, 0);
+      assert.ok(lifecycle(res).some((a) => a[0] === "rm"));
+    });
+  }
+
+  it("refuses a symbolic link in place of the report", async () => {
+    const link = tarOf([file("report.md", "")]);
+    link[156] = "2".charCodeAt(0);
+    const host = gvisorWith({
+      "cp agent-kit-deep-": { status: 0, base64: link.toString("base64") },
+    });
+    const res = await run(recipeRepo(VALID), [], { host });
+    assert.equal(res.code, 1, res.text);
+    assert.match(res.err, /is not a regular file \(tar type 2\)/);
+    assert.equal(readdirSync(res.reportDir).length, 0);
+  });
+
+  it("ends with exit 1 when the agent step leaves no report", async () => {
+    const host = gvisorWith({
+      "cp agent-kit-deep-": { status: 1, stderr: "Error: Could not find the file\n" },
+    });
+    const res = await run(recipeRepo(VALID), [], { host });
+    assert.equal(res.code, 1, res.text);
+    assert.match(res.err, /no report at \/agent-kit\/out\/report\.md/);
+  });
+});
+
+describe("teardown runs on success, failure and interrupt", () => {
+  const teardownOf = (res) => {
+    const calls = lifecycle(res);
+    const net = calls.find((a) => a[0] === "network" && a[1] === "create")?.at(-1);
+    const build = calls.find((a) => a[0] === "build");
+    const image = build?.[build.indexOf("--tag") + 1];
+    return { calls: removed(calls), container: containerOf(calls), net, image };
+  };
+
+  it("removes the container, network and image after a run that succeeds", async () => {
+    const res = await run(recipeRepo(VALID));
+    assert.equal(res.code, 0, res.text);
+    const t = teardownOf(res);
+    assert.deepEqual(t.calls, [
+      ["rm", "--force", "--volumes", t.container],
+      ["network", "rm", t.net],
+      ["image", "rm", "--force", t.image],
+    ]);
+    assert.match(res.out, /Teardown: removed /);
+  });
+
+  it("removes what was created when the agent step fails", async () => {
+    const host = gvisorWith({ "~set -eu": { status: 2 } });
+    const res = await run(recipeRepo(VALID), [], { host });
+    assert.equal(res.code, 1, res.text);
+    assert.match(res.err, /The agent step exited 2/);
+    assert.equal(teardownOf(res).calls.length, 3);
+  });
+
+  it("removes the container even when starting it failed", async () => {
+    const host = gvisorWith({ "run --detach": { status: 125, stderr: "runsc: boom\n" } });
+    const res = await run(recipeRepo(VALID), [], { host });
+    assert.equal(res.code, 1, res.text);
+    assert.match(res.err, /FAILED {2}starting the sandbox: runsc: boom/);
+    assert.deepEqual(teardownOf(res).calls.map(verb), ["rm", "network rm", "image"]);
+  });
+
+  for (const [signal, code] of [
+    ["SIGINT", 130],
+    ["SIGTERM", 143],
+  ]) {
+    it(`stops the running agent step on ${signal}, tears down, and exits ${code}`, async () => {
+      const host = gvisorWith({ "~set -eu": { hang: true } });
+      const signals = new EventEmitter();
+      const res = await run(recipeRepo(VALID), [], {
+        host,
+        signals,
+        onSpawn: (cmd, args, child) => {
+          if (cmd === "docker" && isAgentStep(args)) {
+            child.stdout.once("data", () => signals.emit(signal));
+          }
+        },
+      });
+      assert.equal(res.code, code, res.text);
+      assert.match(res.err, new RegExp(`Interrupted \\(${signal}\\)`));
+      const calls = lifecycle(res);
+      assert.ok(!calls.some((a) => a[0] === "cp" && a[1] !== "-"), "nothing copied out");
+      assert.deepEqual(removed(calls).map(verb), ["rm", "network rm", "image"]);
+      assert.equal(signals.listenerCount(signal), 0, "the handlers are removed");
+    });
+  }
+
+  it("tears down on an interrupt during setup, before the agent step", async () => {
+    const host = gvisorWith({ "~npm ci": { hang: true } });
+    const signals = new EventEmitter();
+    const res = await run(recipeRepo(VALID), [], {
+      host,
+      signals,
+      onSpawn: (cmd, args, child) => {
+        if (args.at(-1) === "npm ci") child.stdout.once("data", () => signals.emit("SIGINT"));
+      },
+    });
+    assert.equal(res.code, 130, res.text);
+    assert.ok(!lifecycle(res).some(isAgentStep));
+    assert.equal(removed(lifecycle(res)).length, 3);
+  });
+
+  it("says what it could not remove, and exits 1", async () => {
+    const host = gvisorWith({
+      "network rm": { status: 1, stderr: "Error: network has active endpoints\n" },
+    });
+    const res = await run(recipeRepo(VALID), [], { host });
+    assert.equal(res.code, 1, res.text);
+    assert.match(
+      res.err,
+      /TEARDOWN {2}could not remove:\n {2}- network agent-kit-deep-[0-9a-f]+: Error: network has active endpoints/,
+    );
+    assert.equal(removed(lifecycle(res)).length, 3, "it still tries every resource");
+  });
+});
+
+describe("the sandbox docs", () => {
+  it("say what goes into and out of the sandbox", () => {
+    const page = readFileSync(join(import.meta.dirname, "..", "docs", "security-audit.md"), "utf8");
+    const at = page.indexOf("## What goes into and out of the sandbox");
+    assert.ok(at >= 0, "docs/security-audit.md has the section");
+    const end = page.indexOf("\n## ", at + 1);
+    const section = page.slice(at, end < 0 ? undefined : end);
+    for (const fact of [
+      "stand-in",
+      "auto-updater is off",
+      "no mount",
+      "`git archive`",
+      "never the working tree",
+      "grounding",
+      "no model credential",
+      "`registries`",
+      "`--internal`",
+      "checks from your machine",
+      "Exactly one file comes out",
+      "/agent-kit/out/report.md",
+      "every exit path",
+      "interrupt",
+      "agent-kit.deep-scan",
+    ]) {
+      assert.ok(section.includes(fact), `the section says ${fact}`);
     }
   });
 });

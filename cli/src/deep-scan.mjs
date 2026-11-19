@@ -5,8 +5,9 @@
 // `full` audit. Then the pre-flight refusals (a GitHub token in the
 // environment, a .env the copy-in would carry wholesale), then the choice of a
 // sandbox runtime from the host, or its refusal, with no override (ADR 0018).
-// The later stages (sandbox, proxy, scan) are not built yet: a chosen runtime
-// ends the run with exit 0, before anything is started.
+// Then the sandbox lifecycle on that runtime, from image to teardown
+// (deep-scan/lifecycle.mjs), with a stand-in agent step until the proxy and
+// the real scan land.
 
 import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -18,8 +19,10 @@ import {
   readRecipeAtRef,
   RecipeError,
   RECIPE_DOCS_URL,
+  recipeSteps,
   validateRecipe,
 } from "./deep-scan/recipe.mjs";
+import { runLifecycle } from "./deep-scan/lifecycle.mjs";
 import { envFilesAtRef, strayTokens } from "./deep-scan/preflight.mjs";
 import { RUNTIMES_DOCS_URL, selectRuntime } from "./deep-scan/runtime.mjs";
 
@@ -31,20 +34,28 @@ import { RUNTIMES_DOCS_URL, selectRuntime } from "./deep-scan/runtime.mjs";
  *   defaultBranch?: string,
  *   platform?: string,
  *   env?: Record<string, string | undefined>,
+ *   fetch?: typeof globalThis.fetch,
+ *   signals?: { on: Function, off: Function },
+ *   reportDir?: string,
  *   out: (s: string) => void,
  *   err: (s: string) => void,
- * }} opts  `platform` and `env` are the host's (`process.platform`,
- *   `process.env`); only tests pass others, and no flag can change them.
- * @returns {number} exit code: 0 the recipe is valid and a runtime was chosen,
- *   1 refused, 2 usage error
+ * }} opts  `platform`, `env`, `fetch` and `signals` are the host's
+ *   (`process.platform`, `process.env`, the global fetch, `process`), and
+ *   `reportDir` is a new private temporary folder; only tests pass others,
+ *   and no flag can change them.
+ * @returns {Promise<number>} exit code: 0 the sandbox ran and the report came
+ *   out, 1 refused or a step failed, 2 usage error, 130 or 143 interrupted
  */
-export function runDeepScan({
+export async function runDeepScan({
   cwd,
   runner,
   recipePath,
   defaultBranch,
   platform = process.platform,
   env = process.env,
+  fetch = globalThis.fetch,
+  signals = process,
+  reportDir,
   out,
   err,
 }) {
@@ -170,10 +181,20 @@ export function runDeepScan({
   const choice = selectRuntime({ runner, platform });
   if ("refused" in choice) return refuse(choice.refused, RUNTIMES_DOCS_URL);
   out(`Sandbox runtime: ${choice.runtime.name}.`);
-  out(
-    "The later deep-scan stages (sandbox, proxy, scan) are not built yet, so the run stops here, before anything is started.",
-  );
-  return 0;
+  return runLifecycle({
+    runner,
+    runtime: choice.runtime,
+    root,
+    branch,
+    commit,
+    steps: recipeSteps(recipe.text),
+    platform,
+    fetch,
+    signals,
+    ...(reportDir !== undefined ? { reportDir } : {}),
+    out,
+    err,
+  });
 }
 
 /** Text with LF line ends, so a CRLF checkout of the same file compares equal. */

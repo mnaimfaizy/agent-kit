@@ -416,3 +416,32 @@ function lineProblems(text) {
   });
   return { problems, twice: [...twice] };
 }
+
+/**
+ * What the sandbox lifecycle runs and copies from a recipe that
+ * `validateRecipe` passed: the image or Dockerfile, each command field as a
+ * list, and the registries and grounding lists.
+ *
+ * @param {string} text
+ * @returns {{ image?: string, dockerfile?: string, setup: string[], start: string[],
+ *   ready: string[], seed: string[], registries: string[], grounding: string[] }}
+ */
+export function recipeSteps(text) {
+  const recipe = parseYamlSubset(text);
+  const strings = (value) =>
+    Array.isArray(value) ? value.filter((v) => typeof v === "string") : [];
+  const commands = (value) =>
+    typeof value === "string" && value.trim() !== "" && !/^[[{]/.test(value)
+      ? [value]
+      : strings(value);
+  return {
+    ...(typeof recipe.image === "string" ? { image: recipe.image } : {}),
+    ...(typeof recipe.dockerfile === "string" ? { dockerfile: recipe.dockerfile } : {}),
+    setup: commands(recipe.setup),
+    start: commands(recipe.start),
+    ready: commands(recipe.ready),
+    seed: commands(recipe.seed),
+    registries: strings(recipe.registries),
+    grounding: strings(recipe.grounding),
+  };
+}

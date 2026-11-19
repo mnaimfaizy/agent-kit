@@ -28,11 +28,13 @@ Commands:
              Kit-owned paths, rewrite the uses: pins, print the examples/
              diff, then run doctor's file and pin checks. Local files only.
   deep-scan  Run a Deep scan of this repository's own code in a sandbox.
-             Today it reads the Scan recipe as committed on the default
-             branch and validates it, refuses a GitHub token in its
-             environment or a committed .env, and chooses a sandbox runtime
-             from the host or refuses (no override); the later stages are
-             not built yet.
+             Reads the Scan recipe as committed on the default branch and
+             validates it, refuses a GitHub token in its environment or a
+             committed .env, chooses a sandbox runtime from the host or
+             refuses (no override), then runs the sandbox: image, copy-in of
+             the default branch's tip, setup with egress only to the
+             recipe's registries, network cut, the agent step (a stand-in
+             for now), copy-out of the report only, and teardown.
 
 Options for doctor:
   --ci            Check only Kit-owned paths and uses: pins (no gh needed).
@@ -101,15 +103,20 @@ const COMMAND_OPTIONS = {
  *   stderr: (s: string) => void,
  *   runner?: import("./exec.mjs").Runner,
  *   spawn?: Function,
+ *   spawnAsync?: Function,
  *   platform?: string,
  *   env?: Record<string, string | undefined>,
+ *   fetch?: typeof globalThis.fetch,
+ *   signals?: { on: Function, off: Function },
+ *   reportDir?: string,
  *   openTag?: Function,
  *   openRepo?: Function,
  *   prompt?: ((question: string) => Promise<string>) | null,
  * }} io  `prompt` is null (or absent) when there is no terminal to ask on.
  *   Without `runner`, each command runs through its own allowlist
- *   (`runnerFor`); `spawn` replaces only the process boundary behind it.
- *   `platform` and `env` (default the host's) are for tests, never flags.
+ *   (`runnerFor`); `spawn` and `spawnAsync` replace only the process
+ *   boundary behind it. `platform`, `env`, `fetch`, `signals` and
+ *   `reportDir` (default the host's) are for tests, never flags.
  * @returns {Promise<number>} exit code
  */
 export async function main(argv, io) {
@@ -172,7 +179,12 @@ export async function main(argv, io) {
     stderr(`${command} does not take ${foreign.map((k) => `--${k}`).join(", ")}\n\n${USAGE}`);
     return 2;
   }
-  const runner = io.runner ?? runnerFor(command, io.spawn ? { spawn: io.spawn } : {});
+  const runner =
+    io.runner ??
+    runnerFor(command, {
+      ...(io.spawn ? { spawn: io.spawn } : {}),
+      ...(io.spawnAsync ? { spawnAsync: io.spawnAsync } : {}),
+    });
 
   if (command === "init") {
     stdout(`agent-kit init ${VERSION}`);
@@ -206,6 +218,9 @@ export async function main(argv, io) {
       defaultBranch: values["default-branch"],
       ...(io.platform !== undefined ? { platform: io.platform } : {}),
       ...(io.env !== undefined ? { env: io.env } : {}),
+      ...(io.fetch !== undefined ? { fetch: io.fetch } : {}),
+      ...(io.signals !== undefined ? { signals: io.signals } : {}),
+      ...(io.reportDir !== undefined ? { reportDir: io.reportDir } : {}),
       out: stdout,
       err: stderr,
     });
