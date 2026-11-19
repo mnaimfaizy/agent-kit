@@ -116,6 +116,25 @@ Security finding bodies never appear in Actions logs, artifacts, or public issue
 Handing security findings only to a draft GitHub Security Advisory (plus optional email).
 _Avoid_: report upload, publishing findings
 
+**Deep scan**:
+A `security-audit` run that also builds, runs and probes the repository's own code inside a sandbox, to reproduce its findings and find more along the Threat pack's attack paths.
+_Avoid_: pen test, dynamic audit, DAST
+
+**Reproduction**:
+Confirming a security finding by triggering it in a running copy of the code inside a sandbox. It is recorded as an observation, never as a runnable recipe.
+_Avoid_: PoC, exploit
+
+**Concept id**:
+The stable kebab-case name of one security finding, used across advisories, the Security Response Run, and the findings ledger.
+_Avoid_: F-number, finding id
+
+**Medium floor**:
+The severity below which a confirmed security finding gets hardening rather than an advisory.
+
+**Security Response Run**:
+One pass of a maintainer's response to every open draft security advisory, tracked in a private local board with one row per concept id, and closed by writing the findings ledger once every row and every advisory is final.
+_Avoid_: security board, advisory run, triage session
+
 ### Manual QA
 
 The `qa-plan` and `manual-qa` Portable skills; why they are two skills: [ADR 0003](docs/adr/0003-qa-is-two-skills-joined-by-a-copied-plan-format.md); how an autonomous `orchestrate` run follows them from a brief: [ADR 0013](docs/adr/0013-in-an-autonomous-orchestrate-run-the-qa-skills-run-from-the-brief.md). Each skill's `DESIGN.md` ([`qa-plan`](.claude/skills/qa-plan/DESIGN.md#glossary), [`manual-qa`](.claude/skills/manual-qa/DESIGN.md#glossary)) carries the same definitions, word for word, so the skill keeps them when it is installed alone; `scripts/qa-glossary-contract.test.py` keeps the three the same.
