@@ -26,9 +26,7 @@ LAUNCHER = "Run the deep scan (agent-kit deep-scan)"
 CHECK = "Check model and limit inputs"
 STAGE = "Stage trusted delivery scripts"
 # Uploads and caches outlive the job and are readable beyond Private delivery.
-UPLOADS = re.compile(
-    r"actions/(upload-artifact|upload-pages-artifact|cache|attest)|actions/setup-\w+@.*\n(\s+with:[^\n]*\n)?(\s+\w[^\n]*\n)*?\s+cache:"
-)
+UPLOADS = re.compile(r"actions/(upload-artifact|upload-pages-artifact|cache|attest)")
 
 
 def raw() -> str:
@@ -199,7 +197,10 @@ def test_nothing_is_uploaded_or_cached() -> None:
     data = raw()
     assert not UPLOADS.search(data), UPLOADS.search(data)
     assert "GITHUB_STEP_SUMMARY" not in data
-    assert "cache:" not in data
+    # setup-node caches on its own when package.json names a packageManager.
+    node = next(s for s in steps() if str(s.get("uses", "")).startswith("actions/setup-node@"))
+    assert node["with"].get("package-manager-cache") is False
+    assert "cache" not in node["with"]
     for s in steps():
         uses = str(s.get("uses", ""))
         assert not uses or uses.startswith(("actions/checkout@", "actions/setup-node@")), uses

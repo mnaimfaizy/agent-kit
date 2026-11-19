@@ -3644,6 +3644,15 @@ describe("the CI path: the model, a known report path, and a public log", () => 
     assert.ok(res.out.includes(`Report: ${target} (`), res.out);
   });
 
+  it("takes a --report in a folder reached through a link, as /tmp is on macOS", async () => {
+    const real = mkdtempSync(join(tmp, "ci-real-"));
+    const link = join(tmp, `ci-link-${n++}`);
+    symlinkSync(real, link, "junction");
+    const res = await run(recipeRepo(VALID), ["--report", join(link, "report.md")]);
+    assert.equal(res.code, 0, res.text);
+    assert.equal(readFileSync(join(real, "report.md"), "utf8"), REPORT_TEXT);
+  });
+
   it("refuses a --report that already exists or whose folder does not, before anything runs", async () => {
     const dir = mkdtempSync(join(tmp, "ci-out-"));
     const taken = join(dir, "taken.md");

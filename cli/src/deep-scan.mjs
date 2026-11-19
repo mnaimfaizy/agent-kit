@@ -12,7 +12,7 @@
 // the real Claude Code behind the key-injecting model proxy, every run
 // bounded by the limits its flags set (deep-scan/limits.mjs).
 
-import { existsSync, lstatSync, readFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { firstLine } from "./exec.mjs";
 import { detectDefaultBranch, parseAnswer } from "./init.mjs";
@@ -114,7 +114,7 @@ export async function runDeepScan({
       return 2;
     }
     const folder = dirname(reportFile);
-    if (!existsSync(folder) || !lstatSync(folder).isDirectory()) {
+    if (!existsSync(folder) || !statSync(folder).isDirectory()) {
       err(`--report ${reportFile}: its folder ${folder} does not exist.`);
       return 2;
     }
