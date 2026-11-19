@@ -147,7 +147,7 @@ A command field takes one command or a list of them; `start` and `ready`, when g
 
 The recipe never holds:
 
-- **Limits.** Time, turn and token limits come from `deep-scan`'s options or the deep-scan workflow's inputs, so a merged recipe change cannot raise a run's spend. A key such as `limits`, `max_turns`, `tokens` or `setup_timeout` is refused.
+- **Limits.** Time, turn and token limits come from `deep-scan`'s options or the deep-scan workflow's inputs (see [Limits](#limits)), so a merged recipe change cannot raise a run's spend. A key such as `limits`, `max_turns`, `tokens` or `setup_timeout` is refused.
 - **A compose file, sibling containers or the Docker socket.** Services share the one sandbox and its one boundary. A `compose` or `services` key, a compose file as `dockerfile`, a command that starts a container (`docker`, `podman`), and any mention of `docker.sock` are refused.
 - **A real credential.** Values shaped like a GitHub, Anthropic, AWS or Slack token, or a private key, are refused anywhere in the recipe.
 - **Anything else.** An unknown key, a key given twice, a top-level line that is not `key: value`, and a line indented under a key that holds a single value are refused.
@@ -198,7 +198,8 @@ Once a runtime is chosen, `agent-kit deep-scan` runs the sandbox on it: see [Wha
 7. **Agent step.** It copies in the launcher's brief, to `/agent-kit/in/brief.md`, and runs Claude Code in it, in `/workspace`:
    - with `--bare`, which skips skill and `CLAUDE.md` discovery, so the brief hands it everything: the security-audit skill's `DEEP.md` (the `deep` procedure), with `SKILL.md` and `report-format.md`, the Threat pack (the threat model and findings ledger at the paths your security-audit Caller passes, else `.security/`) and the Scan recipe, all read from the default branch's tip, plus the sandbox's paths: the repository at `/workspace`, each grounding source under `/agent-kit/grounding`, and the report at `/agent-kit/out/report.md`. A run whose default branch has no `DEEP.md` or no Threat pack is refused before any runtime starts;
    - with a non-secret placeholder `ANTHROPIC_API_KEY`, and `ANTHROPIC_BASE_URL` pinned to the model proxy by the launcher's own `--settings`, which outrank project settings. Project and local settings are not even loaded (`--setting-sources user`), so a `.claude/settings.json` in your repository cannot point Claude Code anywhere else;
-   - with web tools off: WebFetch and WebSearch are not in its tool set (`--tools`), and are disallowed and denied as well. Its tools are Bash, Read, Write, Edit, Glob and Grep, pre-approved, with nothing else asked.
+   - with web tools off: WebFetch and WebSearch are not in its tool set (`--tools`), and are disallowed and denied as well. Its tools are Bash, Read, Write, Edit, Glob and Grep, pre-approved, with nothing else asked;
+   - within the run's [limits](#limits): the launcher's `--max-turns`, the scan wall clock and the model proxy's token cap.
 
    Claude Code's own output stays in the sandbox. When the step fails, `deep-scan` prints its exit code and the last lines of its error output, and in every case the model proxy's counts: requests forwarded (by the model API's answer status) and requests refused, never their content. The proxy stops as soon as the agent step ends.
 
@@ -238,6 +239,29 @@ ANTHROPIC_API_KEY=op://Private/Anthropic-deep-scan/credential op run -- npx @mna
 
 `deep-scan` refuses, before any runtime starts, when the variable is unset or empty, when it still holds an `op://` reference (you ran without `op run`), when the key holds whitespace or a control character, or when `op read` fails (with `op`'s own message).
 
+## Limits
+
+Every Deep scan is bounded from outside the sandbox, so nothing the agent does inside can lift a limit. The defaults are starting values, and you can raise or lower each one with a `deep-scan` option. The [Scan recipe](#scan-recipe) never sets a limit: a limit field in it is refused, so a merged recipe change cannot raise your spend.
+
+| Limit            | Default               | Option                | Enforced by                                                                     |
+| ---------------- | --------------------- | --------------------- | ------------------------------------------------------------------------------- |
+| Setup wall clock | 20 min                | `--setup-minutes <n>` | `deep-scan`, from the image step until the agent step starts                    |
+| Scan wall clock  | 60 min                | `--scan-minutes <n>`  | `deep-scan`, over the agent step                                                |
+| Turns            | 200                   | `--max-turns <n>`     | `deep-scan`'s own `--max-turns` on the Claude Code command line                 |
+| Tokens           | 5,000,000 for the run | `--max-tokens <n>`    | the model proxy on your machine, which counts the `usage` the model API returns |
+
+- A minutes value is a positive number (`90`, `7.5`) of at most 35791 (about 24 days, the longest a timer holds); turns and tokens are positive whole numbers. Anything else is a usage error, exit 2, before anything runs.
+- **What the token cap counts:** every kind of token the model API reports in an answer's `usage`: input, output, cache-creation input and cache-read input tokens, each in full. Cache reads are billed at a fraction of the input price, so on a long run the cap counts more than you are billed for, and a run reaches it sooner than its spend alone would. The proxy refuses the request after the one that reaches the cap, and every request after it; the answer that crosses the cap is delivered, so a run can go past the cap by the answers already in flight when it is reached. It also refuses the batch and legacy completion paths (`/v1/messages/batches`, `/v1/complete`), whose spend an answer's `usage` would not show.
+- **When a limit fires,** `deep-scan` stops the running step, the same way Ctrl+C does, prints `Stopped: <limit> (…)`, closes the model route and copies out the report the agent has written so far. The report gets a `- **Stopped:** wall clock | turns | tokens` header line after `Finding count`, naming the limit; only `deep-scan` writes that line, and it removes any `Stopped:` line the agent wrote itself. Then it tears the sandbox down, as on every exit path, and exits 3.
+- **A stop with no report** (the setup wall clock, which fires before the agent step, or an agent that wrote nothing yet) writes no file and prints only the status naming the limit, `Stopped: <limit> (…). No report came out: nothing was written, filed or posted.`, and exits 3.
+- **Turns** are Claude Code's own turn limit: the agent step's script reports it when Claude Code says it reached its limit. An agent could start a second Claude Code from Bash, outside that flag, so the wall clocks and the token cap, which the agent cannot reach, are the hard bounds.
+
+Backstops beyond these limits:
+
+- **On the API-key path**, the Console workspace's spend limit (see [Credentials](#credentials)) is the hard ceiling on what any run can cost, whatever the limits are set to.
+- **On the subscription path** (not available yet), there is no Console spend limit, so the proxy's token cap is the only spend lever.
+- **In CI**, the deep-scan workflow (not released yet) sets its job's `timeout-minutes` above the sum of the phase limits.
+
 ## Running a deep scan
 
 1. **Adopt the audit flow** on the default branch: the security-audit skill (with `DEEP.md`) and the [Threat pack](#threat-pack), as `agent-kit init` sets them up.
@@ -254,4 +278,4 @@ ANTHROPIC_API_KEY=op://Private/Anthropic-deep-scan/credential op run -- npx @mna
 
 6. **Read the report** at the path `deep-scan` prints last (`Report: …/report.md`), in a new private folder under your temporary folder. It is the only thing the scan leaves on your machine. Nothing is filed or posted: to file a draft advisory, follow the skill's by-hand rule.
 
-A good run prints the recipe, the Threat pack and the key's source, the runtime, each setup step `ok`, `Network: cut`, `Model route: only the model proxy…`, the agent step, `Model proxy: forwarded N request(s) to api.anthropic.com (answers: 200 xN)`, the report's path, and `Teardown: removed …`, and exits 0. A model proxy answer of `401` means the key was refused; `refused` lists hosts or paths the agent tried that the proxy turned away.
+A good run prints the recipe, the Threat pack and the key's source, the runtime, each setup step `ok`, `Network: cut`, `Model route: only the model proxy…`, the agent step, `Model proxy: forwarded N request(s) to api.anthropic.com (answers: 200 xN)`, the report's path, and `Teardown: removed …`, and exits 0. A model proxy answer of `401` means the key was refused; `refused` lists hosts or paths the agent tried that the proxy turned away, and `counted N of the …-token cap` is the run's token count. A run a [limit](#limits) stopped prints `Stopped: …` and exits 3; to let a scan run longer, raise that limit with its option, for example `--scan-minutes 120`.
