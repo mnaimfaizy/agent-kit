@@ -513,7 +513,7 @@ ROW_TO_LINE = {
     "Concept id": ["the row's final concept id"],
     "Status": ["`rejected`", "Evidence is `rejected` or `duplicate`", "`released <tag>`", "`fixed`", "`accepted-risk`"],
     "First seen": ["the advisory's Created date", "the triage date"],
-    "Advisory": ["the full GHSA id", "`n/a` for a `below-floor` row"],
+    "Advisory": ["the full GHSA id", "`n/a` for a `below-floor` row", "and for any row with no advisory (`none yet`)"],
     "Notes": ["Proposed ledger row", "the public parts of the Record"],
 }
 
