@@ -22,6 +22,7 @@ Then:
 
 - What was checked (`path:line`) and whether claim still holds
 - Who can trigger it / preconditions (narrative only)
+- For a finding from a deep scan: its `Reproduced` value and, with `yes`, its Observation, weighed as evidence. `yes` shows the path was triggered in a running copy of the code. `no` and `not attempted` are weak evidence that the bug is absent, so check the code path as for any static finding. Quote an Observation only in prose: never add a payload or a step to it.
 
 ### Decision
 
