@@ -112,6 +112,48 @@ A provisional id may be renamed until triage. It is final at triage, and stable 
 
 A finding whose concept id is already in the findings ledger still gets its row, `untriaged`, with Record `in ledger: <status>`. The run reads the ledger only; it never edits it before close.
 
+## Landing a triage outcome
+
+`security-response triage <target>` runs the `security-finding-triage` skill on one row, then lands its outcome on the board, so each judgement is kept with its reasons. A standalone `security-finding-triage` run is not picked up: the run lands only the output of a triage it ran itself, and never looks for one elsewhere. To land a judgement made in a standalone run, run `security-response triage <target>`.
+
+Triage lands on a row that is not final. A final row stays final for the run ([Final](#final)).
+
+To land an outcome:
+
+1. The output is saved verbatim to `triage/<concept-id>.md`, under the final concept id. A later triage of the same row is saved beside it as `triage/<concept-id>.2.md`, then `.3`; a saved output is never overwritten.
+2. The concept id becomes final: it is the output's **Concept id**. When that differs from the row's provisional id, the row is renamed, and the rename is logged. A regression of a concept id already in the findings ledger takes the new id triage chose. When the output's id is another row's, and its Outcome is not `duplicate`, nothing lands: the run raises it in Waiting on you for the human.
+3. Map the Outcome to Evidence and Delivery ([Outcome to Evidence](#outcome-to-evidence)). **Severity (after triage)** becomes the row's Severity, with no `?`; a `duplicate` row's reads `—`.
+4. Add the outcome's record to the row's Record: for `rejected`, one public-safe line from the Decision on why, or on what would reopen it; for `duplicate`, `of <canonical id>`.
+5. Add a row for each finding the output found in triage ([Found in triage](#found-in-triage)), rewrite the row's Next, Waiting on you and Next (agent), and log the move in `activity.md`: `triaged: untriaged → <evidence>, saved triage/<concept-id>.md`.
+
+The output's Proposed ledger row is kept in the saved file and goes nowhere else: the run's `close` drafts the ledger from it. Triage never edits the findings ledger.
+
+### Outcome to Evidence
+
+| Outcome         | Evidence      | Delivery                                                      |
+| --------------- | ------------- | ------------------------------------------------------------- |
+| `confirmed`     | `confirmed`   | unchanged: `open` until a fix                                 |
+| `rejected`      | `rejected`    | `—`                                                           |
+| `below-floor`   | `below-floor` | unchanged: `open` until its hardening lands                   |
+| `duplicate`     | `duplicate`   | `—`                                                           |
+| `accepted-risk` | `confirmed`   | unchanged: a recommendation ([Accepted risk](#accepted-risk)) |
+
+An `accepted-risk` outcome whose Severity is under the Medium floor maps to `below-floor` instead.
+
+### Duplicates
+
+A finding triage shows to be the same concept as another row, or as a concept id already in the findings ledger, is kept as a `duplicate` row with Record `of <canonical id>`. It keeps its own concept id, its Severity and Delivery read `—`, and its Next reads `final`. It is never deleted or folded into the canonical row, because its advisory still needs closing once the canonical row's advisory is final. The canonical id must be a row on the board or a concept id in the findings ledger; when it is neither, nothing lands, and the run raises it in Waiting on you.
+
+### Accepted risk
+
+An `accepted-risk` outcome is only a recommendation. Its Evidence lands as above, and its Delivery stays as it is until the human records it: Waiting on you gets one item, to accept the risk on the row with `record accepted-risk <concept-id>: <reason>` or to ask for a fix, and the row's Next reads `you: decide accepted risk`. The run never sets the Delivery `accepted-risk` from a triage outcome.
+
+### Found in triage
+
+Each finding in the output's **Found in triage** section enters as a new `untriaged` row, with advisory `none yet`, the severity claimed with a `?`, and Record `found in triage of <concept id>, <date>`: the triaged row's concept id and the triage date. Its own judgement comes from its own triage, `security-response triage <its concept id>`. When its concept id is already a row on the board, no row is added, and the run raises it in Waiting on you.
+
+A found-in-triage row confirmed at Medium or above needs a draft advisory before `fix PR open`, because the private fork that holds the fix lives on the advisory. Until reconcile matches a draft to the row ([Rows are never deleted](#rows-are-never-deleted)), Waiting on you asks the human to create a draft advisory for it, and `fix` refuses the row.
+
 ## Board
 
 ```markdown

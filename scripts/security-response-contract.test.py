@@ -336,6 +336,64 @@ def test_outcome_format_gains_below_floor_and_a_proposed_ledger_row() -> None:
     assert "a new finding" in found and "its own concept id" in found
 
 
+LANDING = "Landing a triage outcome"
+OUTCOME_TO_EVIDENCE = {
+    "`confirmed`": "`confirmed`",
+    "`rejected`": "`rejected`",
+    "`below-floor`": "`below-floor`",
+    "`duplicate`": "`duplicate`",
+    "`accepted-risk`": "`confirmed`",
+}
+
+
+def landing() -> str:
+    return section(read(RUN), LANDING)
+
+
+def test_triage_output_is_saved_verbatim() -> None:
+    text = flat(landing())
+    assert "saved verbatim to `triage/<concept-id>.md`" in text
+    assert "under the final concept id" in text
+
+
+def test_outcome_maps_to_evidence_and_severity() -> None:
+    mapping = table_rows(subsection(landing(), "Outcome to Evidence"))
+    assert "| Outcome | Evidence | Delivery |" in mapping
+    rows = {outcome: evidence for outcome, evidence, _ in table_cells(mapping)}
+    for outcome, evidence in OUTCOME_TO_EVIDENCE.items():
+        assert rows.get(outcome) == evidence, f"Outcome {outcome} must map to Evidence {evidence}, got {rows.get(outcome)!r}"
+    text = flat(landing())
+    assert "**Severity (after triage)** becomes the row's Severity, with no `?`" in text
+    assert "The concept id becomes final" in text
+
+
+def test_a_same_concept_finding_is_kept_as_a_duplicate() -> None:
+    dup = flat(subsection(landing(), "Duplicates"))
+    assert "kept as a `duplicate` row" in dup
+    assert "Record `of <canonical id>`" in dup
+    assert "never deleted or folded into the canonical row" in dup
+
+
+def test_accepted_risk_is_only_a_recommendation() -> None:
+    accepted = flat(subsection(landing(), "Accepted risk"))
+    assert "only a recommendation" in accepted
+    assert "Waiting on you" in accepted and "`record accepted-risk <concept-id>: <reason>`" in accepted
+    assert "Delivery stays as it is until the human records it" in accepted
+
+
+def test_a_finding_found_in_triage_enters_untriaged() -> None:
+    found = flat(subsection(landing(), "Found in triage"))
+    assert "a new `untriaged` row, with advisory `none yet`" in found
+    assert "Record `found in triage of <concept id>, <date>`" in found
+    assert "confirmed at Medium or above" in found
+    assert "needs a draft advisory before `fix PR open`" in found
+
+
+def test_a_standalone_triage_run_is_not_picked_up() -> None:
+    text = flat(landing())
+    assert "A standalone `security-finding-triage` run is not picked up" in text
+
+
 if __name__ == "__main__":
     test_argument_hint_and_mode_list()
     test_every_mode_opens_or_resumes_the_run()
@@ -360,4 +418,10 @@ if __name__ == "__main__":
     test_each_correction_is_logged()
     test_triage_does_not_write_the_ledger()
     test_outcome_format_gains_below_floor_and_a_proposed_ledger_row()
+    test_triage_output_is_saved_verbatim()
+    test_outcome_maps_to_evidence_and_severity()
+    test_a_same_concept_finding_is_kept_as_a_duplicate()
+    test_accepted_risk_is_only_a_recommendation()
+    test_a_finding_found_in_triage_enters_untriaged()
+    test_a_standalone_triage_run_is_not_picked_up()
     print("security-response contract: ok")
