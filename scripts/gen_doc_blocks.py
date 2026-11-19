@@ -72,7 +72,7 @@ class Stage:
     name: str
     switch: list[tuple[str, bool]]  # (variable, True if it must be `true`, False if it must not be `false`)
     model: Fallback
-    effort: Fallback
+    effort: Fallback | None  # None: the Stage takes no effort input
 
 
 class Sources:
@@ -144,7 +144,8 @@ def _stage(settings: dict, where: str) -> Stage:
                 " vars.NAME != 'true' or vars.NAME == 'false', joined by ||"
             )
         switch.append((match.group(1), match.group(2) == "!="))
-    model, effort = _fallback(settings, "model", where), _fallback(settings, "effort", where)
+    model = _fallback(settings, "model", where)
+    effort = _fallback(settings, "effort", where) if "effort" in settings else None
     token = OWN_MODEL.fullmatch(model.variables[0])
     if not token:
         raise SystemExit(f"{where}: model should read the Stage's own CLAUDE_<STAGE>_MODEL first")
@@ -195,8 +196,10 @@ def stage_kill_switches(sources: Sources) -> str:
 def stage_model_and_effort(sources: Sources) -> str:
     stages = sources.stages
     # Every Stage reads its own variable, then the same shared ones, then the same default.
+    # A Stage with no effort input (the deep scan) has no effort chain to agree with.
     for setting in ("model", "effort"):
-        tails = {(getattr(stage, setting).variables[1:], getattr(stage, setting).default) for stage in stages}
+        chains = [getattr(stage, setting) for stage in stages if getattr(stage, setting) is not None]
+        tails = {(chain.variables[1:], chain.default) for chain in chains}
         if len(tails) > 1:
             raise SystemExit(
                 f"The example Callers' {setting} settings fall back differently ({sorted(map(str, tails))});"
@@ -209,11 +212,15 @@ def stage_model_and_effort(sources: Sources) -> str:
     def default(fallback: Fallback) -> str:
         return f"`{fallback.default}`" if fallback.default else "none"
 
-    rows = [[stage.name, f"`{stage.model.variables[0]}`", f"`{stage.effort.variables[0]}`"] for stage in stages]
+    def own(fallback: Fallback | None) -> str:
+        return f"`{fallback.variables[0]}`" if fallback else "—"
+
+    rows = [[stage.name, own(stage.model), own(stage.effort)] for stage in stages]
     if stages:
-        first = stages[0]
-        rows.append(["any Stage above", shared(first.model), shared(first.effort)])
-        rows.append(["neither set", default(first.model), default(first.effort)])
+        model = stages[0].model
+        effort = next((stage.effort for stage in stages if stage.effort), None)
+        rows.append(["any Stage above", shared(model), shared(effort) if effort else "—"])
+        rows.append(["neither set", default(model), default(effort) if effort else "—"])
     return _table(["Stage", "Model", "Effort"], rows)
 
 

@@ -164,6 +164,7 @@ Callers read every Stage setting from repository variables named `CLAUDE_<STAGE>
 
 | Stage           | Runs when                                                                           |
 | --------------- | ----------------------------------------------------------------------------------- |
+| deep scan       | `CLAUDE_DEEP_SCAN_ENABLED` is `true`                                                |
 | plan            | `CLAUDE_AGENT_FLOW_ENABLED` is `true` and `CLAUDE_PLAN_ENABLED` is not `false`      |
 | implement       | `CLAUDE_AGENT_FLOW_ENABLED` is `true` and `CLAUDE_IMPLEMENT_ENABLED` is not `false` |
 | review          | `CLAUDE_AGENT_FLOW_ENABLED` is `true` and `CLAUDE_REVIEW_ENABLED` is not `false`    |
@@ -194,6 +195,7 @@ Set a flow's switch to anything but `true` (or delete it) to stop it instantly w
 
 | Stage           | Model                          | Effort                          |
 | --------------- | ------------------------------ | ------------------------------- |
+| deep scan       | `CLAUDE_DEEP_SCAN_MODEL`       | —                               |
 | plan            | `CLAUDE_PLAN_MODEL`            | `CLAUDE_PLAN_EFFORT`            |
 | implement       | `CLAUDE_IMPLEMENT_MODEL`       | `CLAUDE_IMPLEMENT_EFFORT`       |
 | review          | `CLAUDE_REVIEW_MODEL`          | `CLAUDE_REVIEW_EFFORT`          |
