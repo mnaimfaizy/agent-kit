@@ -180,10 +180,10 @@ export function validateRecipe(text) {
   } else if (!hasStart && entries) {
     const i = entries.findIndex((e) => isMapping(e) && !("command" in e));
     if (i >= 0) {
-      const kind = ENTRY_KINDS.find((k) => k in entries[i]) ?? "not a command";
+      const kind = ENTRY_KINDS.find((k) => k in entries[i]);
       say(
         "start and ready",
-        `are missing, and entry_points[${i}] is a ${kind}: they may be left out only when every entry point is a command.`,
+        `are missing, and entry_points[${i}] ${kind ? `is a ${kind}` : "is not a command"}: they may be left out only when every entry point is a command.`,
       );
     }
   }

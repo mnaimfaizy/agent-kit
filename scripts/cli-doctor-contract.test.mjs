@@ -2337,3 +2337,65 @@ describe("doctor's rename map and the Deprecation register", () => {
     }
   });
 });
+
+describe("Scan recipe", () => {
+  const RECIPE = `image: node:22
+setup:
+  - npm ci
+registries:
+  - registry.npmjs.org
+entry_points:
+  - command: node bin/cli.js
+    note: The CLI.
+fixtures: []
+notes: Workflows stay static-only.
+`;
+  const recipeCheck = (report) => report.results.find((r) => r.id === "scan-recipe");
+
+  it("reports no recipe at the default path as a pass that only a Deep scan needs one", () => {
+    const report = runDoctor({
+      cwd: makeConsumer("no-recipe"),
+      runner: systemRunner,
+      ci: true,
+      openTag,
+    });
+    const check = recipeCheck(report);
+    assert.equal(check.status, "pass", JSON.stringify(check));
+    assert.match(check.summary, /No Scan recipe at \.security\/scan-recipe\.yml/);
+    assert.match(check.summary, /only a Deep scan needs one/);
+    assert.equal(report.exitCode, 0);
+  });
+
+  it("reports a valid recipe at the default path as present", () => {
+    const dir = makeConsumer("recipe", { files: { ".security/scan-recipe.yml": RECIPE } });
+    const check = recipeCheck(runDoctor({ cwd: dir, runner: systemRunner, ci: true, openTag }));
+    assert.equal(check.status, "pass", JSON.stringify(check));
+    assert.match(check.summary, /\.security\/scan-recipe\.yml is present and valid/);
+  });
+
+  it("warns about an invalid recipe, naming each problem, and fails it under --strict", async () => {
+    const dir = makeConsumer("bad-recipe", {
+      files: { ".security/scan-recipe.yml": `${RECIPE}max_turns: 900\n` },
+    });
+    const check = recipeCheck(runDoctor({ cwd: dir, runner: systemRunner, ci: true, openTag }));
+    assert.equal(check.status, "warn", JSON.stringify(check));
+    assert.match(check.details.join("\n"), /max_turns: the recipe holds no limits/);
+    const out = [];
+    const code = await main(["doctor", "--ci", "--strict"], {
+      cwd: dir,
+      stdout: (s) => out.push(s),
+      stderr: (s) => out.push(s),
+      runner: systemRunner,
+      openTag,
+    });
+    assert.equal(code, 1);
+    assert.match(out.join("\n"), /FAIL {2}Scan recipe/);
+  });
+
+  it("warns about a recipe path that is not a regular file", () => {
+    const dir = makeConsumer("recipe-dir", { files: { ".security/scan-recipe.yml/x": "y\n" } });
+    const check = recipeCheck(runDoctor({ cwd: dir, runner: systemRunner, ci: true, openTag }));
+    assert.equal(check.status, "warn", JSON.stringify(check));
+    assert.match(check.summary, /not a regular file/);
+  });
+});

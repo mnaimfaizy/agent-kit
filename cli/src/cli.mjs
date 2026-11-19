@@ -1,5 +1,6 @@
 // Argument parsing and dispatch. Exit codes: 0 ok, 1 a check failed (or a
-// warning under --strict, or the tag or the change was refused), 2 usage
+// warning under --strict, the tag or the change was refused, or deep-scan
+// refused a missing or invalid Scan recipe), 2 usage
 // error (including a missing answer when there is no terminal to ask on).
 
 import { parseArgs } from "node:util";

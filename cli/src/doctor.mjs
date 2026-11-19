@@ -10,6 +10,7 @@ import { checkLabels } from "./checks/labels.mjs";
 import { checkPins } from "./checks/pins.mjs";
 import { result, sanitizeLine } from "./checks/result.mjs";
 import { checkReviewResponseMode } from "./checks/review-response.mjs";
+import { checkScanRecipe } from "./checks/scan-recipe.mjs";
 import {
   checkCreationRule,
   checkPersonalTagPush,
@@ -182,6 +183,8 @@ export function runDoctor({
       }
     }
 
+    results.push(guarded("scan-recipe", () => checkScanRecipe({ root }), "Scan recipe"));
+
     if (mode === "ci") {
       results.push(
         ...skipAll(
@@ -213,19 +216,13 @@ function repoInfo(github, repoArg) {
 const TITLES = Object.fromEntries(LOCAL_ONLY_CHECKS);
 
 /** Run one check; an exception becomes a FAIL for that check, never a silent pass. */
-export function guarded(id, run) {
+export function guarded(id, run, title = TITLES[id] ?? id) {
   try {
     return run();
   } catch (err) {
-    return result(
-      id,
-      TITLES[id] ?? id,
-      "fail",
-      `Check crashed: ${firstLine(err?.message ?? err)}`,
-      {
-        details: ["This is a bug in doctor; the other checks still ran."],
-      },
-    );
+    return result(id, title, "fail", `Check crashed: ${firstLine(err?.message ?? err)}`, {
+      details: ["This is a bug in doctor; the other checks still ran."],
+    });
   }
 }
 
