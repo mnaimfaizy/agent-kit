@@ -394,6 +394,14 @@ def test_a_standalone_triage_run_is_not_picked_up() -> None:
     assert "A standalone `security-finding-triage` run is not picked up" in text
 
 
+def test_triage_mode_lands_the_outcome() -> None:
+    mode = next(line for line in read(SKILL).splitlines() if line.startswith("- `triage <target>`"))
+    assert "`security-finding-triage`" in mode, mode
+    assert "land its outcome on the board" in mode and "RUN.md#landing-a-triage-outcome" in mode, mode
+    fix = next(line for line in read(SKILL).splitlines() if line.startswith("- `fix <target>`"))
+    assert "a draft advisory" in fix and "RUN.md#found-in-triage" in fix, fix
+
+
 if __name__ == "__main__":
     test_argument_hint_and_mode_list()
     test_every_mode_opens_or_resumes_the_run()
@@ -424,4 +432,5 @@ if __name__ == "__main__":
     test_accepted_risk_is_only_a_recommendation()
     test_a_finding_found_in_triage_enters_untriaged()
     test_a_standalone_triage_run_is_not_picked_up()
+    test_triage_mode_lands_the_outcome()
     print("security-response contract: ok")

@@ -24,8 +24,8 @@ A `<target>` is a concept id or a `GHSA:F<n>`; `fix` also takes `next`.
 
 - `status`: prints the board ([RUN.md](RUN.md#board)) in the local terminal
 - `next`: recommend one prioritized next action
-- `triage <target>`: run evidence-first triage for one finding with the `security-finding-triage` skill
-- `fix <target>`: only with explicit authorization; implement and validate fix
+- `triage <target>`: run evidence-first triage for one finding with the `security-finding-triage` skill, and land its outcome on the board ([RUN.md](RUN.md#landing-a-triage-outcome))
+- `fix <target>`: only with explicit authorization; implement and validate fix. A row found in triage and confirmed at Medium or above needs a draft advisory first ([RUN.md](RUN.md#found-in-triage))
 - `reconcile`: reconcile only ([RUN.md](RUN.md#reconcile)): check the run against GitHub and git, and do nothing else
 - `record <what>`: land a human step on the board (not available yet: say so, and record nothing)
 - `close`: write the findings ledger and close the run (not available yet: say so, and close nothing)
@@ -45,6 +45,7 @@ This skill is the only writer of the run folder. Each change to the board is log
 - Never expose advisory bodies, exploit steps, or secrets publicly. Nothing in the run folder leaves the machine.
 - Prefer `concept-id` over report-local `F<n>` identifiers.
 - `status`/`next`/`triage` do not authorize code fixes by default.
+- The findings ledger is not edited before close: `triage` lands its outcome on the board, and triage's Proposed ledger row waits in `triage/<concept-id>.md`.
 - `fix` still requires safe reproducible evidence before implementation.
 - Save each advisory to the run's `originals/` before any PATCH that rewrites it publicly.
 
