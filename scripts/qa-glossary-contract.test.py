@@ -2,7 +2,7 @@
 
 A Portable skill must carry its own vocabulary (it links nothing outside its
 folder), so the `DESIGN.md` of `qa-plan` and of `manual-qa` each repeat the
-fifteen terms the root glossary defines under "Manual QA". Two copies drift unless something
+eighteen terms the root glossary defines under "Manual QA". Two copies drift unless something
 compares them, so this test does: same terms, same definitions, word for word.
 """
 
@@ -20,6 +20,9 @@ TERMS = [
     "Scenario account",
     "Fix scenario",
     "Session",
+    "Cut",
+    "Scene",
+    "Title card",
     "Surface",
     "Driver",
     "QA Stack",
