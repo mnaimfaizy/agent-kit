@@ -98,7 +98,7 @@ A Verification run re-attempts the findings in the file the launcher hands it, o
 - **Mode:** deep (Verification run)
 ```
 
-**Scope** names the ref, and **Finding count** is the number of given findings that still reproduce. It has no new findings: one entry per given finding, in the order given, each:
+**Scope** names the ref, **Finding count** is the number of given findings that still reproduce, and **Max severity** is the highest severity among them (`none` when every fix holds). It has no new findings: one entry per given finding, in the order given, each:
 
 ```markdown
 ### <concept id>

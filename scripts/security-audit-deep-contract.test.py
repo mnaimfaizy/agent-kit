@@ -101,7 +101,7 @@ def test_deep_follows_the_procedure_in_order() -> None:
     )
     heads = [re.sub(r"^\d+\. ", "", step) for step in steps]
     assert len(heads) == len(expected), heads
-    for head, start in zip(heads, expected):
+    for head, start in zip(heads, expected, strict=True):
         assert head.startswith(start), f"expected a step starting {start!r}, got {head!r}"
     recipe = steps[1]
     for needed in ("entry points", "fixtures", "grounding"):
@@ -140,6 +140,10 @@ def test_deep_runs_on_the_trusted_ref_only() -> None:
     scope = markdown_section(read(DEEP), "Scope")
     for needed in ("default branch", "path or attack path", "never a pull request head", "Verification run"):
         assert needed in scope, f"DEEP.md's scope must say {needed!r}: {scope}"
+    # A Verification run is confirm-only, but still never runs from the host.
+    verify = markdown_section(read(DEEP), "Verification run")
+    assert "Run steps 1 and 2" in verify and "never runs from the host" in verify, verify
+    assert "no `full` walk and no exploration" in verify and "Report no new findings" in verify, verify
 
 
 def test_report_format_keeps_severity_and_adds_the_deep_mode() -> None:
@@ -158,7 +162,9 @@ def test_report_format_defines_the_deep_additions() -> None:
         assert needed in deep, f"the Observation line must follow the ADR 0016 boundary: missing {needed!r}"
     assert "### Open questions" in deep, "deep reports carry an Open questions section"
     assert "- **Stopped:** wall clock | turns | tokens" in deep, "the Stopped: header line and its limits"
-    assert "The launcher adds it" in deep and "The agent never writes this line" in deep, "only the launcher writes Stopped:"
+    assert "The launcher adds it" in deep and "The agent never writes this line" in deep, (
+        "only the launcher writes Stopped:"
+    )
     assert "Medium floor" in deep and "A reproduced Low is still dropped" in deep
     assert "entry point" in deep and "not pinned down" in deep, "the Location fallback when tracing fails"
 
@@ -169,7 +175,6 @@ def test_report_format_defines_the_verification_run_variant() -> None:
     assert "- **Reproduced:** yes | no" in variant and "not attempted" not in variant, "a verify answer is yes or no"
     assert "the fix does not hold" in variant and "the fix holds" in variant
     assert "no new findings" in variant.lower()
-
 
 
 def test_triage_reads_reproduction_as_evidence_and_stays_static() -> None:
