@@ -53,7 +53,7 @@ Both are restored from the PR base in `pr` mode, so a PR cannot edit the Threat 
 - **It runs only in the sandbox the `agent-kit deep-scan` launcher starts.** Invoked from an ordinary Claude Code session on your machine, `deep` builds, runs and probes nothing, and points you to the launcher.
 - **It scans the trusted ref**: the whole repository at the default branch, optionally narrowed by path or attack path, never a pull request head.
 - **It probes only the Scan recipe's entry points**, inside the sandbox, never a deployed, production or third-party system.
-- **Web tools are off.** The agent does not use WebFetch or WebSearch, so no search query shaped by a finding leaves the run. Its grounding is what the recipe's `setup` fetched.
+- **Web tools are off.** The agent does not use WebFetch or WebSearch, so no search query shaped by a finding leaves the run. Its grounding is the recipe's `grounding` sources, which `deep-scan` copies in or fetches on your machine before the agent enters (see [What goes into and out of the sandbox](#what-goes-into-and-out-of-the-sandbox)).
 - **Only the report leaves the sandbox.** The transcript, shell history, app logs and scratch scripts are destroyed with it.
 
 Each finding gains `Reproduced: yes | no | not attempted`. With `yes`, a prose Observation names the location, the attacker's position, the kind of input in words and the effect seen. With `no` or `not attempted`, a one-line reason. Reproduction never changes severity: the Medium floor holds, a reproduced Low is still dropped, and an unreproduced Medium+ finding is still reported. A deep report also has an `Open questions` section, listing what the agent could not settle, so you can add grounding and run again, and a `Stopped:` header line, written by the launcher, when a limit ended the run. Fields and examples: the skill's `report-format.md`.
@@ -182,7 +182,7 @@ Once a runtime is chosen, `agent-kit deep-scan` runs the sandbox on it: see [Wha
 
 ## What goes into and out of the sandbox
 
-`agent-kit deep-scan` runs the sandbox from image to teardown on the runtime it chose. The agent step is a **stand-in** for now: it writes a placeholder report and runs no model, so the boundary is proven before a model is involved. The model-API proxy and the real scan come next. In order:
+`agent-kit deep-scan` runs the sandbox from image to teardown on the runtime it chose. The agent step is the real Claude Code, behind a key-injecting model proxy on your machine. Your API key never enters the sandbox: see [Credentials](#credentials). In order:
 
 1. **Image.** It pulls the recipe's `image`, or builds its `dockerfile` from the default branch's tree (sent to `docker build` as an archive, never your working tree). Then it layers a pinned Claude Code on top, installed with npm, so the image needs Node.js and npm. The Claude Code auto-updater is off, both by environment and by managed settings in `/etc/claude-code/`, which the repository's own project settings cannot override. A Dockerfile is built by your Docker engine's builder, outside the sandbox runtime, so treat it like the recipe: it is read from the default branch only.
 2. **Start.** It starts one sandbox with no mount of any host folder, no host environment variables, no Docker socket and no extra privilege (`no-new-privileges`), under the chosen runtime (`--runtime runsc`, for example).
@@ -194,14 +194,64 @@ Once a runtime is chosen, `agent-kit deep-scan` runs the sandbox on it: see [Wha
 
 4. **Setup.** It runs `setup`, then `start` and `ready`, then `seed`, each command with `sh -c` in `/workspace`, with no agent and no model credential. Egress is limited to `registries`: the sandbox sits on a Docker network with no route out (`--internal`), and its only way out is a proxy that `deep-scan` runs on your machine, which forwards only to the listed hosts (a bare host allows ports 80 and 443; `host:port` or a URL names its port). With `registries: []` the sandbox has no network at all. A failing step ends the run before the agent step, with exit 1, and prints its output (for `start` and `ready`, the services' log too) and any host the proxy refused. That output is your own build output, from before any probing.
 5. **Cut the network.** It disconnects the sandbox from the setup network, stops the proxy, and checks from your machine (`docker inspect`), never from inside the sandbox, that no network is left. If one is, the run ends before the agent step.
-6. **Agent step.** The stand-in agent runs with no network and no credential, and writes the report to `/agent-kit/out/report.md`.
-7. **Copy out.** Exactly one file comes out: that report, refused unless it is a single regular file (no folder, link or second file) of at most 10 MiB. It is written to `report.md` in a new private folder under your temporary folder, and `deep-scan` prints its path. The transcript, shell history, app logs and scratch files stay in the sandbox and are destroyed with it.
-8. **Teardown.** It removes the sandbox, the setup network and the layered images on every exit path: success, a failed step, and an interrupt (Ctrl+C or `SIGTERM`), which stops the running step first and exits 130 or 143. Each resource carries the label `agent-kit.deep-scan`; if one cannot be removed, `deep-scan` names it and exits 1. The recipe's own base image stays in your image cache.
+6. **Open the model route.** The sandbox joins a second `--internal` network, whose only reachable service is the **key-injecting model proxy**, which `deep-scan` runs on your machine on that network's gateway (on `127.0.0.1`, reached as `host.docker.internal`, on Docker Desktop for macOS). It is the scan's only route out. It forwards only the Messages API's `/v1/` paths, and only to `api.anthropic.com`; it refuses any other host, a `CONNECT` tunnel and any other path. It strips the `x-api-key` and `Authorization` headers the sandbox sends and inserts your real key, which lives only in `deep-scan`'s memory. `deep-scan` checks again from your machine that the sandbox is on that network alone; if not, the run ends before the agent step.
+7. **Agent step.** It copies in the launcher's brief, to `/agent-kit/in/brief.md`, and runs Claude Code in it, in `/workspace`:
+   - with `--bare`, which skips skill and `CLAUDE.md` discovery, so the brief hands it everything: the security-audit skill's `DEEP.md` (the `deep` procedure), with `SKILL.md` and `report-format.md`, the Threat pack (the threat model and findings ledger at the paths your security-audit Caller passes, else `.security/`) and the Scan recipe, all read from the default branch's tip, plus the sandbox's paths: the repository at `/workspace`, each grounding source under `/agent-kit/grounding`, and the report at `/agent-kit/out/report.md`. A run whose default branch has no `DEEP.md` or no Threat pack is refused before any runtime starts;
+   - with a non-secret placeholder `ANTHROPIC_API_KEY`, and `ANTHROPIC_BASE_URL` pinned to the model proxy by the launcher's own `--settings`, which outrank project settings. Project and local settings are not even loaded (`--setting-sources user`), so a `.claude/settings.json` in your repository cannot point Claude Code anywhere else;
+   - with web tools off: WebFetch and WebSearch are not in its tool set (`--tools`), and are disallowed and denied as well. Its tools are Bash, Read, Write, Edit, Glob and Grep, pre-approved, with nothing else asked.
+
+   Claude Code's own output stays in the sandbox. When the step fails, `deep-scan` prints its exit code and the last lines of its error output, and in every case the model proxy's counts: requests forwarded (by the model API's answer status) and requests refused, never their content. The proxy stops as soon as the agent step ends.
+
+8. **Copy out.** Exactly one file comes out: that report, refused unless it is a single regular file (no folder, link or second file) of at most 10 MiB. It is written to `report.md` in a new private folder under your temporary folder, and `deep-scan` prints its path. The transcript, shell history, app logs and scratch files stay in the sandbox and are destroyed with it. Nothing is filed or posted: to file a draft advisory, follow the skill's by-hand rule.
+9. **Teardown.** It removes the sandbox, then the model and setup networks and the layered images on every exit path: success, a failed step, and an interrupt (Ctrl+C or `SIGTERM`), which stops the running step first and exits 130 or 143. Each resource carries the label `agent-kit.deep-scan`; if one cannot be removed, `deep-scan` names it and exits 1. The recipe's own base image stays in your image cache.
 
 Those steps are the ones on gVisor, Kata Containers and Firecracker registered as a Docker runtime on Linux, and on Docker Desktop on macOS. **On Docker Sandboxes** (`sbx`) the same lifecycle runs, with these differences:
 
 - **Your global sbx network policy must be deny-all.** `deep-scan` reads it with `sbx policy ls --json` before it starts anything, and refuses, with exit 1, when it is not initialised or not deny-all (any global network allow rule, as `balanced` and `allow-all` have). It never changes your global policy: run `sbx policy init deny-all` yourself. The reason: a per-sandbox rule can only add to the global policy, and a deny always wins over an allow, so on any other policy the setup phase could reach more than `registries`.
 - **No build.** The sandbox is created mountless (`sbx create` with no workspace path) from the recipe's `image`, and Claude Code is installed inside it as the first setup step, with only `registry.npmjs.org` reachable for that step. A `dockerfile` recipe is refused, because `sbx` cannot build one.
 - **Setup egress** is a per-sandbox `sbx policy allow network` rule for the registries, removed for the cut; `sbx policy ls <sandbox> --json`, read on your machine, then shows no network allow left.
+- **The model route** is one more per-sandbox rule, allowing only `host.docker.internal:<port>`, where the model proxy listens on your machine's `127.0.0.1`. `deep-scan` adds no per-sandbox deny rule (a deny would beat that allow), since your deny-all global policy already decides everything else, and checks again with `sbx policy ls` that no other allow is in place.
 - **Files** go in through a private folder on your machine (`sbx cp` takes a file, not a stream) and are unpacked inside; the report comes out into a private folder and must be one regular file.
 - **Teardown** removes any rule still in place and the sandbox (`sbx rm --force`).
+
+## Credentials
+
+A Deep scan runs on an **Anthropic API key**, on the API-key path: the documented, supported route, which works with Claude Code's `--bare` mode. It needs an [Anthropic Console](https://console.anthropic.com/) account and bills per token.
+
+- **Use a dedicated Console workspace with its own spend limit**, and a key made in that workspace for deep scans only. The workspace's spend limit is the hard ceiling on what a runaway scan can cost, whatever happens inside the sandbox.
+- **The key never enters the sandbox.** `deep-scan` reads it once and keeps it only in its own memory, for the model proxy, which swaps it in for the placeholder the sandboxed Claude Code sends. No command `deep-scan` runs (git, the runtime's CLI, `op`) gets it as an argument, an environment variable or a file: every model credential variable (`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN` and the one you name) is removed from their environment.
+- **Never put the key on the command line.** `--credential-from` takes where to read it from, never the key itself; anything else is a usage error that never prints the value.
+
+Where the key comes from:
+
+| `--credential-from`           | Reads                                                                                                 |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------- |
+| (none)                        | `ANTHROPIC_API_KEY` from the environment.                                                             |
+| `env:<NAME>`                  | Another environment variable. A GitHub token variable (`GH_TOKEN`, `GITHUB_TOKEN`) is refused.        |
+| `op://<vault>/<item>/<field>` | 1Password, with `op read` (the 1Password CLI, which only `deep-scan` may run). Sign in to `op` first. |
+
+With 1Password you can also keep the key out of your shell entirely with `op run`, which resolves an `op://` reference held in `ANTHROPIC_API_KEY` for one command:
+
+```sh
+ANTHROPIC_API_KEY=op://Private/Anthropic-deep-scan/credential op run -- npx @mnaimfaizy/agent-kit deep-scan
+```
+
+`deep-scan` refuses, before any runtime starts, when the variable is unset or empty, when it still holds an `op://` reference (you ran without `op run`), when the key holds whitespace or a control character, or when `op read` fails (with `op`'s own message).
+
+## Running a deep scan
+
+1. **Adopt the audit flow** on the default branch: the security-audit skill (with `DEEP.md`) and the [Threat pack](#threat-pack), as `agent-kit init` sets them up.
+2. **Commit a [Scan recipe](#scan-recipe)** on the default branch. Run `agent-kit doctor` to check it.
+3. **Install an accepted [sandbox runtime](#sandbox-runtimes).** On Windows, that is Docker Sandboxes, with its global network policy set to deny-all (`sbx policy init deny-all`).
+4. **Make the API key available** (see [Credentials](#credentials)), and unset `GH_TOKEN` and `GITHUB_TOKEN` for the run.
+5. **Run it** from your checkout:
+
+   ```sh
+   npx @mnaimfaizy/agent-kit deep-scan
+   ```
+
+   With the key in 1Password: `npx @mnaimfaizy/agent-kit deep-scan --credential-from op://Private/Anthropic-deep-scan/credential`.
+
+6. **Read the report** at the path `deep-scan` prints last (`Report: …/report.md`), in a new private folder under your temporary folder. It is the only thing the scan leaves on your machine. Nothing is filed or posted: to file a draft advisory, follow the skill's by-hand rule.
+
+A good run prints the recipe, the Threat pack and the key's source, the runtime, each setup step `ok`, `Network: cut`, `Model route: only the model proxy…`, the agent step, `Model proxy: forwarded N request(s) to api.anthropic.com (answers: 200 xN)`, the report's path, and `Teardown: removed …`, and exits 0. A model proxy answer of `401` means the key was refused; `refused` lists hosts or paths the agent tried that the proxy turned away.

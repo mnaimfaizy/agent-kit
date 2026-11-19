@@ -1899,7 +1899,18 @@ describe("the sandbox docs", () => {
     const end = page.indexOf("\n## ", at + 1);
     const section = page.slice(at, end < 0 ? undefined : end);
     for (const fact of [
-      "stand-in",
+      "key-injecting model proxy",
+      "`--bare`",
+      "placeholder `ANTHROPIC_API_KEY`",
+      "`--settings`",
+      "`--setting-sources user`",
+      "web tools off",
+      "`DEEP.md`",
+      "Threat pack",
+      "`/workspace`",
+      "`/agent-kit/grounding`",
+      "`host.docker.internal:<port>`",
+      "Nothing is filed or posted",
       "auto-updater is off",
       "no mount",
       "`git archive`",
@@ -2904,5 +2915,51 @@ describe("on Docker Sandboxes, the model route is one per-sandbox rule for the p
     const calls = sbxCalls(res);
     assert.deepEqual(calls.slice(-2).map(sbxVerb), ["policy rm network", "rm"]);
     assert.match(calls.at(-2).join(" "), /--resource host\.docker\.internal:\d+ --force$/);
+  });
+});
+
+describe("the credentials and how-to-run docs", () => {
+  const page = () =>
+    readFileSync(join(import.meta.dirname, "..", "docs", "security-audit.md"), "utf8");
+  const section = (heading) => {
+    const text = page();
+    const at = text.indexOf(`## ${heading}\n`);
+    assert.ok(at >= 0, `docs/security-audit.md has ## ${heading}`);
+    const end = text.indexOf("\n## ", at + 1);
+    return text.slice(at, end < 0 ? undefined : end);
+  };
+
+  it("recommend an API key in a dedicated Console workspace with its own spend limit", () => {
+    const text = section("Credentials");
+    for (const fact of [
+      "API key",
+      "dedicated Console workspace with its own spend limit",
+      "never enters the sandbox",
+      "`--credential-from`",
+      "`env:<NAME>`",
+      "`op read`",
+      "`op run`",
+      "never the key itself",
+    ]) {
+      assert.ok(text.includes(fact), `Credentials says ${fact}`);
+    }
+  });
+
+  it("say how to run a scan and where the report lands", () => {
+    const text = section("Running a deep scan");
+    for (const fact of [
+      "npx @mnaimfaizy/agent-kit deep-scan",
+      "Report:",
+      "private folder",
+      "Nothing is filed or posted",
+      "deny-all",
+    ]) {
+      assert.ok(text.includes(fact), `Running a deep scan says ${fact}`);
+    }
+  });
+
+  it("are where the credential refusals point", async () => {
+    const res = await run(recipeRepo(VALID), [], { env: { PATH: "/usr/bin" } });
+    assert.match(res.err, /docs\/security-audit\.md#credentials/);
   });
 });

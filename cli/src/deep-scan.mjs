@@ -3,11 +3,13 @@
 // default branch's tip, never the working tree) and validates it, or refuses
 // with what is wrong and a pointer to the docs. There is no fallback to a
 // `full` audit. Then the pre-flight refusals (a GitHub token in the
-// environment, a .env the copy-in would carry wholesale), then the choice of a
-// sandbox runtime from the host, or its refusal, with no override (ADR 0018).
-// Then the sandbox lifecycle on that runtime, from image to teardown
-// (deep-scan/lifecycle.mjs), with a stand-in agent step until the proxy and
-// the real scan land.
+// environment, a .env the copy-in would carry wholesale), what the agent is
+// handed (the deep procedure and the Threat pack, at the same ref), and the
+// model credential (from the environment or 1Password, kept only in this
+// process); then the choice of a sandbox runtime from the host, or its
+// refusal, with no override (ADR 0018). Then the sandbox lifecycle on that
+// runtime, from image to teardown (deep-scan/lifecycle.mjs), its agent step
+// the real Claude Code behind the key-injecting model proxy.
 
 import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { join } from "node:path";

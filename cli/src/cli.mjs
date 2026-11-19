@@ -31,11 +31,14 @@ Commands:
   deep-scan  Run a Deep scan of this repository's own code in a sandbox.
              Reads the Scan recipe as committed on the default branch and
              validates it, refuses a GitHub token in its environment or a
-             committed .env, chooses a sandbox runtime from the host or
-             refuses (no override), then runs the sandbox: image, copy-in of
-             the default branch's tip, setup with egress only to the
-             recipe's registries, network cut, the agent step (a stand-in
-             for now), copy-out of the report only, and teardown.
+             committed .env, reads the deep procedure and the Threat pack
+             from the same branch and the API key (--credential-from),
+             chooses a sandbox runtime from the host or refuses (no
+             override), then runs the sandbox: image, copy-in of the
+             default branch's tip, setup with egress only to the recipe's
+             registries, network cut, the real Claude Code behind a
+             key-injecting model proxy on this machine (its only route
+             out), copy-out of the report only, and teardown.
 
 Options for doctor:
   --ci            Check only Kit-owned paths and uses: pins (no gh needed).
