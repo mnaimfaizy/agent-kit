@@ -17,6 +17,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, test } from "node:test";
@@ -1534,18 +1535,70 @@ test("check prints the tracker report: the pinned value, the remote's host and t
         remote: () => remote,
       }).out,
     ).tracker;
-  assert.deepEqual(report("git@github.com:acme/app.git"), {
+  assert.deepEqual(report({ name: "origin", url: "git@github.com:acme/app.git" }), {
     pinned: "gitlab",
+    remote: "origin",
     remote_host: "github.com",
     detected: "github",
   });
   const detect = { "orchestrate.config.yml": READY_BASE.join("\n") };
-  assert.deepEqual(report("https://gitlab.com/acme/app", detect), {
+  assert.deepEqual(report({ name: "upstream", url: "https://gitlab.com/acme/app" }, detect), {
     pinned: null,
+    remote: "upstream",
     remote_host: "gitlab.com",
     detected: "gitlab",
   });
-  assert.deepEqual(report(null, detect), { pinned: null, remote_host: null, detected: null });
+  assert.deepEqual(report(null, detect), {
+    pinned: null,
+    remote: null,
+    remote_host: null,
+    detected: null,
+  });
+  // A pin does not stand in for a remote: with none to name, `remote` is
+  // null, and TEAM.md asks which one whatever `pinned` says.
+  assert.deepEqual(report(null), {
+    pinned: "gitlab",
+    remote: null,
+    remote_host: null,
+    detected: null,
+  });
+});
+
+test("the remote `check` names: `origin`, or the only remote, or none when several have other names", () => {
+  const repo = mkdtempSync(join(tmpdir(), "orchestrate-remote-"));
+  const git = (...args) => execFileSync("git", ["-C", repo, ...args], { stdio: "ignore" });
+  const tracker = () =>
+    JSON.parse(
+      main(["check"], {
+        read: reader({ "orchestrate.config.yml": READY_BASE.join("\n") }),
+        exists: () => true,
+        cwd: repo,
+        env: {},
+      }).out,
+    ).tracker;
+  try {
+    git("init", "-q");
+    assert.equal(tracker().remote, null);
+    git("remote", "add", "fork", "git@github.com:me/app.git");
+    assert.deepEqual(tracker(), {
+      pinned: null,
+      remote: "fork",
+      remote_host: "github.com",
+      detected: "github",
+    });
+    git("remote", "add", "upstream", "git@github.com:acme/app.git");
+    assert.deepEqual(tracker(), {
+      pinned: null,
+      remote: null,
+      remote_host: null,
+      detected: null,
+    });
+    git("remote", "add", "origin", "https://gitlab.com/acme/app.git");
+    assert.equal(tracker().remote, "origin");
+    assert.equal(tracker().detected, "gitlab");
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
 });
 
 test("the six coarse states, in order", () => {
@@ -1683,10 +1736,11 @@ test("a self-hosted GitLab is not detected, and `check` reports the `tracker: gi
     exists: () => true,
     cwd: "/repo",
     env: {},
-    remote: () => "git@git.acme.internal:platform/app.git",
+    remote: () => ({ name: "origin", url: "git@git.acme.internal:platform/app.git" }),
   }).out;
   assert.deepEqual(JSON.parse(out).tracker, {
     pinned: "gitlab",
+    remote: "origin",
     remote_host: "git.acme.internal",
     detected: null,
   });

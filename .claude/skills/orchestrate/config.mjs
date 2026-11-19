@@ -1410,19 +1410,21 @@ function harnessReport(loaded, env) {
 
 /**
  * What a Team Run needs to find its tracker (TEAM.md): the value the config
- * pins (null for `detect`), the git remote's host, and the tracker that host
- * points to. A pin that disagrees with `detected` is the human's question.
+ * pins (null for `detect`), the git remote's name (the `<remote>` a tracker
+ * file fetches from) and host, and the tracker that host points to. A pin
+ * that disagrees with `detected`, or a null `remote`, is the human's question.
  */
 function trackerReport(loaded, remote) {
   const effective = loaded.problems.length ? null : effectiveConfig(loaded.config);
   const pinned = effective && effective.tracker !== "detect" ? effective.tracker : null;
-  const { host, tracker } = trackerFromRemote(remote);
-  return { pinned, remote_host: host, detected: tracker };
+  const { host, tracker } = trackerFromRemote(remote?.url ?? null);
+  return { pinned, remote: remote?.name ?? null, remote_host: host, detected: tracker };
 }
 
 /**
- * The URL of the repository's remote: `origin`, or the only remote when
- * there is one under another name. Null when there is none, or git fails.
+ * The repository's remote, `{ name, url }`: `origin`, or the only remote when
+ * there is one under another name. Null when there is none, several with
+ * none named `origin`, or git fails.
  */
 function gitRemote(repo) {
   const git = (...args) =>
@@ -1433,7 +1435,7 @@ function gitRemote(repo) {
   try {
     const remotes = git("remote").split(/\r?\n/).filter(Boolean);
     const name = remotes.includes("origin") ? "origin" : remotes.length === 1 ? remotes[0] : null;
-    return name === null ? null : git("remote", "get-url", name);
+    return name === null ? null : { name, url: git("remote", "get-url", name) };
   } catch {
     return null;
   }

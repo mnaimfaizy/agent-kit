@@ -834,6 +834,13 @@ describe("The tracker files: the remote `check` read", () => {
     }
     assert.match(section(TEAM, "## Find the tracker"), /`<remote>`/);
   });
+
+  it("is named in `check`'s report, and a null `remote` is asked about even with a pin", () => {
+    const find = section(TEAM, "## Find the tracker");
+    assert.match(find, /`remote`, the name of the repository's git remote/);
+    assert.match(find, /`<remote>` is the remote `remote` names/);
+    assert.match(find, /When `remote` is null, .*a Decision Request.*whatever `pinned` says/);
+  });
 });
 
 describe("DESIGN.md: when TEAM.md is loaded", () => {
