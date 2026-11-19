@@ -6,6 +6,10 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
+### Fixed
+
+- `prepare-release.sh` no longer rewrites the `release:` field of [Deprecation register](docs/deprecations.yml) entries when it bumps the previous tag's pins ([#361](https://github.com/mnaimfaizy/agent-kit/issues/361)). That field is the release each rename shipped in, so the bump left the register claiming the previous release's renames shipped in the new one, and a re-run of `prepare` could list them in the new release's notes. The register is now history, like the CHANGELOG and the ADRs. **Consumer action:** none.
+
 ## [1.0.0-beta.9] - 2026-11-19
 
 ### Added
