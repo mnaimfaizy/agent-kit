@@ -1,0 +1,193 @@
+"""Contract test: the Security Response Run, as `security-response` and its run doc define it.
+
+The skill is prose, so this pins the sentences a run relies on (where the run
+folder lives, the ignore gate, the layout, the board, the state lists and what
+is final, the modes), not what they mean. What a sentence means is for review.
+It also keeps the retired status-format file gone, with nothing linking to it.
+"""
+
+import re
+import subprocess
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+SKILL_DIR = ROOT / ".claude" / "skills" / "security-response"
+SKILL = SKILL_DIR / "SKILL.md"
+RUN = SKILL_DIR / "RUN.md"
+RETIRED = "STATUS-FORMAT.md"
+MODES = "status | next | triage <target> | fix <target> | reconcile | record <what> | close"
+MODE_NAMES = ["status", "next", "triage <target>", "fix <target>", "reconcile", "record <what>", "close"]
+EVIDENCE = ["untriaged", "confirmed", "rejected", "duplicate", "below-floor"]
+DELIVERY = ["open", "fix PR open", "merged", "released", "fixed", "accepted-risk"]
+ADVISORY_STATES = ["draft", "published", "closed"]
+FINDINGS_COLUMNS = "| Concept id | Advisory | Severity | Evidence | Delivery | Record | Next |"
+ADVISORIES_COLUMNS = "| Advisory | Created | Rows | State | CVE | Fork clone | Next |"
+
+
+def read(path: Path) -> str:
+    return path.read_text(encoding="utf-8")
+
+
+def section(text: str, heading: str) -> str:
+    """The body under `## <heading>`, up to the next `## ` heading."""
+    assert f"\n## {heading}\n" in text, f"missing section: ## {heading}"
+    return text.split(f"\n## {heading}\n", 1)[1].split("\n## ", 1)[0]
+
+
+def flat(text: str) -> str:
+    """The text with each run of whitespace made one space, so a sentence is found however it wraps."""
+    return re.sub(r"\s+", " ", text)
+
+
+def frontmatter(text: str) -> str:
+    return text.split("---\n", 2)[1]
+
+
+def code_values(line: str) -> list[str]:
+    return re.findall(r"`([^`]+)`", line)
+
+
+def test_argument_hint_and_mode_list() -> None:
+    assert f'argument-hint: "{MODES}"' in frontmatter(read(SKILL)), "argument-hint must read the seven modes"
+    modes = section(read(SKILL), "Modes")
+    listed = [m.group(1) for m in re.finditer(r"^- `([^`]+)`", modes, re.MULTILINE)]
+    assert listed == MODE_NAMES, f"the mode list must read {MODE_NAMES}, got {listed}"
+
+
+def test_every_mode_opens_or_resumes_the_run() -> None:
+    text = flat(read(SKILL))
+    assert "Every mode starts by opening or resuming the Security Response Run" in text
+    assert "There are no `open` or `resume` modes." in text
+    assert "[RUN.md](RUN.md)" in text, "SKILL.md must link the run doc"
+    runs = flat(section(read(RUN), "Open, resume, or nothing to respond to"))
+    assert "At most one run is open at a time." in runs
+    assert "resumes the open run" in runs
+    assert "opens a run" in runs
+    assert "no draft advisories and no open run" in runs.lower()
+    assert "nothing to respond to" in runs and "writes nothing" in runs
+
+
+def test_status_prints_the_board() -> None:
+    status = next(line for line in read(SKILL).splitlines() if line.startswith("- `status`"))
+    assert "prints the board" in status and "RUN.md" in status, f"status must print the board: {status!r}"
+
+
+def test_run_folder_path_has_no_config() -> None:
+    where = flat(section(read(RUN), "Where the run folder lives"))
+    assert "`tmp/security-response/<run>/`" in where
+    assert "`<run>` is the date, `YYYY-MM-DD`, with `.2`, `.3` added when that folder is already there" in where
+    assert "There is no config key" in where
+    assert "no dependency on orchestrate" in where
+
+
+def test_ignore_gate_writes_nothing_without_a_yes() -> None:
+    where = flat(section(read(RUN), "Where the run folder lives"))
+    assert "`git check-ignore -q tmp/security-response/`" in where
+    assert "Before the first write" in where
+    assert "offer to add `tmp/security-response/` to the root `.gitignore`" in where
+    assert "write nothing without a yes" in where
+    assert "`git clean -x` deletes the folder" in where
+    assert "a worktree cannot see it" in where.lower()
+
+
+def test_the_repository_ignores_its_own_run_folder() -> None:
+    assert "tmp/security-response/" in read(ROOT / ".gitignore").splitlines()
+    probe = "tmp/security-response/2026-01-01/board.md"
+    ignored = subprocess.run(["git", "check-ignore", "-q", probe], cwd=ROOT, check=False)
+    assert ignored.returncode == 0, f"git must ignore {probe}"
+
+
+def test_layout() -> None:
+    layout = section(read(RUN), "Layout")
+    for entry in ("board.md", "activity.md", "triage/<concept-id>.md", "originals/<GHSA-id>.json"):
+        assert re.search(rf"^  {re.escape(entry)} ", layout, re.MULTILINE), f"the layout must list {entry}"
+    text = flat(layout)
+    assert "append-only" in text
+    assert "before any PATCH that rewrites it publicly" in text
+    assert "Nothing in the run folder is committed" in text
+
+
+def test_provisional_concept_ids_fold_into_one_row() -> None:
+    ids = flat(section(read(RUN), "Concept ids"))
+    assert "each `GHSA:F<n>` gets a provisional concept id from its title" in ids
+    assert "Findings with the same id fold into one row" in ids
+    assert "`hg89 F2, xmp7 F1`" in ids, "the folded row's Advisory cell must list both advisories"
+    assert "final at triage" in ids
+
+
+def table_rows(text: str) -> str:
+    """The text with the padding prettier puts around each table cell taken out."""
+    return re.sub(r" *\| *", " | ", text)
+
+
+def test_board_format() -> None:
+    board = table_rows(read(RUN).split("\n## Board\n", 1)[1].split("\n## States\n", 1)[0])
+    assert "Default branch: main@<sha>, checked <time>" in board
+    assert "not checked: <source> unavailable" in board
+    waiting, agent = board.find("**Waiting on you:**"), board.find("**Next (agent):**")
+    assert 0 <= waiting < agent, "Waiting on you comes first, then Next (agent)"
+    findings, advisories = board.find(FINDINGS_COLUMNS), board.find(ADVISORIES_COLUMNS)
+    assert agent < findings < advisories, "the findings table, then the advisories table"
+    order = flat(board)
+    assert "ordered by severity, high first, then by advisory" in order
+    assert "Final rows stay in place" in order
+
+
+def bullets(text: str) -> dict[str, str]:
+    return {m.group(1): m.group(2) for m in re.finditer(r"^- `([^`]+)`: (.+)$", text, re.MULTILINE)}
+
+
+def test_state_lists() -> None:
+    states = read(RUN)
+    evidence = section(states, "States").split("\n### Evidence\n", 1)[1].split("\n### ", 1)[0]
+    delivery = section(states, "States").split("\n### Delivery\n", 1)[1].split("\n### ", 1)[0]
+    advisory = section(states, "States").split("\n### Advisory state\n", 1)[1].split("\n### ", 1)[0]
+    assert "`untriaged | confirmed | rejected | duplicate | below-floor`" in evidence
+    assert list(bullets(evidence)) == EVIDENCE
+    assert "`open → fix PR open → merged → released`, plus `fixed` and `accepted-risk`" in delivery
+    assert list(bullets(delivery)) == DELIVERY
+    assert "`draft → published | closed`" in advisory
+    assert list(bullets(advisory)) == ADVISORY_STATES
+
+
+def test_final_states() -> None:
+    final = flat(section(read(RUN), "States").split("\n### Final\n", 1)[1].split("\n### ", 1)[0])
+    row = next(s for s in final.split("- ") if s.startswith("**A row**"))
+    assert code_values(row) == ["rejected", "duplicate", "released", "fixed", "accepted-risk"], row
+    advisory = next(s for s in final.split("- ") if s.startswith("**An advisory**"))
+    assert code_values(advisory) == ["published", "closed"], advisory
+    run = next(s for s in final.split("- ") if s.startswith("**The run**"))
+    assert "every row and every advisory is final" in run, run
+    assert "Final values stay final for the run" in final
+
+
+def test_status_format_is_retired() -> None:
+    assert not (SKILL_DIR / RETIRED).exists(), f"{RETIRED} is retired: the board in RUN.md replaces it"
+    tracked = subprocess.run(["git", "ls-files"], cwd=ROOT, capture_output=True, text=True, check=True).stdout
+    linking = []
+    for name in tracked.splitlines():
+        path = ROOT / name
+        if name == "CHANGELOG.md" or name.startswith("scripts/security-response-contract") or not path.is_file():
+            continue
+        try:
+            if RETIRED in path.read_text(encoding="utf-8"):
+                linking.append(name)
+        except UnicodeDecodeError:
+            continue
+    assert not linking, f"still naming {RETIRED}: {linking}"
+
+
+if __name__ == "__main__":
+    test_argument_hint_and_mode_list()
+    test_every_mode_opens_or_resumes_the_run()
+    test_status_prints_the_board()
+    test_run_folder_path_has_no_config()
+    test_ignore_gate_writes_nothing_without_a_yes()
+    test_the_repository_ignores_its_own_run_folder()
+    test_layout()
+    test_provisional_concept_ids_fold_into_one_row()
+    test_board_format()
+    test_state_lists()
+    test_final_states()
+    test_status_format_is_retired()
+    print("security-response contract: ok")
