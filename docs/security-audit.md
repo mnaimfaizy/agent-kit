@@ -152,4 +152,30 @@ The recipe never holds:
 - **A real credential.** Values shaped like a GitHub, Anthropic, AWS or Slack token, or a private key, are refused anywhere in the recipe.
 - **Anything else.** An unknown key, a key given twice, a top-level line that is not `key: value`, and a line indented under a key that holds a single value are refused.
 
-`agent-kit doctor` reports whether `.security/scan-recipe.yml` is in your working tree and, if so, whether it is valid (a warning when it is not; having none passes). Today `agent-kit deep-scan` stops once the recipe is valid, with exit 0: the runtime, sandbox, proxy and scan stages are not built yet.
+`agent-kit doctor` reports whether `.security/scan-recipe.yml` is in your working tree and, if so, whether it is valid (a warning when it is not; having none passes). Once the recipe is valid, `agent-kit deep-scan` goes on to the pre-flight checks and the choice of a [sandbox runtime](#sandbox-runtimes).
+
+## Sandbox runtimes
+
+`agent-kit deep-scan` chooses the sandbox runtime itself, or refuses to run. The rule it enforces: **the target never shares a kernel with your host OS or with your other environments** ([ADR 0018](adr/0018-a-deep-scan-runs-locally-by-default.md)). It checks the platform and the backend from the host, through the runtimes' own command-line tools and Docker's list of registered runtimes, and never trusts a check made inside the sandbox, which the target could fake. The checks only read: none of them starts anything.
+
+**Accepted**, in this order of preference (the first one found is used):
+
+1. **Docker Sandboxes** (`sbx`), a microVM per sandbox, on any host where `sbx version` answers.
+2. **Kata Containers or Firecracker on Linux**, registered as a Docker runtime (a runtime whose name or path names `kata`, or `kata-fc` or `firecracker`), with `kata-runtime --version` or `firecracker --version` answering. Kata comes first when both are there.
+3. **gVisor on Linux** (`runsc`), registered as a Docker runtime, with `runsc --version` answering. It is a user-space kernel, not hardware virtualization, and is accepted on purpose.
+4. **Docker Desktop on macOS**, when `docker info` reports `Docker Desktop` on a macOS host.
+
+**Refused**, always:
+
+- **Plain Docker on Linux** (Docker without one of the runtimes above registered), which shares your host's kernel with the target. The refusal says what to install: gVisor, Kata Containers or Firecracker as a Docker runtime, or Docker Sandboxes.
+- **Docker Desktop on Windows with the WSL 2 backend.** Its VM shares one Linux kernel and network namespace with your other WSL distros, so the target would share a kernel with them and could reach their network. Use Docker Sandboxes on Windows instead.
+- **Anything else**: no runtime found, a Docker daemon that does not answer, Docker on macOS that is not Docker Desktop, Docker Desktop with the Hyper-V backend, Docker Desktop on Linux, and gVisor, Kata or Firecracker on a host that is not Linux.
+
+Every refusal names the accepted runtimes and the CI path, and exits 1. There is **no override**: no flag, setting or variable lets a refused runtime through. On a host without an accepted runtime, use the CI path: the deep-scan reusable workflow runs the scan in a gVisor container on an ephemeral GitHub-hosted runner.
+
+**Pre-flight refusals.** Before it touches any runtime, `deep-scan` also refuses, with exit 1:
+
+- **A GitHub token in its environment.** `GH_TOKEN` or `GITHUB_TOKEN` (in any letter case) set to a value must never reach the sandbox. Unset them for the run, for example `env -u GH_TOKEN -u GITHUB_TOKEN npx @mnaimfaizy/agent-kit deep-scan`. The refusal names the variables, never their values.
+- **A `.env` that would be forwarded wholesale.** The sandbox gets a copy of the default branch's whole tree, so a committed `.env` or `.env.<name>` (such as `.env.local` or `config/.env.production`) would go in whole. The refusal lists them, never their contents. Templates (`.env.example`, `.env.sample`, `.env.template`, `.env.dist`, `.env.default`) are fine, and a `.env` that is only in your working tree is never copied in.
+
+Today `agent-kit deep-scan` stops once a runtime is chosen, with exit 0, before it starts anything: the sandbox, proxy and scan stages are not built yet.
