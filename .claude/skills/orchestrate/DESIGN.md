@@ -174,7 +174,7 @@ A ticket with no assignee, or with two, is run by nobody. Guessing an owner woul
 
 The tracker is reached through a short list of operations, named in TRACKERS.md and each mapped in its own file under `trackers/`, as HARNESSES.md names the verbs and each harness has its file under `harnesses/`. Only the Team Run's parts speak of them; the rest of the skill stays bound to `gh`, since a tracker-neutral core is more than a Team Run needs. Detection reads the git remote's host because that is where the tickets live, and a pin that disagrees is a question: either could be the mistake, and a run on the wrong tracker reads the wrong tickets.
 
-Like spec mode, the Team Run is a file of its own, TEAM.md, loaded only for `--team`, so a single-person run reads none of it.
+Like spec mode, the Team Run is a file of its own, TEAM.md, loaded only for a Team Run (`--team`, and `--status` or `--resume` of one) and for `--status --spec <n>`, so a single-person run reads none of it.
 
 ## Seams
 

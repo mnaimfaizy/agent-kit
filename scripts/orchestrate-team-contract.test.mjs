@@ -684,6 +684,7 @@ describe("docs/orchestrate.md: resuming a Team Run, and a lost machine", () => {
 const GITHUB = read(`${SKILL_DIR}/trackers/github.md`);
 const GLOSSARY = read("GLOSSARY.md");
 const CHANGELOG = read("CHANGELOG.md");
+const DESIGN = read(`${SKILL_DIR}/DESIGN.md`);
 const {
   DEFAULTS,
   TRACKERS: TRACKER_VALUES,
@@ -832,5 +833,16 @@ describe("The tracker files: the remote `check` read", () => {
       assert.match(section(text, "### `pull-head`"), /git fetch <remote> /);
     }
     assert.match(section(TEAM, "## Find the tracker"), /`<remote>`/);
+  });
+});
+
+describe("DESIGN.md: when TEAM.md is loaded", () => {
+  it("names every case SKILL.md loads it in, not `--team` alone", () => {
+    const team = section(DESIGN, "## Team Run");
+    assert.doesNotMatch(team, /loaded only for `--team`,/);
+    assert.match(
+      team,
+      /loaded only for a Team Run \(`--team`, and `--status` or `--resume` of one\) and for `--status --spec <n>`, so a single-person run reads none of it/,
+    );
   });
 });
