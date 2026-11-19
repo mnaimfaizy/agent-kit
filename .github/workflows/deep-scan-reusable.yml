@@ -1,0 +1,447 @@
+name: deep-scan-reusable
+
+# The opt-in CI path for a Deep scan (ADR 0018): the same `agent-kit
+# deep-scan` launcher a maintainer runs locally, on an ephemeral GitHub-hosted
+# runner with gVisor (runsc). The agent and the target run together in the
+# gVisor container; the runner holds only the launcher's model proxy and the
+# delivery steps. It runs on the default branch only, from a schedule or
+# workflow_dispatch, never on a pull request head.
+#
+# The model credential is its own Caller secret, in the launcher step's
+# environment alone, where the launcher keeps it in its proxy process. The job
+# token and the advisory token never reach that step. The delivery scripts are
+# staged from the trusted commit before the scan and digest-checked before
+# they run, after the launcher has torn the sandbox down. Under the Public-log
+# rule nothing from the scan is printed or uploaded: the report goes only to a
+# private draft advisory (and the optional email), and the log keeps a status
+# with no counts. The static audit, security-audit-reusable.yml, is separate
+# and unchanged.
+
+on:
+  workflow_call:
+    inputs:
+      kill_switch:
+        description: "If true, skip the deep scan."
+        required: false
+        type: boolean
+        default: false
+      model:
+        description: "Claude model id for the agent, such as claude-opus-5-5. A plain id only: letters, digits and `. _ : @ / [ ] -`; anything else fails the run before the scan starts."
+        required: false
+        type: string
+        default: "claude-opus-5-5"
+      setup_minutes:
+        description: "The setup wall clock in minutes: image to agent step (deep-scan --setup-minutes). With scan_minutes, at most 150 in all, under the job's 180-minute timeout."
+        required: false
+        type: number
+        default: 20
+      scan_minutes:
+        description: "The scan wall clock in minutes: the agent step (deep-scan --scan-minutes)."
+        required: false
+        type: number
+        default: 60
+      max_turns:
+        description: "Claude Code's turn limit (deep-scan --max-turns)."
+        required: false
+        type: number
+        default: 200
+      max_tokens:
+        description: "The model proxy's token cap for the run, input, output and cache tokens counted (deep-scan --max-tokens)."
+        required: false
+        type: number
+        default: 5000000
+    secrets:
+      anthropic_api_key:
+        description: "Anthropic API key for deep scans, from a dedicated Console workspace with its own spend limit. Only the launcher step sees it, and it never enters the sandbox."
+        required: true
+      advisories_token:
+        description: "Token with repository security advisories write. Used only by the staged delivery script, after teardown."
+        required: true
+      notify_email_to:
+        description: "Optional recipient email address."
+        required: false
+      notify_email_from:
+        description: "Optional sender email address."
+        required: false
+      notify_email_smtp_host:
+        description: "Optional SMTP host."
+        required: false
+      notify_email_smtp_port:
+        description: "Optional SMTP port."
+        required: false
+      notify_email_smtp_username:
+        description: "Optional SMTP user."
+        required: false
+      notify_email_smtp_password:
+        description: "Optional SMTP password."
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  deep_scan:
+    name: Deep scan
+    # Default branch only: a schedule runs there by definition, and the Gate
+    # checks a dispatch's ref against the repository's default branch.
+    if: ${{ !inputs.kill_switch && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
+    runs-on: ubuntu-latest
+    # Above the phase limits' sum, which the first step caps at 150 minutes:
+    # the rest is for the installs and the delivery.
+    timeout-minutes: 180
+    steps:
+      - name: Check model and limit inputs
+        # The values become launcher flags. Refuse anything but a plain value
+        # before anything else runs. The values are never echoed back.
+        env:
+          MODEL: ${{ inputs.model }}
+          SETUP_MINUTES: ${{ inputs.setup_minutes }}
+          SCAN_MINUTES: ${{ inputs.scan_minutes }}
+          MAX_TURNS: ${{ inputs.max_turns }}
+          MAX_TOKENS: ${{ inputs.max_tokens }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The job's timeout-minutes (180) less the time the installs and the
+          # delivery need. Expressions have no arithmetic, so the timeout
+          # cannot follow the inputs: the inputs are held under it instead.
+          MAX_PHASE_MINUTES=150
+          model_pattern='^[A-Za-z0-9][]A-Za-z0-9._:@/[-]*$'
+          if ! [[ "$MODEL" =~ $model_pattern ]]; then
+            echo "::error title=Invalid model input::The model input is not a plain model id (letters, digits and . _ : @ / [ ] -)."
+            exit 1
+          fi
+          for name in SETUP_MINUTES SCAN_MINUTES; do
+            value="${!name}"
+            if ! [[ "$value" =~ ^[0-9]+(\.[0-9]+)?$ ]] || ! awk -v v="$value" 'BEGIN { exit !(v > 0) }'; then
+              echo "::error title=Invalid limit input::${name,,} must be a positive number of minutes."
+              exit 1
+            fi
+          done
+          for name in MAX_TURNS MAX_TOKENS; do
+            if ! [[ "${!name}" =~ ^0*[1-9][0-9]*$ ]]; then
+              echo "::error title=Invalid limit input::${name,,} must be a positive whole number."
+              exit 1
+            fi
+          done
+          if ! awk -v a="$SETUP_MINUTES" -v b="$SCAN_MINUTES" -v m="$MAX_PHASE_MINUTES" 'BEGIN { exit !(a + b <= m) }'; then
+            echo "::error title=Limits past the job timeout::setup_minutes + scan_minutes must be at most ${MAX_PHASE_MINUTES}, so the job's timeout-minutes (180) stays above the phase limits."
+            exit 1
+          fi
+
+      - name: Gate
+        id: gate
+        env:
+          # The job token, here only, to read the default branch's name.
+          GH_TOKEN: ${{ github.token }}
+          # Preflighted below and never exported to a later step. Deliberately
+          # NOT named GH_TOKEN: the advisory token must not answer for the job.
+          ADVISORY_TOKEN: ${{ secrets.advisories_token }}
+          GH_CONFIG_DIR: ${{ runner.temp }}/gh-empty-config
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$GITHUB_EVENT_NAME" in
+            schedule | workflow_dispatch) ;;
+            *)
+              echo "The deep scan runs from a schedule or workflow_dispatch only, never on $GITHUB_EVENT_NAME."
+              exit 1
+              ;;
+          esac
+          # A schedule event's payload has no repository, so ask the API.
+          DEFAULT_BRANCH="$(gh api "repos/${GITHUB_REPOSITORY}" --jq .default_branch)"
+          if [ -z "$DEFAULT_BRANCH" ]; then
+            echo "Could not read the repository's default branch."
+            exit 1
+          fi
+          if [ "$GITHUB_REF" != "refs/heads/$DEFAULT_BRANCH" ]; then
+            echo "The deep scan runs on the default branch ($DEFAULT_BRANCH) only, not on $GITHUB_REF."
+            exit 1
+          fi
+          echo "default_branch=$DEFAULT_BRANCH" >> "$GITHUB_OUTPUT"
+
+          # Preflight the advisory token, before a scan that costs model spend:
+          # the publish step runs last, and the report exists only on this
+          # runner. The same two checks as the static audit's gate.
+          if [ -z "${ADVISORY_TOKEN:-}" ]; then
+            echo "advisories token missing — cannot create a private draft advisory."
+            exit 1
+          fi
+          TOKEN_ERR="$RUNNER_TEMP/advisory-token.err"
+
+          # 1. Liveness: `gh api user` needs no permissions.
+          if ! GH_TOKEN="$ADVISORY_TOKEN" gh api user --silent 2>"$TOKEN_ERR"; then
+            # gh's diagnostic lands in a world-readable log, so match a status
+            # out of it rather than echoing the line back verbatim.
+            STATUS="$(grep -oE 'HTTP [0-9]{3}' "$TOKEN_ERR" | head -n 1 | grep -oE '[0-9]{3}' || true)"
+            rm -f "$TOKEN_ERR"
+            echo "advisories token rejected by GitHub (HTTP ${STATUS:-unknown})."
+            echo "Rotate it — fine-grained PAT, Repository security advisories: write."
+            exit 1
+          fi
+
+          # 2. Permission: probe the create endpoint with an empty body. A token
+          # that may create advisories gets 422 (missing keys); one that may
+          # not gets 403 or 404; an empty body can never create one.
+          PROBE_OUT="$RUNNER_TEMP/advisory-probe.out"
+          if printf '{}' | GH_TOKEN="$ADVISORY_TOKEN" gh api --method POST \
+            "repos/${GITHUB_REPOSITORY}/security-advisories" --input - \
+            >"$PROBE_OUT" 2>"$TOKEN_ERR"; then
+            GHSA="$(jq -r '.ghsa_id // empty' "$PROBE_OUT" 2>/dev/null || true)"
+            rm -f "$PROBE_OUT" "$TOKEN_ERR"
+            echo "advisory write probe created an advisory (${GHSA:-unknown id}); close it by hand."
+            exit 1
+          fi
+          STATUS="$(grep -oE 'HTTP [0-9]{3}' "$TOKEN_ERR" | head -n 1 | grep -oE '[0-9]{3}' || true)"
+          rm -f "$PROBE_OUT" "$TOKEN_ERR"
+          if [ "$STATUS" = "422" ]; then
+            echo "Advisory token accepted (live, and may create advisories)."
+            exit 0
+          fi
+          case "$STATUS" in
+            401) echo "advisories token rejected by the advisories endpoint (HTTP 401)." ;;
+            403 | 404) echo "advisories token lacks Repository security advisories: write (HTTP $STATUS)." ;;
+            *) echo "advisory write probe returned an unexpected result (HTTP ${STATUS:-unknown})." ;;
+          esac
+          exit 1
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The commit this run was started on: the default branch's tip. No
+          # ref input, so no Caller can name a pull request head.
+          # Leaving the default (true) writes the job token into .git/config.
+          persist-credentials: false
+
+      - name: Name the trusted ref
+        env:
+          DEFAULT_BRANCH: ${{ steps.gate.outputs.default_branch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # deep-scan reads the Scan recipe and exports the tree from the local
+          # default branch's tip: make it exactly the commit this run is on.
+          git update-ref "refs/heads/$DEFAULT_BRANCH" "$GITHUB_SHA"
+          test "$(git rev-parse "refs/heads/$DEFAULT_BRANCH")" = "$GITHUB_SHA"
+
+      - name: Stage trusted delivery scripts
+        id: stage
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The same delivery scripts as the static audit, copied from the
+          # commit object (never the working tree) to a directory outside the
+          # workspace before the scan, and digest-checked before each run.
+          STAGED="$RUNNER_TEMP/deep-scan-staged"
+          mkdir -p "$STAGED"
+          echo "dir=$STAGED" >> "$GITHUB_OUTPUT"
+
+          git show "$GITHUB_SHA:.github/security-audit/publish-draft-advisory.sh" > "$STAGED/publish-draft-advisory.sh"
+          chmod 700 "$STAGED/publish-draft-advisory.sh"
+          echo "publisher_sha256=$(sha256sum "$STAGED/publish-draft-advisory.sh" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+          # Email is optional. A missing notifier records no digest, so the
+          # email steps are skipped.
+          if git cat-file -e "$GITHUB_SHA:.github/security-audit/notify-email.sh" 2>/dev/null; then
+            git show "$GITHUB_SHA:.github/security-audit/notify-email.sh" > "$STAGED/notify-email.sh"
+            chmod 700 "$STAGED/notify-email.sh"
+            echo "notifier_sha256=$(sha256sum "$STAGED/notify-email.sh" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          else
+            echo "Email notifier absent at $GITHUB_SHA; no email will be sent."
+          fi
+          echo "Delivery scripts staged from $GITHUB_SHA"
+
+      - name: Install gVisor (pinned, checksum-verified)
+        # The runtime the launcher accepts on a Linux runner: runsc, registered
+        # as a Docker runtime. A dated release, checked against its published
+        # SHA-512 (pinned here) before anything in it runs.
+        shell: bash
+        run: |
+          set -euo pipefail
+          GVISOR_RELEASE="20261102"
+          GVISOR_SHA512="2e6671bb2d033b871c5811ab57e16ac570988b0e0054c525f911cfaf191bab3ca4efb08e0a98daa4b9e7d248f9e5776ef2ef2f8a6b82d829646a42924c98bb05"
+          if [[ "$(uname -s)/$(uname -m)" != "Linux/x86_64" ]]; then
+            echo "::error title=gVisor install failed::The pinned gVisor is x86_64 Linux; this runner is $(uname -s)/$(uname -m)."
+            exit 1
+          fi
+          work="$RUNNER_TEMP/gvisor-download"
+          rm -rf "$work"
+          mkdir -p "$work"
+          curl --fail --silent --show-error --location --retry 5 --retry-all-errors --retry-delay 10 \
+            --connect-timeout 20 --max-time 300 --output "$work/gvisor.tar.bz2" \
+            "https://storage.googleapis.com/gvisor/releases/release/${GVISOR_RELEASE}/x86_64/gvisor.tar.bz2"
+          echo "$GVISOR_SHA512  $work/gvisor.tar.bz2" | sha512sum --check --strict -
+          tar -xjf "$work/gvisor.tar.bz2" -C "$work" runsc
+          sudo install -m 755 "$work/runsc" /usr/local/bin/runsc
+          rm -rf "$work"
+          sudo /usr/local/bin/runsc install
+          sudo systemctl restart docker
+          if ! docker info --format '{{json .Runtimes}}' | jq -e 'has("runsc")' >/dev/null; then
+            echo "::error title=gVisor install failed::Docker does not list runsc as a runtime."
+            exit 1
+          fi
+          runsc --version | head -n 1
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+
+      - name: Install the agent-kit CLI (pinned)
+        id: cli
+        shell: bash
+        run: |
+          set -euo pipefail
+          # This tag's CLI, installed without the model secret in reach and
+          # with install scripts off.
+          prefix="$RUNNER_TEMP/agent-kit-cli"
+          npm install --global --prefix "$prefix" --ignore-scripts --no-audit --no-fund \
+            "@mnaimfaizy/agent-kit@1.0.0-beta.9"
+          echo "bin=$prefix/bin/agent-kit" >> "$GITHUB_OUTPUT"
+          "$prefix/bin/agent-kit" --version
+
+      - name: Run the deep scan (agent-kit deep-scan)
+        id: scan
+        env:
+          # The model credential: this step alone. deep-scan keeps it in its
+          # model proxy, removes it from every command it runs, and refuses
+          # to start if GH_TOKEN or GITHUB_TOKEN is set.
+          ANTHROPIC_API_KEY: ${{ secrets.anthropic_api_key }}
+          AGENT_KIT: ${{ steps.cli.outputs.bin }}
+          DEFAULT_BRANCH: ${{ steps.gate.outputs.default_branch }}
+          MODEL: ${{ inputs.model }}
+          SETUP_MINUTES: ${{ inputs.setup_minutes }}
+          SCAN_MINUTES: ${{ inputs.scan_minutes }}
+          MAX_TURNS: ${{ inputs.max_turns }}
+          MAX_TOKENS: ${{ inputs.max_tokens }}
+          REPORT: ${{ runner.temp }}/deep-scan-out/report.md
+        shell: bash
+        run: |
+          set -euo pipefail
+          # GITHUB_ACTIONS=true puts deep-scan in its public-log mode: it prints
+          # nothing the scan shaped. It tears the sandbox down before it exits.
+          (umask 077 && mkdir -p "$(dirname "$REPORT")")
+          set +e
+          "$AGENT_KIT" deep-scan \
+            --default-branch "$DEFAULT_BRANCH" \
+            --model "$MODEL" \
+            --setup-minutes "$SETUP_MINUTES" \
+            --scan-minutes "$SCAN_MINUTES" \
+            --max-turns "$MAX_TURNS" \
+            --max-tokens "$MAX_TOKENS" \
+            --report "$REPORT"
+          code=$?
+          set -e
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          if [ -s "$REPORT" ]; then
+            echo "report=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "report=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Do not upload a workflow artifact: artifacts are world-readable on a public repository.
+      - name: Publish draft GHSA (private delivery)
+        id: publish
+        if: ${{ always() && steps.scan.outputs.report == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.advisories_token }}
+          GITHUB_TOKEN: ${{ secrets.advisories_token }}
+          # An empty per-run gh config, so an ambient hosts.yml cannot redirect
+          # this call while the advisory token is set.
+          GH_CONFIG_DIR: ${{ runner.temp }}/gh-empty-config
+          SECURITY_AUDIT_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SECURITY_AUDIT_MODE: deep
+          SCRIPT_SHA256: ${{ steps.stage.outputs.publisher_sha256 }}
+          STAGED_DIR: ${{ steps.stage.outputs.dir }}
+          REPORT: ${{ runner.temp }}/deep-scan-out/report.md
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Staged before the scan from the trusted commit; never the workspace copy.
+          SCRIPT="$STAGED_DIR/publish-draft-advisory.sh"
+          printf '%s  %s\n' "$SCRIPT_SHA256" "$SCRIPT" | sha256sum -c --quiet -
+          # The publisher logs the report's counts for the static audit; this
+          # log stays counts-free, so its stdout goes nowhere.
+          "$SCRIPT" "$REPORT" > /dev/null
+          echo "Filed the report as a private draft advisory."
+
+      - name: Email the report
+        if: ${{ always() && steps.publish.outcome == 'success' && steps.stage.outputs.notifier_sha256 != '' }}
+        continue-on-error: true
+        env:
+          NOTIFY_EMAIL_TO: ${{ secrets.notify_email_to }}
+          NOTIFY_EMAIL_FROM: ${{ secrets.notify_email_from }}
+          NOTIFY_EMAIL_SMTP_HOST: ${{ secrets.notify_email_smtp_host }}
+          NOTIFY_EMAIL_SMTP_PORT: ${{ secrets.notify_email_smtp_port }}
+          NOTIFY_EMAIL_SMTP_USERNAME: ${{ secrets.notify_email_smtp_username }}
+          NOTIFY_EMAIL_SMTP_PASSWORD: ${{ secrets.notify_email_smtp_password }}
+          SCRIPT_SHA256: ${{ steps.stage.outputs.notifier_sha256 }}
+          STAGED_DIR: ${{ steps.stage.outputs.dir }}
+          REPORT: ${{ runner.temp }}/deep-scan-out/report.md
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Staged before the scan from the trusted commit; never the workspace
+          # copy. It sends nothing when the email secrets are unset.
+          SCRIPT="$STAGED_DIR/notify-email.sh"
+          printf '%s  %s\n' "$SCRIPT_SHA256" "$SCRIPT" | sha256sum -c --quiet -
+          "$SCRIPT" "$REPORT" > /dev/null
+
+      # The publish failed after its retries, so the report exists only on this
+      # runner: email it in full. The job stays failed.
+      - name: Email report after failed publish
+        if: ${{ always() && steps.publish.outcome == 'failure' && steps.stage.outputs.notifier_sha256 != '' }}
+        env:
+          NOTIFY_EMAIL_TO: ${{ secrets.notify_email_to }}
+          NOTIFY_EMAIL_FROM: ${{ secrets.notify_email_from }}
+          NOTIFY_EMAIL_SMTP_HOST: ${{ secrets.notify_email_smtp_host }}
+          NOTIFY_EMAIL_SMTP_PORT: ${{ secrets.notify_email_smtp_port }}
+          NOTIFY_EMAIL_SMTP_USERNAME: ${{ secrets.notify_email_smtp_username }}
+          NOTIFY_EMAIL_SMTP_PASSWORD: ${{ secrets.notify_email_smtp_password }}
+          SCRIPT_SHA256: ${{ steps.stage.outputs.notifier_sha256 }}
+          STAGED_DIR: ${{ steps.stage.outputs.dir }}
+          REPORT: ${{ runner.temp }}/deep-scan-out/report.md
+        shell: bash
+        run: |
+          set -euo pipefail
+          SCRIPT="$STAGED_DIR/notify-email.sh"
+          printf '%s  %s\n' "$SCRIPT_SHA256" "$SCRIPT" | sha256sum -c --quiet -
+          if ! "$SCRIPT" "$REPORT" publish-failed > /dev/null; then
+            echo "The report was not emailed either; it is lost with this runner. Fix the advisories token or the email secrets, then run again."
+            exit 1
+          fi
+          echo "Emailed the report after the failed publish."
+
+      - name: Status
+        if: ${{ always() }}
+        env:
+          CODE: ${{ steps.scan.outputs.code }}
+          REPORT_OUT: ${{ steps.scan.outputs.report }}
+          PUBLISHED: ${{ steps.publish.outcome }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The only summary this log keeps: what happened, with no counts.
+          if [ -z "${CODE:-}" ]; then
+            echo "Deep scan: did not run (a step before it failed or was skipped)."
+            exit 1
+          fi
+          if [ "$REPORT_OUT" = "true" ] && [ "$PUBLISHED" = "success" ]; then
+            echo "Deep scan: the report was filed as a private draft advisory."
+          elif [ "$REPORT_OUT" = "true" ]; then
+            echo "Deep scan: a report came out, but the draft advisory was not filed."
+            exit 1
+          else
+            echo "Deep scan: no report came out (deep-scan's own lines above say why); nothing was filed."
+          fi
+          case "$CODE" in
+            0) ;;
+            3)
+              echo "Deep scan: a limit stopped the run (its Stopped: line above names it)."
+              exit 1
+              ;;
+            *)
+              echo "Deep scan: deep-scan exited $CODE."
+              exit 1
+              ;;
+          esac

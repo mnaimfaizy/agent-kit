@@ -185,6 +185,7 @@ STAGE = {
     "agent-review-reusable.yml": "REVIEW",
     "agent-review-response-reusable.yml": "REVIEW_RESPONSE",
     "security-audit-reusable.yml": "SECURITY_AUDIT",
+    "deep-scan-reusable.yml": "DEEP_SCAN",
 }
 # The Agent flow's Stages run only when the master switch is exactly true and
 # their own Stage switch is not false. The other flows have one switch each.
@@ -214,10 +215,19 @@ def test_callers_default_to_kill_switch_on() -> None:
 # own variable is unset. No effort at all leaves --effort off.
 def test_callers_read_model_and_effort_from_repository_variables() -> None:
     for path, job_name, stage, inputs in caller_jobs():
+        called = WORKFLOWS / next(
+            job["uses"].split("/")[-1].split("@")[0]
+            for name, job in load(path)["jobs"].items()
+            if name == job_name
+        )
         model = str(inputs.get("model", ""))
         assert re.fullmatch(
             rf"\$\{{\{{ vars\.CLAUDE_{stage}_MODEL \|\| vars\.CLAUDE_MODEL \|\| '[a-z0-9-]+' \}}\}}", model
         ), f"{path.name}:{job_name}: model must read vars.CLAUDE_{stage}_MODEL, then vars.CLAUDE_MODEL, then a literal"
+        # The deep scan takes no effort input; every other Stage does.
+        if "effort" not in (workflow_call(called).get("inputs") or {}):
+            assert "effort" not in inputs, f"{path.name}:{job_name}: {called.name} takes no effort input"
+            continue
         effort = str(inputs.get("effort", ""))
         assert effort == f"${{{{ vars.CLAUDE_{stage}_EFFORT || vars.CLAUDE_EFFORT || '' }}}}", (
             f"{path.name}:{job_name}: effort must read vars.CLAUDE_{stage}_EFFORT, then vars.CLAUDE_EFFORT, then ''"
