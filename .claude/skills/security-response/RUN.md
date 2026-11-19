@@ -320,7 +320,7 @@ The Notes cell is one public-safe line. From the Record, it takes only these, in
 - `fixed in <sha>`, from the row's fix SHA;
 - duplicate of `<id>`, from the Record `of <canonical id>`;
 - `below the Medium floor`, for a `below-floor` row;
-- `found in triage of <GHSA>`, from the Record `found in triage of <concept-id>, <date>`: the full GHSA id of that concept id's row's canonical advisory ([Concept ids](#concept-ids)), or the concept id itself when that row has none;
+- `found in triage of <GHSA>`, from the Record `found in triage of <concept-id>, <date>`: the full GHSA id of that concept id's row's canonical advisory ([Concept ids](#concept-ids)), or the concept id itself when that row's own ledger line writes Advisory `n/a` (a `below-floor` row, or one with no advisory), so a note never names an advisory its parent's line keeps out of the ledger;
 - the one public-safe line a `fixed`, `accepted-risk` or `rejected` record gives.
 
 Everything else in the Record is never copied: fork PR numbers, clone paths, `in ledger: <status>`, and anything private. Nor is anything else from the triage output: never the attack path, evidence, file location or exploit detail.

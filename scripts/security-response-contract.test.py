@@ -558,6 +558,14 @@ def test_row_to_line_mapping() -> None:
             assert phrase in cells[column], f"{column} must say {phrase!r}: {cells[column]!r}"
 
 
+def test_a_found_in_triage_note_names_no_advisory_its_parent_line_keeps_out() -> None:
+    """A `below-floor` parent's line writes Advisory `n/a`, so the note must not name that advisory either."""
+    rule = item(flat(subsection(close_doc(), "Notes")), "`found in triage of <GHSA>`")
+    assert "or the concept id itself when that row's own ledger line writes Advisory `n/a`" in rule, rule
+    assert "a `below-floor` row, or one with no advisory" in rule, rule
+    assert "when that row has none" not in rule, rule
+
+
 def test_notes_carry_only_the_public_parts_of_the_record() -> None:
     notes = flat(subsection(close_doc(), "Notes"))
     for convention in (
@@ -892,6 +900,7 @@ if __name__ == "__main__":
     test_the_ledger_path_is_the_callers_or_the_default()
     test_one_ledger_pr_per_run_with_one_commit_and_never_a_direct_push()
     test_row_to_line_mapping()
+    test_a_found_in_triage_note_names_no_advisory_its_parent_line_keeps_out()
     test_notes_carry_only_the_public_parts_of_the_record()
     test_the_ledger_is_appended_only_and_its_format_is_unchanged()
     test_closing_until_the_ledger_pr_is_merged_and_its_lines_are_on_main()
