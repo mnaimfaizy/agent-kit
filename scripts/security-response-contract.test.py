@@ -361,7 +361,8 @@ def test_outcome_maps_to_evidence_and_severity() -> None:
     assert "| Outcome | Evidence | Delivery |" in mapping
     rows = {outcome: evidence for outcome, evidence, _ in table_cells(mapping)}
     for outcome, evidence in OUTCOME_TO_EVIDENCE.items():
-        assert rows.get(outcome) == evidence, f"Outcome {outcome} must map to Evidence {evidence}, got {rows.get(outcome)!r}"
+        got = rows.get(outcome)
+        assert got == evidence, f"Outcome {outcome} must map to Evidence {evidence}, got {got!r}"
     text = flat(landing())
     assert "**Severity (after triage)** becomes the row's Severity, with no `?`" in text
     assert "The concept id becomes final" in text
