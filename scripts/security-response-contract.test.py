@@ -5,7 +5,8 @@ folder lives, the ignore gate, the layout, the board, the state lists and what
 is final, the modes, reconcile: its sources, who wins, and the rules that it
 never deletes a row, keeps a contradicted final row final and moves nothing on
 an unavailable source), the closed `record` set and what each form verifies,
-and the gates on publishing, closing and requesting a CVE, not what they mean. What a sentence means is for review.
+and the gates on publishing, closing and requesting a CVE, not what they
+mean. What a sentence means is for review.
 It also keeps the retired status-format file gone, with nothing linking to it.
 """
 
@@ -228,9 +229,9 @@ SOURCES = {
 }
 
 
-def table_cells(table: str) -> list[list[str]]:
-    """The cells of each row of a three-column table that `table_rows` has evened out."""
-    return [line.strip(" |").split(" | ") for line in table.splitlines() if line.count(" | ") == 4]
+def table_cells(table: str, columns: int = 3) -> list[list[str]]:
+    """The cells of each row of a table of `columns` columns that `table_rows` has evened out."""
+    return [line.strip(" |").split(" | ") for line in table.splitlines() if line.count(" | ") == columns + 1]
 
 
 def test_source_table() -> None:
@@ -429,6 +430,10 @@ def test_record_is_a_closed_set() -> None:
     mode = mode_line("record <what>")
     assert "not available yet" not in mode, f"record is available now: {mode!r}"
     assert "RUN.md#record" in mode and "closed set" in mode, mode
+    assert "a missing argument, or a concept id or GHSA id that is not on the board is refused the same way" in text
+
+
+def test_close_is_not_available_yet() -> None:
     assert "not available yet" in mode_line("close"), "close stays for a later slice"
 
 
@@ -438,6 +443,7 @@ def test_merged_and_released_run_reconciles_checks() -> None:
     assert "`git tag --contains <fix SHA>`" in checks
     assert "The report alone moves nothing" in checks
     assert "the same checks reconcile runs" in checks
+    assert "When both pass, each row whose Record names that fork PR moves `fix PR open` → `merged`" in checks
 
 
 def test_fixed_and_accepted_risk_are_the_humans_judgement() -> None:
@@ -470,6 +476,7 @@ def test_each_record_is_logged_as_a_human_report() -> None:
     log = flat(subsection(record_doc(), "Logging a record"))
     assert "Each `record` is logged in `activity.md` as a human report, with what was verified" in log
     assert "`<time> human: record <what>; verified: <check and result>`" in log
+    assert "A form the set accepts is logged even when its check fails or its gate refuses it" in log
 
 
 TRANSITION_RECORDS = {
@@ -486,15 +493,13 @@ TRANSITION_RECORDS = {
 def test_each_transition_leaves_its_record() -> None:
     records = table_rows(subsection(record_doc(), "What each transition records"))
     assert "| Transition | Record |" in records
-    rows = {
-        cells[0]: cells[1]
-        for cells in (line.strip(" |").split(" | ") for line in records.splitlines())
-        if len(cells) == 2
-    }
+    rows = dict(table_cells(records, columns=2))
     for transition, record in TRANSITION_RECORDS.items():
         assert transition in rows, f"the records table must have a row for {transition}"
         assert record in rows[transition], f"{transition} records {record!r}, got {rows[transition]!r}"
     assert "in the row's Record" in flat(records)
+    fix = mode_line("fix <target>")
+    assert "`fix PR open`, with the fork PR number in its Record" in fix, fix
 
 
 def advisory_actions() -> str:
@@ -522,6 +527,7 @@ def test_publish_gate() -> None:
     assert "A duplicate advisory is never published" in publish
     assert "fork PR numbers and fix SHAs are in the Record of every row under it before the publish" in publish
     assert "refuses the publish" in publish
+    assert "Nor is an advisory whose every row is `rejected` or `duplicate`" in publish
 
 
 def test_a_duplicate_advisory_is_closed_once_its_canonical_rows_advisory_is_final() -> None:
@@ -569,6 +575,7 @@ if __name__ == "__main__":
     test_a_standalone_triage_run_is_not_picked_up()
     test_triage_mode_lands_the_outcome()
     test_record_is_a_closed_set()
+    test_close_is_not_available_yet()
     test_merged_and_released_run_reconciles_checks()
     test_fixed_and_accepted_risk_are_the_humans_judgement()
     test_match_joins_a_human_made_draft_to_a_found_in_triage_row()

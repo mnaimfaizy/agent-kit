@@ -25,7 +25,7 @@ A `<target>` is a concept id or a `GHSA:F<n>`; `fix` also takes `next`.
 - `status`: prints the board ([RUN.md](RUN.md#board)) in the local terminal
 - `next`: recommend one prioritized next action
 - `triage <target>`: run evidence-first triage for one finding with the `security-finding-triage` skill, and land its outcome on the board ([RUN.md](RUN.md#landing-a-triage-outcome))
-- `fix <target>`: only with explicit authorization; implement and validate fix. A row found in triage and confirmed at Medium or above needs a draft advisory first ([RUN.md](RUN.md#found-in-triage))
+- `fix <target>`: only with explicit authorization; implement and validate fix. Opening the fix pull request on the private fork moves the row to `fix PR open`, with the fork PR number in its Record ([RUN.md](RUN.md#what-each-transition-records)). A row found in triage and confirmed at Medium or above needs a draft advisory first ([RUN.md](RUN.md#found-in-triage))
 - `reconcile`: reconcile only ([RUN.md](RUN.md#reconcile)): check the run against GitHub and git, and do nothing else
 - `record <what>`: land a human step from a closed set, and verify whatever the run can ([RUN.md](RUN.md#record)); after `record approve`, publish, close or request a CVE for an advisory through `gh api` ([Advisory actions](#advisory-actions))
 - `close`: write the findings ledger and close the run (not available yet: say so, and close nothing)
@@ -48,7 +48,7 @@ The run publishes, closes, or requests a CVE for an advisory only after `record 
 - Close: `gh api --method PATCH repos/<owner>/<repo>/security-advisories/<GHSA-id> -f state=closed`
 - Request a CVE: `gh api --method POST repos/<owner>/<repo>/security-advisories/<GHSA-id>/cve`
 
-After each call, read the advisory back with `gh api repos/<owner>/<repo>/security-advisories/<GHSA-id>`, and move the board only on what it shows.
+After each call, the run reads the advisory back and moves the board only on what it shows ([RUN.md](RUN.md#advisory-actions)).
 
 ## Guardrails
 
