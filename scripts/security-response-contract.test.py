@@ -482,8 +482,8 @@ def test_one_ledger_pr_per_run_with_one_commit_and_never_a_direct_push() -> None
     assert "Never a direct push" in pr
     assert "The human merges it" in pr and "the run never merges it" in pr
     assert "no second one is opened" in pr
-    steps = flat(close_doc())
-    shown, branch = steps.find("the exact ledger lines"), steps.find("`chore/security-ledger-<run>`")
+    whole = flat(close_doc())
+    shown, branch = whole.find("the exact ledger lines"), whole.find("`chore/security-ledger-<run>`")
     assert 0 <= shown < branch, "the preview comes before the ledger branch"
     guard = flat(section(read(SKILL), "Guardrails"))
     assert "never pushed to the default branch" in guard
@@ -495,6 +495,9 @@ def test_closing_until_the_ledger_pr_is_merged_and_its_lines_are_on_main() -> No
     assert "Waiting on you holds only `Merge ledger PR #n`" in closing
     assert "the lines are on `origin/main`" in closing
     assert "Only then is the run `closed`" in closing
+    assert "A run never has more than one open ledger PR, and only one is ever merged" in closing
+    runs = flat(section(read(RUN), "Open, resume, or nothing to respond to"))
+    assert "a run that reads `Closing: ledger PR #n` is still open" in runs
     assert "new draft waiting for the next run" in closing
     assert "does not join the run" in closing
     rows = flat(subsection(reconcile_doc(), "Rows are never deleted"))
@@ -542,15 +545,15 @@ def test_the_ledger_is_appended_only_and_its_format_is_unchanged() -> None:
     assert "`activity.md` records the repeat" in rules
     assert "No concept id gets a second line" in rules
     assert "Append only" in rules
-    assert "ordered by first seen, then by advisory" in rules
+    assert "ordered by first seen, then by advisory, then by `F<n>`" in rules
     assert "never edits, reorders or removes an existing line" in rules
     assert "The ledger format is unchanged: the same header text and the same five columns" in rules
 
 
 def test_a_run_with_no_ledger_lines_closes_with_no_pr() -> None:
-    closed = flat(subsection(close_doc(), "No ledger lines"))
-    assert "only no-findings drafts, or only duplicates of concept ids already in the ledger" in closed
-    assert "goes straight to `closed`" in closed and "no ledger PR" in closed
+    no_lines = flat(subsection(close_doc(), "No ledger lines"))
+    assert "only no-findings drafts, or only duplicates of concept ids already in the ledger" in no_lines
+    assert "goes straight to `closed`" in no_lines and "`Closed <date>, no ledger PR`" in no_lines
 
 
 def test_a_closed_run_stays_read_only_and_is_the_humans_to_delete() -> None:
