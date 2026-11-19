@@ -512,8 +512,8 @@ def test_closing_until_the_ledger_pr_is_merged_and_its_lines_are_on_main() -> No
 ROW_TO_LINE = {
     "Concept id": ["the row's final concept id"],
     "Status": ["`rejected`", "Evidence is `rejected` or `duplicate`", "`released <tag>`", "`fixed`", "`accepted-risk`"],
-    "First seen": ["the advisory's Created date", "the triage date"],
-    "Advisory": ["the full GHSA id", "`n/a` for a `below-floor` row", "and for any row with no advisory (`none yet`)"],
+    "First seen": ["the Created date of the row's canonical advisory", "the triage date"],
+    "Advisory": ["the full GHSA id of the row's canonical advisory", "`n/a` for a `below-floor` row", "and for any row with no advisory (`none yet`)"],
     "Notes": ["Proposed ledger row", "the public parts of the Record"],
 }
 
@@ -682,6 +682,19 @@ def test_a_duplicate_advisory_is_closed_once_its_canonical_rows_advisory_is_fina
     assert "Close is refused while any row under the advisory is not final" in close
 
 
+def test_a_folded_row_has_one_canonical_advisory() -> None:
+    ids = flat(section(read(RUN), "Concept ids"))
+    assert "A folded row has one **canonical advisory**: the earliest created of its advisories" in ids
+    assert "then by GHSA id" in ids
+    assert "Under each of its other advisories, the folded row counts as a `duplicate` row" in ids
+    actions = flat(advisory_actions())
+    assert "or a folded row whose canonical advisory is another" in actions
+    close = flat(subsection(advisory_actions(), "Close"))
+    assert "for a folded row, its canonical advisory must be `published` or `closed`" in close
+    notes = flat(subsection(close_doc(), "Notes"))
+    assert "the full GHSA id of that concept id's row's canonical advisory" in notes
+
+
 def test_a_cve_request_needs_a_confirmed_row_and_is_recorded() -> None:
     cve = flat(subsection(advisory_actions(), "CVE request"))
     assert "only after a row under the advisory is `confirmed`" in cve
@@ -834,6 +847,7 @@ if __name__ == "__main__":
     test_approve_then_the_run_acts_through_gh_api()
     test_publish_gate()
     test_a_duplicate_advisory_is_closed_once_its_canonical_rows_advisory_is_final()
+    test_a_folded_row_has_one_canonical_advisory()
     test_a_cve_request_needs_a_confirmed_row_and_is_recorded()
     test_a_no_findings_draft_is_one_rows_0_line_never_a_finding_row()
     test_no_findings_kinds_come_from_cis_titles()
