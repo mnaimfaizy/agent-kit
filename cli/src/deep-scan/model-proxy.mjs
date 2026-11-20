@@ -85,9 +85,14 @@ const DROPPED = new Set([
  * @param {{ credential: string, kind?: "api-key" | "subscription", bind: string, upstream?: string, maxTokens?: number, onCap?: () => void }} opts
  *   `kind` is the credential's (default an API key). `upstream` is the
  *   model API; only tests pass another.
- * @returns {Promise<{ port: number, refused: string[], tokens: () => number, models: () => string[], summary: () => string, close: () => Promise<void> }>}
+ * @returns {Promise<{ port: number, refused: string[], tokens: () => number, models: () => string[], credentialRefused: () => boolean, summary: () => string, close: () => Promise<void> }>}
  *   `models` is each distinct model id the answers named, in the order first
  *   seen, at most MAX_KEPT of them, and only plain ids of MAX_ENTRY or fewer.
+ *   `credentialRefused` is true when at least one request was forwarded and
+ *   the model API answered every one with 401 or 403: it refused the
+ *   credential (a request that got no answer, or still waits for one, is not
+ *   a refusal). The proxy's own refusals (a path, a host, the cap) are not
+ *   answers of the model API, so they never count.
  */
 export async function startModelProxy({
   credential,
@@ -237,6 +242,13 @@ export async function startModelProxy({
     refused,
     tokens: () => tokens,
     models: () => [...models],
+    // Every forwarded request answered, and each answer a 401 or 403.
+    credentialRefused: () =>
+      forwarded > 0 &&
+      [...statuses].reduce(
+        (sum, [status, n]) => (status === "401" || status === "403" ? sum + n : sum),
+        0,
+      ) === forwarded,
     summary() {
       const byStatus = [...statuses].map(([s, n]) => `${s} x${n}`).join(", ");
       const parts = [

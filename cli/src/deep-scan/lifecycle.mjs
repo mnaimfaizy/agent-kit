@@ -64,6 +64,21 @@ const CLAUDE_DEFAULT = "Claude Code's default";
 /** Why a line is withheld from a world-readable log. */
 const PUBLIC_LOG = "the Public-log rule: this log is world-readable in GitHub Actions";
 
+/**
+ * The line a run prints when the model API answered every request with a
+ * 401 or 403: the credential's kind and where it came from (a variable's
+ * name, or 1Password), never its value.
+ * @param {"api-key" | "subscription"} kind
+ * @param {string} from
+ */
+export function credentialRefusedLine(kind, from) {
+  const what =
+    kind === "subscription"
+      ? `the Claude subscription token from ${from} was not accepted (its value is not shown). Make a fresh one with claude setup-token, then run deep-scan again.`
+      : `the API key from ${from} was not accepted (its value is not shown). Check that the key is current and its Anthropic Console workspace is active, then run deep-scan again.`;
+  return `The model API refused the credential: every answer was 401 or 403, so ${what}`;
+}
+
 /** How many lines of Claude Code's error output a failed agent step shows. */
 const AGENT_ERROR_LINES = 20;
 
@@ -109,6 +124,7 @@ const SETUP_ORDER = ["setup", "start", "ready", "seed"];
  *   recipeText: string,
  *   credential: string,
  *   credentialKind?: "api-key" | "subscription",
+ *   credentialFrom?: string,
  *   limits: import("./limits.mjs").Limits,
  *   model?: string,
  *   effort?: string,
@@ -243,6 +259,7 @@ async function lifecycle({
   recipeText,
   credential,
   credentialKind = "api-key",
+  credentialFrom = "its source",
   limits,
   model,
   effort,
@@ -487,6 +504,11 @@ async function lifecycle({
       ? `Model proxy: ${proxy ? "closed" : "not started"} (${PUBLIC_LOG}).`
       : `Model proxy: ${proxy?.summary() ?? "not started"}.`,
   );
+  // Every answer a 401 or 403: say plainly that the credential was refused,
+  // its kind and where it came from, never its value. Locally only: a public
+  // log gets none of the model API's answers.
+  if (!publicLog && proxy?.credentialRefused())
+    err(credentialRefusedLine(credentialKind, credentialFrom));
   const stopped = clocks.stopped();
   if (stopped) {
     out(`${stoppedStatus(stopped)} Copying out what report the agent left.`);

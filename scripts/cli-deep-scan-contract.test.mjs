@@ -5014,3 +5014,164 @@ describe("the model proxy names the model the API answered with", () => {
     }
   });
 });
+
+describe("a model API that refuses the credential is named as such", () => {
+  /** A fake model API that answers every request with `status`. */
+  const refusing = (status) =>
+    answeringApi((req, res) => {
+      res.writeHead(status, { "content-type": "application/json" });
+      res.end(
+        JSON.stringify({
+          type: "error",
+          error: { type: "authentication_error", message: "invalid x-api-key" },
+        }),
+      );
+    });
+  /** The agent plays two model calls, exits 1 and leaves no report. */
+  const failing = (key, op) =>
+    makeHost("linux", {
+      docker: docker({
+        runtimes: { ...RUNC, ...RUNSC },
+        extra: {
+          [key]: { status: 1, model: 2, stderr: "API Error: 401\n" },
+          "cp agent-kit-deep-": { status: 1, stderr: "Error: Could not find the file\n" },
+        },
+      }),
+      runsc: ok("runsc version release-20251110.0\n"),
+      ...(op ? { op } : {}),
+    });
+  const REFUSED = /^The model API refused the credential/m;
+
+  it("on an API key: one plain line after the proxy summary, naming its kind and source, before FAILED", async () => {
+    const api = await refusing(401);
+    try {
+      const res = await run(recipeRepo(VALID), [], {
+        host: failing("~--bare"),
+        modelApi: api.url,
+      });
+      assert.equal(res.code, 1, res.text);
+      assert.match(res.out, /Model proxy: forwarded 2 request\(s\) .*\(answers: 401 x2\)/);
+      const lines = res.err.split("\n");
+      const refused = lines.filter((l) => REFUSED.test(l));
+      assert.equal(refused.length, 1, res.err);
+      assert.match(
+        refused[0],
+        /^The model API refused the credential: every answer was 401 or 403, so the API key from ANTHROPIC_API_KEY was not accepted \(its value is not shown\)\./,
+      );
+      const at = lines.indexOf(refused[0]);
+      assert.ok(at < lines.findIndex((l) => l.startsWith("FAILED")), res.err);
+      assert.ok(at < lines.findIndex((l) => l.startsWith("The agent step exited")), res.err);
+      assert.ok(!res.text.includes(REAL_KEY));
+    } finally {
+      await api.close();
+    }
+  });
+
+  it("on a subscription token: names the token and where it came from, with 403 as well as 401", async () => {
+    let i = 0;
+    const api = await answeringApi((req, res) => {
+      res.writeHead(i++ === 0 ? 401 : 403, { "content-type": "application/json" });
+      res.end("{}");
+    });
+    try {
+      const res = await run(recipeRepo(VALID), SUBSCRIPTION, {
+        host: failing("~--no-session-persistence"),
+        env: oauthEnv(),
+        modelApi: api.url,
+      });
+      assert.equal(res.code, 1, res.text);
+      const refused = res.err.split("\n").filter((l) => REFUSED.test(l));
+      assert.equal(refused.length, 1, res.err);
+      assert.match(
+        refused[0],
+        /the Claude subscription token from CLAUDE_CODE_OAUTH_TOKEN was not accepted \(its value is not shown\)\. Make a fresh one with claude setup-token/,
+      );
+      assert.ok(!res.text.includes(REAL_OAUTH));
+    } finally {
+      await api.close();
+    }
+  });
+
+  it("names a 1Password source by where it came from, never by the reference's value", async () => {
+    const api = await refusing(401);
+    try {
+      const host = failing("~--bare", { "*": { status: 0, stdout: `${REAL_KEY}\n` } });
+      const ref = "op://Private/Anthropic/credential";
+      const res = await run(recipeRepo(VALID), ["--credential-from", ref], {
+        host,
+        env: { PATH: "/usr/bin" },
+        modelApi: api.url,
+      });
+      assert.equal(res.code, 1, res.text);
+      assert.match(res.err, /the API key from 1Password \(op read\) was not accepted/);
+      assert.ok(!res.text.includes(REAL_KEY));
+    } finally {
+      await api.close();
+    }
+  });
+
+  it("says nothing of the kind when any answer was a 200", async () => {
+    let i = 0;
+    const api = await answeringApi((req, res) => {
+      res.writeHead(i++ === 0 ? 200 : 401, { "content-type": "application/json" });
+      res.end("{}");
+    });
+    try {
+      const res = await run(recipeRepo(VALID), [], {
+        host: failing("~--bare"),
+        modelApi: api.url,
+      });
+      assert.equal(res.code, 1, res.text);
+      assert.match(res.out, /answers: 200 x1, 401 x1/);
+      assert.ok(!REFUSED.test(res.text), res.text);
+    } finally {
+      await api.close();
+    }
+  });
+
+  it("says nothing of the kind when no request reached the model API", async () => {
+    const res = await run(recipeRepo(VALID), [], {
+      host: gvisorWith({ "~--bare": { status: 1, stderr: "API Error: 401\n" } }),
+    });
+    assert.equal(res.code, 1, res.text);
+    assert.match(res.out, /Model proxy: forwarded 0 request\(s\)/);
+    assert.ok(!REFUSED.test(res.text), res.text);
+  });
+
+  it("keeps it out of a public log, where the model API's answers are withheld", async () => {
+    const api = await refusing(401);
+    try {
+      const res = await run(recipeRepo(VALID), [], {
+        host: failing("~--bare"),
+        env: { PATH: "/usr/bin", ANTHROPIC_API_KEY: REAL_KEY, GITHUB_ACTIONS: "true" },
+        modelApi: api.url,
+      });
+      assert.equal(res.code, 1, res.text);
+      assert.match(res.out, /Model proxy: closed/);
+      assert.ok(!REFUSED.test(res.text), res.text);
+      assert.ok(!res.text.includes("401"), res.text);
+    } finally {
+      await api.close();
+    }
+  });
+
+  it("the proxy itself reports a refused credential only when every forwarded answer was 401 or 403", async () => {
+    const statuses = [401, 403];
+    let i = 0;
+    const api = await answeringApi((req, res) => {
+      res.writeHead(statuses[i++] ?? 200).end("{}");
+    });
+    const { proxy, post } = await cappedProxy(api, 1000);
+    try {
+      assert.equal(proxy.credentialRefused(), false, "nothing forwarded yet");
+      await post();
+      await post();
+      assert.equal(proxy.credentialRefused(), true);
+      await post();
+      assert.equal(proxy.credentialRefused(), false);
+    } finally {
+      await proxy.close();
+      await api.close();
+    }
+  });
+});

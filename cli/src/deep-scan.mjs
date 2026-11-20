@@ -408,6 +408,7 @@ export async function runDeepScan({
     runner,
     credential: key.credential,
     credentialKind: chosen.kind,
+    credentialFrom: key.from,
     ...(modelApi !== undefined ? { modelApi } : {}),
     runtime: choice.runtime,
     root,
