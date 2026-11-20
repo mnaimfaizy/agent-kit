@@ -76,7 +76,7 @@ It copies the Kit-owned paths, writes the Caller workflows and a Threat pack ske
 | `init --tag <tag>`    | First adoption: copies the Kit-owned paths, writes the Callers and the Threat pack skeleton, prints the GitHub-side steps as `gh` commands.                                                             |
 | `doctor`              | Read-only check of Kit-owned paths, pins, secrets, variables, labels, the Claude GitHub App, rulesets and the Review response mode. `--ci` checks only paths, pins and the Scan recipe, for a PR check. |
 | `upgrade --tag <tag>` | Replaces each Kit-owned path from the new tag and rewrites the `@<tag>` of every Agent-kit pin, then prints the `examples/` diff to apply by hand.                                                      |
-| `deep-scan`           | The Deep scan launcher. Today it reads the Scan recipe as committed on the default branch and validates it, or refuses; the later stages are not built yet.                                             |
+| `deep-scan`           | The Deep scan launcher: a bounded Deep scan of the default branch, from its Scan recipe, in a sandbox on an accepted runtime, with a private report. `--verify --ref` is a Verification run.            |
 
 Run each with `npx @mnaimfaizy/agent-kit <command>`. `init` and `upgrade` ask before writing, change only local files and commit nothing. Details: [cli/README.md](cli/README.md), [checking a setup with `doctor`](docs/getting-started.md#check-the-setup-with-doctor) and [upgrading](docs/getting-started.md#upgrading).
 
