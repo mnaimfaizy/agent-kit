@@ -71,7 +71,7 @@ const PUBLIC_LOG = "the Public-log rule: this log is world-readable in GitHub Ac
  * @param {"api-key" | "subscription"} kind
  * @param {string} from
  */
-export function credentialRefusedLine(kind, from) {
+function credentialRefusedLine(kind, from) {
   const what =
     kind === "subscription"
       ? `the Claude subscription token from ${from} was not accepted (its value is not shown). Make a fresh one with claude setup-token, then run deep-scan again.`

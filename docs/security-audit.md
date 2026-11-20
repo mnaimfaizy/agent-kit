@@ -246,7 +246,7 @@ A Claude subscription token is not an API key: without `--credential subscriptio
 `--credential subscription` runs a Deep scan on a Claude subscription token instead of an API key. It is an opt-in, at your own risk. Before you choose it, know that it:
 
 - **relies on undocumented behaviour, and may break with any Claude Code release.** It depends on how Claude Code sends a subscription token to a base URL that is not the model API's own. That is not a documented contract, so any release, including the pinned Claude Code a later Agent-kit version moves to, may break it. The API-key path is the supported one;
-- **has no refresh, so you rotate the token by hand.** The token `claude setup-token` prints is long-lived, and `deep-scan` never refreshes it. When it expires or you revoke it, the model API answers `401` and the run fails: make a new one, and replace it where you keep it (1Password, or the CI secret);
+- **has no refresh, so you rotate the token by hand.** The token `claude setup-token` prints is long-lived, and `deep-scan` never refreshes it. When it expires or you revoke it, the model API answers `401` and the run fails, saying the model API refused the credential: make a new one, and replace it where you keep it (1Password, or the CI secret);
 - **leaves the terms question to you.** Whether your subscription's terms allow this use is yours to check: Agent-kit does not answer it;
 - **has the proxy's token cap as its only spend lever.** There is no Console workspace with a spend limit behind a subscription, so `--max-tokens` (in CI, `max_tokens`) is the only bound on what a run uses. Set it to what you are willing to spend.
 
