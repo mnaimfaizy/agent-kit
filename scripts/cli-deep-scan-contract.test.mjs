@@ -46,6 +46,7 @@ import {
   VERIFY_LIMITS,
   withStopped,
 } from "../cli/src/deep-scan/limits.mjs";
+import { MAX_EXPORT_BYTES, MAX_GROUNDING_BYTES } from "../cli/src/deep-scan/lifecycle.mjs";
 import { startModelProxy } from "../cli/src/deep-scan/model-proxy.mjs";
 import { ENV_TEMPLATES } from "../cli/src/deep-scan/preflight.mjs";
 import { tarOf } from "../cli/src/deep-scan/tar.mjs";
@@ -5589,6 +5590,18 @@ describe("review fixes: the docs' hand-typed lists match the code they copy", ()
     }
   });
 
+  it("the deep-scan Caller's secrets, in getting-started.md's secrets table", () => {
+    const caller = page("examples/deep-scan-caller.yml");
+    const secrets = [...caller.matchAll(/secrets\.(AGENT_KIT_DEEP_SCAN_[A-Z0-9_]+)/g)].map(
+      (m) => m[1],
+    );
+    assert.ok(secrets.length >= 2, "the Caller names its secrets");
+    const started = page("docs/getting-started.md");
+    for (const name of secrets) {
+      assert.match(started, new RegExp(`^\\| \`${name}\` +\\| deep scan`, "m"), name);
+    }
+  });
+
   it("the effort levels, wherever they are listed", () => {
     const levels = codeList(EFFORTS, "or");
     for (const [path, text] of [
@@ -5621,6 +5634,12 @@ describe("review fixes: the docs' hand-typed lists match the code they copy", ()
         `scan wall clock ${VERIFY_LIMITS.scanMinutes} min and ${VERIFY_LIMITS.turns} turns, with the same setup wall clock and token cap`,
       ),
       "docs/security-audit.md: the Verification run's limits",
+    );
+    assert.equal(MAX_EXPORT_BYTES, 1024 ** 3, "docs/security-audit.md says 1 GiB");
+    assert.ok(audit.includes("so one larger than 1 GiB ends the run"));
+    assert.ok(
+      audit.includes(`(each URL at most ${MAX_GROUNDING_BYTES / 1024 / 1024} MiB)`),
+      "docs/security-audit.md: the grounding URL cap",
     );
     assert.equal(VERIFY_LIMITS.setupMinutes, DEFAULT_LIMITS.setupMinutes);
     assert.equal(VERIFY_LIMITS.tokens, DEFAULT_LIMITS.tokens);
