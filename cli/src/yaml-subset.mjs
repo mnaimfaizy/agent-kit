@@ -129,9 +129,24 @@ export function parseYamlSubset(text, { problems } = {}) {
         continue;
       }
       const ind = indentOf(lines[i]);
-      if (ind < seqIndent) break;
+      if (ind < seqIndent) {
+        // Shallower than the list's items but deeper than the block that
+        // holds it: no reader takes it, so it and the rest are dropped.
+        if (ind > ownerIndent) {
+          problems?.push(
+            `line ${i + 1}: is indented less than the list above it, but more than its key; the reader would drop it and the rest of the list.`,
+          );
+        }
+        break;
+      }
       const content = stripComment(lines[i].slice(ind)).trimEnd();
       if (ind > seqIndent) {
+        // Deeper than an item, but nothing above it took it (a scalar item
+        // stops at a blank line): the reader would drop it.
+        const afterBlank = i > 0 && isBlank(lines[i - 1]);
+        problems?.push(
+          `line ${i + 1}: sits deeper than the list item above it${afterBlank ? ", after a blank line" : ""}, and no item takes it; the reader would drop it.`,
+        );
         i++;
         continue;
       }

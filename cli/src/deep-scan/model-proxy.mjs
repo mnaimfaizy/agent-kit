@@ -168,6 +168,9 @@ export async function startModelProxy({
       !MODEL_PATH.test(path) ||
       !MODEL_PATH.test(decoded) ||
       UNCOUNTED_PATH.test(decoded) ||
+      // An empty segment (`/v1//messages/batches`): a front end that merges
+      // slashes would route it past the uncounted-path check.
+      /\/\/|\/$/.test(decoded) ||
       /(^|\/)\.{1,2}(\/|$)|\\/.test(decoded) ||
       /(^|\/)(\.|%2e){1,2}(\/|$)|%2f|\\/i.test(path)
     ) {

@@ -921,6 +921,22 @@ describe("review fixes: shapes the YAML reader would otherwise let through", () 
       /line \d+: sits in a list but is not a `- ` item/,
     ],
     [
+      "a list item indented less than the list's first item",
+      recipe({
+        drop: ["setup"],
+        add: "setup:\n    - npm ci\n  - npm run build",
+      }),
+      /line \d+: is indented less than the list above it/,
+    ],
+    [
+      "a deeper line after a blank line under a list item",
+      recipe({
+        drop: ["setup"],
+        add: "setup:\n  - npm ci\n\n      --flag",
+      }),
+      /line \d+: sits deeper than the list item above it, after a blank line/,
+    ],
+    [
       "a __proto__ key that hides fields from the key check",
       `__proto__:\n  image: node:22\n  max_turns: 999\n${recipe({ drop: ["image"] })}`,
       /__proto__: is not a Scan recipe field/,
@@ -5472,6 +5488,10 @@ describe("review fixes: the model proxy checks the decoded path", () => {
         "/v1/%256dessages/batches",
         "/v1/messages%E0%A4%A",
         "/%761/messages",
+        "/v1//messages/batches",
+        "/v1/messages//batches",
+        "/v1//complete",
+        "/v1/messages/",
       ]) {
         const answer = await rawRequest(
           proxy.port,

@@ -165,3 +165,27 @@ describe("parseYamlSubset reports a list cut short by a line that is not an item
     assert.deepEqual(clean, []);
   });
 });
+
+describe("parseYamlSubset reports the other lines a list would drop", () => {
+  it("records an item indented less than the list's first item", () => {
+    const problems = [];
+    const doc = parseYamlSubset(["setup:", "    - npm ci", "  - npm run build", ""].join("\n"), {
+      problems,
+    });
+    assert.deepEqual(doc.setup, ["npm ci"]);
+    assert.equal(problems.length, 1, problems.join("\n"));
+    assert.match(problems[0], /^line 3: is indented less than the list above it/);
+  });
+
+  it("records a deeper line after a blank line under an item", () => {
+    const problems = [];
+    parseYamlSubset(["setup:", "  - npm ci", "", "      --flag", "image: x", ""].join("\n"), {
+      problems,
+    });
+    assert.equal(problems.length, 1, problems.join("\n"));
+    assert.match(
+      problems[0],
+      /^line 4: sits deeper than the list item above it, after a blank line/,
+    );
+  });
+});
