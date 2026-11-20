@@ -24,7 +24,15 @@ jobs:
       max_turns: 200
       max_tokens: 5000000
     secrets:
+      # The model credential: exactly one of these two. An API key from a
+      # dedicated Console workspace with its own spend limit is the supported
+      # path. Or, opted into at your own risk, a Claude subscription token
+      # from `claude setup-token`: it relies on undocumented Claude Code
+      # behaviour and may break with any release, has no refresh (rotate it by
+      # hand), leaves the terms question to you, and max_tokens is its only
+      # spend lever. To use it, swap the comment onto the API key's line.
       anthropic_api_key: ${{ secrets.AGENT_KIT_DEEP_SCAN_ANTHROPIC_API_KEY }}
+      # claude_code_oauth_token: ${{ secrets.AGENT_KIT_DEEP_SCAN_CLAUDE_CODE_OAUTH_TOKEN }}
       advisories_token: ${{ secrets.AGENT_KIT_ADVISORIES_TOKEN }}
       notify_email_to: ${{ secrets.AGENT_KIT_NOTIFY_EMAIL_TO }}
       notify_email_from: ${{ secrets.AGENT_KIT_NOTIFY_EMAIL_FROM }}

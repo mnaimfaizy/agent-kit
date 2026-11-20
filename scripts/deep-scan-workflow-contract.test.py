@@ -115,20 +115,52 @@ def test_inputs_are_the_kill_switch_the_model_and_the_limits() -> None:
     }
 
 
-def test_the_model_secret_reaches_the_launcher_step_alone() -> None:
+MODEL_SECRETS = {"anthropic_api_key": "ANTHROPIC_API_KEY", "claude_code_oauth_token": "CLAUDE_CODE_OAUTH_TOKEN"}
+
+
+def test_the_model_secrets_are_an_api_key_or_the_opt_in_subscription_token() -> None:
     secrets = workflow()["on"]["workflow_call"]["secrets"]
-    assert secrets["anthropic_api_key"]["required"] is True
-    holders = [s.get("name") for s in steps() if "secrets.anthropic_api_key" in text(s)]
-    assert holders == [LAUNCHER]
-    assert "anthropic_api_key" not in yaml.safe_dump(job().get("env", {}))
-    assert step(LAUNCHER)["env"]["ANTHROPIC_API_KEY"] == "${{ secrets.anthropic_api_key }}"
+    # Exactly one is needed, so neither can be required: the first step checks.
+    for name in MODEL_SECRETS:
+        assert secrets[name]["required"] is False, name
+    # The static workflow's own name for the same token.
+    static = yaml.safe_load(STATIC.read_text(encoding="utf-8"))
+    static_secrets = static[True]["workflow_call"]["secrets"]
+    assert "claude_code_oauth_token" in static_secrets
+    described = secrets["claude_code_oauth_token"]["description"]
+    for caveat in (
+        "`claude setup-token`",
+        "--credential subscription",
+        "undocumented",
+        "may break with any release",
+        "no refresh",
+        "terms question",
+        "only spend lever",
+        "not both",
+    ):
+        assert caveat in described, caveat
+
+
+def test_each_model_secret_value_reaches_the_launcher_step_alone() -> None:
+    # The check step's variable for each secret: whether it is set, never its value.
+    has = {"anthropic_api_key": "HAS_API_KEY", "claude_code_oauth_token": "HAS_OAUTH_TOKEN"}
+    for name, var in MODEL_SECRETS.items():
+        value = "${{ secrets." + name + " }}"
+        holders = [s.get("name") for s in steps() if value in text(s)]
+        assert holders == [LAUNCHER], name
+        assert name not in yaml.safe_dump(job().get("env", {}))
+        assert step(LAUNCHER)["env"][var] == value
+        # Anywhere else, only whether it is set: the first step's check.
+        others = [s.get("name") for s in steps() if f"secrets.{name}" in text(s) and s.get("name") != LAUNCHER]
+        assert others == [CHECK], name
+        assert step(CHECK)["env"][has[name]] == "${{ secrets." + name + " != '' }}"
 
 
 def test_no_github_token_or_advisory_token_reaches_the_launcher() -> None:
     launcher = text(step(LAUNCHER))
     for token in ("github.token", "GITHUB_TOKEN", "GH_TOKEN", "advisories_token", "secrets.", "ADVISORY"):
         if token == "secrets.":
-            assert launcher.count("secrets.") == 1, "only the model secret"
+            assert launcher.count("secrets.") == 2, "only the two model secrets"
             continue
         assert token not in launcher, token
     job_env = yaml.safe_dump(job().get("env", {}))
@@ -243,6 +275,16 @@ def test_caller_example() -> None:
     (only,) = caller["jobs"].values()
     assert re.fullmatch(r"mnaimfaizy/agent-kit/\.github/workflows/deep-scan-reusable\.yml@v\S+", only["uses"])
     assert only["secrets"]["anthropic_api_key"] == "${{ secrets.AGENT_KIT_DEEP_SCAN_ANTHROPIC_API_KEY }}"
+    # The subscription token is shown too, commented out: exactly one is set.
+    assert "claude_code_oauth_token" not in only["secrets"]
+    raw_caller = CALLER.read_text(encoding="utf-8")
+    assert re.search(
+        r"^ +# claude_code_oauth_token: \$\{\{ secrets\.AGENT_KIT_DEEP_SCAN_CLAUDE_CODE_OAUTH_TOKEN \}\}$",
+        raw_caller,
+        re.M,
+    )
+    for caveat in ("claude setup-token", "undocumented", "rotate it by", "terms question", "spend lever"):
+        assert caveat in raw_caller, caveat
     assert only["with"]["kill_switch"] == "${{ vars.CLAUDE_DEEP_SCAN_ENABLED != 'true' }}"
     assert caller["permissions"] == {"contents": "read"}
 
@@ -254,6 +296,9 @@ def run_check(**inputs: str) -> subprocess.CompletedProcess:
     env = {k.upper(): v for k, v in inputs.items()}
     defaults = {"MODEL": "claude-opus-5-5", "SETUP_MINUTES": "20", "SCAN_MINUTES": "60", "MAX_TURNS": "200"}
     defaults["MAX_TOKENS"] = "5000000"
+    # As GitHub renders `secrets.x != ''`: the API key set, the token not.
+    defaults["HAS_API_KEY"] = "true"
+    defaults["HAS_OAUTH_TOKEN"] = "false"
     bash = shutil.which("bash")
     assert bash, "bash is needed to run the check step"
     with tempfile.TemporaryDirectory() as tmp:
@@ -290,6 +335,101 @@ def test_the_check_refuses_a_bad_model_or_limit_and_a_sum_past_the_timeout() -> 
     assert "timeout-minutes" in over.stdout
     # The values are never echoed back.
     assert "m --x" not in run_check(model="m --x").stdout
+
+
+def test_the_check_takes_exactly_one_model_credential() -> None:
+    assert run_check(has_api_key="true", has_oauth_token="false").returncode == 0
+    assert run_check(has_api_key="false", has_oauth_token="true").returncode == 0
+    both = run_check(has_api_key="true", has_oauth_token="true")
+    assert both.returncode == 1
+    assert "::error title=Two model credentials::" in both.stdout
+    neither = run_check(has_api_key="false", has_oauth_token="false")
+    assert neither.returncode == 1
+    assert "::error title=No model credential::" in neither.stdout
+    assert "claude_code_oauth_token" in neither.stdout and "anthropic_api_key" in neither.stdout
+
+
+# --- the launcher step, run under bash with a fake agent-kit ---------------------
+
+FAKE_KEY = "sk-ant-api03-fake-ci-key"
+FAKE_TOKEN = "sk-ant-oat01-fake-ci-token"
+
+
+def run_launcher(**secrets: str) -> tuple[subprocess.CompletedProcess, list[str], dict[str, str]]:
+    """The launcher step's script, with a fake agent-kit that records its arguments and model variables."""
+    bash = shutil.which("bash")
+    assert bash, "bash is needed to run the launcher step"
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        record = root / "record.json"
+        fake = root / "agent-kit"
+        fake.write_text(
+            "#!/usr/bin/env bash\n"
+            'printf \'%s\\n\' "$@" > "$RECORD.args"\n'
+            "printf 'ANTHROPIC_API_KEY=%s\\nCLAUDE_CODE_OAUTH_TOKEN=%s\\n' "
+            '"${ANTHROPIC_API_KEY-<unset>}" "${CLAUDE_CODE_OAUTH_TOKEN-<unset>}" > "$RECORD.env"\n',
+            encoding="utf-8",
+            newline="\n",
+        )
+        fake.chmod(0o755)
+        script = root / "launch.sh"
+        script.write_text(step(LAUNCHER)["run"], encoding="utf-8", newline="\n")
+        out = root / "github_output"
+        env = {
+            **{k: v for k, v in os.environ.items() if k not in MODEL_SECRETS.values()},
+            "AGENT_KIT": fake.as_posix(),
+            "RECORD": record.as_posix(),
+            "DEFAULT_BRANCH": "main",
+            "MODEL": "claude-opus-5-5",
+            "SETUP_MINUTES": "20",
+            "SCAN_MINUTES": "60",
+            "MAX_TURNS": "200",
+            "MAX_TOKENS": "5000000",
+            "REPORT": (root / "out" / "report.md").as_posix(),
+            "GITHUB_OUTPUT": out.as_posix(),
+            # A secret the Caller does not pass renders as an empty value.
+            "ANTHROPIC_API_KEY": secrets.get("anthropic_api_key", ""),
+            "CLAUDE_CODE_OAUTH_TOKEN": secrets.get("claude_code_oauth_token", ""),
+        }
+        result = subprocess.run([bash, script.as_posix()], env=env, capture_output=True, text=True, check=False)
+        args_file = Path(f"{record}.args")
+        args = args_file.read_text(encoding="utf-8").splitlines() if args_file.exists() else []
+        env_file = Path(f"{record}.env")
+        seen = (
+            dict(line.split("=", 1) for line in env_file.read_text(encoding="utf-8").splitlines())
+            if env_file.exists()
+            else {}
+        )
+        return result, args, seen
+
+
+def test_the_launcher_selects_the_subscription_path_from_the_token() -> None:
+    result, args, seen = run_launcher(claude_code_oauth_token=FAKE_TOKEN)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert args[args.index("--credential") + 1] == "subscription"
+    assert seen == {"ANTHROPIC_API_KEY": "<unset>", "CLAUDE_CODE_OAUTH_TOKEN": FAKE_TOKEN}
+    assert "--credential-from" not in args
+    assert FAKE_TOKEN not in result.stdout + result.stderr
+
+
+def test_the_launcher_keeps_the_api_key_path_from_the_key() -> None:
+    result, args, seen = run_launcher(anthropic_api_key=FAKE_KEY)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert args[args.index("--credential") + 1] == "api-key"
+    assert seen == {"ANTHROPIC_API_KEY": FAKE_KEY, "CLAUDE_CODE_OAUTH_TOKEN": "<unset>"}
+
+
+def test_the_launcher_refuses_both_or_neither_without_running_deep_scan() -> None:
+    for secrets, title in (
+        ({"anthropic_api_key": FAKE_KEY, "claude_code_oauth_token": FAKE_TOKEN}, "Two model credentials"),
+        ({}, "No model credential"),
+    ):
+        result, args, _ = run_launcher(**secrets)
+        assert result.returncode == 1, secrets
+        assert f"::error title={title}::" in result.stdout
+        assert args == [], "deep-scan never ran"
+        assert FAKE_KEY not in result.stdout + result.stderr
+        assert FAKE_TOKEN not in result.stdout + result.stderr
 
 
 if __name__ == "__main__":

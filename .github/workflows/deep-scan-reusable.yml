@@ -8,7 +8,10 @@ name: deep-scan-reusable
 # workflow_dispatch, never on a pull request head.
 #
 # The model credential is its own Caller secret, in the launcher step's
-# environment alone, where the launcher keeps it in its proxy process. The job
+# environment alone, where the launcher keeps it in its proxy process: an
+# Anthropic API key (anthropic_api_key), or, opted into at the Caller's own
+# risk, a Claude subscription token (claude_code_oauth_token), never both.
+# The first step sees only whether each is set, never its value. The job
 # token and the advisory token never reach that step. The delivery scripts are
 # staged from the trusted commit before the scan and digest-checked before
 # they run, after the launcher has torn the sandbox down. Under the Public-log
@@ -52,8 +55,11 @@ on:
         default: 5000000
     secrets:
       anthropic_api_key:
-        description: "Anthropic API key for deep scans, from a dedicated Console workspace with its own spend limit. Only the launcher step sees it, and it never enters the sandbox."
-        required: true
+        description: "Anthropic API key for deep scans, from a dedicated Console workspace with its own spend limit. Set this or claude_code_oauth_token, not both. Only the launcher step sees it, and it never enters the sandbox."
+        required: false
+      claude_code_oauth_token:
+        description: "Subscription OAuth token from `claude setup-token`: the opt-in subscription path (deep-scan --credential subscription), at your own risk. It relies on undocumented Claude Code behaviour and may break with any release, has no refresh (rotate it by hand), leaves the terms question to you, and the max_tokens cap is its only spend lever. Set this or anthropic_api_key, not both. Only the launcher step sees it, and it never enters the sandbox."
+        required: false
       advisories_token:
         description: "Token with repository security advisories write. Used only by the staged delivery script, after teardown."
         required: true
@@ -94,6 +100,10 @@ jobs:
         # The values become launcher flags. Refuse anything but a plain value
         # before anything else runs. The values are never echoed back.
         env:
+          # Whether each model secret is set, as true or false: never its
+          # value, which only the launcher step holds.
+          HAS_API_KEY: ${{ secrets.anthropic_api_key != '' }}
+          HAS_OAUTH_TOKEN: ${{ secrets.claude_code_oauth_token != '' }}
           MODEL: ${{ inputs.model }}
           SETUP_MINUTES: ${{ inputs.setup_minutes }}
           SCAN_MINUTES: ${{ inputs.scan_minutes }}
@@ -106,6 +116,14 @@ jobs:
           # delivery need. Expressions have no arithmetic, so the timeout
           # cannot follow the inputs: the inputs are held under it instead.
           MAX_PHASE_MINUTES=150
+          if [ "$HAS_API_KEY" = true ] && [ "$HAS_OAUTH_TOKEN" = true ]; then
+            echo "::error title=Two model credentials::Set anthropic_api_key or claude_code_oauth_token, not both."
+            exit 1
+          fi
+          if [ "$HAS_API_KEY" != true ] && [ "$HAS_OAUTH_TOKEN" != true ]; then
+            echo "::error title=No model credential::Set the anthropic_api_key secret (the supported path) or, opted into at your own risk, claude_code_oauth_token."
+            exit 1
+          fi
           model_pattern='^[A-Za-z0-9][]A-Za-z0-9._:@/[-]*$'
           if ! [[ "$MODEL" =~ $model_pattern ]]; then
             echo "::error title=Invalid model input::The model input is not a plain model id (letters, digits and . _ : @ / [ ] -)."
@@ -308,8 +326,11 @@ jobs:
         env:
           # The model credential: this step alone. deep-scan keeps it in its
           # model proxy, removes it from every command it runs, and refuses
-          # to start if GH_TOKEN or GITHUB_TOKEN is set.
+          # to start if GH_TOKEN or GITHUB_TOKEN is set. One of the two is
+          # set (the first step checks); the token selects the subscription
+          # path.
           ANTHROPIC_API_KEY: ${{ secrets.anthropic_api_key }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.claude_code_oauth_token }}
           AGENT_KIT: ${{ steps.cli.outputs.bin }}
           DEFAULT_BRANCH: ${{ steps.gate.outputs.default_branch }}
           MODEL: ${{ inputs.model }}
@@ -324,8 +345,24 @@ jobs:
           # GITHUB_ACTIONS=true puts deep-scan in its public-log mode: it prints
           # nothing the scan shaped. It tears the sandbox down before it exits.
           (umask 077 && mkdir -p "$(dirname "$REPORT")")
+          # Exactly one model credential, as the first step checked; the other
+          # variable is unset, so deep-scan sees only the one it reads.
+          if [ -n "${ANTHROPIC_API_KEY:-}" ] && [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
+            echo "::error title=Two model credentials::Set anthropic_api_key or claude_code_oauth_token, not both."
+            exit 1
+          elif [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
+            unset ANTHROPIC_API_KEY
+            credential=subscription
+          elif [ -n "${ANTHROPIC_API_KEY:-}" ]; then
+            unset CLAUDE_CODE_OAUTH_TOKEN
+            credential=api-key
+          else
+            echo "::error title=No model credential::Set the anthropic_api_key secret or claude_code_oauth_token."
+            exit 1
+          fi
           set +e
           "$AGENT_KIT" deep-scan \
+            --credential "$credential" \
             --default-branch "$DEFAULT_BRANCH" \
             --model "$MODEL" \
             --setup-minutes "$SETUP_MINUTES" \
