@@ -9,10 +9,17 @@
 //   It is read with `sbx policy ls --json` (811-828) and never changed: the
 //   launcher never runs `sbx policy init` or `sbx policy reset`.
 // - The sandbox is mountless: `sbx create` with no PATH (81-82, 103-104), the
-//   recipe's image as its template (`-t`, 173), the `shell` agent (86).
-// - sbx has no build command, so Claude Code is installed inside the sandbox
-//   as the first setup step, with only registry.npmjs.org allowed, for that
-//   step alone. A `dockerfile` recipe is refused.
+//   `shell` agent (86), and a template (`-t`, 173) that is not the recipe's
+//   image as it is. sbx v0.54.0 writes /home/agent/AGENTS.md as a sandbox
+//   starts, and a plain image has no /home/agent, so `-t <plain image>` never
+//   starts (#375's diagnosis, run evidence d375-sbx-diag.txt). The human chose
+//   (#375, option 1): Docker on the host pulls the recipe's image and layers
+//   on it the Docker driver's pinned Claude Code and a /home/agent owned by
+//   uid 1000; `docker save` writes it to a private folder, `sbx template load`
+//   loads it, and `sbx create --pull never -t <it>` uses it. Teardown removes
+//   the template and the layered image. Only the pull and that fixed layer run
+//   on the host's Docker (Docker Desktop, the WSL 2 boundary a scan refuses),
+//   never a Consumer's own build steps, so a `dockerfile` recipe is refused.
 // - Setup egress: `sbx policy allow network --sandbox` for each registry
 //   (986-987), removed with `sbx policy rm network --sandbox --resource` for
 //   the cut (1148, 1179-1180); `sbx policy ls <sandbox> --json` (812, 822)
@@ -21,8 +28,9 @@
 //   tars are written to a private host folder and unpacked inside; the
 //   report is copied into a private host folder and checked there.
 // - The model route (#370): the key-injecting model proxy listens on the
-//   host's 127.0.0.1, and one per-sandbox rule allows only
-//   host.docker.internal:<its port>. No per-sandbox deny "**" is added: a
+//   host's 127.0.0.1, which the sandbox calls as host.docker.internal:<its
+//   port>, and one per-sandbox rule allows only that, which sbx's policy
+//   names localhost:<its port>. No per-sandbox deny "**" is added: a
 //   deny beats every allow (676), so it would block the proxy too, and the
 //   global deny-all already decides everything else.
 // - Teardown: `sbx rm --force` (449-457, 480).
@@ -32,9 +40,10 @@ import { lstatSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { firstLine } from "../exec.mjs";
-import { AUTO_UPDATER_OFF, INSTALL_SCRIPT, NPM_REGISTRY } from "./claude-code.mjs";
+import { AUTO_UPDATER_OFF, layerDockerfile } from "./claude-code.mjs";
+import { LABEL } from "./docker-driver.mjs";
 import { allowlistOf } from "./egress.mjs";
-import { ENDS_HERE, must, outputLines, StepFailed } from "./steps.mjs";
+import { ENDS_HERE, must, StepFailed } from "./steps.mjs";
 
 const UNINITIALIZED = /global network policy has not been initialized/i;
 
@@ -119,8 +128,15 @@ export function sbxResources(registries) {
  */
 export function sbxDriver({ id, call }) {
   const name = `agent-kit-deep-${id}`;
+  /** The layered image, and the sbx template loaded from it. */
+  const template = `${name}:sbx`;
   const sbx = (args, opts) => call("sbx", ["--no-input", ...args], opts);
+  const docker = (args, opts) => call("docker", args, opts);
   let created = false;
+  let imageBuilt = false; // asked for, so removed whether or not it finished
+  let templateLoaded = false;
+  /** The loaded template's image id: removing it removes every tag sbx gave it. */
+  let templateId = null;
   /** The per-sandbox allow rules in place, as their resource lists. */
   const allowed = [];
   let host = null; // a private host folder for the files sbx cp moves
@@ -160,17 +176,59 @@ export function sbxDriver({ id, call }) {
     async prepare(steps, { out }) {
       if (steps.dockerfile !== undefined) {
         throw new StepFailed([
-          `REFUSED  The recipe builds ${steps.dockerfile}, and Docker Sandboxes cannot build a Dockerfile.`,
+          `REFUSED  The recipe builds ${steps.dockerfile}, and on Docker Sandboxes its build steps would run on this machine's Docker (Docker Desktop's WSL 2 VM on Windows), outside the sandbox.`,
           "On Docker Sandboxes, name a base image with `image:` instead (one with Node.js and npm), or run on another accepted runtime.",
         ]);
       }
       const problem = globalPolicyProblem(await sbx(["policy", "ls", "--json"]));
       if (problem) throw new StepFailed(problem);
       out("Network policy: Docker Sandboxes' global policy is deny-all (checked read-only).");
-      out(`Image: ${steps.image}, as the sandbox's template; Claude Code is installed inside it.`);
+      out(
+        `Image: layering the pinned Claude Code on ${steps.image} with Docker on this machine, auto-updater off, as the sandbox's template.`,
+      );
+      const pulled = await docker(["pull", steps.image]);
+      if (pulled.status === null) {
+        throw new StepFailed([
+          "FAILED  Docker Sandboxes' template is built with Docker on this machine, and docker could not run: " +
+            (firstLine(pulled.stderr) || "not found"),
+          "Install Docker Desktop (it only builds the template here; the scan runs in the sbx microVM), then run deep-scan again.",
+          ENDS_HERE,
+        ]);
+      }
+      must(pulled, `pulling ${steps.image}`, { showOutput: true });
+      imageBuilt = true;
+      must(
+        await docker(["build", "--label", `${LABEL}=${id}`, "--tag", template, "-"], {
+          stdin: `${layerDockerfile(steps.image)}${HOME_LAYER}`,
+        }),
+        `layering Claude Code on ${steps.image}`,
+        { showOutput: true },
+      );
+      // A private host file, by a name relative to its folder, so a Windows
+      // drive letter is never read as anything else; gone once it is loaded.
+      const tar = "template.tar";
+      try {
+        must(
+          await docker(["save", "--output", tar, template], { cwd: hostDir() }),
+          "saving the layered image",
+        );
+        must(
+          await sbx(["template", "load", tar], { cwd: hostDir() }),
+          "loading the layered image into Docker Sandboxes",
+          { showOutput: true },
+        );
+        templateLoaded = true;
+        templateId = idOf(
+          await sbx(["template", "ls", "--json"]),
+          `docker.io/library/${template.split(":")[0]}`,
+          "sbx",
+        );
+      } finally {
+        rmSync(join(hostDir(), tar), { force: true });
+      }
     },
 
-    async start(steps) {
+    async start() {
       created = true;
       must(
         await sbx([
@@ -178,8 +236,10 @@ export function sbxDriver({ id, call }) {
           "--name",
           name,
           "--no-progress",
+          "--pull",
+          "never",
           "-t",
-          steps.image,
+          template,
           "-e",
           AUTO_UPDATER_OFF,
           "shell",
@@ -211,20 +271,8 @@ export function sbxDriver({ id, call }) {
       );
     },
 
-    async installAgent(out) {
-      out(`Setup: installing the pinned Claude Code, with only ${NPM_REGISTRY} reachable.`);
-      const resources = [`${NPM_REGISTRY}:443`];
-      await allow(resources, `allowing ${NPM_REGISTRY} for the Claude Code install`);
-      const r = await exec(INSTALL_SCRIPT, { user: "root", workdir: null });
-      if (r.status !== 0) {
-        throw new StepFailed([
-          `FAILED  installing Claude Code exited ${r.status ?? "abnormally"} (the image needs Node.js and npm).`,
-          ...outputLines(r),
-          ENDS_HERE,
-        ]);
-      }
-      await disallow(resources.join(","), `removing the ${NPM_REGISTRY} rule`);
-    },
+    /** Claude Code is in the template already: nothing to install. */
+    async installAgent() {},
 
     async openSetupEgress(registries) {
       const resources = sbxResources(registries);
@@ -276,7 +324,11 @@ export function sbxDriver({ id, call }) {
       return denied ? null : "sbx policy ls no longer shows the deny-all rule";
     },
 
-    /** Allow only host.docker.internal:<port>, the model proxy on the host. */
+    /**
+     * Allow only the model proxy on the host. The sandbox calls it as
+     * host.docker.internal:<port>, which sbx v0.54.0's policy checks as
+     * localhost:<port> (#375's diagnosis), so the rule names that.
+     */
     async openModelRoute(startProxy) {
       const bind = "127.0.0.1";
       try {
@@ -287,11 +339,11 @@ export function sbxDriver({ id, call }) {
           ENDS_HERE,
         ]);
       }
-      modelRoute = `host.docker.internal:${modelProxy.port}`;
+      modelRoute = `localhost:${modelProxy.port}`;
       await allow([modelRoute], "allowing the model proxy, and nothing else, for the scan");
       return {
-        url: `http://${modelRoute}`,
-        note: `a per-sandbox sbx policy allowing only ${modelRoute}`,
+        url: `http://host.docker.internal:${modelProxy.port}`,
+        note: `host.docker.internal:${modelProxy.port} from the sandbox, a per-sandbox sbx policy allowing only ${modelRoute}`,
       };
     },
 
@@ -318,24 +370,28 @@ export function sbxDriver({ id, call }) {
     },
 
     teardown() {
-      if (!created) return [];
       return [
-        ...allowed.map((list) => ({
-          what: `the sbx policy rule for ${list}`,
-          cmd: "sbx",
-          args: [
-            "--no-input",
-            "policy",
-            "rm",
-            "network",
-            "--sandbox",
-            name,
-            "--resource",
-            list,
-            "--force",
-          ],
-        })),
-        { what: `sandbox ${name}`, cmd: "sbx", args: ["--no-input", "rm", "--force", name] },
+        ...(created ? sandboxTeardown() : []),
+        ...(templateLoaded
+          ? [
+              {
+                what: `template ${template}`,
+                cmd: "sbx",
+                // By id when sbx listed it: a create gives the template a
+                // second, assembled tag, which removing the tag alone leaves.
+                args: ["--no-input", "template", "rm", "--force", templateId ?? template],
+              },
+            ]
+          : []),
+        ...(imageBuilt
+          ? [
+              {
+                what: `image ${template}`,
+                cmd: "docker",
+                args: ["image", "rm", "--force", template],
+              },
+            ]
+          : []),
       ];
     },
 
@@ -344,4 +400,52 @@ export function sbxDriver({ id, call }) {
       if (host) rmSync(host, { recursive: true, force: true });
     },
   };
+
+  function sandboxTeardown() {
+    return [
+      ...allowed.map((list) => ({
+        what: `the sbx policy rule for ${list}`,
+        cmd: "sbx",
+        args: [
+          "--no-input",
+          "policy",
+          "rm",
+          "network",
+          "--sandbox",
+          name,
+          "--resource",
+          list,
+          "--force",
+        ],
+      })),
+      { what: `sandbox ${name}`, cmd: "sbx", args: ["--no-input", "rm", "--force", name] },
+    ];
+  }
 }
+
+/**
+ * A template's image id (hex, no `sha256:`) from `sbx template ls --json`,
+ * or null when it is not listed or the list cannot be read.
+ * @param {import("../exec.mjs").StartResult} r
+ * @param {string} repository
+ * @param {string} tag
+ */
+function idOf(r, repository, tag) {
+  if (r.status !== 0) return null;
+  try {
+    const list = JSON.parse(r.stdout.toString("utf8"));
+    const entry = Array.isArray(list)
+      ? list.find((t) => t && t.repository === repository && t.tag === tag)
+      : undefined;
+    const id = typeof entry?.id === "string" ? entry.id.replace(/^sha256:/, "") : "";
+    return /^[0-9a-f]{64}$/.test(id) ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The layer that makes an image sbx-ready: sbx writes /home/agent/AGENTS.md
+ * as a sandbox starts, as the uid 1000 user it runs the `shell` agent as.
+ */
+const HOME_LAYER = "RUN mkdir -p /home/agent && chown 1000:1000 /home/agent\n";

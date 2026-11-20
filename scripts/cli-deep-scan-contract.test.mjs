@@ -244,6 +244,7 @@ function fakeChild(host, cmd, args, cwd) {
         : "no proxy";
       appendFileSync(join(host.dir, "probes.jsonl"), `${JSON.stringify([reply.probe, status])}\n`);
     }
+    if (reply.templates) reply.stdout = templateList(host);
     if (reply.model) await playAgent(host, args, reply.model);
     if (closed) return;
     if (reply.killedBy) {
@@ -274,6 +275,34 @@ function fakeChild(host, cmd, args, cwd) {
 }
 
 const ok = (stdout = "") => ({ "*": { status: 0, stdout } });
+
+/** The image id the fake sbx gives a loaded template. */
+const TEMPLATE_ID = `sha256:${"5a".repeat(32)}`;
+
+/**
+ * `sbx template ls --json` as sbx v0.54.0 prints it (run evidence
+ * d375-sbx-diag.txt): the template the run's `docker build` tagged, the
+ * assembled tag sbx gives it at create, under the same id, and an
+ * unrelated template.
+ */
+function templateList(host) {
+  const build = readFileSync(join(host.dir, "calls.jsonl"), "utf8")
+    .split("\n")
+    .filter(Boolean)
+    .map((l) => JSON.parse(l))
+    .find((c) => c[0] === "docker" && c[1] === "build");
+  const tag = build ? build[build.indexOf("--tag") + 1] : "none:none";
+  const [repo, version] = tag.split(":");
+  return JSON.stringify([
+    { id: `sha256:${"e1".repeat(32)}`, repository: "docker.io/library/node", tag: "22-bookworm" },
+    { id: TEMPLATE_ID, repository: `docker.io/library/${repo}`, tag: version },
+    {
+      id: TEMPLATE_ID,
+      repository: "docker.io/library/sandbox-kit-assembled",
+      tag: "178ae62b8934db4d",
+    },
+  ]);
+}
 
 /** The model credential a test's environment holds: fake, shaped like a real key. */
 const REAL_KEY = "sk-ant-api03-fake-real-key-for-tests-only-0123456789";
@@ -326,6 +355,7 @@ function sbxAnswers(extra = {}) {
     version: { status: 0, stdout: "sbx version v0.54.0 4bec4a5c\n" },
     "--no-input policy ls --json": { status: 0, stdout: SBX_DENY_ALL },
     "--no-input policy ls agent-kit-deep-": { status: 0, stdout: SBX_DENY_ALL },
+    "--no-input template ls --json": { status: 0, templates: true },
     "--no-input cp agent-kit-deep-": {
       status: 0,
       writes: [{ name: "report.md", text: REPORT_TEXT }],
@@ -2005,8 +2035,26 @@ function sbxCalls(res) {
     .map(([, ...args]) => args.filter((a) => typeof a === "string" && a !== "--no-input"));
 }
 
-/** A Windows host with only Docker Sandboxes; `extra` overrides its answers. */
-const sbxHost = (extra) => makeHost("win32", { sbx: sbxAnswers(extra) });
+/**
+ * A Windows host with Docker Sandboxes and the Docker CLI that builds its
+ * template; `extra` overrides sbx's answers, `dockerExtra` docker's.
+ */
+const sbxHost = (extra, dockerExtra = {}) =>
+  makeHost("win32", { sbx: sbxAnswers(extra), docker: { "*": { status: 0 }, ...dockerExtra } });
+
+/** The docker commands a run sent, as arg lists. */
+const dockerCalls = (res) =>
+  res.shims.filter(([cli]) => cli === "docker").map(([, ...args]) => args);
+
+/**
+ * `calls` without its last call, which must remove the sandbox's template
+ * (the layered image loaded into sbx), after the sandbox itself.
+ */
+function untemplated(calls) {
+  const last = calls.at(-1);
+  assert.deepEqual(last, ["template", "rm", "--force", TEMPLATE_ID.slice(7)], last.join(" "));
+  return calls.slice(0, -1);
+}
 
 const sbxVerb = (a) => (a[0] === "policy" ? a.slice(0, a[1] === "ls" ? 2 : 3).join(" ") : a[0]);
 
@@ -2031,21 +2079,20 @@ const sandboxName = (calls) => {
 };
 
 describe("Docker Sandboxes runs the same lifecycle, on a deny-all global policy", () => {
-  it("checks the policy, creates a mountless sandbox, installs Claude Code, sets up, cuts, runs the agent, copies out and removes it", async () => {
+  it("checks the policy, loads the layered template, creates a mountless sandbox, sets up, cuts, runs the agent, copies out and removes both", async () => {
     const res = await run(recipeRepo(VALID), [], { host: sbxHost() });
     assert.equal(res.code, 0, res.text);
     const calls = sbxCalls(res);
     assert.deepEqual(calls.map(sbxVerb), [
       "version",
       "policy ls",
+      "template",
+      "template",
       "create",
       "cp",
       "exec",
       "cp",
       "exec",
-      "policy allow network",
-      "exec",
-      "policy rm network",
       "policy allow network",
       "exec",
       "exec",
@@ -2061,17 +2108,24 @@ describe("Docker Sandboxes runs the same lifecycle, on a deny-all global policy"
       "cp",
       "policy rm network",
       "rm",
+      "template",
     ]);
+    assert.deepEqual(calls[2].slice(0, 2), ["template", "load"]);
+    assert.deepEqual(calls[3], ["template", "ls", "--json"]);
+    assert.deepEqual(calls.at(-1).slice(0, 2), ["template", "rm"]);
     assert.equal(readFileSync(join(res.reportDir, "report.md"), "utf8"), REPORT_TEXT);
-    assert.ok(isAgentStep(calls[21]), calls[21].join(" "));
+    assert.ok(isAgentStep(calls[20]), calls[20].join(" "));
     assert.match(res.out, /Network policy: Docker Sandboxes' global policy is deny-all/);
   });
 
-  it("creates the sandbox mountless, from the recipe's image, with the auto-updater off", async () => {
+  it("creates the sandbox mountless, from the template layered on the recipe's image, with the auto-updater off", async () => {
     const res = await run(recipeRepo(VALID), [], { host: sbxHost() });
     const create = sbxCalls(res).find((a) => a[0] === "create");
-    assert.match(sandboxName(sbxCalls(res)), /^agent-kit-deep-[0-9a-f]{12}$/);
-    assert.equal(create[create.indexOf("-t") + 1], "node:22-bookworm");
+    const name = sandboxName(sbxCalls(res));
+    assert.match(name, /^agent-kit-deep-[0-9a-f]{12}$/);
+    assert.equal(create[create.indexOf("-t") + 1], `${name}:sbx`);
+    // The template is the one just loaded: sbx never pulls it.
+    assert.equal(create[create.indexOf("--pull") + 1], "never");
     assert.equal(create[create.indexOf("-e") + 1], "DISABLE_AUTOUPDATER=1");
     assert.equal(create.at(-1), "shell", "the agent, and no workspace path after it");
     for (const flag of ["--mount", "-v", "--volume", "--env-file", "--clone", "--cloud"]) {
@@ -2079,29 +2133,95 @@ describe("Docker Sandboxes runs the same lifecycle, on a deny-all global policy"
     }
   });
 
-  it("installs the pinned Claude Code with only registry.npmjs.org allowed, for that step alone", async () => {
+  it("layers the pinned Claude Code and /home/agent on the recipe's image with Docker on the host, and loads it as the template", async () => {
     const res = await run(recipeRepo(VALID), [], { host: sbxHost() });
-    const calls = sbxCalls(res);
-    const name = sandboxName(calls);
-    const install = calls.findIndex(
-      (a) => a[0] === "exec" && /claude-code@\d+\.\d+\.\d+/.test(a.at(-1)),
+    assert.equal(res.code, 0, res.text);
+    const name = sandboxName(sbxCalls(res));
+    const tag = `${name}:sbx`;
+    const docker = dockerCalls(res);
+    const strings = (a) => a.filter((x) => typeof x === "string");
+    assert.deepEqual(
+      docker.map((a) => (a[0] === "image" ? a.slice(0, 2).join(" ") : a[0])),
+      ["pull", "build", "save", "image rm"],
     );
-    assert.ok(install > 0);
-    assert.deepEqual(calls[install - 1], [
-      "policy",
-      "allow",
-      "network",
-      "--sandbox",
-      name,
-      "registry.npmjs.org:443",
+    assert.deepEqual(docker[0], ["pull", "node:22-bookworm"]);
+    assert.deepEqual(strings(docker[1]), [
+      "build",
+      "--label",
+      `agent-kit.deep-scan=${name.slice("agent-kit-deep-".length)}`,
+      "--tag",
+      tag,
+      "-",
     ]);
-    assert.deepEqual(calls[install + 1].slice(-3), [
-      "--resource",
-      "registry.npmjs.org:443",
-      "--force",
-    ]);
-    assert.match(calls[install].at(-1), /managed-settings\.json/);
-    assert.deepEqual(calls[install].slice(1, 3), ["-u", "root"]);
+    // The layer: the Docker driver's, and the home sbx writes into at start.
+    const stdin = docker[1].find((x) => x && typeof x === "object" && x.stdin);
+    const dockerfile = readFileSync(join(res.host.dir, stdin.stdin), "utf8");
+    assert.match(dockerfile, /^FROM node:22-bookworm\n/);
+    assert.match(dockerfile, /npm install --global @anthropic-ai\/claude-code@\d+\.\d+\.\d+/);
+    assert.match(dockerfile, /managed-settings\.json/);
+    assert.match(dockerfile, /RUN mkdir -p \/home\/agent && chown 1000:1000 \/home\/agent/);
+    // Saved to a private host file, loaded by its name, then gone.
+    assert.deepEqual(docker[2].slice(0, 2), ["save", "--output"]);
+    assert.equal(docker[2][3], tag);
+    const load = sbxCalls(res).find((a) => a[0] === "template" && a[1] === "load");
+    assert.deepEqual(load, ["template", "load", docker[2][2]]);
+    assert.ok(!/[\\/]/.test(docker[2][2]), "relative to the private folder");
+    // Teardown: the sandbox, then its template by image id, which removes
+    // the assembled tag sbx gave it as well, then the layered image.
+    assert.deepEqual(sbxCalls(res).at(-1), ["template", "rm", "--force", TEMPLATE_ID.slice(7)]);
+    assert.deepEqual(docker.at(-1), ["image", "rm", "--force", tag]);
+    assert.match(
+      res.out,
+      /Image: layering the pinned Claude Code on node:22-bookworm with Docker on this machine/,
+    );
+  });
+
+  it("runs no install and opens no registry.npmjs.org rule in the sandbox", async () => {
+    const res = await run(recipeRepo(VALID), [], { host: sbxHost() });
+    assert.equal(res.code, 0, res.text);
+    const calls = sbxCalls(res);
+    assert.ok(!calls.some((a) => a[0] === "exec" && /claude-code@/.test(a.at(-1))));
+    assert.ok(!calls.some((a) => a.includes("registry.npmjs.org:443")));
+  });
+
+  it("ends before any sandbox when the layer build fails, removing the layered image and leaving no template", async () => {
+    const host = sbxHost(
+      {},
+      { build: { status: 1, stderr: "failed to resolve source metadata\n" } },
+    );
+    const res = await run(recipeRepo(VALID), [], { host });
+    assert.equal(res.code, 1, res.text);
+    assert.match(res.err, /FAILED {2}layering Claude Code on node:22-bookworm/);
+    assert.ok(!sbxCalls(res).some((a) => a[0] === "create" || a[0] === "template"));
+    assert.deepEqual(dockerCalls(res).at(-1).slice(0, 3), ["image", "rm", "--force"]);
+  });
+
+  it("refuses, before any sandbox, when Docker is not installed to build the template", async () => {
+    const host = makeHost("win32", { sbx: sbxAnswers() });
+    const res = await run(recipeRepo(VALID), [], { host });
+    assert.equal(res.code, 1, res.text);
+    assert.match(res.err, /Docker Sandboxes' template is built with Docker on this machine/);
+    assert.ok(!sbxCalls(res).some((a) => a[0] === "create" || a[0] === "template"));
+  });
+
+  it("removes the template by its tag when sbx does not list it, and still removes the image", async () => {
+    const host = sbxHost({ "--no-input template ls --json": { status: 0, stdout: "[]" } });
+    const res = await run(recipeRepo(VALID), [], { host });
+    assert.equal(res.code, 0, res.text);
+    const name = sandboxName(sbxCalls(res));
+    assert.deepEqual(sbxCalls(res).at(-1), ["template", "rm", "--force", `${name}:sbx`]);
+    assert.deepEqual(dockerCalls(res).at(-1), ["image", "rm", "--force", `${name}:sbx`]);
+  });
+
+  it("removes the layered image when the template load fails, and creates no sandbox", async () => {
+    const host = sbxHost({ "--no-input template load": { status: 1, stderr: "no space left\n" } });
+    const res = await run(recipeRepo(VALID), [], { host });
+    assert.equal(res.code, 1, res.text);
+    assert.match(res.err, /loading the layered image into Docker Sandboxes/);
+    const calls = sbxCalls(res);
+    assert.ok(!calls.some((a) => a[0] === "create"));
+    assert.ok(!calls.some((a) => a[0] === "template" && a[1] === "rm"), "no template was loaded");
+    assert.deepEqual(dockerCalls(res).at(-1).slice(0, 3), ["image", "rm", "--force"]);
   });
 
   it("allows only the registries for setup, per sandbox, and removes them before the agent step", async () => {
@@ -2153,7 +2273,7 @@ describe("Docker Sandboxes runs the same lifecycle, on a deny-all global policy"
     const tree = tarEntries(readFileSync(join(res.host.dir, cp.find((a) => a?.stdin).stdin)));
     const app = tree.find((e) => e.name === "workspace/src/app.js");
     assert.equal(app.data.toString("utf8"), "committed\n");
-    const unpack = sbxCalls(res)[4];
+    const unpack = sbxCalls(res)[6];
     assert.match(unpack.at(-1), /^tar -xf \/tmp\/agent-kit-in-0\.tar -C \/ && rm -f /);
   });
 
@@ -2163,7 +2283,7 @@ describe("Docker Sandboxes runs the same lifecycle, on a deny-all global policy"
     assert.equal(res.code, 1, res.text);
     assert.match(res.err, /FAILED {2}copying the repository in \(unpacking it\): tar: not found/);
     assert.ok(!sbxCalls(res).some(isAgentStep));
-    assert.equal(sbxCalls(res).at(-1)[0], "rm");
+    assert.equal(untemplated(sbxCalls(res)).at(-1)[0], "rm");
   });
 
   it("refuses an uninitialised global policy, says what to run, and starts nothing", async () => {
@@ -2210,12 +2330,13 @@ describe("Docker Sandboxes runs the same lifecycle, on a deny-all global policy"
     }
   });
 
-  it("refuses a dockerfile recipe, as sbx cannot build one, before touching anything", async () => {
+  it("refuses a dockerfile recipe, whose build would run on the host's Docker, before touching anything", async () => {
     const text = recipe({ drop: ["image"], add: "dockerfile: docker/scan.Dockerfile" });
     const res = await run(recipeRepo(text), [], { host: sbxHost() });
     assert.equal(res.code, 1, res.text);
-    assert.match(res.err, /Docker Sandboxes cannot build a Dockerfile/);
+    assert.match(res.err, /on Docker Sandboxes its build steps would run on this machine's Docker/);
     assert.deepEqual(sbxCalls(res).map(sbxVerb), ["version"]);
+    assert.deepEqual(dockerCalls(res), [], "nothing is pulled or built");
   });
 
   it("ends before the agent step when the sandbox's policy still allows a host", async () => {
@@ -2229,18 +2350,7 @@ describe("Docker Sandboxes runs the same lifecycle, on a deny-all global policy"
     assert.equal(res.code, 1, res.text);
     assert.match(res.err, /the network is not cut: sbx policy ls still allows evil\.example:443/);
     assert.ok(!sbxCalls(res).some(isAgentStep));
-    assert.equal(sbxCalls(res).at(-1)[0], "rm");
-  });
-
-  it("ends before the agent step when the Claude Code install fails, removing its rule and the sandbox", async () => {
-    const host = sbxHost({ "~claude-code@": { status: 127, stderr: "sh: npm: not found\n" } });
-    const res = await run(recipeRepo(VALID), [], { host });
-    assert.equal(res.code, 1, res.text);
-    assert.match(res.err, /installing Claude Code exited 127 \(the image needs Node\.js and npm\)/);
-    const calls = sbxCalls(res);
-    assert.ok(!calls.some(isAgentStep));
-    assert.deepEqual(calls.slice(-2).map(sbxVerb), ["policy rm network", "rm"]);
-    assert.deepEqual(calls.at(-2).slice(-3), ["--resource", "registry.npmjs.org:443", "--force"]);
+    assert.equal(untemplated(sbxCalls(res)).at(-1)[0], "rm");
   });
 
   it("removes the setup rule and the sandbox on an interrupt during setup", async () => {
@@ -2257,8 +2367,8 @@ describe("Docker Sandboxes runs the same lifecycle, on a deny-all global policy"
     });
     assert.equal(res.code, 130, res.text);
     const calls = sbxCalls(res);
-    assert.deepEqual(calls.slice(-2).map(sbxVerb), ["policy rm network", "rm"]);
-    assert.deepEqual(calls.at(-1).slice(0, 2), ["rm", "--force"]);
+    assert.deepEqual(untemplated(calls).slice(-2).map(sbxVerb), ["policy rm network", "rm"]);
+    assert.deepEqual(untemplated(calls).at(-1).slice(0, 2), ["rm", "--force"]);
   });
 
   const outs = [
@@ -2279,7 +2389,7 @@ describe("Docker Sandboxes runs the same lifecycle, on a deny-all global policy"
       assert.equal(res.code, 1, res.text);
       assert.match(res.err, why);
       assert.equal(readdirSync(res.reportDir).length, 0);
-      assert.equal(sbxCalls(res).at(-1)[0], "rm");
+      assert.equal(untemplated(sbxCalls(res)).at(-1)[0], "rm");
     });
   }
 
@@ -2924,7 +3034,7 @@ describe("the agent step runs the real Claude Code, with only a placeholder key 
 });
 
 describe("on Docker Sandboxes, the model route is one per-sandbox rule for the proxy on the host", () => {
-  it("allows only host.docker.internal:<the proxy's port> after the cut is checked, and removes it at teardown", async () => {
+  it("allows only localhost:<the proxy's port>, as sbx names host.docker.internal, after the cut is checked, and removes it at teardown", async () => {
     const res = await run(recipeRepo(VALID), [], { host: sbxHost() });
     assert.equal(res.code, 0, res.text);
     const calls = sbxCalls(res);
@@ -2940,22 +3050,26 @@ describe("on Docker Sandboxes, the model route is one per-sandbox rule for the p
       "cp",
       "policy rm network",
       "rm",
+      "template",
     ]);
     const allow = calls[check + 1];
     assert.equal(allow.length, 6);
     assert.deepEqual(allow.slice(0, 5), ["policy", "allow", "network", "--sandbox", name]);
-    const port = /^host\.docker\.internal:(\d+)$/.exec(allow[5])?.[1];
+    // sbx v0.54.0 checks a connection to host.docker.internal:<port> as
+    // localhost:<port> (run evidence d375-sbx-diag.txt, experiment 6), so the
+    // rule names that, and the agent still calls host.docker.internal.
+    const port = /^localhost:(\d+)$/.exec(allow[5])?.[1];
     assert.ok(port, allow[5]);
     const agent = agentCall(calls);
     assert.equal(settingsOf(agent).env.ANTHROPIC_BASE_URL, `http://host.docker.internal:${port}`);
     assert.ok(agent.includes(`ANTHROPIC_API_KEY=${PLACEHOLDER}`), agent.join(" "));
-    assert.deepEqual(calls.at(-2).slice(-3), ["--resource", allow[5], "--force"]);
+    assert.deepEqual(untemplated(calls).at(-2).slice(-3), ["--resource", allow[5], "--force"]);
     // Never a per-sandbox deny, which would beat the proxy's allow, and never
     // a change to the global policy.
     assert.ok(!calls.some((a) => a[0] === "policy" && ["deny", "init", "reset"].includes(a[1])));
     assert.match(
       res.out,
-      /Model route: only the model proxy on your machine \(a per-sandbox sbx policy allowing only host\.docker\.internal:\d+\)/,
+      /Model route: only the model proxy on your machine \(host\.docker\.internal:(\d+) from the sandbox, a per-sandbox sbx policy allowing only localhost:\1\)/,
     );
   });
 
@@ -3018,8 +3132,11 @@ describe("on Docker Sandboxes, the model route is one per-sandbox rule for the p
     });
     assert.equal(res.code, 130, res.text);
     const calls = sbxCalls(res);
-    assert.deepEqual(calls.slice(-2).map(sbxVerb), ["policy rm network", "rm"]);
-    assert.match(calls.at(-2).join(" "), /--resource host\.docker\.internal:\d+ --force$/);
+    assert.deepEqual(untemplated(calls).slice(-2).map(sbxVerb), ["policy rm network", "rm"]);
+    assert.match(
+      untemplated(calls).at(-2).join(" "),
+      /--resource localhost:\d+ --force$/,
+    );
   });
 });
 

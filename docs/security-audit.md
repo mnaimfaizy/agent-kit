@@ -168,7 +168,7 @@ The recipe never holds:
 **Refused**, always:
 
 - **Plain Docker on Linux** (Docker without one of the runtimes above registered), which shares your host's kernel with the target. The refusal says what to install: gVisor, Kata Containers or Firecracker as a Docker runtime, or Docker Sandboxes.
-- **Docker Desktop on Windows with the WSL 2 backend.** Its VM shares one Linux kernel and network namespace with your other WSL distros, so the target would share a kernel with them and could reach their network. Use Docker Sandboxes on Windows instead.
+- **Docker Desktop on Windows with the WSL 2 backend.** Its VM shares one Linux kernel and network namespace with your other WSL distros, so the target would share a kernel with them and could reach their network. Use Docker Sandboxes on Windows instead. (`deep-scan` still uses Docker Desktop there to build Docker Sandboxes' template from the recipe's image, never to run the target.)
 - **Anything else**: no runtime found, a Docker daemon that does not answer, Docker on macOS that is not Docker Desktop, Docker Desktop with the Hyper-V backend, Docker Desktop on Linux, and gVisor, Kata or Firecracker on a host that is not Linux.
 
 Every refusal names the accepted runtimes and the CI path, and exits 1. There is **no override**: no flag, setting or variable lets a refused runtime through. On a host without an accepted runtime, use the CI path: the deep-scan reusable workflow runs the scan in a gVisor container on an ephemeral GitHub-hosted runner (see [Deep scan in CI](#deep-scan-in-ci)).
@@ -209,11 +209,11 @@ Once a runtime is chosen, `agent-kit deep-scan` runs the sandbox on it: see [Wha
 Those steps are the ones on gVisor, Kata Containers and Firecracker registered as a Docker runtime on Linux, and on Docker Desktop on macOS. **On Docker Sandboxes** (`sbx`) the same lifecycle runs, with these differences:
 
 - **Your global sbx network policy must be deny-all.** `deep-scan` reads it with `sbx policy ls --json` before it starts anything, and refuses, with exit 1, when it is not initialised or not deny-all (any global network allow rule, as `balanced` and `allow-all` have). It never changes your global policy: run `sbx policy init deny-all` yourself. The reason: a per-sandbox rule can only add to the global policy, and a deny always wins over an allow, so on any other policy the setup phase could reach more than `registries`.
-- **No build.** The sandbox is created mountless (`sbx create` with no workspace path) from the recipe's `image`, and Claude Code is installed inside it as the first setup step, with only `registry.npmjs.org` reachable for that step. A `dockerfile` recipe is refused, because `sbx` cannot build one.
+- **The template is built with Docker on your machine.** `sbx` starts a sandbox only from an sbx-ready image: it writes `/home/agent/AGENTS.md` as a sandbox starts, and a plain image has no `/home/agent`. So `deep-scan` pulls the recipe's `image` with Docker and layers on it the pinned Claude Code, auto-updater off (the layer the other runtimes get), and a `/home/agent` owned by uid 1000. It saves that image to a private folder on your machine, loads it with `sbx template load`, and creates the sandbox mountless from it (`sbx create --pull never -t agent-kit-deep-<id>:sbx shell`, with no workspace path). Docker (Docker Desktop on Windows) is needed for that build alone: only the image pull and that fixed layer run on it, never the target or the agent, which run in the sbx microVM. A `dockerfile` recipe is refused, since its own build steps would run on Docker Desktop's WSL 2 VM, the boundary a scan refuses.
 - **Setup egress** is a per-sandbox `sbx policy allow network` rule for the registries, removed for the cut; `sbx policy ls <sandbox> --json`, read on your machine, then shows no network allow left.
-- **The model route** is one more per-sandbox rule, allowing only `host.docker.internal:<port>`, where the model proxy listens on your machine's `127.0.0.1`. `deep-scan` adds no per-sandbox deny rule (a deny would beat that allow), since your deny-all global policy already decides everything else, and checks again with `sbx policy ls` that no other allow is in place.
+- **The model route** is one more per-sandbox rule, for the model proxy alone, which listens on your machine's `127.0.0.1`. The sandbox calls it as `host.docker.internal:<port>`, and `sbx`'s policy checks that connection as `localhost:<port>`, so that is what the rule allows. `deep-scan` adds no per-sandbox deny rule (a deny would beat that allow), since your deny-all global policy already decides everything else, and checks again with `sbx policy ls` that no other allow is in place.
 - **Files** go in through a private folder on your machine (`sbx cp` takes a file, not a stream) and are unpacked inside; the report comes out into a private folder and must be one regular file.
-- **Teardown** removes any rule still in place and the sandbox (`sbx rm --force`).
+- **Teardown** removes any rule still in place, the sandbox (`sbx rm --force`), the template by its image id (`sbx template rm --force <id>`, which also removes the second tag `sbx` gives a template when a sandbox is created from it), and the layered image (`docker image rm --force`). The recipe's own base image stays in Docker's image cache.
 
 ## Credentials
 
@@ -293,7 +293,7 @@ Backstops beyond these limits:
 
 1. **Adopt the audit flow** on the default branch: the security-audit skill (with `DEEP.md`) and the [Threat pack](#threat-pack), as `agent-kit init` sets them up.
 2. **Commit a [Scan recipe](#scan-recipe)** on the default branch. Run `agent-kit doctor` to check it.
-3. **Install an accepted [sandbox runtime](#sandbox-runtimes).** On Windows, that is Docker Sandboxes, with its global network policy set to deny-all (`sbx policy init deny-all`).
+3. **Install an accepted [sandbox runtime](#sandbox-runtimes).** On Windows, that is Docker Sandboxes, with its global network policy set to deny-all (`sbx policy init deny-all`), and Docker Desktop, which builds its template.
 4. **Make the API key available** (see [Credentials](#credentials)), and unset `GH_TOKEN` and `GITHUB_TOKEN` for the run.
 5. **Run it** from your checkout:
 
