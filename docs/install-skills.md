@@ -23,7 +23,7 @@ Each skill declares where it works, in its `SKILL.md` frontmatter (`metadata.age
 | [`qa-plan`](../.claude/skills/qa-plan/SKILL.md)                                 | `user`            | Node 22 or later, `git`, and an open pull request; `gh` to read it and to deliver beyond the working copy.                                                                                 |
 | [`security-audit`](../.claude/skills/security-audit/SKILL.md)                   | `repo`            | A Threat pack (threat model and findings ledger) in the repository. Without one it stops before any work.                                                                                  |
 | [`security-finding-triage`](../.claude/skills/security-finding-triage/SKILL.md) | `user`            | Nothing.                                                                                                                                                                                   |
-| [`security-response`](../.claude/skills/security-response/SKILL.md)             | `user`            | `security-finding-triage`, installed with it: its `triage` mode runs that skill.                                                                                                           |
+| [`security-response`](../.claude/skills/security-response/SKILL.md)             | `user`            | `security-finding-triage`, installed with it: its `triage` mode runs that skill. `gh` with advisory access; a gitignored `tmp/security-response/` (it offers the line).                    |
 
 ## Install
 
