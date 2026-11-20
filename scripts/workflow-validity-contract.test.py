@@ -220,10 +220,7 @@ def test_callers_read_model_and_effort_from_repository_variables() -> None:
         assert re.fullmatch(
             rf"\$\{{\{{ vars\.CLAUDE_{stage}_MODEL \|\| vars\.CLAUDE_MODEL \|\| '[a-z0-9-]+' \}}\}}", model
         ), f"{path.name}:{job_name}: model must read vars.CLAUDE_{stage}_MODEL, then vars.CLAUDE_MODEL, then a literal"
-        # The deep scan takes no effort input; every other Stage does.
-        if "effort" not in (workflow_call(called).get("inputs") or {}):
-            assert "effort" not in inputs, f"{path.name}:{job_name}: {called.name} takes no effort input"
-            continue
+        assert "effort" in (workflow_call(called).get("inputs") or {}), f"{called.name} takes an effort input"
         effort = str(inputs.get("effort", ""))
         assert effort == f"${{{{ vars.CLAUDE_{stage}_EFFORT || vars.CLAUDE_EFFORT || '' }}}}", (
             f"{path.name}:{job_name}: effort must read vars.CLAUDE_{stage}_EFFORT, then vars.CLAUDE_EFFORT, then ''"

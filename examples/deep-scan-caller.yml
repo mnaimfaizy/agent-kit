@@ -18,6 +18,7 @@ jobs:
     with:
       kill_switch: ${{ vars.CLAUDE_DEEP_SCAN_ENABLED != 'true' }}
       model: ${{ vars.CLAUDE_DEEP_SCAN_MODEL || vars.CLAUDE_MODEL || 'claude-opus-5-5' }}
+      effort: ${{ vars.CLAUDE_DEEP_SCAN_EFFORT || vars.CLAUDE_EFFORT || '' }}
       # The launcher's defaults; setup_minutes + scan_minutes may be at most 150.
       setup_minutes: 20
       scan_minutes: 60

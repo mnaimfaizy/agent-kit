@@ -72,7 +72,7 @@ class Stage:
     name: str
     switch: list[tuple[str, bool]]  # (variable, True if it must be `true`, False if it must not be `false`)
     model: Fallback
-    effort: Fallback | None  # None: the Stage takes no effort input
+    effort: Fallback
 
 
 class Sources:
@@ -145,7 +145,7 @@ def _stage(settings: dict, where: str) -> Stage:
             )
         switch.append((match.group(1), match.group(2) == "!="))
     model = _fallback(settings, "model", where)
-    effort = _fallback(settings, "effort", where) if "effort" in settings else None
+    effort = _fallback(settings, "effort", where)
     token = OWN_MODEL.fullmatch(model.variables[0])
     if not token:
         raise SystemExit(f"{where}: model should read the Stage's own CLAUDE_<STAGE>_MODEL first")
@@ -196,9 +196,8 @@ def stage_kill_switches(sources: Sources) -> str:
 def stage_model_and_effort(sources: Sources) -> str:
     stages = sources.stages
     # Every Stage reads its own variable, then the same shared ones, then the same default.
-    # A Stage with no effort input (the deep scan) has no effort chain to agree with.
     for setting in ("model", "effort"):
-        chains = [getattr(stage, setting) for stage in stages if getattr(stage, setting) is not None]
+        chains = [getattr(stage, setting) for stage in stages]
         tails = {(chain.variables[1:], chain.default) for chain in chains}
         if len(tails) > 1:
             raise SystemExit(
@@ -212,15 +211,14 @@ def stage_model_and_effort(sources: Sources) -> str:
     def default(fallback: Fallback) -> str:
         return f"`{fallback.default}`" if fallback.default else "none"
 
-    def own(fallback: Fallback | None) -> str:
-        return f"`{fallback.variables[0]}`" if fallback else "—"
+    def own(fallback: Fallback) -> str:
+        return f"`{fallback.variables[0]}`"
 
     rows = [[stage.name, own(stage.model), own(stage.effort)] for stage in stages]
     if stages:
-        model = stages[0].model
-        effort = next((stage.effort for stage in stages if stage.effort), None)
-        rows.append(["any Stage above", shared(model), shared(effort) if effort else "—"])
-        rows.append(["neither set", default(model), default(effort) if effort else "—"])
+        model, effort = stages[0].model, stages[0].effort
+        rows.append(["any Stage above", shared(model), shared(effort)])
+        rows.append(["neither set", default(model), default(effort)])
     return _table(["Stage", "Model", "Effort"], rows)
 
 

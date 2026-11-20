@@ -33,6 +33,11 @@ on:
         required: false
         type: string
         default: "claude-opus-5-5"
+      effort:
+        description: "Claude Code effort level: `low`, `medium`, `high`, `xhigh` or `max`. Empty leaves `--effort` off, so the model's own default applies; anything else fails the run before the agent starts."
+        required: false
+        type: string
+        default: ""
       setup_minutes:
         description: "The setup wall clock in minutes: image to agent step (deep-scan --setup-minutes). With scan_minutes, at most 150 in all, under the job's 180-minute timeout."
         required: false
@@ -96,7 +101,7 @@ jobs:
     # the rest is for the installs and the delivery.
     timeout-minutes: 180
     steps:
-      - name: Check model and limit inputs
+      - name: Check model, effort and limit inputs
         # The values become launcher flags. Refuse anything but a plain value
         # before anything else runs. The values are never echoed back.
         env:
@@ -105,6 +110,7 @@ jobs:
           HAS_API_KEY: ${{ secrets.anthropic_api_key != '' }}
           HAS_OAUTH_TOKEN: ${{ secrets.claude_code_oauth_token != '' }}
           MODEL: ${{ inputs.model }}
+          EFFORT: ${{ inputs.effort }}
           SETUP_MINUTES: ${{ inputs.setup_minutes }}
           SCAN_MINUTES: ${{ inputs.scan_minutes }}
           MAX_TURNS: ${{ inputs.max_turns }}
@@ -129,6 +135,13 @@ jobs:
             echo "::error title=Invalid model input::The model input is not a plain model id (letters, digits and . _ : @ / [ ] -)."
             exit 1
           fi
+          case "$EFFORT" in
+            "" | low | medium | high | xhigh | max) ;;
+            *)
+              echo "::error title=Invalid effort input::The effort input must be empty or one of low, medium, high, xhigh, max."
+              exit 1
+              ;;
+          esac
           for name in SETUP_MINUTES SCAN_MINUTES; do
             value="${!name}"
             if ! [[ "$value" =~ ^[0-9]+(\.[0-9]+)?$ ]] || ! awk -v v="$value" 'BEGIN { exit !(v > 0) }'; then
@@ -334,6 +347,7 @@ jobs:
           AGENT_KIT: ${{ steps.cli.outputs.bin }}
           DEFAULT_BRANCH: ${{ steps.gate.outputs.default_branch }}
           MODEL: ${{ inputs.model }}
+          EFFORT: ${{ inputs.effort }}
           SETUP_MINUTES: ${{ inputs.setup_minutes }}
           SCAN_MINUTES: ${{ inputs.scan_minutes }}
           MAX_TURNS: ${{ inputs.max_turns }}
@@ -360,11 +374,17 @@ jobs:
             echo "::error title=No model credential::Set the anthropic_api_key secret or claude_code_oauth_token."
             exit 1
           fi
+          # An empty effort leaves --effort off, so Claude Code's default applies.
+          effort=()
+          if [ -n "$EFFORT" ]; then
+            effort=(--effort "$EFFORT")
+          fi
           set +e
           "$AGENT_KIT" deep-scan \
             --credential "$credential" \
             --default-branch "$DEFAULT_BRANCH" \
             --model "$MODEL" \
+            "${effort[@]}" \
             --setup-minutes "$SETUP_MINUTES" \
             --scan-minutes "$SCAN_MINUTES" \
             --max-turns "$MAX_TURNS" \

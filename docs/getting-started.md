@@ -195,7 +195,7 @@ Set a flow's switch to anything but `true` (or delete it) to stop it instantly w
 
 | Stage           | Model                          | Effort                          |
 | --------------- | ------------------------------ | ------------------------------- |
-| deep scan       | `CLAUDE_DEEP_SCAN_MODEL`       | —                               |
+| deep scan       | `CLAUDE_DEEP_SCAN_MODEL`       | `CLAUDE_DEEP_SCAN_EFFORT`       |
 | plan            | `CLAUDE_PLAN_MODEL`            | `CLAUDE_PLAN_EFFORT`            |
 | implement       | `CLAUDE_IMPLEMENT_MODEL`       | `CLAUDE_IMPLEMENT_EFFORT`       |
 | review          | `CLAUDE_REVIEW_MODEL`          | `CLAUDE_REVIEW_EFFORT`          |

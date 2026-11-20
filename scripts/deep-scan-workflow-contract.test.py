@@ -23,7 +23,7 @@ WORKFLOW = WORKFLOWS / "deep-scan-reusable.yml"
 STATIC = WORKFLOWS / "security-audit-reusable.yml"
 CALLER = ROOT / "examples" / "deep-scan-caller.yml"
 LAUNCHER = "Run the deep scan (agent-kit deep-scan)"
-CHECK = "Check model and limit inputs"
+CHECK = "Check model, effort and limit inputs"
 STAGE = "Stage trusted delivery scripts"
 # Uploads and caches outlive the job and are readable beyond Private delivery.
 UPLOADS = re.compile(r"actions/(upload-artifact|upload-pages-artifact|cache|attest)")
@@ -101,9 +101,17 @@ def test_runner_is_ephemeral_github_hosted_with_gvisor() -> None:
     assert index("Install gVisor (pinned, checksum-verified)") < index(LAUNCHER)
 
 
-def test_inputs_are_the_kill_switch_the_model_and_the_limits() -> None:
+def test_inputs_are_the_kill_switch_the_model_the_effort_and_the_limits() -> None:
     inputs = workflow()["on"]["workflow_call"]["inputs"]
-    assert set(inputs) == {"kill_switch", "model", "setup_minutes", "scan_minutes", "max_turns", "max_tokens"}
+    assert set(inputs) == {
+        "kill_switch",
+        "model",
+        "effort",
+        "setup_minutes",
+        "scan_minutes",
+        "max_turns",
+        "max_tokens",
+    }
     assert inputs["kill_switch"]["default"] is False
     assert inputs["model"]["default"] == "claude-opus-5-5"
     # The launcher's own defaults.
@@ -113,6 +121,27 @@ def test_inputs_are_the_kill_switch_the_model_and_the_limits() -> None:
         "max_turns": 200,
         "max_tokens": 5_000_000,
     }
+
+
+def static_inputs() -> dict:
+    data = yaml.safe_load(STATIC.read_text(encoding="utf-8"))
+    return data[True]["workflow_call"]["inputs"]
+
+
+def test_the_effort_input_is_the_static_workflows() -> None:
+    effort = workflow()["on"]["workflow_call"]["inputs"]["effort"]
+    static = static_inputs()["effort"]
+    assert effort == static, "the same description, type, default and requiredness as security-audit-reusable.yml"
+    assert effort["default"] == "", "empty leaves --effort off, so Claude Code's default applies"
+
+
+def test_the_effort_reaches_only_the_check_and_the_launcher() -> None:
+    for s in steps():
+        if s.get("name") in (CHECK, LAUNCHER):
+            assert s["env"]["EFFORT"] == "${{ inputs.effort }}", s["name"]
+        else:
+            assert "inputs.effort" not in text(s), s.get("name")
+    assert raw().count("inputs.effort") == 2
 
 
 MODEL_SECRETS = {"anthropic_api_key": "ANTHROPIC_API_KEY", "claude_code_oauth_token": "CLAUDE_CODE_OAUTH_TOKEN"}
@@ -286,6 +315,7 @@ def test_caller_example() -> None:
     for caveat in ("claude setup-token", "undocumented", "rotate it by", "terms question", "spend lever"):
         assert caveat in raw_caller, caveat
     assert only["with"]["kill_switch"] == "${{ vars.CLAUDE_DEEP_SCAN_ENABLED != 'true' }}"
+    assert only["with"]["effort"] == "${{ vars.CLAUDE_DEEP_SCAN_EFFORT || vars.CLAUDE_EFFORT || '' }}"
     assert caller["permissions"] == {"contents": "read"}
 
 
@@ -294,7 +324,13 @@ def test_caller_example() -> None:
 
 def run_check(**inputs: str) -> subprocess.CompletedProcess:
     env = {k.upper(): v for k, v in inputs.items()}
-    defaults = {"MODEL": "claude-opus-5-5", "SETUP_MINUTES": "20", "SCAN_MINUTES": "60", "MAX_TURNS": "200"}
+    defaults = {
+        "MODEL": "claude-opus-5-5",
+        "EFFORT": "",
+        "SETUP_MINUTES": "20",
+        "SCAN_MINUTES": "60",
+        "MAX_TURNS": "200",
+    }
     defaults["MAX_TOKENS"] = "5000000"
     # As GitHub renders `secrets.x != ''`: the API key set, the token not.
     defaults["HAS_API_KEY"] = "true"
@@ -318,6 +354,29 @@ def test_the_check_reads_its_inputs_through_env() -> None:
     assert index(CHECK) == 0
     assert "${{" not in check["run"]
     assert check["env"]["MODEL"] == "${{ inputs.model }}"
+
+
+def test_the_check_takes_the_static_workflows_effort_check() -> None:
+    check = step(CHECK)["run"]
+    static = yaml.safe_load(STATIC.read_text(encoding="utf-8"))["jobs"]["security_audit"]["steps"]
+    (static_check,) = [s for s in static if s.get("name") == "Check model and effort inputs"]
+    effort_case = static_check["run"][static_check["run"].index('case "$EFFORT" in') :]
+    effort_case = effort_case[: effort_case.index("esac") + len("esac")]
+    assert effort_case in check, "the same effort check as security-audit-reusable.yml"
+
+
+def test_the_check_accepts_each_effort_level_and_none() -> None:
+    for effort in ("", "low", "medium", "high", "xhigh", "max"):
+        result = run_check(effort=effort)
+        assert result.returncode == 0, (effort, result.stdout)
+
+
+def test_the_check_refuses_any_other_effort_without_echoing_it() -> None:
+    for effort in ("HIGH", "none", "high --dangerously-skip-permissions", "-x", "a\nb"):
+        result = run_check(effort=effort)
+        assert result.returncode == 1, effort
+        assert "::error title=Invalid effort input::" in result.stdout, effort
+    assert "--dangerously" not in run_check(effort="high --dangerously-skip-permissions").stdout
 
 
 def test_the_check_accepts_the_defaults_and_a_raised_scan() -> None:
@@ -355,7 +414,7 @@ FAKE_KEY = "sk-ant-api03-fake-ci-key"
 FAKE_TOKEN = "sk-ant-oat01-fake-ci-token"
 
 
-def run_launcher(**secrets: str) -> tuple[subprocess.CompletedProcess, list[str], dict[str, str]]:
+def run_launcher(effort: str = "", **secrets: str) -> tuple[subprocess.CompletedProcess, list[str], dict[str, str]]:
     """The launcher step's script, with a fake agent-kit that records its arguments and model variables."""
     bash = shutil.which("bash")
     assert bash, "bash is needed to run the launcher step"
@@ -381,6 +440,7 @@ def run_launcher(**secrets: str) -> tuple[subprocess.CompletedProcess, list[str]
             "RECORD": record.as_posix(),
             "DEFAULT_BRANCH": "main",
             "MODEL": "claude-opus-5-5",
+            "EFFORT": effort,
             "SETUP_MINUTES": "20",
             "SCAN_MINUTES": "60",
             "MAX_TURNS": "200",
@@ -417,6 +477,18 @@ def test_the_launcher_keeps_the_api_key_path_from_the_key() -> None:
     assert result.returncode == 0, result.stdout + result.stderr
     assert args[args.index("--credential") + 1] == "api-key"
     assert seen == {"ANTHROPIC_API_KEY": FAKE_KEY, "CLAUDE_CODE_OAUTH_TOKEN": "<unset>"}
+
+
+def test_the_launcher_passes_the_effort_as_a_flag_only_when_it_is_set() -> None:
+    for credential in ({"anthropic_api_key": FAKE_KEY}, {"claude_code_oauth_token": FAKE_TOKEN}):
+        result, args, _ = run_launcher(effort="xhigh", **credential)
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert args[args.index("--effort") + 1] == "xhigh"
+        assert args.count("--effort") == 1
+        result, args, _ = run_launcher(**credential)
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert "--effort" not in args, "empty leaves --effort off"
+        assert "" not in args, "and passes no empty argument in its place"
 
 
 def test_the_launcher_refuses_both_or_neither_without_running_deep_scan() -> None:
