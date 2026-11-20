@@ -203,14 +203,6 @@ function plainPath(value) {
  * }} opts
  */
 export function agentBrief({ branch, short, recipePath, recipeText, handIn, grounding, paths }) {
-  const fence = (text) => {
-    const longest = Math.max(2, ...[...text.matchAll(/`+/g)].map((m) => m[0].length));
-    const ticks = "`".repeat(longest + 1);
-    return [ticks, text.replace(/\n$/, ""), ticks];
-  };
-  const groundingLines = grounding.length
-    ? grounding.map((g) => `- ${g.source}: ${g.at}`)
-    : ["- (none: the Scan recipe lists no grounding)"];
   return [
     "# Deep scan brief, from the agent-kit deep-scan launcher",
     "",
@@ -219,10 +211,9 @@ export function agentBrief({ branch, short, recipePath, recipeText, handIn, grou
     "## Where things are",
     "",
     `- The repository: \`${paths.workspace}\`, an export of \`${branch}\` at ${short} (the trusted ref). Scan the whole repository.`,
-    `- The grounding, at \`${paths.grounding}\`, copied in or fetched on the host before you entered:`,
-    ...groundingLines.map((l) => `  ${l}`),
+    ...groundingLines(grounding, paths),
     `- The report: write it to \`${paths.report}\`, early, and update it as each finding lands. It is the only file that leaves the sandbox.`,
-    "- The launcher already ran the Scan recipe's `setup`, `start`, `ready` and `seed`: the services it starts are running. Do not run them again.",
+    SETUP_DONE,
     "",
     `## The deep procedure: ${SKILL_DIR}/DEEP.md`,
     "",
@@ -238,6 +229,35 @@ export function agentBrief({ branch, short, recipePath, recipeText, handIn, grou
     "",
     ...fence(handIn.skill["report-format.md"]),
     "",
+    ...threatPackAndRecipe({ handIn, recipePath, recipeText }),
+  ].join("\n");
+}
+
+/** A brief's line on the setup phase, which the launcher already ran. */
+export const SETUP_DONE =
+  "- The launcher already ran the Scan recipe's `setup`, `start`, `ready` and `seed`: the services it starts are running. Do not run them again.";
+
+/** Text in a Markdown code fence longer than any backtick run inside it, as lines. */
+export function fence(text) {
+  const longest = Math.max(2, ...[...text.matchAll(/`+/g)].map((m) => m[0].length));
+  const ticks = "`".repeat(longest + 1);
+  return [ticks, text.replace(/\n$/, ""), ticks];
+}
+
+/** A brief's grounding lines: where each source is in the sandbox. */
+export function groundingLines(grounding, paths) {
+  const lines = grounding.length
+    ? grounding.map((g) => `- ${g.source}: ${g.at}`)
+    : ["- (none: the Scan recipe lists no grounding)"];
+  return [
+    `- The grounding, at \`${paths.grounding}\`, copied in or fetched on the host before you entered:`,
+    ...lines.map((l) => `  ${l}`),
+  ];
+}
+
+/** A brief's closing sections: the Threat pack and the Scan recipe, as lines. */
+export function threatPackAndRecipe({ handIn, recipePath, recipeText }) {
+  return [
     `## The Threat pack${handIn.from ? ` (paths from ${handIn.from})` : ""}`,
     "",
     `### Threat model: ${handIn.threatModel.path}`,
@@ -254,7 +274,7 @@ export function agentBrief({ branch, short, recipePath, recipeText, handIn, grou
     "",
     ...fence(recipeText),
     "",
-  ].join("\n");
+  ];
 }
 
 /**

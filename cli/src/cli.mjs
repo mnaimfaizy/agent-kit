@@ -41,6 +41,8 @@ Commands:
              key-injecting model proxy on this machine (its only route
              out), copy-out of the report only, and teardown. Every run
              is bounded by wall clocks, a turn limit and a token cap.
+             With --verify <file> --ref <ref>, a local-only
+             Verification run: does a fix hold for known findings?
 
 Options for doctor:
   --ci            Check only Kit-owned paths and uses: pins (no gh needed).
@@ -90,6 +92,21 @@ Options for deep-scan:
                           that exists (default: report.md in a new private
                           folder under your temporary folder). The CI
                           workflow's delivery steps read it from there.
+  --verify <file>         A Verification run instead: re-attempt the
+                          Reproduction of the findings in <file> (each a
+                          ### section with Concept id, Location and
+                          Observation, as a deep report gives them) to
+                          check whether a fix holds. Confirm-only: no full
+                          walk, no exploration, no new findings. Local
+                          only (refused in CI), with no --report: the
+                          report goes to a new private folder, and nothing
+                          is filed or posted. Its defaults: scan 15 min,
+                          50 turns, the same token cap.
+  --ref <ref>             With --verify, and needed by it: the local
+                          branch, tag or commit to export and verify on,
+                          such as your fix branch. The recipe, the skill
+                          and the Threat pack still come from the default
+                          branch.
 In GitHub Actions (GITHUB_ACTIONS=true) deep-scan keeps the Public-log
 rule: it prints nothing the scan shaped (Claude Code's error output, the
 model proxy's refusals), since the Actions log is world-readable.
@@ -130,6 +147,8 @@ const COMMAND_OPTIONS = {
     "max-tokens",
     "model",
     "report",
+    "verify",
+    "ref",
   ],
 };
 
@@ -192,6 +211,7 @@ export async function main(argv, io) {
         "max-tokens": { type: "string" },
         model: { type: "string" },
         report: { type: "string" },
+        ref: { type: "string" },
         yes: { type: "boolean", short: "y" },
         force: { type: "boolean" },
         help: { type: "boolean", short: "h" },
@@ -267,6 +287,8 @@ export async function main(argv, io) {
       credentialFrom: values["credential-from"],
       model: values.model,
       reportPath: values.report,
+      verifyPath: values.verify,
+      ref: values.ref,
       limitFlags: {
         "setup-minutes": values["setup-minutes"],
         "scan-minutes": values["scan-minutes"],

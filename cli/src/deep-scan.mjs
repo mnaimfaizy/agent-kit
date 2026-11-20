@@ -10,7 +10,10 @@
 // refusal, with no override (ADR 0018). Then the sandbox lifecycle on that
 // runtime, from image to teardown (deep-scan/lifecycle.mjs), its agent step
 // the real Claude Code behind the key-injecting model proxy, every run
-// bounded by the limits its flags set (deep-scan/limits.mjs).
+// bounded by the limits its flags set (deep-scan/limits.mjs). With
+// `--verify <file> --ref <ref>`, the run is a Verification run instead
+// (deep-scan/verify.mjs): local only, confirm-only against the finding file,
+// on the ref the maintainer named, with its own limits.
 
 import { existsSync, lstatSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -27,10 +30,16 @@ import {
 } from "./deep-scan/recipe.mjs";
 import { readHandIn } from "./deep-scan/agent.mjs";
 import { credentialSource, readCredential, withoutCredentials } from "./deep-scan/credential.mjs";
-import { describeLimits, parseLimits } from "./deep-scan/limits.mjs";
+import { DEFAULT_LIMITS, describeLimits, parseLimits, VERIFY_LIMITS } from "./deep-scan/limits.mjs";
 import { runLifecycle } from "./deep-scan/lifecycle.mjs";
 import { envFilesAtRef, strayTokens } from "./deep-scan/preflight.mjs";
 import { RUNTIMES_DOCS_URL, selectRuntime } from "./deep-scan/runtime.mjs";
+import {
+  readFindingFile,
+  REF_NAME,
+  verificationProcedure,
+  VERIFY_DOCS_URL,
+} from "./deep-scan/verify.mjs";
 import { CLI_VERSION } from "./tags.mjs";
 
 const CREDENTIALS_DOCS_URL = `https://github.com/mnaimfaizy/agent-kit/blob/v${CLI_VERSION}/docs/security-audit.md#credentials`;
@@ -44,6 +53,8 @@ const CREDENTIALS_DOCS_URL = `https://github.com/mnaimfaizy/agent-kit/blob/v${CL
  *   credentialFrom?: string,
  *   model?: string,
  *   reportPath?: string,
+ *   verifyPath?: string,
+ *   ref?: string,
  *   limitFlags?: Record<string, string | undefined>,
  *   platform?: string,
  *   env?: Record<string, string | undefined>,
@@ -55,6 +66,8 @@ const CREDENTIALS_DOCS_URL = `https://github.com/mnaimfaizy/agent-kit/blob/v${CL
  *   out: (s: string) => void,
  *   err: (s: string) => void,
  * }} opts  `limitFlags` holds the limit flags' values, keyed by flag name.
+ *   `verifyPath` (a finding file) and `ref` go together, for a
+ *   Verification run.
  *   `platform`, `env`, `fetch`, `signals` and `timers` are the host's
  *   (`process.platform`, `process.env`, the global fetch, `process`, the
  *   real clock), and `reportDir` is a new private temporary folder, and
@@ -72,6 +85,8 @@ export async function runDeepScan({
   credentialFrom,
   model,
   reportPath,
+  verifyPath,
+  ref,
   limitFlags = {},
   platform = process.platform,
   env = process.env,
@@ -87,6 +102,39 @@ export async function runDeepScan({
     err([`REFUSED  ${lines[0]}`, ...lines.slice(1), `See ${docs}`].join("\n"));
     return 1;
   };
+
+  // A Verification run: local only. Refused in CI before anything is read,
+  // naming no path, since a finding file names a concept id under response.
+  const verifying = verifyPath !== undefined;
+  if (verifying && env.GITHUB_ACTIONS === "true") {
+    return refuse(
+      [
+        "--verify has no CI form: a Verification run's finding file names a concept id that is private until release, and a CI log could show it.",
+        "Run it on your own machine, with an accepted sandbox runtime.",
+      ],
+      VERIFY_DOCS_URL,
+    );
+  }
+  if (ref !== undefined && !verifying) {
+    err("--ref names the ref a Verification run exports: pass --verify <file> with it.");
+    return 2;
+  }
+  if (verifying && ref === undefined) {
+    err(
+      "--verify needs --ref <ref>: the local branch, tag or commit to verify the fix on, such as your fix branch.",
+    );
+    return 2;
+  }
+  if (verifying && reportPath !== undefined) {
+    err(
+      "--report is not taken with --verify: a Verification run's report goes only to a new private folder on this machine.",
+    );
+    return 2;
+  }
+  if (verifying && !REF_NAME.test(ref)) {
+    err(`--ref must be a ref name or commit id, got: ${JSON.stringify(ref)}`);
+    return 2;
+  }
 
   const path = recipePath ?? DEFAULT_RECIPE_PATH;
   try {
@@ -120,7 +168,7 @@ export async function runDeepScan({
     }
   }
 
-  const bounds = parseLimits(limitFlags);
+  const bounds = parseLimits(limitFlags, verifying ? VERIFY_LIMITS : DEFAULT_LIMITS);
   if ("error" in bounds) {
     err(bounds.error);
     return 2;
@@ -131,6 +179,15 @@ export async function runDeepScan({
   if ("error" in source) {
     err(source.error);
     return 2;
+  }
+
+  // The finding file, read and checked on the host before anything runs.
+  let given = null;
+  if (verifying) {
+    const file = resolve(cwd, verifyPath);
+    const read = readFindingFile(file);
+    if ("refused" in read) return refuse(read.refused, VERIFY_DOCS_URL);
+    given = { ...read, file };
   }
   // No command this launcher runs inherits a model credential: the key
   // lives only in this process, for the model proxy.
@@ -217,6 +274,31 @@ export async function runDeepScan({
   out(`Scan recipe ${at} is valid.`);
   if (drift) out(drift);
 
+  // What is copied in as the repository: the default branch's tip, or the
+  // ref a Verification run names. The recipe, the skill and the Threat pack
+  // still come from the default branch.
+  let target = { name: branch, commit };
+  if (given) {
+    const found = runner("git", [
+      "-C",
+      root,
+      "rev-parse",
+      "--verify",
+      "--quiet",
+      `${ref}^{commit}`,
+    ]);
+    if (found.status !== 0) {
+      return refuse(
+        [
+          `No local ref ${ref} to verify the fix on: name a local branch, tag or commit.`,
+          "deep-scan exports a committed ref, never the working tree: commit the fix on a branch (or fetch the advisory's private-fork branch you reviewed into one), then run it again.",
+        ],
+        VERIFY_DOCS_URL,
+      );
+    }
+    target = { name: ref, commit: found.stdout.trim() };
+  }
+
   // Pre-flight, before any runtime CLI runs.
   const tokens = strayTokens(env);
   if (tokens.length) {
@@ -230,16 +312,20 @@ export async function runDeepScan({
       RUNTIMES_DOCS_URL,
     );
   }
-  const envFiles = envFilesAtRef({ runner, root, ref: commit });
+  // On what is copied in: a Verification run's ref, when there is one.
+  const envFiles = envFilesAtRef({ runner, root, ref: target.commit });
   if ("error" in envFiles) {
-    return refuse([`Could not list the files on ${branch}: ${envFiles.error}`], RUNTIMES_DOCS_URL);
+    return refuse(
+      [`Could not list the files on ${target.name}: ${envFiles.error}`],
+      RUNTIMES_DOCS_URL,
+    );
   }
   if (envFiles.files.length) {
     return refuse(
       [
-        `${branch} (${commit.slice(0, 12)}) has environment files that the copy-in would carry into the sandbox, forwarded wholesale:`,
+        `${target.name} (${target.commit.slice(0, 12)}) has environment files that the copy-in would carry into the sandbox, forwarded wholesale:`,
         ...envFiles.files.map((f) => `  - ${f}`),
-        `Remove them from ${branch} (keep a .env.example with placeholder values instead), and rotate any real secret they held.`,
+        `Remove them from ${target.name} (keep a .env.example with placeholder values instead), and rotate any real secret they held.`,
       ],
       RUNTIMES_DOCS_URL,
     );
@@ -249,9 +335,33 @@ export async function runDeepScan({
   const handed = readHandIn({ runner, root, ref: commit, branch });
   if ("refused" in handed) return refuse(handed.refused);
   const { handIn } = handed;
+  let verification;
+  if (given) {
+    const cut = verificationProcedure(handIn.skill["DEEP.md"]);
+    const variant = /^## Verification-run variant[ \t]*$/m.test(handIn.skill["report-format.md"]);
+    const missing = [
+      ...("missing" in cut ? cut.missing.map((m) => `DEEP.md on ${branch} has no ${m}`) : []),
+      ...(variant ? [] : [`report-format.md on ${branch} has no Verification-run variant`]),
+    ];
+    if (missing.length) {
+      return refuse(
+        [
+          `The security-audit skill is out of date for a Verification run: its ${missing.join(", and its ")}.`,
+          `Bring the skill up to date on ${branch} (npx @mnaimfaizy/agent-kit upgrade, then commit), then run deep-scan --verify again.`,
+        ],
+        VERIFY_DOCS_URL,
+      );
+    }
+    verification = { findings: given.findings, data: given.data, procedure: cut.procedure };
+  }
   out(
-    `Threat pack: ${handIn.threatModel.path} and ${handIn.findingsLedger.path} (${handIn.from ? `from ${handIn.from}` : "the default paths"}); the deep procedure: the security-audit skill's DEEP.md, on the same branch.`,
+    `Threat pack: ${handIn.threatModel.path} and ${handIn.findingsLedger.path} (${handIn.from ? `from ${handIn.from}` : "the default paths"}); ${verification ? "the Verification-run procedure, from" : "the deep procedure:"} the security-audit skill's DEEP.md, on the same branch.`,
   );
+  if (given) {
+    out(
+      `Verification run: ${given.findings.length} finding(s) from ${given.file}, on ${target.name} (${target.commit.slice(0, 12)}); confirm-only, with no full walk and no exploration.`,
+    );
+  }
 
   // The model credential: read once, and kept only in this process.
   const key = readCredential({ source, env, runner });
@@ -284,6 +394,7 @@ export async function runDeepScan({
     signals,
     ...(reportDir !== undefined ? { reportDir } : {}),
     ...(reportFile !== undefined ? { reportFile } : {}),
+    ...(verification ? { target, verification } : {}),
     // The Actions log is world-readable: in GitHub Actions nothing the scan
     // shaped is printed (the Public-log rule). No CI caller can forget it.
     publicLog: env.GITHUB_ACTIONS === "true",
