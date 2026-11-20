@@ -2153,13 +2153,25 @@ describe("Docker Sandboxes runs the same lifecycle, on a deny-all global policy"
       tag,
       "-",
     ]);
-    // The layer: the Docker driver's, and the home sbx writes into at start.
+    // The layer: the Docker driver's, then what Docker's docs require of a
+    // Sandboxes template image (run evidence sbx-docs-custom-images.txt).
     const stdin = docker[1].find((x) => x && typeof x === "object" && x.stdin);
     const dockerfile = readFileSync(join(res.host.dir, stdin.stdin), "utf8");
     assert.match(dockerfile, /^FROM node:22-bookworm\n/);
     assert.match(dockerfile, /npm install --global @anthropic-ai\/claude-code@\d+\.\d+\.\d+/);
     assert.match(dockerfile, /managed-settings\.json/);
-    assert.match(dockerfile, /RUN mkdir -p \/home\/agent && chown 1000:1000 \/home\/agent/);
+    // Tools are checked, never installed: the build reaches no package mirror.
+    for (const tool of ["curl", "git", "bash", "sh"]) {
+      assert.match(dockerfile, new RegExp(`for tool in [^;]*\\b${tool}\\b`), tool);
+    }
+    assert.match(dockerfile, /ca-certificates\.crt/);
+    assert.ok(!/apt-get|apk add|dnf |yum /.test(dockerfile), "nothing is installed");
+    // A non-root agent at uid 1000 with home /home/agent: an existing uid
+    // 1000 user (node, in node images) is renamed, not doubled.
+    assert.match(dockerfile, /usermod -l agent -d \/home\/agent -m "\$existing"/);
+    assert.match(dockerfile, /useradd -u 1000 -g 1000 -m -d \/home\/agent -s \/bin\/bash agent/);
+    assert.match(dockerfile, /\nUSER agent\n$/, "the image's last word is USER agent");
+    assert.ok(dockerfile.indexOf("USER agent") > dockerfile.indexOf("claude-code@"));
     // Saved to a private host file, loaded by its name, then gone.
     assert.deepEqual(docker[2].slice(0, 2), ["save", "--output"]);
     assert.equal(docker[2][3], tag);

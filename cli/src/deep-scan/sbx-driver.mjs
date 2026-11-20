@@ -14,8 +14,10 @@
 //   starts, and a plain image has no /home/agent, so `-t <plain image>` never
 //   starts (#375's diagnosis, run evidence d375-sbx-diag.txt). The human chose
 //   (#375, option 1): Docker on the host pulls the recipe's image and layers
-//   on it the Docker driver's pinned Claude Code and a /home/agent owned by
-//   uid 1000; `docker save` writes it to a private folder, `sbx template load`
+//   on it the Docker driver's pinned Claude Code and what Docker's docs
+//   require of a template image (TEMPLATE_LAYER: a non-root `agent`, uid
+//   1000, home /home/agent, as its USER; curl, git, CA certificates and
+//   bash, checked); `docker save` writes it to a private folder, `sbx template load`
 //   loads it, and `sbx create --pull never -t <it>` uses it. Teardown removes
 //   the template and the layered image. Only the pull and that fixed layer run
 //   on the host's Docker (Docker Desktop, the WSL 2 boundary a scan refuses),
@@ -199,7 +201,7 @@ export function sbxDriver({ id, call }) {
       imageBuilt = true;
       must(
         await docker(["build", "--label", `${LABEL}=${id}`, "--tag", template, "-"], {
-          stdin: `${layerDockerfile(steps.image)}${HOME_LAYER}`,
+          stdin: `${layerDockerfile(steps.image)}${TEMPLATE_LAYER}`,
         }),
         `layering Claude Code on ${steps.image}`,
         { showOutput: true },
@@ -445,7 +447,41 @@ function idOf(r, repository, tag) {
 }
 
 /**
- * The layer that makes an image sbx-ready: sbx writes /home/agent/AGENTS.md
- * as a sandbox starts, as the uid 1000 user it runs the `shell` agent as.
+ * The layer that makes an image a Docker Sandboxes template, as Docker's
+ * docs require of one (docs.docker.com/ai/sandboxes/customize/author/
+ * base-images/): curl, git, CA certificates, /bin/sh and /bin/bash, and a
+ * non-root `agent` account, uid 1000 with home /home/agent, set as the
+ * image's USER. sbx writes /home/agent/AGENTS.md as a sandbox starts, so
+ * without that home no sandbox starts at all.
+ *
+ * The tools are checked, never installed: an install would reach the base
+ * image's package mirror from the host, which no recipe field names. An
+ * existing uid 1000 account (`node`, in the Node.js images) is renamed to
+ * `agent`, its home moved, rather than given a second name for one uid.
+ * It runs as root, after the Claude Code layer, and ends on USER agent.
  */
-const HOME_LAYER = "RUN mkdir -p /home/agent && chown 1000:1000 /home/agent\n";
+const TEMPLATE_LAYER = [
+  "USER root",
+  "RUN set -eu; \\",
+  "  missing=''; \\",
+  '  for tool in curl git bash sh; do command -v "$tool" >/dev/null 2>&1 || missing="$missing $tool"; done; \\',
+  '  [ -s /etc/ssl/certs/ca-certificates.crt ] || [ -s /etc/pki/tls/certs/ca-bundle.crt ] || missing="$missing ca-certificates"; \\',
+  '  if [ -n "$missing" ]; then \\',
+  '    echo "agent-kit deep-scan: the recipe\'s image lacks$missing, which a Docker Sandboxes template needs (curl, git, CA certificates, sh and bash). Name an image that has them." >&2; exit 1; \\',
+  "  fi; \\",
+  "  command -v useradd >/dev/null 2>&1 && command -v usermod >/dev/null 2>&1 || { \\",
+  '    echo "agent-kit deep-scan: the recipe\'s image has no useradd and usermod, to make the agent account a Docker Sandboxes template needs." >&2; exit 1; }; \\',
+  '  existing="$(getent passwd 1000 | cut -d: -f1)"; \\',
+  '  if [ "$existing" = agent ]; then :; \\',
+  '  elif [ -n "$existing" ]; then \\',
+  '    usermod -l agent -d /home/agent -m "$existing"; \\',
+  '    group="$(getent group 1000 | cut -d: -f1)"; \\',
+  '    if [ -n "$group" ] && [ "$group" != agent ]; then groupmod -n agent "$group"; fi; \\',
+  "  else \\",
+  "    getent group 1000 >/dev/null || groupadd -g 1000 agent; \\",
+  "    useradd -u 1000 -g 1000 -m -d /home/agent -s /bin/bash agent; \\",
+  "  fi; \\",
+  "  mkdir -p /home/agent; chown 1000:1000 /home/agent",
+  "USER agent",
+  "",
+].join("\n");
