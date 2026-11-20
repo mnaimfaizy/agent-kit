@@ -344,13 +344,21 @@ export function agentEnv(kind = "api-key") {
  * print mode, its brief on stdin, its own output kept in the sandbox (its
  * error output is passed on too), and TURNS_MARKER when it stopped at the
  * launcher's turn limit.
- * @param {{ baseUrl: string, report: string, workspace: string, maxTurns: number, model?: string, kind?: "api-key" | "subscription" }} opts
- *   `model` is a plain model id, checked by the launcher; without it Claude
- *   Code runs on its own default. `kind` is the credential's: on the
+ * @param {{ baseUrl: string, report: string, workspace: string, maxTurns: number, model?: string, effort?: string, kind?: "api-key" | "subscription" }} opts
+ *   `model` is a plain model id and `effort` an effort level, both checked
+ *   by the launcher; without either, Claude Code runs on its own default. `kind` is the credential's: on the
  *   subscription path there is no `--bare`, which would never read the
  *   token, and no MCP server but the launcher's (none).
  */
-export function agentScript({ baseUrl, report, workspace, maxTurns, model, kind = "api-key" }) {
+export function agentScript({
+  baseUrl,
+  report,
+  workspace,
+  maxTurns,
+  model,
+  effort,
+  kind = "api-key",
+}) {
   const args = [
     "claude",
     ...(kind === SUBSCRIPTION ? [] : ["--bare"]),
@@ -374,6 +382,7 @@ export function agentScript({ baseUrl, report, workspace, maxTurns, model, kind 
     "--max-turns",
     String(maxTurns),
     ...(model !== undefined ? ["--model", model] : []),
+    ...(effort !== undefined ? ["--effort", effort] : []),
   ];
   const outDir = report.slice(0, report.lastIndexOf("/"));
   const logs = "/agent-kit/logs";

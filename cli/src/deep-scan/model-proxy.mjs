@@ -14,6 +14,8 @@
 // It also holds the run's token cap (#371): it counts the `usage` each
 // model API answer returns, and once the count reaches the cap it refuses
 // every further request and tells the launcher, which stops the agent step.
+// From the same answers it reads the `model` each one names, so the launcher
+// can say which model the API answered with, not only which was asked for.
 
 import { createServer, request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
@@ -43,7 +45,14 @@ export const COUNTED_USAGE = Object.freeze([
 const MAX_LINE = 1024 * 1024;
 const MAX_BODY = 16 * 1024 * 1024;
 
-/** How many distinct refused hosts or paths the summary keeps, and how long each. */
+/**
+ * A model id as Claude Code's --model takes it, and nothing more: the
+ * launcher's check of --model, and the only form of an answer's `model` the
+ * summary names.
+ */
+export const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:@/[\]-]*$/;
+
+/** How many distinct refused hosts, paths or answered models the summary keeps, and how long each. */
 const MAX_KEPT = 5;
 const MAX_ENTRY = 80;
 
@@ -74,7 +83,9 @@ const DROPPED = new Set([
  * @param {{ credential: string, kind?: "api-key" | "subscription", bind: string, upstream?: string, maxTokens?: number, onCap?: () => void }} opts
  *   `kind` is the credential's (default an API key). `upstream` is the
  *   model API; only tests pass another.
- * @returns {Promise<{ port: number, refused: string[], tokens: () => number, summary: () => string, close: () => Promise<void> }>}
+ * @returns {Promise<{ port: number, refused: string[], tokens: () => number, models: () => string[], summary: () => string, close: () => Promise<void> }>}
+ *   `models` is each distinct model id the answers named, in the order first
+ *   seen, at most MAX_KEPT of them, and only plain ids of MAX_ENTRY or fewer.
  */
 export async function startModelProxy({
   credential,
@@ -105,6 +116,16 @@ export async function startModelProxy({
   const statuses = new Map();
   let forwarded = 0;
   let tokens = 0;
+  /** @type {string[]} */
+  const models = [];
+  let moreModels = false;
+  // What an answer names is kept only as a plain, short id.
+  const answeredBy = (model) => {
+    if (typeof model !== "string" || model.length > MAX_ENTRY || !MODEL_ID.test(model)) return;
+    if (models.includes(model)) return;
+    if (models.length < MAX_KEPT) models.push(model);
+    else moreModels = true;
+  };
   let pastCap = 0;
   const sockets = new Set();
   const count = (key) => statuses.set(key, (statuses.get(key) ?? 0) + 1);
@@ -172,9 +193,13 @@ export async function startModelProxy({
           if (!DROPPED.has(name.toLowerCase()) && value !== undefined) back[name] = value;
         }
         res.writeHead(r.statusCode ?? 502, back);
-        meter(r, (n) => {
-          tokens += n;
-        });
+        meter(
+          r,
+          (n) => {
+            tokens += n;
+          },
+          answeredBy,
+        );
         r.pipe(res);
       },
     );
@@ -209,11 +234,19 @@ export async function startModelProxy({
     port: typeof address === "object" && address ? address.port : 0,
     refused,
     tokens: () => tokens,
+    models: () => [...models],
     summary() {
       const byStatus = [...statuses].map(([s, n]) => `${s} x${n}`).join(", ");
       const parts = [
         `forwarded ${forwarded} request(s) to ${target.host}${byStatus ? ` (answers: ${byStatus})` : ""}`,
       ];
+      if (forwarded) {
+        parts.push(
+          models.length
+            ? `the model API answered with ${models.join(", ")}${moreModels ? ", ..." : ""}`
+            : "no answer named a model",
+        );
+      }
       if (refusedCount) {
         const more = refusedCount > refused.length ? ", ..." : "";
         parts.push(`refused ${refusedCount} (${refused.join(", ")}${more})`);
@@ -239,12 +272,17 @@ export async function startModelProxy({
  * `message_start` and `message_delta` events. A stream's usage is
  * cumulative, so each kind counts its highest value once. A compressed body
  * (sent although the proxy asked for none) is decoded for counting only.
+ * The `model` the answer names (a JSON body's, or a stream's
+ * `message_start`'s) goes to `named`, unchecked.
  * @param {import("node:http").IncomingMessage} r
  * @param {(n: number) => void} add  called with each newly counted amount
+ * @param {(model: unknown) => void} named  called with each `model` an answer names
  */
-function meter(r, add) {
+function meter(r, add, named) {
   const seen = Object.fromEntries(COUNTED_USAGE.map((k) => [k, 0]));
   const take = (obj) => {
+    const model = obj?.model ?? obj?.message?.model;
+    if (model !== undefined) named(model);
     const usage = obj?.usage ?? obj?.message?.usage;
     if (!usage || typeof usage !== "object") return;
     for (const key of COUNTED_USAGE) {
@@ -299,7 +337,7 @@ function meter(r, add) {
     pending = lines.pop() ?? "";
     if (pending.length > MAX_LINE) pending = "";
     for (const line of lines) {
-      if (line.startsWith("data:") && line.includes('"usage"')) parse(line.slice(5).trim());
+      if (line.startsWith("data:") && /"(usage|model)"/.test(line)) parse(line.slice(5).trim());
     }
   });
   body.on("end", () => {

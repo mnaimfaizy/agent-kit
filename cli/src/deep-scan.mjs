@@ -38,6 +38,7 @@ import {
 } from "./deep-scan/credential.mjs";
 import { DEFAULT_LIMITS, describeLimits, parseLimits, VERIFY_LIMITS } from "./deep-scan/limits.mjs";
 import { runLifecycle } from "./deep-scan/lifecycle.mjs";
+import { MODEL_ID } from "./deep-scan/model-proxy.mjs";
 import { envFilesAtRef, strayTokens } from "./deep-scan/preflight.mjs";
 import { RUNTIMES_DOCS_URL, selectRuntime } from "./deep-scan/runtime.mjs";
 import {
@@ -59,6 +60,7 @@ const CREDENTIALS_DOCS_URL = `https://github.com/mnaimfaizy/agent-kit/blob/v${CL
  *   credential?: string,
  *   credentialFrom?: string,
  *   model?: string,
+ *   effort?: string,
  *   reportPath?: string,
  *   verifyPath?: string,
  *   ref?: string,
@@ -92,6 +94,7 @@ export async function runDeepScan({
   credential,
   credentialFrom,
   model,
+  effort,
   reportPath,
   verifyPath,
   ref,
@@ -156,6 +159,12 @@ export async function runDeepScan({
   if (model !== undefined && !MODEL_ID.test(model)) {
     err(
       `--model must be a plain model id (letters, digits and . _ : @ / [ ] -), got: ${JSON.stringify(model)}`,
+    );
+    return 2;
+  }
+  if (effort !== undefined && !EFFORTS.includes(effort)) {
+    err(
+      `--effort must be one of ${EFFORTS.slice(0, -1).join(", ")} or ${EFFORTS.at(-1)}, got: ${JSON.stringify(effort)}`,
     );
     return 2;
   }
@@ -394,6 +403,7 @@ export async function runDeepScan({
   return runLifecycle({
     limits,
     ...(model !== undefined ? { model } : {}),
+    ...(effort !== undefined ? { effort } : {}),
     timers,
     runner,
     credential: key.credential,
@@ -422,11 +432,10 @@ export async function runDeepScan({
 }
 
 /**
- * A model id as Claude Code's --model takes it, and nothing more: it goes
- * into the agent step's command line, so no space, quote or leading dash.
- * The same pattern as the static workflow's model input.
+ * The effort levels Claude Code's --effort takes (2.1.328's --help), and the
+ * static workflow's effort input: nothing else reaches the command line.
  */
-const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:@/[\]-]*$/;
+const EFFORTS = Object.freeze(["low", "medium", "high", "xhigh", "max"]);
 
 /** Text with LF line ends, so a CRLF checkout of the same file compares equal. */
 const lf = (text) => text.replace(/\r\n?/g, "\n");

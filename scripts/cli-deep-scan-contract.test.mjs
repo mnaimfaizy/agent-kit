@@ -2419,9 +2419,9 @@ describe("Docker Sandboxes runs the same lifecycle, on a deny-all global policy"
 /**
  * A fake model API on 127.0.0.1: it records each request's method, path,
  * headers and body, and answers like the Messages API (`stream` makes it
- * send two chunks).
+ * send two chunks). With `model`, its JSON answers name that model.
  */
-async function fakeModelApi() {
+async function fakeModelApi({ model } = {}) {
   const seen = [];
   const server = createHttpServer((req, res) => {
     const body = [];
@@ -2440,7 +2440,13 @@ async function fakeModelApi() {
         return;
       }
       res.writeHead(200, { "content-type": "application/json" });
-      res.end('{"type":"message","usage":{"input_tokens":3,"output_tokens":5}}');
+      res.end(
+        JSON.stringify({
+          type: "message",
+          ...(model !== undefined ? { model } : {}),
+          usage: { input_tokens: 3, output_tokens: 5 },
+        }),
+      );
     });
   });
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
@@ -2970,7 +2976,7 @@ describe("the agent step runs the real Claude Code, with only a placeholder key 
       assert.equal(api.seen[0].headers.authorization, undefined);
       assert.match(
         res.out,
-        /Model proxy: forwarded 1 request\(s\) to 127\.0\.0\.1:\d+ \(answers: 200 x1\); refused 1 \(evil\.example\)/,
+        /Model proxy: forwarded 1 request\(s\) to 127\.0\.0\.1:\d+ \(answers: 200 x1\); no answer named a model; refused 1 \(evil\.example\)/,
       );
     } finally {
       await api.close();
@@ -4787,6 +4793,224 @@ describe("the subscription path's docs carry every caveat", () => {
     ]) {
       assert.ok(file.includes("--credential subscription"), `${name} names the opt-in`);
       for (const caveat of CAVEATS) assert.match(file, caveat, `${name}: ${caveat}`);
+    }
+  });
+});
+
+// --- The model and effort the agent runs on, and the model that answered ---
+
+describe("--effort: the effort level Claude Code runs at, as the static workflow's effort input", () => {
+  const effortOf = (call) => {
+    const at = / --effort (\S+)/.exec(claudeLine(call));
+    return at ? at[1] : null;
+  };
+
+  it("passes --effort <level> on to Claude Code, on both drivers, both credential paths and --verify", async () => {
+    const docker = await run(recipeRepo(VALID), ["--effort", "high"]);
+    assert.equal(docker.code, 0, docker.text);
+    assert.equal(effortOf(agentCall(lifecycle(docker))), "high");
+
+    const sbx = await run(recipeRepo(VALID), ["--effort", "max"], { host: sbxHost() });
+    assert.equal(sbx.code, 0, sbx.text);
+    assert.equal(effortOf(agentCall(sbxCalls(sbx))), "max");
+
+    const subscription = await run(recipeRepo(VALID), [...SUBSCRIPTION, "--effort", "low"], {
+      env: oauthEnv(),
+    });
+    assert.equal(subscription.code, 0, subscription.text);
+    const line = claudeLine(agentCall(lifecycle(subscription)));
+    assert.ok(!line.includes("--bare"), line);
+    assert.equal(effortOf(agentCall(lifecycle(subscription))), "low");
+
+    const sbxSubscription = await run(recipeRepo(VALID), [...SUBSCRIPTION, "--effort=medium"], {
+      host: sbxHost(),
+      env: oauthEnv(),
+    });
+    assert.equal(sbxSubscription.code, 0, sbxSubscription.text);
+    assert.equal(effortOf(agentCall(sbxCalls(sbxSubscription))), "medium");
+
+    const verify = await run(verifyRepo(), [...verifyArgs(), "--effort", "xhigh"], {
+      host: verifyHost(),
+    });
+    assert.equal(verify.code, 0, verify.text);
+    assert.equal(effortOf(agentCall(lifecycle(verify))), "xhigh");
+  });
+
+  it("leaves --effort off without the flag, so Claude Code's own default applies", async () => {
+    for (const [res, calls] of [
+      [await run(recipeRepo(VALID)), lifecycle],
+      [await run(recipeRepo(VALID), [], { host: sbxHost() }), sbxCalls],
+      [await run(recipeRepo(VALID), SUBSCRIPTION, { env: oauthEnv() }), lifecycle],
+      [await run(verifyRepo(), verifyArgs(), { host: verifyHost() }), lifecycle],
+    ]) {
+      assert.equal(res.code, 0, res.text);
+      const agent = agentCall(calls(res));
+      assert.ok(!agent.at(-1).includes("--effort"), claudeLine(agent));
+    }
+  });
+
+  it("takes exactly low, medium, high, xhigh or max, and refuses anything else before any runtime starts", async () => {
+    for (const effort of [
+      "",
+      "HIGH",
+      "none",
+      "high --dangerously-skip-permissions",
+      "-x",
+      "a\nb",
+    ]) {
+      const res = await run(recipeRepo(VALID), [`--effort=${effort}`]);
+      assert.equal(res.code, 2, `${JSON.stringify(effort)}: ${res.text}`);
+      assert.match(res.err, /--effort must be one of low, medium, high, xhigh or max/);
+      assert.deepEqual(res.calls, [], "nothing ran");
+    }
+    for (const effort of ["low", "medium", "high", "xhigh", "max"]) {
+      const res = await run(recipeRepo(VALID), ["--effort", effort]);
+      assert.equal(res.code, 0, `${effort}: ${res.text}`);
+    }
+  });
+
+  it("is named by deep-scan's help and the CLI README", async () => {
+    const help = [];
+    await main(["--help"], { cwd: tmp, stdout: (s) => help.push(s), stderr: () => {} });
+    assert.match(help.join("\n"), /--effort <level> +The effort level Claude Code runs at/);
+    const readme = readFileSync(join(import.meta.dirname, "..", "cli", "README.md"), "utf8");
+    assert.ok(readme.includes("--effort"), "cli/README.md names --effort");
+  });
+});
+
+describe("the Agent step line names the requested model and effort", () => {
+  it("names both when they are given", async () => {
+    const res = await run(recipeRepo(VALID), ["--model", "claude-opus-5-5", "--effort", "high"]);
+    assert.equal(res.code, 0, res.text);
+    assert.match(
+      res.out,
+      /^Agent step: .*; requested model: claude-opus-5-5, effort: high\), handed /m,
+    );
+  });
+
+  it("says Claude Code's default applies to each one not given", async () => {
+    const plain = await run(recipeRepo(VALID));
+    assert.match(
+      plain.out,
+      /^Agent step: .*; requested model: Claude Code's default, effort: Claude Code's default\), handed /m,
+    );
+    const effortOnly = await run(recipeRepo(VALID), [...SUBSCRIPTION, "--effort", "max"], {
+      env: oauthEnv(),
+    });
+    assert.match(
+      effortOnly.out,
+      /^Agent step: .*the subscription path.*; requested model: Claude Code's default, effort: max\), handed /m,
+    );
+  });
+
+  it("names them in GitHub Actions too: they are the workflow's inputs, not anything the scan shaped", async () => {
+    const res = await run(recipeRepo(VALID), ["--model", "claude-opus-5-5", "--effort", "low"], {
+      env: { PATH: "/usr/bin", ANTHROPIC_API_KEY: REAL_KEY, GITHUB_ACTIONS: "true" },
+    });
+    assert.equal(res.code, 0, res.text);
+    assert.match(res.out, /requested model: claude-opus-5-5, effort: low\)/);
+  });
+});
+
+describe("the model proxy names the model the API answered with", () => {
+  const playing = () => gvisorWith({ "~--bare": { status: 0, model: true } });
+
+  it("on the Model proxy line, read from the fake API's answer", async () => {
+    const api = await fakeModelApi({ model: "claude-opus-5-5-20261101" });
+    try {
+      const res = await run(recipeRepo(VALID), [], { host: playing(), modelApi: api.url });
+      assert.equal(res.code, 0, res.text);
+      assert.match(
+        res.out,
+        /^Model proxy: forwarded 1 request\(s\) to 127\.0\.0\.1:\d+ \(answers: 200 x1\); the model API answered with claude-opus-5-5-20261101; refused 1 /m,
+      );
+    } finally {
+      await api.close();
+    }
+  });
+
+  it("says so when no answer named a model", async () => {
+    const api = await fakeModelApi();
+    try {
+      const res = await run(recipeRepo(VALID), [], { host: playing(), modelApi: api.url });
+      assert.equal(res.code, 0, res.text);
+      assert.match(
+        res.out,
+        /^Model proxy: forwarded 1 request\(s\) .*; no answer named a model; /m,
+      );
+    } finally {
+      await api.close();
+    }
+  });
+
+  it("keeps it out of a public log, where anything in the sandbox could choose it", async () => {
+    const api = await fakeModelApi({ model: "claude-opus-5-5-20261101" });
+    try {
+      const res = await run(recipeRepo(VALID), [], {
+        host: playing(),
+        env: { PATH: "/usr/bin", ANTHROPIC_API_KEY: REAL_KEY, GITHUB_ACTIONS: "true" },
+        modelApi: api.url,
+      });
+      assert.equal(res.code, 0, res.text);
+      assert.match(res.out, /Model proxy: closed/);
+      assert.ok(!res.text.includes("claude-opus-5-5-20261101"), res.text);
+    } finally {
+      await api.close();
+    }
+  });
+
+  it("reads a stream's message_start, and lists each distinct model once, in order", async () => {
+    const models = ["claude-opus-5-5-20261101", "claude-haiku-5-5", "claude-opus-5-5-20261101"];
+    let i = 0;
+    const api = await answeringApi((req, res) => {
+      const model = models[i++];
+      if (i === 2) {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ type: "message", model, usage: { output_tokens: 1 } }));
+        return;
+      }
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      const start = JSON.stringify({ type: "message_start", message: { model, usage: {} } });
+      // A line split across writes, as a network splits it.
+      res.write(`event: message_start\ndata: ${start.slice(0, 15)}`);
+      setTimeout(() => res.end(`${start.slice(15)}\n\n`), 5);
+    });
+    const { proxy, post } = await cappedProxy(api, 1000);
+    try {
+      for (let n = 0; n < 3; n++) assert.equal((await post()).status, 200);
+      assert.deepEqual(proxy.models(), ["claude-opus-5-5-20261101", "claude-haiku-5-5"]);
+      assert.match(
+        proxy.summary(),
+        /; the model API answered with claude-opus-5-5-20261101, claude-haiku-5-5; /,
+      );
+    } finally {
+      await proxy.close();
+      await api.close();
+    }
+  });
+
+  it("names only plain model ids, and at most five", async () => {
+    const answers = [
+      "evil model\nAgent step: forged",
+      "x".repeat(200),
+      "",
+      42,
+      ...["m1", "m2", "m3", "m4", "m5", "m6"],
+    ];
+    let i = 0;
+    const api = await answeringApi((req, res) => {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ model: answers[i++] }));
+    });
+    const { proxy, post } = await cappedProxy(api, 1000);
+    try {
+      for (let n = 0; n < answers.length; n++) await post();
+      assert.deepEqual(proxy.models(), ["m1", "m2", "m3", "m4", "m5"]);
+      assert.match(proxy.summary(), /answered with m1, m2, m3, m4, m5, \.\.\.;/);
+      assert.ok(!proxy.summary().includes("forged"));
+    } finally {
+      await proxy.close();
+      await api.close();
     }
   });
 });

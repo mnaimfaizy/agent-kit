@@ -58,6 +58,9 @@ export const MAX_REPORT_BYTES = 10 * 1024 * 1024;
 export const MAX_GROUNDING_BYTES = 10 * 1024 * 1024;
 const GROUNDING_TIMEOUT_MS = 60_000;
 
+/** What the Agent step line says for a model or effort not asked for. */
+const CLAUDE_DEFAULT = "Claude Code's default";
+
 /** Why a line is withheld from a world-readable log. */
 const PUBLIC_LOG = "the Public-log rule: this log is world-readable in GitHub Actions";
 
@@ -108,6 +111,7 @@ const SETUP_ORDER = ["setup", "start", "ready", "seed"];
  *   credentialKind?: "api-key" | "subscription",
  *   limits: import("./limits.mjs").Limits,
  *   model?: string,
+ *   effort?: string,
  *   timers: { setTimeout: Function, clearTimeout: Function },
  *   modelApi?: string,
  *   platform: string,
@@ -241,6 +245,7 @@ async function lifecycle({
   credentialKind = "api-key",
   limits,
   model,
+  effort,
   modelApi,
   fetch,
   reportDir,
@@ -445,7 +450,7 @@ async function lifecycle({
       : "copying the launcher's brief in",
   );
   out(
-    `Agent step: Claude Code ${CLAUDE_CODE_VERSION} (${subscription ? "no --bare: the subscription path, with a placeholder token; project settings and MCP servers not loaded" : "--bare, a placeholder key"}, web tools off, at most ${limits.turns} turns), handed ${verification ? "the Verification-run procedure, the finding file" : "the deep procedure"}, the Threat pack and the Scan recipe.`,
+    `Agent step: Claude Code ${CLAUDE_CODE_VERSION} (${subscription ? "no --bare: the subscription path, with a placeholder token; project settings and MCP servers not loaded" : "--bare, a placeholder key"}, web tools off, at most ${limits.turns} turns; requested model: ${model ?? CLAUDE_DEFAULT}, effort: ${effort ?? CLAUDE_DEFAULT}), handed ${verification ? "the Verification-run procedure, the finding file" : "the deep procedure"}, the Threat pack and the Scan recipe.`,
   );
   clocks.end();
   // The scan wall clock: the agent step alone.
@@ -460,6 +465,7 @@ async function lifecycle({
         workspace: WORKSPACE,
         maxTurns: limits.turns,
         ...(model !== undefined ? { model } : {}),
+        ...(effort !== undefined ? { effort } : {}),
         kind: credentialKind,
       }),
       { env: agentEnv(credentialKind) },

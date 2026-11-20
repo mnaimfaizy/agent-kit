@@ -97,6 +97,11 @@ Options for deep-scan:
                           report with a Stopped: line, and exits 3.
   --model <id>            The Claude model the agent runs on, a plain id
                           such as claude-opus-5-5 (default: Claude Code's).
+  --effort <level>        The effort level Claude Code runs at: low,
+                          medium, high, xhigh or max (default: Claude
+                          Code's). The Agent step line names the model
+                          and effort asked for, and the Model proxy line
+                          the model the API answered with.
   --report <path>         Write the report to this new file, in a folder
                           that exists (default: report.md in a new private
                           folder under your temporary folder). The CI
@@ -156,6 +161,7 @@ const COMMAND_OPTIONS = {
     "max-turns",
     "max-tokens",
     "model",
+    "effort",
     "report",
     "verify",
     "ref",
@@ -221,6 +227,7 @@ export async function main(argv, io) {
         "max-turns": { type: "string" },
         "max-tokens": { type: "string" },
         model: { type: "string" },
+        effort: { type: "string" },
         report: { type: "string" },
         ref: { type: "string" },
         yes: { type: "boolean", short: "y" },
@@ -298,6 +305,7 @@ export async function main(argv, io) {
       credential: values.credential,
       credentialFrom: values["credential-from"],
       model: values.model,
+      effort: values.effort,
       reportPath: values.report,
       verifyPath: values.verify,
       ref: values.ref,
