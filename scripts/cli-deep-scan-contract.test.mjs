@@ -510,13 +510,13 @@ async function run(
     onSpawn,
     modelApi = "http://127.0.0.1:9",
     timers = fakeTimers(),
+    reportDir = mkdtempSync(join(tmp, "report-")),
   } = {},
 ) {
   const out = [];
   const err = [];
   const calls = [];
   const envs = [];
-  const reportDir = mkdtempSync(join(tmp, "report-"));
   const code = await main(["deep-scan", ...args], {
     cwd: dir,
     stdout: (s) => out.push(s),
@@ -3904,7 +3904,14 @@ describe("the CI path: the model, a known report path, and a public log", () => 
           stderr: "Error: secret-finding-detail at src/app.js\n",
         },
       });
-      const res = await run(recipeRepo(VALID), [], { host, env: IN_ACTIONS, modelApi: api.url });
+      // A report folder whose random name holds `x1`, as mkdtemp can give.
+      const reportDir = mkdtempSync(join(tmp, "report-x1-"));
+      const res = await run(recipeRepo(VALID), [], {
+        host,
+        env: IN_ACTIONS,
+        modelApi: api.url,
+        reportDir,
+      });
       assert.equal(res.code, 1, res.text);
       assert.deepEqual(modelProbes(host), [
         ["messages", 200],
@@ -3917,8 +3924,12 @@ describe("the CI path: the model, a known report path, and a public log", () => 
         "answers:",
         "x1",
       ]) {
-        assert.ok(!res.text.includes(shaped), `the log holds ${shaped}:\n${res.text}`);
+        // The report's path is the launcher's own line, under a random
+        // folder name: only the rest of the log is checked.
+        const log = res.text.replaceAll(reportDir, "<report folder>");
+        assert.ok(!log.includes(shaped), `the log holds ${shaped}:\n${log}`);
       }
+      assert.ok(res.out.includes(join(reportDir, "report.md")), "the report's path is printed");
       // What the launcher itself says still prints: the exit, the report, the teardown.
       assert.match(res.err, /The agent step exited 1/);
       assert.match(res.err, /Public-log rule/);
