@@ -23,6 +23,11 @@ export const CREDENTIAL_VARS = Object.freeze([
   "CLAUDE_CODE_OAUTH_TOKEN",
 ]);
 
+/** The variable Claude Code reads a subscription (OAuth) token from. */
+const OAUTH_TOKEN_VAR = "CLAUDE_CODE_OAUTH_TOKEN";
+/** How a Claude subscription (OAuth) token starts; an API key starts sk-ant-api. */
+const OAUTH_TOKEN_PREFIX = "sk-ant-oat";
+
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const OP_REF = /^op:\/\/[^/\s][^\r\n]*$/;
 const USAGE =
@@ -74,6 +79,7 @@ export function readCredential({ source, env, runner }) {
     return checked(r.stdout.replace(/\r?\n$/, ""), "the op read result", "1Password (op read)");
   }
   const { name } = source;
+  if (name.toUpperCase() === OAUTH_TOKEN_VAR) return subscription(name);
   const value = valueOf(env, name);
   if (!value) {
     return {
@@ -112,7 +118,19 @@ function checked(value, what, from) {
       ],
     };
   }
+  if (value.startsWith(OAUTH_TOKEN_PREFIX)) return subscription(what);
   return { credential: value, from };
+}
+
+// The model proxy sends the credential as x-api-key, which a subscription
+// token is not: the model API would answer 401 once the sandbox is built.
+function subscription(what) {
+  return {
+    refused: [
+      `${what} holds a Claude subscription token, not an API key (its value is not shown). deep-scan runs on the API-key path only: the subscription path is #375 and is not built yet.`,
+      "Make an API key in a dedicated Anthropic Console workspace with its own spend limit, and pass that instead.",
+    ],
+  };
 }
 
 /**

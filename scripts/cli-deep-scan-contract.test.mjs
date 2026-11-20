@@ -2530,6 +2530,50 @@ describe("the model credential comes from the environment or 1Password, and neve
     assert.match(res.err, /GH_TOKEN is a GitHub token variable/);
   });
 
+  // A Claude subscription token is not an API key: sent as x-api-key it ends
+  // in a 401, so it is refused up front. The subscription path is #375.
+  const OAUTH_TOKEN = "sk-ant-oat01-fake-subscription-token-for-tests-0123456789";
+  const refusesSubscription = (res) => {
+    assert.equal(res.code, 1, res.text);
+    assert.match(res.err, /REFUSED {2}.*a Claude subscription token, not an API key/);
+    assert.match(res.err, /#375/);
+    assert.match(res.err, /docs\/security-audit\.md#credentials/);
+    assert.ok(!res.text.includes(OAUTH_TOKEN), "the token is never printed");
+    assert.ok(!res.text.includes("Model credential: an API key"));
+    assert.ok(!res.text.includes("Sandbox runtime:"), "refused before a runtime is chosen");
+    assert.ok(!startedAnything(res));
+  };
+
+  it("refuses a subscription token from ANTHROPIC_API_KEY, naming #375 and never printing it", async () => {
+    const res = await run(recipeRepo(VALID), [], {
+      env: { PATH: "/usr/bin", ANTHROPIC_API_KEY: OAUTH_TOKEN },
+    });
+    refusesSubscription(res);
+    assert.match(res.err, /ANTHROPIC_API_KEY holds a Claude subscription token/);
+  });
+
+  it("refuses a subscription token from --credential-from env:<NAME> or op read", async () => {
+    const fromEnv = await run(recipeRepo(VALID), ["--credential-from", "env:SCAN_KEY"], {
+      env: { PATH: "/usr/bin", SCAN_KEY: OAUTH_TOKEN },
+    });
+    refusesSubscription(fromEnv);
+    const fromOp = await run(recipeRepo(VALID), ["--credential-from", "op://Private/x/y"], {
+      host: gvisorWithOp({ "*": { status: 0, stdout: `${OAUTH_TOKEN}\n` } }),
+      env: { PATH: "/usr/bin" },
+    });
+    refusesSubscription(fromOp);
+  });
+
+  it("refuses --credential-from env:CLAUDE_CODE_OAUTH_TOKEN, whatever it holds", async () => {
+    for (const name of ["CLAUDE_CODE_OAUTH_TOKEN", "claude_code_oauth_token"]) {
+      const res = await run(recipeRepo(VALID), ["--credential-from", `env:${name}`], {
+        env: { PATH: "/usr/bin", [name]: REAL_KEY },
+      });
+      refusesSubscription(res);
+      assert.ok(!res.text.includes(REAL_KEY));
+    }
+  });
+
   it("is not an option of init, upgrade or doctor", async () => {
     const err = [];
     const code = await main(["doctor", "--credential-from", "env:X"], {

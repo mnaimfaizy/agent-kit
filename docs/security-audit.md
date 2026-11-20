@@ -239,6 +239,8 @@ ANTHROPIC_API_KEY=op://Private/Anthropic-deep-scan/credential op run -- npx @mna
 
 `deep-scan` refuses, before any runtime starts, when the variable is unset or empty, when it still holds an `op://` reference (you ran without `op run`), when the key holds whitespace or a control character, or when `op read` fails (with `op`'s own message).
 
+A Claude subscription token is not an API key: `deep-scan` refuses one, without printing it, when the key it reads starts with `sk-ant-oat` or when `--credential-from` names `env:CLAUDE_CODE_OAUTH_TOKEN`. The subscription path is [#375](https://github.com/mnaimfaizy/agent-kit/issues/375) and is not built yet.
+
 ## Limits
 
 Every Deep scan is bounded from outside the sandbox, so nothing the agent does inside can lift a limit. The defaults are starting values, and you can raise or lower each one with a `deep-scan` option. The [Scan recipe](#scan-recipe) never sets a limit: a limit field in it is refused, so a merged recipe change cannot raise your spend.
