@@ -11,8 +11,10 @@
 // The model route (#370): for the agent step, the sandbox joins a second
 // `--internal` network, and the key-injecting model proxy listens on its
 // gateway (on 127.0.0.1, reached as host.docker.internal, on Docker Desktop
-// for macOS), so the proxy is the scan's only route out. `docker inspect`
-// then confirms the sandbox is on that network alone.
+// for macOS), so the proxy is the scan's only route to the internet. That
+// route reaches the host itself, so other host services listening there are
+// reachable too, which the run's `Note:` says. `docker inspect` then
+// confirms the sandbox is on that network alone.
 
 import { layerDockerfile } from "./claude-code.mjs";
 import { startEgressProxy } from "./egress.mjs";
