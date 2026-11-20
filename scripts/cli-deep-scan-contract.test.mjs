@@ -3133,10 +3133,7 @@ describe("on Docker Sandboxes, the model route is one per-sandbox rule for the p
     assert.equal(res.code, 130, res.text);
     const calls = sbxCalls(res);
     assert.deepEqual(untemplated(calls).slice(-2).map(sbxVerb), ["policy rm network", "rm"]);
-    assert.match(
-      untemplated(calls).at(-2).join(" "),
-      /--resource localhost:\d+ --force$/,
-    );
+    assert.match(untemplated(calls).at(-2).join(" "), /--resource localhost:\d+ --force$/);
   });
 });
 
