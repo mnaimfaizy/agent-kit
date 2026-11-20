@@ -73,11 +73,20 @@ Options for deep-scan:
                           (default .security/scan-recipe.yml).
   --default-branch <b>    The branch whose tip the recipe is read from
                           (default: origin's HEAD, else main).
-  --credential-from <s>   Where the Anthropic API key is read from:
-                          env:<NAME> (default env:ANTHROPIC_API_KEY, which
-                          op run can fill) or an op:// reference, read with
-                          op read. Never the key itself. It stays outside
-                          the sandbox, in the model proxy.
+  --credential <kind>     The model credential's kind: api-key (default),
+                          an Anthropic API key, or subscription, a Claude
+                          subscription token from claude setup-token, an
+                          opt-in at your own risk: it relies on
+                          undocumented Claude Code behaviour, has no
+                          refresh, and the token cap is its only spend
+                          lever (see docs/security-audit.md#credentials).
+  --credential-from <s>   Where the credential is read from: env:<NAME>
+                          (default env:ANTHROPIC_API_KEY, or
+                          env:CLAUDE_CODE_OAUTH_TOKEN with --credential
+                          subscription; op run can fill either) or an
+                          op:// reference, read with op read. Never the
+                          credential itself. It stays outside the
+                          sandbox, in the model proxy.
   --setup-minutes <n>     The setup wall clock: image to agent step
                           (default 20).
   --scan-minutes <n>      The scan wall clock: the agent step (default 60).
@@ -140,6 +149,7 @@ const COMMAND_OPTIONS = {
   "deep-scan": [
     "recipe",
     "default-branch",
+    "credential",
     "credential-from",
     "setup-minutes",
     "scan-minutes",
@@ -204,6 +214,7 @@ export async function main(argv, io) {
         preset: { type: "string" },
         "threat-pack-dir": { type: "string" },
         recipe: { type: "string" },
+        credential: { type: "string" },
         "credential-from": { type: "string" },
         "setup-minutes": { type: "string" },
         "scan-minutes": { type: "string" },
@@ -284,6 +295,7 @@ export async function main(argv, io) {
       runner,
       recipePath: values.recipe,
       defaultBranch: values["default-branch"],
+      credential: values.credential,
       credentialFrom: values["credential-from"],
       model: values.model,
       reportPath: values.report,

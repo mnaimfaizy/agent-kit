@@ -29,7 +29,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { firstLine } from "../exec.mjs";
-import { AGENT_ENV, agentBrief, agentScript, BRIEF_PATH, TURNS_MARKER } from "./agent.mjs";
+import { agentBrief, agentEnv, agentScript, BRIEF_PATH, TURNS_MARKER } from "./agent.mjs";
 import { CLAUDE_CODE_VERSION, layerDockerfile } from "./claude-code.mjs";
 import { dockerDriver, LABEL } from "./docker-driver.mjs";
 import {
@@ -105,6 +105,7 @@ const SETUP_ORDER = ["setup", "start", "ready", "seed"];
  *   recipePath: string,
  *   recipeText: string,
  *   credential: string,
+ *   credentialKind?: "api-key" | "subscription",
  *   limits: import("./limits.mjs").Limits,
  *   model?: string,
  *   timers: { setTimeout: Function, clearTimeout: Function },
@@ -237,6 +238,7 @@ async function lifecycle({
   recipePath,
   recipeText,
   credential,
+  credentialKind = "api-key",
   limits,
   model,
   modelApi,
@@ -386,6 +388,7 @@ async function lifecycle({
   const route = await driver.openModelRoute(async (bind) => {
     proxy = await startModelProxy({
       credential,
+      kind: credentialKind,
       bind,
       maxTokens: limits.tokens,
       onCap: () => clocks.stop(TOKENS, `the run's ${limits.tokens}-token cap`),
@@ -398,13 +401,15 @@ async function lifecycle({
     throw new StepFailed([`FAILED  more than the model route is open: ${extra}.`, ENDS_HERE]);
   }
   out(
-    `Model route: only the model proxy on your machine (${route.note}), which forwards to the model API alone, with your key; checked from the host.`,
+    `Model route: only the model proxy on your machine (${route.note}), which forwards to the model API alone, with your ${credentialKind === "subscription" ? "token as its bearer value" : "key"}; checked from the host.`,
   );
 
   // 7. The agent step: Claude Code with a placeholder key, handed its brief.
   // A Verification run's finding file goes in with it, after the setup phase
   // and the cut, so no setup step, which has registry egress, can read it.
   const paths = { workspace: WORKSPACE, grounding: GROUNDING_DIR, report: REPORT_PATH };
+  // The subscription path runs Claude Code without --bare (#375).
+  const subscription = credentialKind === "subscription";
   const brief = verification
     ? verificationBrief({
         ref: target.name,
@@ -416,8 +421,18 @@ async function lifecycle({
         handIn,
         grounding,
         paths,
+        discovers: subscription,
       })
-    : agentBrief({ branch, short, recipePath, recipeText, handIn, grounding, paths });
+    : agentBrief({
+        branch,
+        short,
+        recipePath,
+        recipeText,
+        handIn,
+        grounding,
+        paths,
+        discovers: subscription,
+      });
   await driver.copyIn(
     tarOf([
       { path: "agent-kit", dir: true },
@@ -430,7 +445,7 @@ async function lifecycle({
       : "copying the launcher's brief in",
   );
   out(
-    `Agent step: Claude Code ${CLAUDE_CODE_VERSION} (--bare, web tools off, a placeholder key, at most ${limits.turns} turns), handed ${verification ? "the Verification-run procedure, the finding file" : "the deep procedure"}, the Threat pack and the Scan recipe.`,
+    `Agent step: Claude Code ${CLAUDE_CODE_VERSION} (${subscription ? "no --bare: the subscription path, with a placeholder token; project settings and MCP servers not loaded" : "--bare, a placeholder key"}, web tools off, at most ${limits.turns} turns), handed ${verification ? "the Verification-run procedure, the finding file" : "the deep procedure"}, the Threat pack and the Scan recipe.`,
   );
   clocks.end();
   // The scan wall clock: the agent step alone.
@@ -445,8 +460,9 @@ async function lifecycle({
         workspace: WORKSPACE,
         maxTurns: limits.turns,
         ...(model !== undefined ? { model } : {}),
+        kind: credentialKind,
       }),
-      { env: [...AGENT_ENV] },
+      { env: agentEnv(credentialKind) },
     );
   } catch (e) {
     if (!(e instanceof LimitReached)) throw e;

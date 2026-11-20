@@ -2,7 +2,11 @@
 // runs in the launcher, on the host, outside the sandbox. The sandboxed
 // Claude Code holds only a placeholder key and reaches the model API through
 // this proxy, which forwards only to the model API, strips the placeholder
-// (`x-api-key`, `Authorization`) and inserts the real credential. The
+// (`x-api-key`, `Authorization`) and inserts the real credential: as
+// `x-api-key` for an API key, or, on the subscription path (#375), as the
+// bearer value of `Authorization` and nothing else, so every other header
+// Claude Code sends (its OAuth beta header among them) passes on as it is
+// and need not be known here. The
 // credential lives only in this process's memory: it is never an argument,
 // an environment variable or a file of any command the launcher runs.
 // Node core only (ADR 0001).
@@ -67,17 +71,26 @@ const DROPPED = new Set([
  * With `maxTokens`, the first request once the counted tokens reach it is
  * refused, as is every one after, and `onCap` is called once. The answer
  * that crosses the cap is delivered: a request in flight is never cut.
- * @param {{ credential: string, bind: string, upstream?: string, maxTokens?: number, onCap?: () => void }} opts
- *   `upstream` is the model API; only tests pass another.
+ * @param {{ credential: string, kind?: "api-key" | "subscription", bind: string, upstream?: string, maxTokens?: number, onCap?: () => void }} opts
+ *   `kind` is the credential's (default an API key). `upstream` is the
+ *   model API; only tests pass another.
  * @returns {Promise<{ port: number, refused: string[], tokens: () => number, summary: () => string, close: () => Promise<void> }>}
  */
 export async function startModelProxy({
   credential,
+  kind = "api-key",
   bind,
   upstream = MODEL_API,
   maxTokens,
   onCap = () => {},
 }) {
+  if (kind !== "api-key" && kind !== "subscription") {
+    throw new Error(`the model proxy has no credential kind ${JSON.stringify(kind)}`);
+  }
+  // The one header the proxy writes: the sandbox's x-api-key and
+  // Authorization are always dropped, so the placeholder never passes on.
+  const auth =
+    kind === "subscription" ? ["authorization", `Bearer ${credential}`] : ["x-api-key", credential];
   const target = new URL(upstream);
   const send = target.protocol === "https:" ? httpsRequest : httpRequest;
   const refused = [];
@@ -139,7 +152,7 @@ export async function startModelProxy({
     for (const [name, value] of Object.entries(req.headers)) {
       if (!DROPPED.has(name.toLowerCase()) && value !== undefined) headers[name] = value;
     }
-    headers["x-api-key"] = credential;
+    headers[auth[0]] = auth[1];
     // A plain body, so the meter can read its usage.
     headers["accept-encoding"] = "identity";
     forwarded += 1;

@@ -29,7 +29,13 @@ import {
   validateRecipe,
 } from "./deep-scan/recipe.mjs";
 import { readHandIn } from "./deep-scan/agent.mjs";
-import { credentialSource, readCredential, withoutCredentials } from "./deep-scan/credential.mjs";
+import {
+  credentialKind,
+  credentialSource,
+  readCredential,
+  SUBSCRIPTION,
+  withoutCredentials,
+} from "./deep-scan/credential.mjs";
 import { DEFAULT_LIMITS, describeLimits, parseLimits, VERIFY_LIMITS } from "./deep-scan/limits.mjs";
 import { runLifecycle } from "./deep-scan/lifecycle.mjs";
 import { envFilesAtRef, strayTokens } from "./deep-scan/preflight.mjs";
@@ -50,6 +56,7 @@ const CREDENTIALS_DOCS_URL = `https://github.com/mnaimfaizy/agent-kit/blob/v${CL
  *   runner: import("./exec.mjs").Runner,
  *   recipePath?: string,
  *   defaultBranch?: string,
+ *   credential?: string,
  *   credentialFrom?: string,
  *   model?: string,
  *   reportPath?: string,
@@ -82,6 +89,7 @@ export async function runDeepScan({
   runner: hostRunner,
   recipePath,
   defaultBranch,
+  credential,
   credentialFrom,
   model,
   reportPath,
@@ -175,7 +183,14 @@ export async function runDeepScan({
   }
   const { limits } = bounds;
 
-  const source = credentialSource(credentialFrom);
+  // The credential's kind: an API key, or the opted-into subscription token.
+  const chosen = credentialKind(credential);
+  if ("error" in chosen) {
+    err(chosen.error);
+    return 2;
+  }
+  const subscription = chosen.kind === SUBSCRIPTION;
+  const source = credentialSource(credentialFrom, chosen.kind);
   if ("error" in source) {
     err(source.error);
     return 2;
@@ -364,10 +379,12 @@ export async function runDeepScan({
   }
 
   // The model credential: read once, and kept only in this process.
-  const key = readCredential({ source, env, runner });
+  const key = readCredential({ source, env, runner, kind: chosen.kind });
   if ("refused" in key) return refuse(key.refused, CREDENTIALS_DOCS_URL);
   out(
-    `Model credential: an API key from ${key.from}; it stays in the model proxy, outside the sandbox.`,
+    subscription
+      ? `Model credential: a Claude subscription token from ${key.from} (--credential subscription, at your own risk: it relies on undocumented Claude Code behaviour, and the token cap is its only spend lever); it stays in the model proxy, outside the sandbox.`
+      : `Model credential: an API key from ${key.from}; it stays in the model proxy, outside the sandbox.`,
   );
 
   const choice = selectRuntime({ runner, platform });
@@ -380,6 +397,7 @@ export async function runDeepScan({
     timers,
     runner,
     credential: key.credential,
+    credentialKind: chosen.kind,
     ...(modelApi !== undefined ? { modelApi } : {}),
     runtime: choice.runtime,
     root,

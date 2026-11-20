@@ -68,6 +68,8 @@ The copied paths and workflow references should always move together on upgrade.
 2. Pin `uses: <owner>/agent-kit/.github/workflows/deep-scan-reusable.yml@<tag>` to the same tag as your other Callers.
 3. Commit a Scan recipe on the default branch, add the `anthropic_api_key` secret (an API key from a dedicated Console workspace with its own spend limit), and turn it on with the `CLAUDE_DEEP_SCAN_ENABLED` repository variable.
 
+The model credential is one of two Caller secrets, never both. `anthropic_api_key` is the supported path. `claude_code_oauth_token`, a Claude subscription token from `claude setup-token`, is an opt-in at your own risk (`deep-scan --credential subscription` locally): it relies on undocumented behaviour and may break with any Claude Code release, it has no refresh, so you rotate it by hand, it leaves the terms question to you, and the proxy's token cap is the only spend lever (`max_tokens`). See [the subscription path](security-audit.md#the-subscription-path-opt-in).
+
 It runs on the default branch only, from a schedule or `workflow_dispatch`, and delivers privately like the static audit. What it does and what stays out of the log: [Deep scan in CI](security-audit.md#deep-scan-in-ci).
 
 ## Consumer-owned contract surface

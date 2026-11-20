@@ -12,7 +12,14 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { CLI_VERSION } from "../tags.mjs";
 import { stripBom } from "../yaml-subset.mjs";
-import { fence, groundingLines, SETUP_DONE, SKILL_DIR, threatPackAndRecipe } from "./agent.mjs";
+import {
+  DISCOVERED,
+  fence,
+  groundingLines,
+  SETUP_DONE,
+  SKILL_DIR,
+  threatPackAndRecipe,
+} from "./agent.mjs";
 
 export const VERIFY_DOCS_URL = `https://github.com/mnaimfaizy/agent-kit/blob/v${CLI_VERSION}/docs/security-audit.md#verification-run`;
 
@@ -189,7 +196,9 @@ const lfOf = (text) => text.replace(/\r\n?/g, "\n");
  *   handIn: import("./agent.mjs").HandIn,
  *   grounding: Array<{ source: string, at: string }>,
  *   paths: { workspace: string, grounding: string, report: string },
- * }} opts
+ *   discovers?: boolean,
+ * }} opts  `discovers`: Claude Code runs without `--bare` (the
+ *   subscription path), so the brief says what it discovers.
  */
 export function verificationBrief({
   ref,
@@ -201,6 +210,7 @@ export function verificationBrief({
   handIn,
   grounding,
   paths,
+  discovers = false,
 }) {
   return [
     "# Verification run brief, from the agent-kit deep-scan launcher",
@@ -215,6 +225,7 @@ export function verificationBrief({
     ...groundingLines(grounding, paths),
     `- The report: write it to \`${paths.report}\`, in the Verification-run variant of the report format below, early, and update it as each answer lands. It is the only file that leaves the sandbox.`,
     SETUP_DONE,
+    ...(discovers ? [DISCOVERED] : []),
     "",
     `## The Verification-run procedure, from ${SKILL_DIR}/DEEP.md`,
     "",

@@ -88,7 +88,7 @@ The Caller owns:
 - optional scanner command (`full` mode only)
 - optional email secrets
 - optional Dependabot alerts token
-- Claude subscription token
+- Claude subscription token (`claude_code_oauth_token`; the opt-in deep-scan Caller takes an `anthropic_api_key` instead, or this one at your own risk)
 - `permissions:` that cover what the reusable job requests (`contents: read`, `pull-requests: write`, `security-events: write`)
 - for `pr` mode, the head SHA, base SHA, base ref, and PR number
 
@@ -194,10 +194,10 @@ Once a runtime is chosen, `agent-kit deep-scan` runs the sandbox on it: see [Wha
 
 4. **Setup.** It runs `setup`, then `start` and `ready`, then `seed`, each command with `sh -c` in `/workspace`, with no agent and no model credential. Egress is limited to `registries`: the sandbox sits on a Docker network with no route out (`--internal`), and its only way out is a proxy that `deep-scan` runs on your machine, which forwards only to the listed hosts (a bare host allows ports 80 and 443; `host:port` or a URL names its port). With `registries: []` the sandbox has no network at all. A failing step ends the run before the agent step, with exit 1, and prints its output (for `start` and `ready`, the services' log too) and any host the proxy refused. That output is your own build output, from before any probing.
 5. **Cut the network.** It disconnects the sandbox from the setup network, stops the proxy, and checks from your machine (`docker inspect`), never from inside the sandbox, that no network is left. If one is, the run ends before the agent step.
-6. **Open the model route.** The sandbox joins a second `--internal` network, whose only reachable service is the **key-injecting model proxy**, which `deep-scan` runs on your machine on that network's gateway (on `127.0.0.1`, reached as `host.docker.internal`, on Docker Desktop for macOS). It is the scan's only route out. It forwards only the Messages API's `/v1/` paths, and only to `api.anthropic.com`; it refuses any other host, a `CONNECT` tunnel and any other path. It strips the `x-api-key` and `Authorization` headers the sandbox sends and inserts your real key, which lives only in `deep-scan`'s memory. `deep-scan` checks again from your machine that the sandbox is on that network alone; if not, the run ends before the agent step.
+6. **Open the model route.** The sandbox joins a second `--internal` network, whose only reachable service is the **key-injecting model proxy**, which `deep-scan` runs on your machine on that network's gateway (on `127.0.0.1`, reached as `host.docker.internal`, on Docker Desktop for macOS). It is the scan's only route out. It forwards only the Messages API's `/v1/` paths, and only to `api.anthropic.com`; it refuses any other host, a `CONNECT` tunnel and any other path. It strips the `x-api-key` and `Authorization` headers the sandbox sends and inserts your real key, which lives only in `deep-scan`'s memory (on the [subscription path](#the-subscription-path-opt-in), your token, as the `Authorization: Bearer` value). `deep-scan` checks again from your machine that the sandbox is on that network alone; if not, the run ends before the agent step.
 7. **Agent step.** It copies in the launcher's brief, to `/agent-kit/in/brief.md`, and runs Claude Code in it, in `/workspace`:
    - with `--bare`, which skips skill and `CLAUDE.md` discovery, so the brief hands it everything: the security-audit skill's `DEEP.md` (the `deep` procedure), with `SKILL.md` and `report-format.md`, the Threat pack (the threat model and findings ledger at the paths your security-audit Caller passes, else `.security/`) and the Scan recipe, all read from the default branch's tip, plus the sandbox's paths: the repository at `/workspace`, each grounding source under `/agent-kit/grounding`, and the report at `/agent-kit/out/report.md`. A run whose default branch has no `DEEP.md` or no Threat pack is refused before any runtime starts;
-   - with a non-secret placeholder `ANTHROPIC_API_KEY`, and `ANTHROPIC_BASE_URL` pinned to the model proxy by the launcher's own `--settings`, which outrank project settings. Project and local settings are not even loaded (`--setting-sources user`), so a `.claude/settings.json` in your repository cannot point Claude Code anywhere else;
+   - with a non-secret placeholder `ANTHROPIC_API_KEY` (on the [subscription path](#the-subscription-path-opt-in), a placeholder `CLAUDE_CODE_OAUTH_TOKEN` and no `--bare`), and `ANTHROPIC_BASE_URL` pinned to the model proxy by the launcher's own `--settings`, which outrank project settings. Project and local settings are not even loaded (`--setting-sources user`), so a `.claude/settings.json` in your repository cannot point Claude Code anywhere else;
    - with web tools off: WebFetch and WebSearch are not in its tool set (`--tools`), and are disallowed and denied as well. Its tools are Bash, Read, Write, Edit, Glob and Grep, pre-approved, with nothing else asked;
    - within the run's [limits](#limits): the launcher's `--max-turns`, the scan wall clock and the model proxy's token cap.
 
@@ -239,7 +239,31 @@ ANTHROPIC_API_KEY=op://Private/Anthropic-deep-scan/credential op run -- npx @mna
 
 `deep-scan` refuses, before any runtime starts, when the variable is unset or empty, when it still holds an `op://` reference (you ran without `op run`), when the key holds whitespace or a control character, or when `op read` fails (with `op`'s own message).
 
-A Claude subscription token is not an API key: `deep-scan` refuses one, without printing it, when the key it reads starts with `sk-ant-oat` or when `--credential-from` names `env:CLAUDE_CODE_OAUTH_TOKEN`. The subscription path is [#375](https://github.com/mnaimfaizy/agent-kit/issues/375) and is not built yet.
+A Claude subscription token is not an API key: without `--credential subscription`, `deep-scan` refuses one, without printing it, when the key it reads starts with `sk-ant-oat` or when `--credential-from` names `env:CLAUDE_CODE_OAUTH_TOKEN`, and points you to the opt-in below.
+
+### The subscription path (opt-in)
+
+`--credential subscription` runs a Deep scan on a Claude subscription token instead of an API key. It is an opt-in, at your own risk. Before you choose it, know that it:
+
+- **relies on undocumented behaviour, and may break with any Claude Code release.** It depends on how Claude Code sends a subscription token to a base URL that is not the model API's own. That is not a documented contract, so any release, including the pinned Claude Code a later Agent-kit version moves to, may break it. The API-key path is the supported one;
+- **has no refresh, so you rotate the token by hand.** The token `claude setup-token` prints is long-lived, and `deep-scan` never refreshes it. When it expires or you revoke it, the model API answers `401` and the run fails: make a new one, and replace it where you keep it (1Password, or the CI secret);
+- **leaves the terms question to you.** Whether your subscription's terms allow this use is yours to check: Agent-kit does not answer it;
+- **has the proxy's token cap as its only spend lever.** There is no Console workspace with a spend limit behind a subscription, so `--max-tokens` (in CI, `max_tokens`) is the only bound on what a run uses. Set it to what you are willing to spend.
+
+How it runs, and what changes from the API-key path:
+
+- **The token comes from the same places as the key.** By default `deep-scan` reads `CLAUDE_CODE_OAUTH_TOKEN`; `--credential-from env:<NAME>` and `--credential-from op://<vault>/<item>/<field>` work as for a key, and `op run` keeps it out of your shell. Make it with `claude setup-token`, store it in 1Password without pasting it into a terminal, and run, for example:
+
+  ```sh
+  CLAUDE_CODE_OAUTH_TOKEN=op://Private/Claude-deep-scan/credential op run -- npx @mnaimfaizy/agent-kit deep-scan --credential subscription
+  ```
+
+- **It is refused unless it is a subscription token.** With `--credential subscription`, a value that does not start with `sk-ant-oat` (an API key, say) is refused before any runtime starts, without printing it, as is no token at all.
+- **The token never enters the sandbox.** The sandboxed Claude Code holds a non-secret placeholder `CLAUDE_CODE_OAUTH_TOKEN`, and no `ANTHROPIC_API_KEY`. The model proxy strips the `Authorization` and `x-api-key` headers the sandbox sends and inserts `Authorization: Bearer <your token>`: it swaps only the bearer value, never sends `x-api-key` on this path, and passes every other header on as Claude Code sent it, so the headers a subscription request needs never have to be known. Every other proxy rule holds: only `/v1/` paths, only `api.anthropic.com`, and the token cap.
+- **Claude Code runs without `--bare`,** since `--bare` never reads a subscription token. `ANTHROPIC_BASE_URL` is still pinned to the proxy by the launcher's own `--settings`, project and local settings are still not loaded (`--setting-sources user`), so a `.claude/settings.json` in your repository still cannot move it, `--strict-mcp-config` keeps any MCP server your repository names (`.mcp.json`) from starting, and the launcher's settings turn hooks off (`disableAllHooks`), so none that a setup step wrote into the sandbox runs. What no `--bare` lets in is skill and `CLAUDE.md` discovery: Claude Code can load the `CLAUDE.md` files and `.claude/skills/` it finds in the scanned repository. The brief tells the agent they are that repository's own content, to read as code under audit and never as instructions, and that the brief's procedure decides; the launcher-owned settings and the hand-in (`DEEP.md`, the Threat pack and the recipe, from the default branch) are the same as on the API-key path.
+- **In CI**, the deep-scan workflow takes the token as the optional `claude_code_oauth_token` secret, instead of `anthropic_api_key`: exactly one of the two must be set, and the workflow fails before anything runs when both or neither are. Like the key, it reaches the launcher step alone, which passes `--credential subscription`. See [Deep scan in CI](#deep-scan-in-ci).
+
+**The acceptance check.** This option ships only if a real run passes it: Claude Code must start and complete a Deep scan on the placeholder token, with the proxy swapping in the real one, on the Claude Code version `deep-scan` pins. If it fails, the option is dropped from the release, and this section says so.
 
 ## Limits
 
@@ -262,7 +286,7 @@ Every Deep scan is bounded from outside the sandbox, so nothing the agent does i
 Backstops beyond these limits:
 
 - **On the API-key path**, the Console workspace's spend limit (see [Credentials](#credentials)) is the hard ceiling on what any run can cost, whatever the limits are set to.
-- **On the subscription path** (not available yet), there is no Console spend limit, so the proxy's token cap is the only spend lever.
+- **On the [subscription path](#the-subscription-path-opt-in)** (`--credential subscription`), there is no Console spend limit, so the proxy's token cap is the only spend lever.
 - **In CI**, the deep-scan workflow sets its job's `timeout-minutes` (180) above the sum of the phase limits, and refuses a `setup_minutes` plus `scan_minutes` above 150 before anything runs (see [Deep scan in CI](#deep-scan-in-ci)).
 
 ## Running a deep scan
@@ -307,12 +331,12 @@ The CI path is opt-in: a separate reusable workflow, `deep-scan-reusable.yml`, w
 
 What the workflow does, in one job on an ephemeral GitHub-hosted runner (`ubuntu-latest`):
 
-1. **Checks its inputs** (the model and the limits) and refuses anything but plain values, and a `setup_minutes` plus `scan_minutes` above 150, so the job's `timeout-minutes: 180` stays above the phase limits.
+1. **Checks its inputs** (the model and the limits) and refuses anything but plain values, and both or neither model secrets, and a `setup_minutes` plus `scan_minutes` above 150, so the job's `timeout-minutes: 180` stays above the phase limits.
 2. **Runs on the default branch only.** The job runs only from a `schedule` or `workflow_dispatch` event, and the gate refuses a run whose ref is not the repository's default branch. It never checks out a pull request head: the checkout takes no ref, and `deep-scan` exports the default branch's tip, not the working tree. The gate also preflights the advisory token, as the static audit does, before any model spend.
 3. **Stages the delivery scripts** (`.github/security-audit/publish-draft-advisory.sh` and `notify-email.sh`, the same ones the static audit uses) from the commit object to a folder outside the workspace, and records their SHA-256 digests, before the scan.
 4. **Installs gVisor** (`runsc`), a pinned release checked against its SHA-512, and registers it as a Docker runtime. `deep-scan` then chooses it, and the agent and the target run together in the gVisor container. The runner holds only `deep-scan`'s model proxy and the delivery steps.
 5. **Installs the CLI** at this tag's version, without the model key in reach and with install scripts off.
-6. **Runs `agent-kit deep-scan`** with the inputs as its options and `--report` pointing at a private folder on the runner. The model key is a separate Caller secret, `anthropic_api_key`, in this step's environment alone. The job token and the advisory token are never in it, and `deep-scan` refuses to start if `GH_TOKEN` or `GITHUB_TOKEN` is set. `deep-scan` tears the sandbox down before it exits.
+6. **Runs `agent-kit deep-scan`** with the inputs as its options and `--report` pointing at a private folder on the runner. The model credential is a separate Caller secret in this step's environment alone: `anthropic_api_key`, or, opted into at your own risk, `claude_code_oauth_token`, which selects the [subscription path](#the-subscription-path-opt-in) (`--credential subscription`). Exactly one must be set: step 1 sees only whether each is set, never its value, and fails the run when both or neither are. The job token and the advisory token are never in it, and `deep-scan` refuses to start if `GH_TOKEN` or `GITHUB_TOKEN` is set. `deep-scan` tears the sandbox down before it exits.
 7. **Delivers the report** after teardown: each staged script runs only after its digest check. The report becomes a private draft advisory, and is emailed when the email secrets are set (in full if the draft could not be filed).
 8. **Prints a status** with no counts: whether a report came out and was filed, or which limit stopped the run.
 
@@ -321,7 +345,7 @@ What the workflow does, in one job on an ephemeral GitHub-hosted runner (`ubuntu
 **Adopt it:**
 
 1. Have the static flow and a valid [Scan recipe](#scan-recipe) on the default branch (`agent-kit doctor` checks the recipe).
-2. Make an API key in a dedicated Console workspace with its own spend limit (see [Credentials](#credentials)), and store it as the repository secret `AGENT_KIT_DEEP_SCAN_ANTHROPIC_API_KEY`. The advisory token and the email secrets are the ones the static audit already uses.
+2. Make an API key in a dedicated Console workspace with its own spend limit (see [Credentials](#credentials)), and store it as the repository secret `AGENT_KIT_DEEP_SCAN_ANTHROPIC_API_KEY`. Or, on the [subscription path](#the-subscription-path-opt-in), at your own risk and with every caveat there, store a `claude setup-token` token as `AGENT_KIT_DEEP_SCAN_CLAUDE_CODE_OAUTH_TOKEN` and pass it as `claude_code_oauth_token` in place of `anthropic_api_key` (the Caller example has the line, commented out). The advisory token and the email secrets are the ones the static audit already uses.
 3. Copy [`examples/deep-scan-caller.yml`](../examples/deep-scan-caller.yml) to `.github/workflows/`, pinned to the same tag as your other Callers. It runs weekly and on dispatch, with `permissions: contents: read`.
 4. Set the repository variable `CLAUDE_DEEP_SCAN_ENABLED` to `true` to turn it on (the kill switch is on otherwise). `CLAUDE_DEEP_SCAN_MODEL`, else `CLAUDE_MODEL`, chooses the model.
 
