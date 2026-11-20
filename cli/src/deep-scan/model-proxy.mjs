@@ -47,8 +47,10 @@ const MAX_BODY = 16 * 1024 * 1024;
 
 /**
  * A model id as Claude Code's --model takes it, and nothing more: the
- * launcher's check of --model, and the only form of an answer's `model` the
- * summary names.
+ * launcher's check of --model, which goes into the agent step's command
+ * line (so no space, quote or leading dash; the same pattern as the static
+ * workflow's model input), and the only form of an answer's `model` the
+ * summary names, so an answer cannot write a line of its own.
  */
 export const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:@/[\]-]*$/;
 
