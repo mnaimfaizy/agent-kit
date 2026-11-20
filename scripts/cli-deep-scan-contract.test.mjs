@@ -37,6 +37,7 @@ import { after, before, describe, it } from "node:test";
 import { main } from "../cli/src/cli.mjs";
 import { allowedCommands, RUNTIME_CLIS, runnerFor, systemRunner } from "../cli/src/exec.mjs";
 import { agentScript, TURNS_MARKER } from "../cli/src/deep-scan/agent.mjs";
+import { startEgressProxy } from "../cli/src/deep-scan/egress.mjs";
 import { withStopped } from "../cli/src/deep-scan/limits.mjs";
 import { startModelProxy } from "../cli/src/deep-scan/model-proxy.mjs";
 import { tarOf } from "../cli/src/deep-scan/tar.mjs";
@@ -902,6 +903,14 @@ describe("--recipe", () => {
 
 describe("review fixes: shapes the YAML reader would otherwise let through", () => {
   const cases = [
+    [
+      "a line in a list that is not a `- ` item, which would cut the list short",
+      recipe({
+        drop: ["setup"],
+        add: "setup:\n  - npm ci\n  -npm run build\n  - npm run seed:db",
+      }),
+      /line \d+: sits in a list but is not a `- ` item/,
+    ],
     [
       "a __proto__ key that hides fields from the key check",
       `__proto__:\n  image: node:22\n  max_turns: 999\n${recipe({ drop: ["image"] })}`,
@@ -2105,6 +2114,8 @@ describe("Docker Sandboxes runs the same lifecycle, on a deny-all global policy"
       "cp",
       "exec",
       "exec",
+      // The report's in-sandbox type and size check, before sbx cp.
+      "exec",
       "cp",
       "policy rm network",
       "rm",
@@ -3064,6 +3075,8 @@ describe("on Docker Sandboxes, the model route is one per-sandbox rule for the p
       "policy ls",
       "cp",
       "exec",
+      "exec",
+      // The report's in-sandbox type and size check, before sbx cp.
       "exec",
       "cp",
       "policy rm network",
@@ -5174,4 +5187,345 @@ describe("a model API that refuses the credential is named as such", () => {
       await api.close();
     }
   });
+});
+
+// --- Review fixes from pull request #390 -------------------------------------
+
+/**
+ * A Verification-run repository whose default branch commits `path` (an
+ * environment file) under `recipeText`, and whose fix branch deletes it, as
+ * the fix for a committed-secret finding would.
+ */
+function verifyRepoDeleting(path, recipeText) {
+  const dir = makeRepo({
+    committed: {
+      ".security/scan-recipe.yml": recipeText,
+      "src/upload.js": "unfixed\n",
+      Dockerfile: "FROM node:22-bookworm\nCOPY . /app\n",
+      ...VERIFY_ADOPTED,
+      [path]: "SECRET=1\n",
+    },
+  });
+  git(dir, "switch", "-qc", "fix/upload");
+  git(dir, "rm", "-q", path);
+  git(dir, "commit", "-qm", "fix");
+  git(dir, "switch", "-q", "main");
+  return dir;
+}
+
+describe("review fixes: a Verification run's .env pre-flight covers what still comes from the default branch", () => {
+  it("refuses an environment file on the default branch that a repository grounding path would carry in", async () => {
+    const text = recipe({ drop: ["grounding"], add: "grounding:\n  - config" });
+    const res = await run(verifyRepoDeleting("config/.env", text), verifyArgs(), {
+      host: verifyHost(),
+    });
+    assert.equal(res.code, 1, res.text);
+    assert.match(res.err, /main \([0-9a-f]{12}\) has environment files/);
+    assert.ok(res.err.includes("  - config/.env"), res.err);
+    assert.match(res.err, /grounding/);
+    assert.doesNotMatch(res.text, /SECRET=1/);
+    assert.deepEqual(res.shims, []);
+  });
+
+  it("refuses an environment file on the default branch when the recipe builds a Dockerfile from it", async () => {
+    const text = recipe({ drop: ["image"], add: "dockerfile: Dockerfile" });
+    const res = await run(verifyRepoDeleting("config/.env", text), verifyArgs(), {
+      host: verifyHost(),
+    });
+    assert.equal(res.code, 1, res.text);
+    assert.match(res.err, /main \([0-9a-f]{12}\) has environment files/);
+    assert.ok(res.err.includes("  - config/.env"), res.err);
+    assert.match(res.err, /build context/);
+    assert.deepEqual(res.shims, []);
+  });
+
+  it("still verifies a fix that deletes a committed .env when nothing else is read from the default branch's tree", async () => {
+    const res = await run(verifyRepoDeleting("config/.env", VALID), verifyArgs(), {
+      host: verifyHost(),
+    });
+    assert.equal(res.code, 0, res.text);
+    assert.ok(!copiedIn(res).some((e) => e.name.endsWith(".env")));
+  });
+});
+
+describe("review fixes: the runner caps a child's error output as it caps standard output", () => {
+  it("keeps the first line and the tail of an endless stderr, within a bound", async () => {
+    const chunk = Buffer.alloc(1024 * 1024, "x\n");
+    const runner = runnerFor("deep-scan", {
+      spawnAsync: () => {
+        const child = new EventEmitter();
+        child.stdout = new PassThrough();
+        child.stderr = new PassThrough();
+        child.stdin = new Writable({ write: (_c, _e, cb) => cb() });
+        setImmediate(() => {
+          child.stderr.write("FIRST LINE\n");
+          for (let i = 0; i < 48; i++) child.stderr.write(chunk);
+          child.stderr.write("LAST LINE\n");
+          child.stdout.end();
+          child.stderr.end();
+          setImmediate(() => child.emit("close", 1, null));
+        });
+        return child;
+      },
+    });
+    const r = await runner.start("docker", ["exec", "x", "sh", "-c", "yes >&2"]);
+    assert.equal(r.status, 1);
+    assert.ok(r.stderr.length <= 2 * 1024 * 1024, `kept ${r.stderr.length} characters`);
+    assert.ok(r.stderr.startsWith("FIRST LINE\n"), r.stderr.slice(0, 40));
+    assert.ok(r.stderr.endsWith("LAST LINE\n"), r.stderr.slice(-40));
+  });
+});
+
+/** A grounding fetch whose body sends `chunks` 1 MiB chunks, then runs `then` on the next read. */
+function streamingFetch({ chunks = 1, then, pulls = { n: 0 } } = {}) {
+  return async (_url, init) =>
+    new Response(
+      new ReadableStream({
+        pull(controller) {
+          pulls.n += 1;
+          if (pulls.n <= chunks) controller.enqueue(new Uint8Array(1024 * 1024));
+          else if (then) then(controller, init);
+          else controller.close();
+        },
+      }),
+    );
+}
+
+describe("review fixes: a grounding URL's body is read inside the fetch's own error handling", () => {
+  it("exits 130 on an interrupt while the body downloads", async () => {
+    const signals = new EventEmitter();
+    const res = await run(recipeRepo(VALID), [], {
+      signals,
+      fetch: streamingFetch({
+        then: (controller, init) => {
+          signals.emit("SIGINT");
+          controller.error(init.signal.reason ?? new DOMException("aborted", "AbortError"));
+        },
+      }),
+    });
+    assert.equal(res.code, 130, res.text);
+    assert.ok(!lifecycle(res).some(isAgentStep));
+    assert.ok(
+      lifecycle(res).some((a) => a[0] === "rm"),
+      "torn down",
+    );
+  });
+
+  it("exits 3 with the setup wall clock's Stopped: line when it fires while the body downloads", async () => {
+    const timers = fakeTimers();
+    const res = await run(recipeRepo(VALID), ["--setup-minutes", "5"], {
+      timers,
+      fetch: streamingFetch({
+        then: (controller, init) => {
+          timers.fire(5 * MINUTE);
+          controller.error(init.signal.reason ?? new DOMException("aborted", "AbortError"));
+        },
+      }),
+    });
+    assert.equal(res.code, 3, res.text);
+    assert.match(res.out, /Stopped: wall clock \(the setup phase's 5-minute limit\)/);
+    assert.doesNotMatch(res.text, /FAILED/);
+  });
+
+  it("names a body that times out as a failed grounding fetch", async () => {
+    const res = await run(recipeRepo(VALID), [], {
+      fetch: streamingFetch({
+        then: (controller) =>
+          controller.error(new DOMException("The operation timed out.", "TimeoutError")),
+      }),
+    });
+    assert.equal(res.code, 1, res.text);
+    assert.match(
+      res.err,
+      /FAILED {2}grounding\[0\]: could not fetch https:\/\/example\.com\/framework-security\.md: The operation timed out\./,
+    );
+  });
+
+  it("stops reading a body with no content-length once it passes the size cap", async () => {
+    const pulls = { n: 0 };
+    const res = await run(recipeRepo(VALID), [], { fetch: streamingFetch({ chunks: 40, pulls }) });
+    assert.equal(res.code, 1, res.text);
+    assert.match(res.err, /FAILED {2}grounding\[0\]: .*larger than 10 MiB/);
+    assert.ok(pulls.n <= 12, `read ${pulls.n} chunks of 1 MiB`);
+  });
+});
+
+describe("review fixes: the repository export has its own size limit, named when it is passed", () => {
+  /** Run deep-scan on a gVisor host with `spawn` wrapping the host's blocking spawn. */
+  async function runWrapped(wrap) {
+    const host = gvisorHost();
+    const calls = [];
+    const err = [];
+    const code = await main(["deep-scan"], {
+      cwd: recipeRepo(VALID),
+      stdout: () => {},
+      stderr: (s) => err.push(s),
+      spawn: wrap(spawnFor(host, calls)),
+      spawnAsync: spawnAsyncFor(host, calls),
+      platform: host.platform,
+      env: { PATH: "/usr/bin", ANTHROPIC_API_KEY: REAL_KEY },
+      fetch: groundingFetch,
+      signals: new EventEmitter(),
+      reportDir: mkdtempSync(join(tmp, "report-")),
+      modelApi: "http://127.0.0.1:9",
+      timers: fakeTimers(),
+    });
+    return { code, err: err.join("\n") };
+  }
+  const isArchive = (cmd, args) => cmd === "git" && args.includes("archive");
+
+  it("gives git archive a buffer larger than the runner's default 64 MiB", async () => {
+    const seen = [];
+    const res = await runWrapped((inner) => (cmd, args, opts) => {
+      if (isArchive(cmd, args)) seen.push(opts.maxBuffer);
+      return inner(cmd, args, opts);
+    });
+    assert.equal(res.code, 0, res.err);
+    assert.ok(seen.length > 0, "git archive ran");
+    for (const size of seen) assert.ok(size > 64 * 1024 * 1024, `maxBuffer ${size}`);
+  });
+
+  it("names the limit when an export passes it", async () => {
+    const res = await runWrapped(
+      (inner) => (cmd, args, opts) =>
+        isArchive(cmd, args)
+          ? { error: Object.assign(new Error("spawnSync git ENOBUFS"), { code: "ENOBUFS" }) }
+          : inner(cmd, args, opts),
+    );
+    assert.equal(res.code, 1, res.err);
+    assert.match(
+      res.err,
+      /FAILED {2}export main \([0-9a-f]{12}\): the export is larger than \d+ MiB/,
+    );
+    assert.doesNotMatch(res.err, /ENOBUFS/);
+  });
+});
+
+describe("review fixes: the setup proxy sends its own Host and none of the client's proxy headers", () => {
+  it("sets Host from the allowed URL and drops proxy and hop-by-hop headers", async () => {
+    const seen = [];
+    const upstream = createHttpServer((req, res) => {
+      seen.push(req.headers);
+      res.end("ok");
+    });
+    await new Promise((resolve) => upstream.listen(0, "127.0.0.1", resolve));
+    const port = upstream.address().port;
+    const proxy = await startEgressProxy({ registries: [`127.0.0.1:${port}`], bind: "127.0.0.1" });
+    try {
+      const status = await new Promise((resolve, reject) => {
+        const req = httpRequest(
+          {
+            host: "127.0.0.1",
+            port: proxy.port,
+            path: `http://127.0.0.1:${port}/x`,
+            headers: {
+              host: "attacker.example",
+              "proxy-authorization": "Basic c2VjcmV0",
+              "proxy-connection": "keep-alive",
+              "x-hop": "1",
+              connection: "close, X-Hop",
+            },
+          },
+          (res) => {
+            res.resume();
+            res.on("end", () => resolve(res.statusCode));
+          },
+        );
+        req.on("error", reject);
+        req.end();
+      });
+      assert.equal(status, 200);
+      assert.equal(seen.length, 1);
+      assert.equal(seen[0].host, `127.0.0.1:${port}`);
+      assert.equal(seen[0]["proxy-authorization"], undefined);
+      assert.equal(seen[0]["proxy-connection"], undefined);
+      assert.equal(seen[0]["x-hop"], undefined);
+    } finally {
+      await proxy.close();
+      await new Promise((resolve) => upstream.close(resolve));
+    }
+  });
+});
+
+describe("review fixes: the model proxy checks the decoded path", () => {
+  it("refuses a percent-encoded path to an uncounted endpoint, and a path that does not decode", async () => {
+    const api = await fakeModelApi();
+    const proxy = await startModelProxy({
+      credential: REAL_KEY,
+      bind: "127.0.0.1",
+      upstream: api.url,
+    });
+    try {
+      for (const path of [
+        "/v1/%6dessages/batches",
+        "/v1/messages/%62atches",
+        "/v1/%63omplete",
+        "/v1/%256dessages/batches",
+        "/v1/messages%E0%A4%A",
+        "/%761/messages",
+      ]) {
+        const answer = await rawRequest(
+          proxy.port,
+          `POST ${path} HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}`,
+        );
+        assert.match(answer, /^HTTP\/1\.1 403/, path);
+      }
+      assert.equal(api.seen.length, 0);
+    } finally {
+      await proxy.close();
+      await api.close();
+    }
+  });
+});
+
+describe("review fixes: Docker Engine's route to the host is named as reaching more than the proxy", () => {
+  it("says the sandbox can reach the host's other services on the model network's gateway", async () => {
+    const res = await run(recipeRepo(VALID));
+    assert.equal(res.code, 0, res.text);
+    assert.match(
+      res.out,
+      /Note: on Docker Engine the sandbox can also reach any other service on your machine that listens on .*; stop any you do not want it to reach/,
+    );
+  });
+
+  it("says nothing of the kind on Docker Sandboxes, whose policy allows the proxy's port alone", async () => {
+    const res = await run(recipeRepo(VALID), [], { host: sbxHost() });
+    assert.equal(res.code, 0, res.text);
+    assert.doesNotMatch(res.out, /can also reach any other service/);
+  });
+});
+
+describe("review fixes: Docker Sandboxes checks the report inside the sandbox before copying it out", () => {
+  for (const [status, why] of [
+    [4, /not a regular file/],
+    [5, /larger than/],
+  ]) {
+    it(`does not copy out a report the in-sandbox check refuses (exit ${status})`, async () => {
+      const host = sbxHost({ "~wc -c": { status } });
+      const res = await run(recipeRepo(VALID), [], { host });
+      assert.equal(res.code, 1, res.text);
+      assert.match(res.err, why);
+      assert.ok(
+        !sbxCalls(res).some(
+          (a) => a.includes("cp") && a.some((x) => /:\/agent-kit\/out\//.test(x)),
+        ),
+        "no sbx cp of the report",
+      );
+    });
+  }
+});
+
+describe("review fixes: an inherited property name is not a command", () => {
+  for (const name of ["constructor", "toString", "hasOwnProperty", "__proto__"]) {
+    it(`agent-kit ${name} is an unknown command, exit 2`, async () => {
+      const err = [];
+      const code = await main([name], {
+        cwd: tmp,
+        stdout: () => {},
+        stderr: (s) => err.push(s),
+      });
+      assert.equal(code, 2);
+      assert.match(err.join("\n"), new RegExp(`Unknown command: ${name}`));
+    });
+  }
 });

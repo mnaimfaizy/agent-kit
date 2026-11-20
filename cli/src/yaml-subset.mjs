@@ -46,7 +46,14 @@ export function parseScalar(raw) {
 
 const KEY = /^("[^"]*"|'[^']*'|[^\s"'#:-][^:]*?|-[^\s:][^:]*?):(?:\s+(.*))?$/;
 
-export function parseYamlSubset(text) {
+/**
+ * Parse `text`. `problems`, when given, collects a line the reader would
+ * otherwise drop without a word: one in a list that is not a `- ` item,
+ * which ends the list early.
+ * @param {string} text
+ * @param {{ problems?: string[] }} [opts]
+ */
+export function parseYamlSubset(text, { problems } = {}) {
   const lines = stripBom(text).replace(/\r\n?/g, "\n").split("\n");
   const indentOf = (l) => l.length - l.trimStart().length;
   const isBlank = (l) => stripComment(l).trim() === "";
@@ -87,7 +94,7 @@ export function parseYamlSubset(text) {
       if (value === "") {
         const j = nextContent(i);
         if (j < lines.length && isItem(lines[j]) && indentOf(lines[j]) >= childIndent) {
-          const [seq, next] = parseSequence(j, indentOf(lines[j]));
+          const [seq, next] = parseSequence(j, indentOf(lines[j]), childIndent);
           obj[key] = seq;
           i = next;
         } else if (j < lines.length && indentOf(lines[j]) > childIndent) {
@@ -111,8 +118,9 @@ export function parseYamlSubset(text) {
     return [obj, i];
   }
 
-  // A block sequence whose `-` markers sit at `seqIndent`.
-  function parseSequence(start, seqIndent) {
+  // A block sequence whose `-` markers sit at `seqIndent`, inside a block
+  // whose own lines sit at `ownerIndent`.
+  function parseSequence(start, seqIndent, ownerIndent) {
     const list = [];
     let i = start;
     while (i < lines.length) {
@@ -127,7 +135,16 @@ export function parseYamlSubset(text) {
         i++;
         continue;
       }
-      if (!isItem(content)) break;
+      if (!isItem(content)) {
+        // Deeper than the block that holds the list, so nothing else can
+        // read it: the reader would drop it, and the rest of the list.
+        if (seqIndent > ownerIndent) {
+          problems?.push(
+            `line ${i + 1}: sits in a list but is not a \`- \` item; the reader would drop it and the rest of the list.`,
+          );
+        }
+        break;
+      }
       const rest = content.slice(1).trimStart();
       if (rest === "") {
         // A bare `-`: the item is the deeper block that follows, if any.
@@ -135,7 +152,7 @@ export function parseYamlSubset(text) {
         if (j < lines.length && indentOf(lines[j]) > seqIndent) {
           const nested = stripComment(lines[j]).trim();
           if (isItem(nested)) {
-            const [item, next] = parseSequence(j, indentOf(lines[j]));
+            const [item, next] = parseSequence(j, indentOf(lines[j]), seqIndent);
             list.push(item);
             i = next;
           } else if (KEY.test(nested) && !/^[[{]/.test(nested)) {

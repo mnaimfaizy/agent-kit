@@ -350,6 +350,20 @@ export function sbxDriver({ id, call }) {
     },
 
     async copyOut(path, { maxBytes }) {
+      // `sbx cp` writes whatever is there to the host before the checks
+      // below can look, so check type and size in the sandbox first: a
+      // filter against filling the host's disk, not the check itself.
+      if (!/^[\w./-]+$/.test(path)) throw new Error(`copyOut: unsafe path ${path}`);
+      const pre = await exec(
+        `p=${path}; if [ -e "$p" ] || [ -L "$p" ]; then { [ -f "$p" ] && [ ! -L "$p" ]; } || exit 4; [ "$(wc -c < "$p")" -le ${maxBytes} ] || exit 5; fi`,
+        { workdir: "" },
+      );
+      if (pre.status === 4) return { error: "it is not a regular file (checked in the sandbox)" };
+      if (pre.status === 5) {
+        return {
+          error: `it is larger than ${maxBytes / 1024 / 1024} MiB (checked in the sandbox)`,
+        };
+      }
       const into = mkdtempSync(join(hostDir(), "out-"));
       const r = await sbx(["cp", `${name}:${path}`, "."], { cwd: into });
       if (r.status !== 0) return { missing: r };

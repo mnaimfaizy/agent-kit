@@ -109,7 +109,7 @@ export function validateRecipe(text) {
   for (const problem of lines.problems) problems.push(problem);
   // A null-prototype copy: a `__proto__:` key becomes an ordinary key that
   // the field checks see and refuse, never a hidden prototype.
-  const recipe = ownCopy(parseYamlSubset(text));
+  const recipe = ownCopy(parseYamlSubset(text, { problems }));
 
   for (const key of Object.keys(recipe)) {
     const problem = keyProblem(key, RECIPE_FIELDS);

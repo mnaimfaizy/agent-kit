@@ -250,7 +250,7 @@ export async function main(argv, io) {
     (command || values.help ? stdout : stderr)(USAGE);
     return values.help ? 0 : 2;
   }
-  if (!(command in COMMAND_OPTIONS)) {
+  if (!Object.hasOwn(COMMAND_OPTIONS, command)) {
     stderr(`Unknown command: ${command}\n\n${USAGE}`);
     return 2;
   }

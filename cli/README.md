@@ -5,7 +5,7 @@ The command-line companion to [Agent-kit](https://github.com/mnaimfaizy/agent-ki
 ```bash
 npx @mnaimfaizy/agent-kit init --tag <tag>          # first adoption (asks first)
 npx @mnaimfaizy/agent-kit doctor                    # local run with your own gh login
-npx @mnaimfaizy/agent-kit doctor --ci               # Kit-owned paths and pins only
+npx @mnaimfaizy/agent-kit doctor --ci               # Kit-owned paths, pins and the Scan recipe only
 npx @mnaimfaizy/agent-kit doctor --strict           # warnings fail too
 npx @mnaimfaizy/agent-kit upgrade --tag <new-tag>   # move to another tag (asks first)
 npx @mnaimfaizy/agent-kit deep-scan                 # Deep scan: recipe, pre-flight, runtime, sandbox, agent

@@ -37,6 +37,37 @@ export function allowlistOf(registries) {
   return allowed;
 }
 
+// Hop-by-hop headers (RFC 9110 7.6.1) and the client's proxy headers, which
+// go no further than this proxy, and the client's Host: the upstream gets
+// the allowed URL's host, so a shared front end cannot route by another.
+const DROPPED = new Set([
+  "host",
+  "proxy-authorization",
+  "proxy-authenticate",
+  "proxy-connection",
+  "connection",
+  "keep-alive",
+  "te",
+  "trailer",
+  "transfer-encoding",
+  "upgrade",
+]);
+
+/** The headers to send upstream for a request to `url`. */
+function forwardedHeaders(headers, url) {
+  const named = String(headers.connection ?? "")
+    .split(",")
+    .map((h) => h.trim().toLowerCase())
+    .filter(Boolean);
+  const out = {};
+  for (const [name, value] of Object.entries(headers)) {
+    const lower = name.toLowerCase();
+    if (!DROPPED.has(lower) && !named.includes(lower) && value !== undefined) out[name] = value;
+  }
+  out.host = url.host;
+  return out;
+}
+
 /**
  * Start the proxy on `bind` (an address on the sandbox's network, never all
  * interfaces). `refused` collects every host it turned away.
@@ -66,10 +97,14 @@ export async function startEgressProxy({ registries, bind }) {
         .end(`deep-scan setup proxy: ${url.host} is not in the recipe's registries\n`);
       return;
     }
-    const upstream = request(url, { method: req.method, headers: req.headers }, (r) => {
-      res.writeHead(r.statusCode ?? 502, r.headers);
-      r.pipe(res);
-    });
+    const upstream = request(
+      url,
+      { method: req.method, headers: forwardedHeaders(req.headers, url) },
+      (r) => {
+        res.writeHead(r.statusCode ?? 502, r.headers);
+        r.pipe(res);
+      },
+    );
     upstream.on("error", () => res.destroy());
     req.pipe(upstream);
   });

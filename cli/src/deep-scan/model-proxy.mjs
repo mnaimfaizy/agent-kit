@@ -152,10 +152,23 @@ export async function startModelProxy({
       return;
     }
     const path = raw.split("?")[0];
-    // No dot segment, plain or encoded, may walk the path out of /v1/.
+    // The checks run on the path as the API would route it, percent-decoded,
+    // so `/v1/%6dessages/batches` is the batch path it names. A path that
+    // does not decode, or still holds a `%` once decoded (encoded twice), is
+    // refused. No dot segment, plain or encoded, may walk it out of /v1/.
+    let decoded = null;
+    try {
+      decoded = decodeURIComponent(path);
+    } catch {
+      decoded = null;
+    }
     if (
+      decoded === null ||
+      decoded.includes("%") ||
       !MODEL_PATH.test(path) ||
-      UNCOUNTED_PATH.test(path) ||
+      !MODEL_PATH.test(decoded) ||
+      UNCOUNTED_PATH.test(decoded) ||
+      /(^|\/)\.{1,2}(\/|$)|\\/.test(decoded) ||
       /(^|\/)(\.|%2e){1,2}(\/|$)|%2f|\\/i.test(path)
     ) {
       refuse(path);

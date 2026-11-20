@@ -199,6 +199,9 @@ export function dockerDriver({ runtime, platform, id, call }) {
       return {
         url: `http://${hostOf(bind)}:${modelProxy.port}`,
         note: `on the internal network ${modelNetwork}`,
+        // The route to the proxy is a route to the host: Docker cannot narrow
+        // it to one port, so say what else it reaches.
+        caveat: `on ${desktop ? "Docker Desktop" : "Docker Engine"} the sandbox can also reach any other service on your machine that listens on ${desktop ? "localhost (as host.docker.internal)" : `${bind} or on all interfaces`}, during the agent step and during setup when it has a network; stop any you do not want it to reach before a scan.`,
       };
     },
 

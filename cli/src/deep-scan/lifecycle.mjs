@@ -56,6 +56,12 @@ export const REPORT_PATH = "/agent-kit/out/report.md";
 
 export const MAX_REPORT_BYTES = 10 * 1024 * 1024;
 export const MAX_GROUNDING_BYTES = 10 * 1024 * 1024;
+/**
+ * The largest `git archive` export deep-scan holds to copy in (the tree, a
+ * grounding path, a Dockerfile's build context): above the runner's default
+ * output cap, which a repository with a few bundled assets would pass.
+ */
+export const MAX_EXPORT_BYTES = 1024 * 1024 * 1024;
 const GROUNDING_TIMEOUT_MS = 60_000;
 
 /** What the Agent step line says for a model or effort not asked for. */
@@ -99,7 +105,7 @@ const SETUP_ORDER = ["setup", "start", "ready", "seed"];
  *   exec: (script: string, opts?: { env?: string[], workdir?: string | null }) => Promise<import("../exec.mjs").StartResult>,
  *   cutEgress: () => Promise<void>,
  *   egressLeft: () => Promise<string | null>,
- *   openModelRoute: (startProxy: (bind: string) => Promise<{ port: number, close: () => Promise<void> }>) => Promise<{ url: string, note: string }>,
+ *   openModelRoute: (startProxy: (bind: string) => Promise<{ port: number, close: () => Promise<void> }>) => Promise<{ url: string, note: string, caveat?: string }>,
  *   copyOut: (path: string, opts: { maxBytes: number }) => Promise<{ name: string, data: Buffer } | { error: string } | { missing: import("../exec.mjs").StartResult }>,
  *   close: () => Promise<void>,
  *   teardown: () => Array<{ what: string, cmd: string, args: string[] }>,
@@ -293,8 +299,14 @@ async function lifecycle({
         ref,
         ...(paths ? ["--", ...paths] : []),
       ],
-      { encoding: "buffer" },
+      { encoding: "buffer", maxBuffer: MAX_EXPORT_BYTES },
     );
+    if (r.code === "ENOBUFS") {
+      throw new StepFailed([
+        `FAILED  ${what}: the export is larger than ${MAX_EXPORT_BYTES / 1024 / 1024} MiB, the most deep-scan holds in memory to copy in; keep large files out of what it exports.`,
+        ENDS_HERE,
+      ]);
+    }
     if (r.status !== 0) {
       throw new StepFailed([
         `FAILED  ${what}: ${firstLine(r.stderr) || `git archive exit ${r.status}`}`,
@@ -425,6 +437,7 @@ async function lifecycle({
   out(
     `Model route: only the model proxy on your machine (${route.note}), which forwards to the model API alone, with your ${credentialKind === "subscription" ? "token as its bearer value" : "key"}; checked from the host.`,
   );
+  if (route.caveat) out(`Note: ${route.caveat}`);
 
   // 7. The agent step: Claude Code with a placeholder key, handed its brief.
   // A Verification run's finding file goes in with it, after the setup phase
@@ -636,21 +649,40 @@ async function fetchGrounding(fetch, url, where, clocks) {
   const fail = (why) =>
     new StepFailed([`FAILED  ${where}: could not fetch ${url}: ${why}`, ENDS_HERE]);
   const tooLarge = `larger than ${MAX_GROUNDING_BYTES / 1024 / 1024} MiB`;
-  let res;
+  // The request and the body read share one error path: an interrupt or a
+  // limit that fires mid-download stops the run as it would anywhere else.
   try {
-    res = await fetch(url, {
+    const res = await fetch(url, {
       redirect: "follow",
       signal: AbortSignal.any([clocks.signal(), AbortSignal.timeout(GROUNDING_TIMEOUT_MS)]),
     });
+    if (!res.ok) throw fail(`HTTP ${res.status}`);
+    if (Number(res.headers.get("content-length") ?? "0") > MAX_GROUNDING_BYTES) {
+      throw fail(tooLarge);
+    }
+    // Counted as it streams, so a body with no content-length is never held
+    // whole past the cap.
+    const chunks = [];
+    let size = 0;
+    if (res.body) {
+      const reader = res.body.getReader();
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        size += value.length;
+        if (size > MAX_GROUNDING_BYTES) {
+          reader.cancel().catch(() => {});
+          throw fail(tooLarge);
+        }
+        chunks.push(value);
+      }
+    }
+    return Buffer.concat(chunks);
   } catch (e) {
     if (clocks.signal().aborted) throw clocks.reason();
+    if (e instanceof StepFailed) throw e;
     throw fail(e?.message ?? String(e));
   }
-  if (!res.ok) throw fail(`HTTP ${res.status}`);
-  if (Number(res.headers.get("content-length") ?? "0") > MAX_GROUNDING_BYTES) throw fail(tooLarge);
-  const data = Buffer.from(await res.arrayBuffer());
-  if (data.length > MAX_GROUNDING_BYTES) throw fail(tooLarge);
-  return data;
 }
 
 /** A file name for a fetched URL: its last path segment, made safe. */

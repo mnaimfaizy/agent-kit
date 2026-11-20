@@ -22,7 +22,42 @@ export function strayTokens(env) {
 
 // `.env` and `.env.<anything>`, except the templates that hold no values.
 const ENV_FILE = /^\.env(\..+)?$/;
-const TEMPLATE = /\.(example|sample|template|dist|defaults?)$/i;
+/** The suffixes of the `.env` templates that hold no values; docs/security-audit.md lists them. */
+export const ENV_TEMPLATES = Object.freeze([
+  "example",
+  "sample",
+  "template",
+  "dist",
+  "default",
+  "defaults",
+]);
+const TEMPLATE = new RegExp(`\\.(${ENV_TEMPLATES.join("|")})$`, "i");
+
+/**
+ * Of the environment files on the default branch, those a Verification run
+ * would still carry in from it: every one when the recipe builds a
+ * Dockerfile (the build context is the default branch's whole tree), and
+ * else those under a repository grounding path. A grounding entry with
+ * pathspec characters is taken to reach them all.
+ * @param {string[]} files
+ * @param {{ dockerfile?: string, grounding: string[] }} steps
+ * @returns {{ files: string[], why: string }}
+ */
+export function envFilesCarriedFromDefault(files, steps) {
+  if (steps.dockerfile !== undefined) {
+    return { files, why: `the Dockerfile's build context (${steps.dockerfile})` };
+  }
+  const paths = steps.grounding.filter((g) => !/^https?:\/\//i.test(g));
+  const reaches = (source, file) => {
+    if (/[*?[\]:\\]/.test(source)) return true;
+    const dir = source.replace(/^(\.\/)+/, "").replace(/\/+$/, "");
+    return dir === "" || dir === "." || file === dir || file.startsWith(`${dir}/`);
+  };
+  return {
+    files: files.filter((f) => paths.some((g) => reaches(g, f))),
+    why: "the recipe's grounding paths",
+  };
+}
 
 /** Whether a repository path names an environment file. */
 export function isEnvFile(path) {

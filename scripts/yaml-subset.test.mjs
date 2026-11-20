@@ -141,3 +141,27 @@ describe("callers read lists as before", () => {
     assert.equal(parseWorkflowCallSecrets("on:\n  - workflow_call\n"), null);
   });
 });
+
+describe("parseYamlSubset reports a list cut short by a line that is not an item", () => {
+  it("records the stray line, and does not report compact lists or the next key", () => {
+    const problems = [];
+    const doc = parseYamlSubset(
+      ["setup:", "  - npm ci", "  -npm run build", "  - npm run seed:db", "image: x", ""].join(
+        "\n",
+      ),
+      { problems },
+    );
+    assert.deepEqual(doc.setup, ["npm ci"]);
+    assert.deepEqual(problems, [
+      "line 3: sits in a list but is not a `- ` item; the reader would drop it and the rest of the list.",
+    ]);
+    const clean = [];
+    parseYamlSubset(
+      ["setup:", "- a", "- b", "image: x", "steps:", "  - - c", "    - d", ""].join("\n"),
+      {
+        problems: clean,
+      },
+    );
+    assert.deepEqual(clean, []);
+  });
+});

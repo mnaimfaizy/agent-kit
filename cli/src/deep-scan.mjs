@@ -39,7 +39,7 @@ import {
 import { DEFAULT_LIMITS, describeLimits, parseLimits, VERIFY_LIMITS } from "./deep-scan/limits.mjs";
 import { runLifecycle } from "./deep-scan/lifecycle.mjs";
 import { MODEL_ID } from "./deep-scan/model-proxy.mjs";
-import { envFilesAtRef, strayTokens } from "./deep-scan/preflight.mjs";
+import { envFilesAtRef, envFilesCarriedFromDefault, strayTokens } from "./deep-scan/preflight.mjs";
 import { RUNTIMES_DOCS_URL, selectRuntime } from "./deep-scan/runtime.mjs";
 import {
   readFindingFile,
@@ -354,6 +354,28 @@ export async function runDeepScan({
       RUNTIMES_DOCS_URL,
     );
   }
+  // A Verification run still reads the Dockerfile's build context and the
+  // grounding paths from the default branch: check what they would carry.
+  if (target.commit !== commit) {
+    const onDefault = envFilesAtRef({ runner, root, ref: commit });
+    if ("error" in onDefault) {
+      return refuse(
+        [`Could not list the files on ${branch}: ${onDefault.error}`],
+        RUNTIMES_DOCS_URL,
+      );
+    }
+    const carried = envFilesCarriedFromDefault(onDefault.files, recipeSteps(recipe.text));
+    if (carried.files.length) {
+      return refuse(
+        [
+          `${branch} (${commit.slice(0, 12)}) has environment files that ${carried.why}, read from ${branch} even on a Verification run, would carry into the sandbox:`,
+          ...carried.files.map((f) => `  - ${f}`),
+          `Remove them from ${branch} too (keep a .env.example with placeholder values instead), and rotate any real secret they held.`,
+        ],
+        RUNTIMES_DOCS_URL,
+      );
+    }
+  }
 
   // What the agent is handed, read at the trusted ref like the recipe.
   const handed = readHandIn({ runner, root, ref: commit, branch });
@@ -436,7 +458,7 @@ export async function runDeepScan({
  * The effort levels Claude Code's --effort takes (2.1.328's --help), and the
  * static workflow's effort input: nothing else reaches the command line.
  */
-const EFFORTS = Object.freeze(["low", "medium", "high", "xhigh", "max"]);
+export const EFFORTS = Object.freeze(["low", "medium", "high", "xhigh", "max"]);
 
 /** Text with LF line ends, so a CRLF checkout of the same file compares equal. */
 const lf = (text) => text.replace(/\r\n?/g, "\n");

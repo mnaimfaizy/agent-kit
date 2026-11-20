@@ -32,12 +32,12 @@ const ALLOWLISTS = Object.freeze({
 });
 
 /**
- * @typedef {{ status: number | null, stdout: string, stderr: string }} RunResult
- * @typedef {{ status: number | null, stdout: Buffer, stderr: string }} BufferResult
+ * @typedef {{ status: number | null, stdout: string, stderr: string, code?: string }} RunResult
+ * @typedef {{ status: number | null, stdout: Buffer, stderr: string, code?: string }} BufferResult
  * @typedef {{ status: number | null, signal: string | null, aborted: boolean, stdout: Buffer, stderr: string }} StartResult
  *   `aborted` is true when `opts.signal` stopped the command.
  * @typedef {(cmd: string, args: string[], opts?: { cwd?: string, env?: NodeJS.ProcessEnv, stdin?: Buffer | string, signal?: AbortSignal }) => Promise<StartResult>} Start
- * @typedef {((cmd: string, args: string[], opts?: { cwd?: string, env?: NodeJS.ProcessEnv, encoding?: "utf8" | "buffer" }) => RunResult) & { start: Start }} Runner
+ * @typedef {((cmd: string, args: string[], opts?: { cwd?: string, env?: NodeJS.ProcessEnv, encoding?: "utf8" | "buffer", maxBuffer?: number }) => RunResult) & { start: Start }} Runner
  *   With `encoding: "buffer"`, stdout is the raw bytes (a Buffer): use it for
  *   file contents, which need not be UTF-8. stderr is always text. `start`
  *   runs a command without blocking, feeds it `stdin`, and kills it when
@@ -52,6 +52,49 @@ export function allowedCommands(subcommand) {
 }
 
 const MAX_OUTPUT = 64 * 1024 * 1024;
+
+/**
+ * How much of a child's error output is kept: its start and its end. Only
+ * the first line or the last lines are ever shown, and the output can come
+ * from untrusted code (a setup step), so it must not fill the heap.
+ */
+const MAX_ERR_HEAD = 64 * 1024;
+const MAX_ERR_TAIL = 1024 * 1024;
+const ERR_CUT = "\n[... error output cut ...]\n";
+
+/** A collector for a child's error output that keeps its head and a tail ring. */
+function errorCollector() {
+  const head = [];
+  let headSize = 0;
+  let tail = [];
+  let tailSize = 0;
+  let cut = false;
+  return {
+    push(b) {
+      if (headSize < MAX_ERR_HEAD) {
+        const take = b.subarray(0, MAX_ERR_HEAD - headSize);
+        head.push(take);
+        headSize += take.length;
+        b = b.subarray(take.length);
+      }
+      if (!b.length) return;
+      tail.push(b);
+      tailSize += b.length;
+      while (tail.length > 1 && tailSize - tail[0].length >= MAX_ERR_TAIL) {
+        tailSize -= tail.shift().length;
+        cut = true;
+      }
+    },
+    text() {
+      let rest = Buffer.concat(tail);
+      if (rest.length > MAX_ERR_TAIL) {
+        rest = rest.subarray(rest.length - MAX_ERR_TAIL);
+        cut = true;
+      }
+      return `${Buffer.concat(head).toString("utf8")}${cut ? ERR_CUT : ""}${rest.toString("utf8")}`;
+    },
+  };
+}
 
 /**
  * The runner for one subcommand. `spawn` and `spawnAsync` are the process
@@ -89,7 +132,7 @@ function makeRunner(list, who, spawn, spawnAsync = spawnChild) {
       let done = false;
       let aborted = false;
       const out = [];
-      const err = [];
+      const err = errorCollector();
       let size = 0;
       const finish = (result) => {
         if (done) return;
@@ -137,7 +180,7 @@ function makeRunner(list, who, spawn, spawnAsync = spawnChild) {
           status,
           signal,
           stdout: Buffer.concat(out),
-          stderr: Buffer.concat(err).toString("utf8"),
+          stderr: err.text(),
         }),
       );
       if (opts.signal?.aborted) onAbort();
@@ -154,7 +197,7 @@ function makeRunner(list, who, spawn, spawnAsync = spawnChild) {
       encoding: "buffer",
       shell: false,
       windowsHide: true,
-      maxBuffer: MAX_OUTPUT,
+      maxBuffer: opts.maxBuffer ?? MAX_OUTPUT,
     });
     const raw = opts.encoding === "buffer";
     if (result.error) {
@@ -162,6 +205,7 @@ function makeRunner(list, who, spawn, spawnAsync = spawnChild) {
         status: null,
         stdout: raw ? Buffer.alloc(0) : "",
         stderr: `${cmd}: ${result.error.message}`,
+        ...(result.error.code ? { code: result.error.code } : {}),
       };
     }
     const stdout = result.stdout ?? Buffer.alloc(0);
