@@ -36,10 +36,18 @@ import { dirname, join } from "node:path";
 import { after, before, describe, it } from "node:test";
 import { main } from "../cli/src/cli.mjs";
 import { allowedCommands, RUNTIME_CLIS, runnerFor, systemRunner } from "../cli/src/exec.mjs";
-import { agentScript, TURNS_MARKER } from "../cli/src/deep-scan/agent.mjs";
+import { EFFORTS } from "../cli/src/deep-scan.mjs";
+import { AGENT_TOOLS, agentScript, TURNS_MARKER, WEB_TOOLS } from "../cli/src/deep-scan/agent.mjs";
+import { CREDENTIAL_VARS } from "../cli/src/deep-scan/credential.mjs";
 import { startEgressProxy } from "../cli/src/deep-scan/egress.mjs";
-import { withStopped } from "../cli/src/deep-scan/limits.mjs";
+import {
+  DEFAULT_LIMITS,
+  MAX_MINUTES,
+  VERIFY_LIMITS,
+  withStopped,
+} from "../cli/src/deep-scan/limits.mjs";
 import { startModelProxy } from "../cli/src/deep-scan/model-proxy.mjs";
+import { ENV_TEMPLATES } from "../cli/src/deep-scan/preflight.mjs";
 import { tarOf } from "../cli/src/deep-scan/tar.mjs";
 
 const GIT_ID = [
@@ -5528,4 +5536,93 @@ describe("review fixes: an inherited property name is not a command", () => {
       assert.match(err.join("\n"), new RegExp(`Unknown command: ${name}`));
     });
   }
+});
+
+describe("review fixes: the docs' hand-typed lists match the code they copy", () => {
+  const page = (path) => readFileSync(join(import.meta.dirname, "..", path), "utf8");
+  const audit = page("docs/security-audit.md");
+  const cliReadme = page("cli/README.md");
+  /** `a`, `b` or `c`, as the docs write a list of code words. */
+  const codeList = (items, conjunction) =>
+    `${items
+      .slice(0, -1)
+      .map((i) => `\`${i}\``)
+      .join(", ")} ${conjunction} \`${items.at(-1)}\``;
+
+  it("the Limits table and the Scan recipe field table are Generated blocks", () => {
+    for (const fact of ["deep-scan-limits", "deep-scan-recipe-fields"]) {
+      assert.ok(audit.includes(`<!-- generated:${fact} -->`), fact);
+      assert.ok(audit.includes(`<!-- /generated:${fact} -->`), fact);
+    }
+  });
+
+  it("the credential variables the launcher strips", () => {
+    const listed = `(${CREDENTIAL_VARS.map((v) => `\`${v}\``).join(", ")} and the one you name)`;
+    assert.ok(audit.includes(listed), `docs/security-audit.md lists ${listed}`);
+  });
+
+  it("the agent's tools, and the web tools it does not have", () => {
+    assert.ok(
+      audit.includes(
+        `Its tools are ${AGENT_TOOLS.slice(0, -1).join(", ")} and ${AGENT_TOOLS.at(-1)}, pre-approved`,
+      ),
+      `docs/security-audit.md names the tools ${AGENT_TOOLS.join(", ")}`,
+    );
+    assert.ok(audit.includes(`${WEB_TOOLS.join(" and ")} are not in its tool set`));
+  });
+
+  it("the .env templates the pre-flight lets through", () => {
+    const listed = `Templates (${ENV_TEMPLATES.map((t) => `\`.env.${t}\``).join(", ")})`;
+    assert.ok(audit.includes(listed), `docs/security-audit.md lists ${listed}`);
+  });
+
+  it("deep-scan's process allowlist, and the other commands'", () => {
+    const sentence =
+      /Its process allowlist is (.*?); `init`, `upgrade` and `doctor` still run only `git` and `gh`\./.exec(
+        cliReadme,
+      );
+    assert.ok(sentence, "cli/README.md states the allowlist");
+    const named = [...sentence[1].matchAll(/`([^`]+)`/g)].map((m) => m[1]);
+    assert.deepEqual(named.toSorted(), [...allowedCommands("deep-scan")].toSorted());
+    for (const command of ["init", "upgrade", "doctor"]) {
+      assert.deepEqual([...allowedCommands(command)].toSorted(), ["gh", "git"]);
+    }
+  });
+
+  it("the effort levels, wherever they are listed", () => {
+    const levels = codeList(EFFORTS, "or");
+    for (const [path, text] of [
+      ["docs/security-audit.md", audit],
+      ["cli/README.md", cliReadme],
+      ["docs/getting-started.md", page("docs/getting-started.md")],
+    ]) {
+      assert.ok(text.includes(levels), `${path} lists the effort levels as ${levels}`);
+    }
+  });
+
+  it("the default limits cli/README.md restates, and the longest minutes value", () => {
+    for (const [flag, value] of [
+      ["--setup-minutes <n>", DEFAULT_LIMITS.setupMinutes],
+      ["--scan-minutes <n>", DEFAULT_LIMITS.scanMinutes],
+      ["--max-turns <n>", DEFAULT_LIMITS.turns],
+      ["--max-tokens <n>", DEFAULT_LIMITS.tokens],
+    ]) {
+      assert.ok(cliReadme.includes(`(\`${flag}\`, default ${value}`), `cli/README.md: ${flag}`);
+    }
+    assert.ok(
+      cliReadme.includes(
+        `Its defaults are scan ${VERIFY_LIMITS.scanMinutes} min, ${VERIFY_LIMITS.turns} turns`,
+      ),
+      "cli/README.md: the Verification run's defaults",
+    );
+    assert.ok(audit.includes(`of at most ${MAX_MINUTES} (about 24 days`));
+    assert.ok(
+      audit.includes(
+        `scan wall clock ${VERIFY_LIMITS.scanMinutes} min and ${VERIFY_LIMITS.turns} turns, with the same setup wall clock and token cap`,
+      ),
+      "docs/security-audit.md: the Verification run's limits",
+    );
+    assert.equal(VERIFY_LIMITS.setupMinutes, DEFAULT_LIMITS.setupMinutes);
+    assert.equal(VERIFY_LIMITS.tokens, DEFAULT_LIMITS.tokens);
+  });
 });

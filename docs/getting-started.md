@@ -100,12 +100,14 @@ Commit these files. Do **not** copy `.github/workflows/*-reusable.yml`; you refe
 
 Settings → Secrets and variables → Actions → **New repository secret**, or `gh secret set NAME`.
 
-| Secret                              | Used by         | How to get it                                                                                                                                                                         |
-| ----------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `CLAUDE_CODE_OAUTH_TOKEN`           | all flows       | Run `claude setup-token` locally and paste the token.                                                                                                                                 |
-| `AGENT_KIT_ADVISORIES_TOKEN`        | audit           | Fine-grained PAT, this repository only, **Repository security advisories: Read and write**. Set an expiry you will track.                                                             |
-| `AGENT_KIT_DEPENDABOT_ALERTS_TOKEN` | audit, optional | Fine-grained PAT, this repository only, **Dependabot alerts: Read-only**. Lets `full` mode ground on open alerts; skipped when unset.                                                 |
-| `AGENT_KIT_NOTIFY_*`                | audit, optional | SMTP settings for the optional email notice (counts only; the full report only if publishing fails). See [examples/security-audit-caller.yml](../examples/security-audit-caller.yml). |
+| Secret                                        | Used by                     | How to get it                                                                                                                                                                         |
+| --------------------------------------------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CLAUDE_CODE_OAUTH_TOKEN`                     | all flows but the deep scan | Run `claude setup-token` locally and paste the token.                                                                                                                                 |
+| `AGENT_KIT_ADVISORIES_TOKEN`                  | audit                       | Fine-grained PAT, this repository only, **Repository security advisories: Read and write**. Set an expiry you will track.                                                             |
+| `AGENT_KIT_DEPENDABOT_ALERTS_TOKEN`           | audit, optional             | Fine-grained PAT, this repository only, **Dependabot alerts: Read-only**. Lets `full` mode ground on open alerts; skipped when unset.                                                 |
+| `AGENT_KIT_NOTIFY_*`                          | audit, optional             | SMTP settings for the optional email notice (counts only; the full report only if publishing fails). See [examples/security-audit-caller.yml](../examples/security-audit-caller.yml). |
+| `AGENT_KIT_DEEP_SCAN_ANTHROPIC_API_KEY`       | deep scan, opt-in           | An Anthropic API key, from a Console workspace with its own spend limit. Set this or the next one, not both. See [Deep scan in CI](security-audit.md#deep-scan-in-ci).                |
+| `AGENT_KIT_DEEP_SCAN_CLAUDE_CODE_OAUTH_TOKEN` | deep scan, opt-in           | Instead of the key: a subscription token from `claude setup-token`, an opt-in at your own risk ([the subscription path](security-audit.md#the-subscription-path-opt-in)).             |
 
 The job token (`GITHUB_TOKEN`) is **not** passed as a secret; the reusable workflows use `github.token`, limited by your Caller's `permissions:`.
 
@@ -116,6 +118,7 @@ Copy the templates for the flows you want into `.github/workflows/`:
 - [`examples/security-audit-caller.yml`](../examples/security-audit-caller.yml)
 - [`examples/plan-implement-review-caller.yml`](../examples/plan-implement-review-caller.yml)
 - [`examples/review-response-caller.yml`](../examples/review-response-caller.yml)
+- [`examples/deep-scan-caller.yml`](../examples/deep-scan-caller.yml), opt-in: it needs a Scan recipe and its own secret (step 4). See [Deep scan in CI](security-audit.md#deep-scan-in-ci).
 
 Then edit:
 
