@@ -1,7 +1,7 @@
 // The tar streams the Deep scan launcher moves across the sandbox boundary,
 // in Node core (ADR 0001). In: a ustar archive of files the launcher wrote
 // itself (the grounding it fetched). Out: the one report file, read from the
-// archive `docker cp <container>:<file> -` writes, refusing anything that is
+// archive `tar -c` writes from the sandbox through `docker exec`, refusing anything that is
 // not exactly one regular file.
 
 const BLOCK = 512;

@@ -21,7 +21,7 @@
 // is torn down as on every exit path.
 //
 // The runtime's own commands live in a driver: docker-driver.mjs (gVisor,
-// Kata, Firecracker, Docker Desktop on macOS) and sbx-driver.mjs (Docker
+// Kata, Firecracker on Docker Engine) and sbx-driver.mjs (Docker
 // Sandboxes). This module owns the order, the output and every refusal.
 
 import { randomBytes } from "node:crypto";
@@ -97,7 +97,7 @@ const SETUP_ORDER = ["setup", "start", "ready", "seed"];
  * @typedef {{
  *   container: string,
  *   prepare: (steps: object, ctx: { archive: Function, out: Function, branch: string, short: string }) => Promise<void>,
- *   start: (steps: object) => Promise<void>,
+ *   start: (steps: object) => Promise<{ isolation?: string } | void>,
  *   copyIn: (tar: Buffer, what: string) => Promise<void>,
  *   installAgent: (out: Function) => Promise<void>,
  *   openSetupEgress: (registries: string[]) => Promise<{ env: string[], note: string }>,
@@ -105,7 +105,7 @@ const SETUP_ORDER = ["setup", "start", "ready", "seed"];
  *   exec: (script: string, opts?: { env?: string[], workdir?: string | null }) => Promise<import("../exec.mjs").StartResult>,
  *   cutEgress: () => Promise<void>,
  *   egressLeft: () => Promise<string | null>,
- *   openModelRoute: (startProxy: (bind: string) => Promise<{ port: number, close: () => Promise<void> }>) => Promise<{ url: string, note: string, caveat?: string }>,
+ *   openModelRoute: (startProxy: (bind: string) => Promise<{ port: number, close: () => Promise<void> }>) => Promise<{ url: string, note: string, isolation?: string }>,
  *   copyOut: (path: string, opts: { maxBytes: number }) => Promise<{ name: string, data: Buffer } | { error: string } | { missing: import("../exec.mjs").StartResult }>,
  *   close: () => Promise<void>,
  *   teardown: () => Array<{ what: string, cmd: string, args: string[] }>,
@@ -136,7 +136,6 @@ const SETUP_ORDER = ["setup", "start", "ready", "seed"];
  *   effort?: string,
  *   timers: { setTimeout: Function, clearTimeout: Function },
  *   modelApi?: string,
- *   platform: string,
  *   fetch: typeof globalThis.fetch,
  *   signals: { on: Function, off: Function },
  *   reportDir?: string,
@@ -159,7 +158,7 @@ const SETUP_ORDER = ["setup", "start", "ready", "seed"];
  * }} Verification
  */
 export async function runLifecycle(opts) {
-  const { runner, runtime, platform, out, err, signals } = opts;
+  const { runner, runtime, out, err, signals } = opts;
   const controller = new AbortController();
   const { signal } = controller;
   const handlers = Object.fromEntries(
@@ -212,11 +211,12 @@ export async function runLifecycle(opts) {
   };
 
   /** @type {import("./docker-driver.mjs").Call} */
-  const call = async (cmd, args, { stdin, cwd } = {}) => {
+  const call = async (cmd, args, { stdin, cwd, maxOutput } = {}) => {
     const stepSignal = clocks.signal();
     if (stepSignal.aborted) throw clocks.reason();
-    const r = await runner.start(cmd, args, { stdin, cwd, signal: stepSignal });
+    const r = await runner.start(cmd, args, { stdin, cwd, maxOutput, signal: stepSignal });
     if (r.aborted || stepSignal.aborted) throw clocks.reason();
+    if (r.truncated) return r;
     // Ctrl+C in a terminal reaches the runtime's child too, and can end it
     // before the handler above runs: that is an interrupt, not a failure.
     if (r.signal === "SIGINT" || r.signal === "SIGTERM") throw new Interrupted(r.signal);
@@ -224,7 +224,7 @@ export async function runLifecycle(opts) {
   };
   const id = randomBytes(6).toString("hex");
   const driver =
-    runtime.id === "sbx" ? sbxDriver({ id, call }) : dockerDriver({ runtime, platform, id, call });
+    runtime.id === "sbx" ? sbxDriver({ id, call }) : dockerDriver({ runtime, id, call });
 
   let code;
   let thrown = null;
@@ -321,7 +321,9 @@ async function lifecycle({
 
   // 2. The sandbox: no mount, no host environment, no Docker socket.
   out(`Sandbox: starting ${driver.container} on ${runtime.name}.`);
-  await driver.start(steps);
+  // On Docker Engine, the isolation check passed before the target starts.
+  const started = await driver.start(steps);
+  if (started?.isolation) out(started.isolation);
 
   // 3. Copy in: the trusted ref's tree (a Verification run's: the ref the
   // maintainer named), then the grounding, and nothing else.
@@ -434,10 +436,10 @@ async function lifecycle({
   if (extra !== null) {
     throw new StepFailed([`FAILED  more than the model route is open: ${extra}.`, ENDS_HERE]);
   }
+  if (route.isolation) out(route.isolation);
   out(
     `Model route: only the model proxy on your machine (${route.note}), which forwards to the model API alone, with your ${credentialKind === "subscription" ? "token as its bearer value" : "key"}; checked from the host.`,
   );
-  if (route.caveat) out(`Note: ${route.caveat}`);
 
   // 7. The agent step: Claude Code with a placeholder key, handed its brief.
   // A Verification run's finding file goes in with it, after the setup phase

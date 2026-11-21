@@ -14,8 +14,9 @@ This is the real trade-off: CI has the stronger destruction story at lower cost,
 
 _The target never shares a kernel with the host OS or with the maintainer's other environments._ The launcher enforces this rule by starting only accepted runtimes, and it never trusts a check run inside the sandbox, which the target could fake.
 
-- **Accepted:** Docker Sandboxes; Kata or Firecracker on Linux; gVisor on Linux (a user-space kernel, not hardware virtualization, accepted on purpose); Docker Desktop on macOS.
+- **Accepted:** Docker Sandboxes; Kata or Firecracker on Linux; gVisor on Linux (a user-space kernel, not hardware virtualization, accepted on purpose). Kata, Firecracker and gVisor need Docker Engine 28.0 or later.
 - **Refused:** plain Docker on a Linux host, which shares the host kernel; Docker Desktop on Windows with the WSL 2 backend, whose VM shares a kernel and network namespace with the user's other WSL distros.
+- **Amended ([#404](https://github.com/mnaimfaizy/agent-kit/issues/404)):** Docker Desktop on macOS was accepted at first, and is now refused: Docker documents no way to keep its containers from the Mac's own services, so a Mac uses Docker Sandboxes. Docker Engine below 28.0 is refused for the same reason: from 28.0 a network's `isolated` gateway mode leaves the host no address on it. One limit is accepted: on Docker Engine, copy-in runs the sandbox's own `tar` as root (`docker cp` is hidden from a running gVisor sandbox), so a hostile setup step could replace `tar` and alter the brief or a Verification run's findings on the way in. The target already controls the sandbox the agent runs in, and only the checked report comes out, so it gains little.
 - **No override.** A Consumer without an accepted runtime uses the CI path.
 
 ## Considered Options
