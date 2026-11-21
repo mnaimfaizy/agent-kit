@@ -4258,7 +4258,7 @@ function copiedIn(res) {
 /** The index, among the docker lifecycle calls, of the first copy-in holding `name`. */
 function copyInIndexOf(res, name) {
   return lifecycle(res).findIndex((a, i) => {
-    if (a[0] !== "cp" || a[1] !== "-") return false;
+    if (!isCopyIn(a)) return false;
     const calls = res.shims.filter(
       ([cli, ...args]) => cli === "docker" && args.join(" ") !== "info --format {{json .}}",
     );
