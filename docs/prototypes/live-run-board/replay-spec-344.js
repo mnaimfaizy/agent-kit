@@ -88,8 +88,12 @@ ev.push(
   E('06:12', 'human', 'answered', { del: '<integration>', wait: { id: 'w-rep2', close: true }, note: 'yes, do both' }),
   E('06:12', 'review', 'review-started', { del: '<integration>', note: 'round 3 on b779e0c' }),
   E('06:14', 'review', 'review-finished', { del: '<integration>', note: 'no new threads; review settled' }),
-  E('06:15', 'chief-of-staff', 'default-branch-check', { del: '<integration>', state: 'ready to merge', note: 'passed at main 9f24e15' }),
-  E('06:15', 'chief-of-staff', 'wait-opened', { del: '<integration>', wait: { id: 'w-merge', open: true, cause: 'human-choice', why: 'PR #387 is Ready to Merge: merging is yours', how: 'Merge PR #387 on GitHub' } }),
+  E('06:15', 'chief-of-staff', 'default-branch-check', { del: '<integration>', state: 'awaiting Ruling Review', note: 'passed at main 9f24e15; R1, R2 unreviewed', synthetic: true }),
+  E('06:15', 'chief-of-staff', 'wait-opened', { del: '<integration>', synthetic: true, wait: { id: 'w-rr', open: true, cause: 'by-design', why: 'Ruling Review: uphold or overturn R1 and R2', how: 'Answer in the Chief of Staff chat, or open each Ruling on this board' } }),
+  E('06:18', 'human', 'ruling-verdict', { del: 'd350', synthetic: true, ruling: { id: 'R1', verdict: 'upheld' } }),
+  E('06:18', 'human', 'ruling-verdict', { del: 'd352', synthetic: true, ruling: { id: 'R2', verdict: 'upheld' }, wait: { id: 'w-rr', close: true } }),
+  E('06:18', 'chief-of-staff', 'state', { del: '<integration>', state: 'ready to merge', synthetic: true }),
+  E('06:18', 'chief-of-staff', 'wait-opened', { del: '<integration>', wait: { id: 'w-merge', open: true, cause: 'human-choice', why: 'PR #387 is Ready to Merge: merging is yours', how: 'Merge PR #387 on GitHub' } }),
   E('06:26', 'human', 'merged', { del: '<integration>', state: 'merged', wait: { id: 'w-merge', close: true }, note: 'PR #387, admin bypass' }),
 );
 for (const d of ['d348', 'd349', 'd350', 'd351', 'd352', 'd353', 'd344-fix1']) ev.push(E('06:26', 'chief-of-staff', 'state', { del: d, state: 'merged' }));
@@ -97,5 +101,18 @@ ev.push(
   E('06:26', 'chief-of-staff', 'wait-opened', { wait: { id: 'w-close', open: true, cause: 'by-design', why: 'Post the Run Summary on #344 and close it?', how: 'Answer in the Chief of Staff chat' } }),
   E('06:27', 'human', 'answered', { wait: { id: 'w-close', close: true }, note: 'post and close' }),
   E('06:27', 'chief-of-staff', 'run-closed', { note: 'Run Summary posted; #344 closed' }),
+);
+// SYNTHETIC: spec-344 made no Rulings. Two invented Rulings show the Rulings section and the Ruling Review wait.
+ev.push(
+  E('03:37', 'chief-of-staff', 'ruling-made', { del: 'd350', synthetic: true, ruling: { id: 'R1', delegation: 'd350', issue: 350,
+    question: 'Keep the outcome definitions in one file, or in both files that use them?',
+    options: ['One file, the other links to it: one place to change', 'Both files: each reads alone, but they can drift'],
+    choice: 1, because: 'the spec asks for one source of truth; drift was already flagged in review of an earlier run',
+    evidence: ['RUN.md:212 at f17e566', 'OUTCOME-FORMAT.md:40 at f17e566'], cites: [], verdict: 'unreviewed' } }),
+  E('04:05', 'chief-of-staff', 'ruling-made', { del: 'd352', synthetic: true, ruling: { id: 'R2', delegation: 'd352', issue: 352,
+    question: 'A row below the floor: keep its source advisory, or write n/a?',
+    options: ['Write n/a: the row is never published', 'Keep the source advisory: the advisory can still be closed'],
+    choice: 2, because: 'with n/a an advisory whose rows are all below the floor can be neither published nor closed',
+    evidence: ['RUN.md:301 at 5159081', 'evidence/regate-d351-5159081.txt'], cites: ['R1'], verdict: 'unreviewed' } }),
 );
 window.RUN.events = ev.sort((a, b) => a.at.localeCompare(b.at));

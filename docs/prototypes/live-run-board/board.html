@@ -80,8 +80,16 @@
   .chat{background:var(--soft);border-radius:12px;padding:12px 14px;font-size:14px;max-width:760px}
   .pc{display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;font-size:13px} .pc b{display:block;font-size:12px;color:var(--muted);font-weight:500}
   code{font:12px var(--mono);background:var(--soft);padding:0 4px;border-radius:3px}
-  .toast{position:fixed;right:16px;top:58px;background:#111;color:#fff;padding:10px 14px;border-radius:10px;font-size:13px;max-width:340px;box-shadow:0 6px 24px rgba(0,0,0,.3);z-index:60;opacity:0;transition:opacity .3s;pointer-events:none}
+  .toast{position:fixed;left:16px;bottom:70px;background:#111;color:#fff;padding:10px 14px;border-radius:10px;font-size:13px;max-width:340px;box-shadow:0 6px 24px rgba(0,0,0,.3);z-index:60;opacity:0;transition:opacity .3s;pointer-events:none}
   .toast.on{opacity:1}
+  .card.click{cursor:pointer} .card.click:hover{border-color:var(--accent)} .card.sel{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent)}
+  .vd{font:11px var(--mono);padding:0 6px;border-radius:4px;white-space:nowrap;cursor:pointer;background:var(--soft);border:1px solid var(--line)}
+  .vd.unreviewed,.vd.needs{background:#fff0e6;color:#b4410a;border-color:#f7670766} .vd.upheld{background:#e6f4ea;color:var(--ok);border-color:transparent} .vd.overturned{background:#fdecec;color:var(--bad);border-color:transparent}
+  .drawer{position:fixed;top:46px;right:0;bottom:0;width:min(560px,100vw);background:var(--panel);border-left:1px solid var(--line);box-shadow:-10px 0 30px rgba(0,0,0,.18);z-index:40;overflow:auto;padding:14px 18px 90px;transform:translateX(105%);transition:transform .25s}
+  .drawer.on{transform:none}
+  .dh{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+  .drawer pre.log{max-height:none}
+  .rlink{font-size:12px}
 </style>
 </head>
 <body>
@@ -102,8 +110,10 @@
 </header>
 <div class="wrap" id="app"></div>
 <div class="toast" id="toast"></div>
+<aside class="drawer" id="drawer"></aside>
 <div class="switcher"><button id="prev">←</button><span id="vlabel"></span><button id="next">→</button></div>
 <script src="replay-spec-344.js"></script>
+<script src="local-logs.js" onerror="window.LOCAL_LOGS=null"></script>
 <script>
 // ---------- causes and states: same colours and meanings as the past-runs dashboard ----------
 const CAUSE = {
@@ -119,21 +129,26 @@ const dur = ms => { const m = Math.max(0, Math.round(ms/60000)); return m < 60 ?
 
 // ---------- the board's model: fold Run Events up to `now` ----------
 function fold(now){
-  const st = {}, since = {}, hist = {}, waits = {}, seen = [];
+  const st = {}, since = {}, hist = {}, waits = {}, seen = [], rulings = {};
   R.delegations.forEach(d => { st[d.id] = 'planned'; since[d.id] = T0; hist[d.id] = [{s:'planned', t:T0}]; });
   for (const e of EV){ const t = Date.parse(e.at); if (t > now) break; seen.push(e);
     if (e.del && e.state && st[e.del] !== e.state){ st[e.del] = e.state; since[e.del] = t; hist[e.del].push({s:e.state, t}); }
     if (e.wait?.open) waits[e.wait.id] = { ...e.wait, del: e.del, t, end: null };
     if (e.wait?.close && waits[e.wait.id]) waits[e.wait.id].end = t;
+    if (e.kind === 'ruling-made') rulings[e.ruling.id] = { ...e.ruling, t, verdicts: [{ v: 'unreviewed', t }] };
+    if (e.kind === 'ruling-verdict' && rulings[e.ruling.id]) { rulings[e.ruling.id].verdict = e.ruling.verdict; rulings[e.ruling.id].verdicts.push({ v: e.ruling.verdict, t, by: e.actor }); }
   }
   const W = Object.values(waits), open = W.filter(w => !w.end);
   const closed = seen.length === EV.length && EV[EV.length-1].kind === 'run-closed';
-  return { now, st, since, hist, waits: W, open, seen, closed, last: seen[seen.length-1] };
+  return { now, st, since, hist, waits: W, open, seen, closed, last: seen[seen.length-1], rulings: Object.values(rulings) };
 }
 const openFor = (m, d) => m.open.filter(w => w.del === d);
 const evText = e => {
   const k = e.kind.replace(/-/g,' ');
   if (e.wait?.open) return `<b>waits on you</b>: ${esc(e.wait.why)} ${chip(e.wait.cause)}`;
+  if (e.kind === 'ruling-made') return `<b>Ruling <a href="#" data-open="r:${e.ruling.id}">${e.ruling.id}</a> made</b>: ${esc(e.ruling.question)} <span class="syn">SYNTHETIC</span>`;
+  if (e.kind === 'ruling-verdict') return `<b>you ${e.ruling.verdict} <a href="#" data-open="r:${e.ruling.id}">${e.ruling.id}</a></b> <span class="syn">SYNTHETIC</span>`;
+  if (e.kind === 'card-started') return `<b>you started it from the card</b> → <span class="st">${e.state}</span>`;
   if (e.wait?.close && e.actor === 'human') return `<b>you answered</b>${e.note ? ': ' + esc(e.note) : ''}`;
   return `${esc(k)}${e.state ? ` → <span class="st">${e.state}</span>` : ''}${e.note ? ` <span class="muted">· ${esc(e.note)}</span>` : ''}`;
 };
@@ -170,13 +185,62 @@ const COLS = [ ['Planned', s => s === 'planned' || s === 'parked'], ['Needs you'
 function vA(m){
   const col = d => openFor(m, d.id).length ? 1 : COLS.findIndex(([, f], i) => i !== 1 && f(m.st[d.id]));
   const card = d => { const s = m.st[d.id], w = openFor(m, d.id);
-    return `<div class="card" data-id="${esc(d.id)}"><div style="display:flex;justify-content:space-between;gap:6px"><span class="id">${esc(d.id)}</span><span class="st ${s === 'running' ? 'running' : DONE.includes(s) ? 'done' : ''}">${s === 'running' ? '<span class="spin"></span> ' : ''}${s}</span></div>
+    const rs = m.rulings.filter(r => r.delegation === d.id);
+    return `<div class="card click ${drawerKey === 'd:' + d.id ? 'sel' : ''}" data-id="${esc(d.id)}" data-open="d:${esc(d.id)}" title="Open ${esc(d.id)}'s details"><div style="display:flex;justify-content:space-between;gap:6px"><span class="id">${esc(d.id)}</span><span class="st ${s === 'running' ? 'running' : DONE.includes(s) ? 'done' : ''}">${s === 'running' ? '<span class="spin"></span> ' : ''}${s}</span></div>
       <div class="t">#${d.issue} · ${esc(d.title)}</div><div class="small muted">wave ${esc(d.wave)} · ${s} for ${dur(m.now - m.since[d.id])}</div>
+      ${rs.length ? `<div style="margin-top:5px;display:flex;gap:4px;flex-wrap:wrap">${rs.map(r => `<span class="vd ${r.verdict.replace(/ .*/, '')}" data-open="r:${r.id}">${r.id} ${r.verdict}</span>`).join('')}</div>` : ''}
       ${w.map(x => `<div class="why">${chip(x.cause)} <b>${esc(x.why)}</b><div class="muted">${esc(x.how)} · waiting ${dur(m.now - x.t)}</div></div>`).join('')}</div>`; };
   const runWaits = m.open.filter(w => !w.del);
-  return runline(m) + banner(m) + `<div class="two"><div class="kan">${COLS.map(([name], i) => { const ds = R.delegations.filter(d => col(d) === i);
+  const un = m.rulings.filter(r => r.verdict === 'unreviewed' || r.verdict === 'needs re-review').length;
+  const rl = R.authority === 'autonomous' ? `<div style="margin:-6px 0 10px"><a href="#" class="rlink" onclick="document.getElementById('rulings').scrollIntoView({behavior:'smooth'});return false">⚖ Rulings: ${m.rulings.length} made${un ? `, <b>${un} unreviewed</b>` : ''} ↓</a></div>` : '';
+  return runline(m) + rl + banner(m) + `<div class="two"><div class="kan">${COLS.map(([name], i) => { const ds = R.delegations.filter(d => col(d) === i);
       return `<div class="col ${i === 1 && ds.length + runWaits.length ? 'need' : ''}"><h3><span>${name}</span><span>${ds.length + (i === 1 ? runWaits.length : 0)}</span></h3>${ds.map(card).join('')}${i === 1 ? runWaits.map(w => `<div class="card"><span class="id">run</span><div class="why" style="border:0;padding:0">${chip(w.cause)} <b>${esc(w.why)}</b><div class="muted">${esc(w.how)} · waiting ${dur(m.now - w.t)}</div></div></div>`).join('') : ''}</div>`; }).join('')}</div>
-    <div class="panel"><h2>Recent Run Events</h2>${feed(m)}</div></div>`;
+    <div class="panel"><h2>Recent Run Events</h2>${feed(m)}</div></div>` + rulingsSection(m);
+}
+// Rulings: the run's Ruling Ledger as its own section (autonomous runs only)
+const VERDICT_HELP = { unreviewed: 'made; you have not answered it', upheld: 'you upheld it', overturned: 'you overturned it', 'needs re-review': 'it cites a Ruling since overturned' };
+function rulingsSection(m){
+  if (R.authority !== 'autonomous') return '';
+  const un = m.rulings.filter(r => r.verdict === 'unreviewed' || r.verdict === 'needs re-review').length;
+  return `<div class="panel" id="rulings" style="margin-top:14px"><h2 style="display:flex;gap:10px;align-items:center">Rulings <span class="small muted" style="font-weight:400">the Ruling Ledger: each decision the Chief of Staff made in your place, newest last</span><span class="grow"></span><span class="syn">SYNTHETIC: spec-344 made none</span></h2>
+    ${m.rulings.length ? `<div class="small muted" style="margin-bottom:6px">${m.rulings.length} made · ${un ? `<b style="color:var(--ink)">${un} wait for your review</b>` : 'all reviewed'} · they are reviewed together before merge (Ruling Review), or any time from here.</div>
+    <div class="scroll"><table><tr><th>Ruling</th><th>Delegation</th><th>Question</th><th>Choice</th><th>Cites</th><th>Made</th><th>Verdict</th></tr>
+    ${m.rulings.map(r => `<tr class="click" data-open="r:${r.id}"><td class="mono"><b>${r.id}</b></td><td class="mono">${esc(r.delegation)}</td><td>${esc(r.question)}</td><td>${r.choice}. ${esc(r.options[r.choice - 1])}</td><td class="mono">${r.cites.join(', ') || '—'}</td><td class="mono small">${hm(r.t)}</td><td><span class="vd ${r.verdict.replace(/ .*/, '')}">${r.verdict}</span></td></tr>`).join('')}</table></div>`
+    : '<div class="muted">No Rulings yet. When a Delegation raises a Decision Request, the Chief of Staff rules on it and the Ruling appears here.</div>'}</div>`;
+}
+
+// ---------- detail drawer: a Delegation or a Ruling ----------
+let drawerKey = (location.hash.match(/^#open=(.+)$/) || [])[1] ? decodeURIComponent(location.hash.slice(6)) : null;
+function openDrawer(k){ drawerKey = k; history.replaceState(null, '', k ? '#open=' + encodeURIComponent(k) : location.pathname + location.search); prevHTML = ''; prevDrawer = ''; }
+let logTab = 'events';
+function drawerHTML(m){
+  if (!drawerKey) return '';
+  const [type, id] = [drawerKey.slice(0, 1), drawerKey.slice(2)];
+  if (type === 'r'){ const r = m.rulings.find(x => x.id === id); if (!r) return `<div class="muted">${esc(id)} has not been made yet at this point in the run.</div>`;
+    return `<div class="dh"><span class="id" style="font-size:18px">${r.id}</span> <span class="vd ${r.verdict.replace(/ .*/, '')}">${r.verdict}</span> <span class="syn">SYNTHETIC</span><span class="grow"></span><button class="btn" data-close>✕</button></div>
+      <div class="sentence"><b>${esc(r.question)}</b></div>
+      <dl class="dl"><dt>Delegation</dt><dd><a href="#" data-open="d:${esc(r.delegation)}" class="mono">${esc(r.delegation)}</a>, for #${r.issue}</dd><dt>Made</dt><dd>${hm(r.t)} by the Chief of Staff</dd><dt>Cites</dt><dd>${r.cites.map(c => `<a href="#" data-open="r:${c}" class="mono">${c}</a>`).join(', ') || 'none'}</dd></dl>
+      <h3 style="margin-top:14px">Options</h3>${r.options.map((o, i) => `<div class="opt" style="margin:6px 0;padding:8px 10px;${i + 1 === r.choice ? 'border-color:var(--accent);border-width:2px' : ''}"><b>${i + 1}.</b> ${esc(o)} ${i + 1 === r.choice ? '<span class="tag ok">chosen</span>' : ''}</div>`).join('')}
+      <div class="callout"><b>Because</b> ${esc(r.because)}</div>
+      <h3 style="margin-top:14px">Evidence</h3><ul class="small mono" style="margin:0;padding-left:18px">${r.evidence.map(x => `<li>${esc(x)}</li>`).join('')}</ul>
+      <h3 style="margin-top:14px">Verdict history</h3>${r.verdicts.map(v => `<div class="small"><span class="mono">${hm(v.t)}</span> <span class="vd ${v.v.replace(/ .*/, '')}">${v.v}</span> <span class="muted">${v.by === 'human' ? 'by you' : ''} · ${VERDICT_HELP[v.v] || ''}</span></div>`).join('')}
+      ${r.verdict === 'unreviewed' ? `<div class="callout" style="border-color:#f76707;margin-top:12px">To uphold or overturn it, answer in the Chief of Staff chat (e.g. <code>uphold ${r.id}</code> or <code>overturn ${r.id} → 1</code>). The board is read-only.</div>` : ''}`; }
+  const d = R.delegations.find(x => x.id === id); if (!d) return '';
+  const s = m.st[d.id], evs = m.seen.filter(e => e.del === d.id || e.actor === d.id), ws = m.waits.filter(w => w.del === d.id), rs = m.rulings.filter(r => r.delegation === d.id);
+  const card = EV.some(e => e.del === d.id && e.kind === 'start-refused');
+  const local = window.LOCAL_LOGS && (window.LOCAL_LOGS[d.id] ?? (d.id === '<integration>' ? window.LOCAL_LOGS['chief-of-staff'] : null));
+  return `<div class="dh"><span class="id" style="font-size:18px">${esc(d.id)}</span> <span class="st ${s === 'running' ? 'running' : ''}">${s === 'running' ? '<span class="spin"></span> ' : ''}${s}</span><span class="grow"></span><button class="btn" data-close>✕</button></div>
+    <div class="sentence">#${d.issue} · ${esc(d.title)}</div>
+    <dl class="dl"><dt>Kind</dt><dd>${esc(d.kind)}</dd><dt>Executor</dt><dd>${d.id === '<integration>' ? 'Chief of Staff' : 'Live Session' + (card ? ', started from a card you clicked' : ', started directly')}</dd><dt>Wave</dt><dd>${esc(d.wave)}</dd>
+      <dt>Branch</dt><dd class="mono small">${d.id === '<integration>' ? 'orchestrate/spec-344' : d.id === 'd344-fix1' ? 'orchestrate/spec-344-fix1' : 'orchestrate/spec-344-t' + d.issue}</dd><dt>In state</dt><dd>${s}, for ${dur(m.now - m.since[d.id])}</dd></dl>
+    ${openFor(m, d.id).map(w => `<div class="callout" style="border-color:${CAUSE[w.cause].c}"><b>Waits on you:</b> ${esc(w.why)} ${chip(w.cause)}<div class="small">${esc(w.how)} · waiting ${dur(m.now - w.t)}</div></div>`).join('')}
+    <h3 style="margin-top:14px">States</h3><div class="strip">${m.hist[d.id].map((h, i, a) => `<span class="small"><span class="st">${h.s}</span> <span class="mono muted">${hm(h.t)}${i + 1 < a.length ? ' · ' + dur(a[i + 1].t - h.t) : ''}</span></span>`).join(' → ')}</div>
+    ${ws.length ? `<h3 style="margin-top:14px">Waited on you</h3>${ws.map(w => `<div class="small" style="margin:3px 0">${chip(w.cause)} ${esc(w.why)} <span class="mono muted">${hm(w.t)} · ${w.end ? dur(w.end - w.t) : 'still waiting'}</span></div>`).join('')}` : ''}
+    ${rs.length ? `<h3 style="margin-top:14px">Rulings</h3>${rs.map(r => `<div class="small" style="margin:3px 0"><a href="#" data-open="r:${r.id}" class="mono"><b>${r.id}</b></a> ${esc(r.question)} <span class="vd ${r.verdict.replace(/ .*/, '')}">${r.verdict}</span></div>`).join('')}` : ''}
+    <div class="tabs" style="margin-top:16px"><a href="#" data-tab="events" class="${logTab === 'events' ? 'on' : ''}">Run Events <span class="n">${evs.length}</span></a><a href="#" data-tab="log" class="${logTab === 'log' ? 'on' : ''}">Activity Log ${local ? '' : '<span class="n">not built</span>'}</a></div>
+    ${logTab === 'events' ? `<div class="feed">${evs.slice().reverse().map(e => `<div class="e"><span class="mono small">${hm(Date.parse(e.at))}</span><span class="who">${e.actor === 'human' ? '<b style="color:var(--ink)">you</b>' : esc(e.actor)}</span><span>${evText(e)}</span></div>`).join('') || '<div class="muted">None yet.</div>'}</div>`
+      : local ? `<div class="small muted" style="margin-bottom:6px">${d.id === '<integration>' ? "The Chief of Staff's" : 'This Delegation\'s own'} <code>activity.md</code>, read from the run folder on this machine. Prose stays local: it is never uploaded or put in the Run Record. (The replay shows the whole log, not only up to now.)</div><pre class="log prose">${esc(local)}</pre>`
+      : `<div class="muted">The Activity Log is private prose, so it is not committed with the prototype. Run <code>node docs/prototypes/live-run-board/local-logs.mjs</code> to build <code>local-logs.js</code> (gitignored) from the run folder, then reload. In a real run, the page reads it straight from <code>delegations/${esc(d.id)}/activity.md</code>.</div>`}`;
 }
 function banner(m){ if (m.closed) return `<div class="bannerA ok">✓ <b>Run closed.</b> <span class="muted">Its Run Record is written; open it in the past-runs dashboard.</span></div>`;
   return m.open.length ? `<div class="bannerA wait"><b>${m.open.length} thing${m.open.length > 1 ? 's' : ''} wait${m.open.length > 1 ? '' : 's'} on you</b> ${[...new Set(m.open.map(w => w.cause))].map(chip).join(' ')} <span class="muted">oldest ${dur(m.now - Math.min(...m.open.map(w => w.t)))}</span></div>`
@@ -284,7 +348,7 @@ function render(force){
   fav(m.open.length);
   notify(m);
   const html = V === 'A' ? vA(m) : V === 'B' ? vB(m) : V === 'C' ? vC(m) : V === 'D' ? vD(m) : vDel();
-  if (html === prevHTML && !force) return;
+  if (html === prevHTML && !force) { renderDrawer(m); return; }
   const app = document.getElementById('app');
   const before = {}; app.querySelectorAll('.card[data-id]').forEach(c => before[c.dataset.id] = { r: c.getBoundingClientRect(), col: c.parentElement.querySelector('h3')?.textContent });
   app.innerHTML = html; prevHTML = html;
@@ -293,9 +357,20 @@ function render(force){
   app.querySelectorAll('.card[data-id]').forEach(c => { const b = before[c.dataset.id]; if (!b) return; const a = c.getBoundingClientRect(); const dx = b.r.left - a.left, dy = b.r.top - a.top;
     if (Math.abs(dx) > 30){ c.style.transform = `translate(${dx}px,${dy}px)`; c.style.transition = 'none'; requestAnimationFrame(() => { c.style.transition = 'transform .7s cubic-bezier(.2,.8,.2,1)'; c.style.transform = ''; c.classList.add('flash'); }); }
     else if (Math.abs(dy) > 1){ c.style.transform = `translateY(${dy}px)`; requestAnimationFrame(() => { c.style.transition = 'transform .3s'; c.style.transform = ''; }); } });
+  renderDrawer(m);
   const s = document.getElementById('seen'); if (s) s.onclick = () => { lastSeenCount = m.seen.length; prevHTML = ''; };
   const tl = document.getElementById('tail'); if (tl) tl.scrollTop = tl.scrollHeight;
 }
+let prevDrawer = '';
+function renderDrawer(m){ const el = document.getElementById('drawer'), h = drawerHTML(m); el.classList.toggle('on', !!drawerKey);
+  if (h !== prevDrawer){ const top = el.scrollTop; el.innerHTML = h; el.scrollTop = top; prevDrawer = h; } }
+document.addEventListener('click', e => {
+  if (e.target.closest('[data-close]')) { openDrawer(null); return; }
+  const t = e.target.closest('[data-tab]'); if (t) { e.preventDefault(); logTab = t.dataset.tab; prevDrawer = ''; return; }
+  const o = e.target.closest('[data-open]'); if (o) { e.preventDefault(); e.stopPropagation(); openDrawer(o.dataset.open === drawerKey && o.classList.contains('card') ? null : o.dataset.open); return; }
+  if (drawerKey && !e.target.closest('.drawer,.switcher,.top')) openDrawer(null);
+});
+addEventListener('keydown', e => { if (e.key === 'Escape' && drawerKey) openDrawer(null); });
 let favN = -1; function fav(n){ if (n === favN) return; favN = n; const c = document.createElement('canvas'); c.width = c.height = 32; const x = c.getContext('2d');
   x.fillStyle = n ? '#f76707' : '#2b8a3e'; x.beginPath(); x.arc(16, 16, 14, 0, 7); x.fill(); if (n){ x.fillStyle = '#fff'; x.font = 'bold 20px system-ui'; x.textAlign = 'center'; x.fillText(n, 16, 23); } document.getElementById('fav').href = c.toDataURL(); }
 let notified = new Set(); function notify(m){ m.open.forEach(w => { if (notified.has(w.id)) return; notified.add(w.id); if (lastSeenCount === 0 && m.seen.length < 4) return;

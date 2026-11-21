@@ -20,6 +20,19 @@ The yellow **REPLAY** bar is only part of the prototype. It replays the real spe
 
 The tab title and favicon show how many things wait on you. A toast stands in for the browser notification option 2 would send.
 
+## Round 2: A, with a detail drawer and Rulings
+
+The maintainer picked **A (Kanban)** and asked for two additions:
+
+- **Click a card to open a side drawer** with that Delegation's facts, states with durations, its waits, its Rulings, its Run Events, and its own **Activity Log**. You can read the log on the board instead of in the harness. The drawer is in the URL (`#open=d:d350`), Esc closes it, and it keeps updating while it's open.
+- **A Rulings section** (the Ruling Ledger) under the board, with a link at the top that shows how many are unreviewed. Each Ruling opens in the drawer with its options, choice, reason, evidence, cites and verdict history. Cards show their Rulings as badges (`R1 unreviewed`). spec-344 made no Rulings, so R1 and R2 and the Ruling Review wait are **synthetic** and marked so.
+
+Activity Logs are private prose, so they aren't committed. To read them in the drawer, build `local-logs.js` (gitignored) from the run folder:
+
+```bash
+node docs/prototypes/live-run-board/local-logs.mjs
+```
+
 ## Data
 
 - `replay-spec-344.js`: the spec-344 run as Run Events, with ids, kinds, causes and states only. Times come from the hand-derived Run Record on `prototype/run-record-fields`. Times the record only bounds are placed inside those bounds and marked `est: true`.
