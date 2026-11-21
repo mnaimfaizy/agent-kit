@@ -34,9 +34,10 @@ const ALLOWLISTS = Object.freeze({
 /**
  * @typedef {{ status: number | null, stdout: string, stderr: string, code?: string }} RunResult
  * @typedef {{ status: number | null, stdout: Buffer, stderr: string, code?: string }} BufferResult
- * @typedef {{ status: number | null, signal: string | null, aborted: boolean, stdout: Buffer, stderr: string }} StartResult
- *   `aborted` is true when `opts.signal` stopped the command.
- * @typedef {(cmd: string, args: string[], opts?: { cwd?: string, env?: NodeJS.ProcessEnv, stdin?: Buffer | string, signal?: AbortSignal }) => Promise<StartResult>} Start
+ * @typedef {{ status: number | null, signal: string | null, aborted: boolean, truncated?: boolean, stdout: Buffer, stderr: string }} StartResult
+ *   `aborted` is true when `opts.signal` stopped the command; `truncated`
+ *   when its output passed `opts.maxOutput`, and it was killed for it.
+ * @typedef {(cmd: string, args: string[], opts?: { cwd?: string, env?: NodeJS.ProcessEnv, stdin?: Buffer | string, signal?: AbortSignal, maxOutput?: number }) => Promise<StartResult>} Start
  * @typedef {((cmd: string, args: string[], opts?: { cwd?: string, env?: NodeJS.ProcessEnv, encoding?: "utf8" | "buffer", maxBuffer?: number }) => RunResult) & { start: Start }} Runner
  *   With `encoding: "buffer"`, stdout is the raw bytes (a Buffer): use it for
  *   file contents, which need not be UTF-8. stderr is always text. `start`
@@ -134,11 +135,13 @@ function makeRunner(list, who, spawn, spawnAsync = spawnChild) {
       const out = [];
       const err = errorCollector();
       let size = 0;
+      let truncated = false;
+      const cap = opts.maxOutput ?? MAX_OUTPUT;
       const finish = (result) => {
         if (done) return;
         done = true;
         opts.signal?.removeEventListener("abort", onAbort);
-        resolve({ aborted, ...result });
+        resolve({ aborted, ...(truncated ? { truncated } : {}), ...result });
       };
       let child;
       const onAbort = () => {
@@ -164,7 +167,12 @@ function makeRunner(list, who, spawn, spawnAsync = spawnChild) {
       }
       child.stdout.on("data", (b) => {
         size += b.length;
-        if (size <= MAX_OUTPUT) out.push(b);
+        if (size <= cap) out.push(b);
+        else if (opts.maxOutput !== undefined && !truncated) {
+          // Past the caller's cap: read no more of it.
+          truncated = true;
+          child.kill("SIGKILL");
+        }
       });
       child.stderr.on("data", (b) => err.push(b));
       child.on("error", (e) =>

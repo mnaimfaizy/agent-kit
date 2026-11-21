@@ -85,35 +85,37 @@ export function relayOptions() {
 }
 
 /**
- * Why a probe's answer fails the check, or null when it passes: the relay
- * connected, and the host network's gateway unreachable on each port.
- * @param {string} stdout the probe's output
- * @param {{ relay: [string, number], gateway: Array<[string, number]> }} targets
+ * @typedef {{ host: string, port: number, want: "connected" | "unreachable", what: string }} ProbeTarget
+ *   A target a probe tries, what it must give, and what to call it.
  */
-export function probeFailure(stdout, { relay, gateway }) {
+
+/**
+ * Why a probe's answer fails the check, or null when it passes: every
+ * target gave what it must.
+ * @param {string} stdout the probe's output
+ * @param {ProbeTarget[]} targets
+ */
+export function probeFailure(stdout, targets) {
   let results;
   try {
     results = JSON.parse(stdout.trim());
   } catch {
     results = null;
   }
-  const count = 1 + gateway.length;
   if (
     !Array.isArray(results) ||
-    results.length !== count ||
+    results.length !== targets.length ||
     !results.every((r) => typeof r === "string")
   ) {
     return "the probe's answer is not one result per target";
   }
-  const at = ([host, port]) => `${host.includes(":") ? `[${host}]` : host}:${port}`;
-  if (results[0] !== "connected") {
-    return `a probe on it could not reach the relay at ${at(relay)} (${results[0]})`;
-  }
-  for (const [i, target] of gateway.entries()) {
-    const r = results[i + 1];
-    if (r !== "unreachable") {
-      return `a probe on it reached the host network's gateway at ${at(target)} (${r})`;
-    }
+  for (const [i, t] of targets.entries()) {
+    const r = results[i];
+    if (r === t.want) continue;
+    const at = `${t.host.includes(":") ? `[${t.host}]` : t.host}:${t.port}`;
+    return t.want === "connected"
+      ? `a probe on it could not reach ${t.what} at ${at} (${r})`
+      : `a probe on it reached ${t.what} at ${at} (${r})`;
   }
   return null;
 }

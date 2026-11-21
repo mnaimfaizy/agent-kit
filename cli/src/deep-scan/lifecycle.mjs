@@ -211,11 +211,12 @@ export async function runLifecycle(opts) {
   };
 
   /** @type {import("./docker-driver.mjs").Call} */
-  const call = async (cmd, args, { stdin, cwd } = {}) => {
+  const call = async (cmd, args, { stdin, cwd, maxOutput } = {}) => {
     const stepSignal = clocks.signal();
     if (stepSignal.aborted) throw clocks.reason();
-    const r = await runner.start(cmd, args, { stdin, cwd, signal: stepSignal });
+    const r = await runner.start(cmd, args, { stdin, cwd, maxOutput, signal: stepSignal });
     if (r.aborted || stepSignal.aborted) throw clocks.reason();
+    if (r.truncated) return r;
     // Ctrl+C in a terminal reaches the runtime's child too, and can end it
     // before the handler above runs: that is an interrupt, not a failure.
     if (r.signal === "SIGINT" || r.signal === "SIGTERM") throw new Interrupted(r.signal);
