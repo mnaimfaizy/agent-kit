@@ -1,0 +1,407 @@
+<!doctype html>
+<!--
+  PROTOTYPE, throwaway (wayfinder ticket #394 "Dashboard designs for Run Records", map #391).
+  Four structurally different dashboard designs for a Consumer, switchable via ?variant=A..D
+  and the floating bar (or ← →). Views: ?view=run | runs | team. Never merged.
+  Data: the two hand-derived Run Records (real) + clearly marked SYNTHETIC records for the
+  across-runs trend and the Team Run, which have no real sample yet.
+  `cause` is not in the v0 records: this page assigns one per human step (see causeOf) to
+  show what the decided field would let the dashboard do.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Run Record Dashboard</title>
+<style>
+:root{
+  --bg:#f7f7f5; --panel:#fff; --ink:#1c1d1f; --muted:#6b6e75; --line:#e2e2de; --soft:#efefeb;
+  --accent:#3b5bdb; --warn:#c2410c; --ok:#2f9e44;
+  --c-by-design:#9aa0a6; --c-human-choice:#5c7cfa; --c-harness-limit:#e8590c; --c-permission-refusal:#d6336c;
+  --c-missing-config:#f59f00; --c-spec-gap:#12b886; --c-skill-bug:#7048e8; --c-tool-missing:#1098ad; --c-other:#495057;
+  --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#141517; --panel:#1d1e21; --ink:#e7e7e4; --muted:#9a9ca3; --line:#2e3034; --soft:#25272b; --accent:#748ffc;
+}}
+:root[data-theme="dark"]{ --bg:#141517; --panel:#1d1e21; --ink:#e7e7e4; --muted:#9a9ca3; --line:#2e3034; --soft:#25272b; --accent:#748ffc; }
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;padding-bottom:90px}
+h1,h2,h3{margin:0;font-weight:600} h2{font-size:16px} h3{font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+.top{display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:12px 16px;border-bottom:1px solid var(--line);background:var(--panel);position:sticky;top:0;z-index:5}
+.top .proto{font:11px var(--mono);background:#ffe066;color:#222;padding:2px 6px;border-radius:3px}
+.top select,.top button{font:inherit;padding:4px 8px;border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:6px;cursor:pointer}
+.top button.on{background:var(--ink);color:var(--panel)}
+.wrap{max-width:1200px;margin:0 auto;padding:16px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:14px}
+.muted{color:var(--muted)} .mono{font-family:var(--mono)} .small{font-size:12px}
+.chip{display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:1px 7px;border-radius:99px;background:var(--soft);white-space:nowrap}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+.syn{font:10px var(--mono);background:repeating-linear-gradient(45deg,#ffe06655,#ffe06655 4px,transparent 4px,transparent 8px);border:1px dashed #c9a400;padding:0 5px;border-radius:3px}
+table{border-collapse:collapse;width:100%} th,td{text-align:left;padding:5px 8px;border-bottom:1px solid var(--line);font-size:13px} th{color:var(--muted);font-weight:500;font-size:12px}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px} @media(max-width:800px){.grid2{grid-template-columns:1fr}}
+.kpis{display:flex;flex-wrap:wrap;gap:24px} .kpi b{display:block;font-size:24px;font-weight:600;font-variant-numeric:tabular-nums} .kpi span{color:var(--muted);font-size:12px}
+svg text{fill:var(--ink);font-size:11px} svg .mt{fill:var(--muted)}
+.scroll{overflow-x:auto}
+/* switcher */
+.switch{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:#111;color:#fff;border-radius:99px;display:flex;align-items:center;gap:6px;padding:6px 8px;box-shadow:0 6px 24px #0006;z-index:20;font:13px system-ui}
+.switch button{background:#333;color:#fff;border:0;border-radius:99px;width:30px;height:30px;cursor:pointer;font-size:15px}
+.switch .lbl{min-width:220px;text-align:center}
+/* variant D */
+.term{background:#0f1115;color:#d4d7dd;font:12.5px/1.5 var(--mono);padding:18px;border-radius:10px;white-space:pre;overflow-x:auto}
+.term .h{color:#ffd43b} .term .d{color:#868e96} .term .r{color:#ff8787} .term .g{color:#8ce99a} .term .b{color:#74c0fc}
+/* variant C */
+.feed{position:relative;margin-left:90px} .feed:before{content:"";position:absolute;left:-14px;top:0;bottom:0;border-left:2px solid var(--line)}
+.ev{position:relative;padding:5px 10px;margin:4px 0;border-radius:8px}
+.ev .t{position:absolute;left:-104px;width:80px;text-align:right;font:11px var(--mono);color:var(--muted);top:7px}
+.ev:before{content:"";position:absolute;left:-19px;top:11px;width:10px;height:10px;border-radius:50%;background:var(--line)}
+.ev.human{background:var(--soft);border-left:3px solid var(--warn)} .ev.human:before{background:var(--warn)}
+.ev.del:before{background:var(--accent)} .ev.cos:before{background:var(--muted)}
+.cgrid{display:grid;grid-template-columns:1fr 320px;gap:14px;align-items:start} @media(max-width:900px){.cgrid{grid-template-columns:1fr}}
+.sticky{position:sticky;top:64px}
+/* variant B */
+.waffle{display:flex;flex-wrap:wrap;gap:3px} .waffle i{width:16px;height:16px;border-radius:3px;display:block}
+.heat td.num{min-width:34px}
+.todo{border-left:4px solid var(--accent);padding:8px 12px;margin:8px 0;background:var(--soft);border-radius:0 8px 8px 0}
+.todo b{font-variant-numeric:tabular-nums}
+.note{font-size:12px;color:var(--muted);border-top:1px dashed var(--line);margin-top:10px;padding-top:8px}
+</style>
+</head>
+<body>
+<div class="top">
+  <span class="proto">PROTOTYPE</span>
+  <h1 style="font-size:15px">Run Records</h1>
+  <span id="views"></span>
+  <select id="runSel" title="Run"></select>
+  <span class="muted small" id="where"></span>
+</div>
+<div class="wrap" id="app"></div>
+<div class="switch" id="switch"><button id="prev" title="Previous variant (←)">‹</button><span class="lbl" id="vlabel"></span><button id="next" title="Next variant (→)">›</button></div>
+
+<script id="records" type="application/json">[{"schema":"run-record/0","_provenance":{"run_folder_tz":"+11:00 (log dates are local dates; gh times are UTC)","from_gh":["run.plan_approved_at (upper bound: #253 relabel time)","run.closed_at (last close-out write)","delegations[].pr_opened_at","delegations[].landed_at","human_interventions[].at where at_source=gh"],"from_git":["base commit time only"],"everything_else":"run-folder"},"run":{"id":"2026-11-17-spec-253","kind":"tickets","spec":253,"tickets":[255,256,257,258,259],"tickets_out_of_run":[252],"harness":"claude-code-desktop","support_level":"verified","decision_authority":"relay","landing":"per-ticket","base":"5014606","started_at":"2026-11-17","plan_approved_at":"2026-11-17T08:28:25Z","closed_at":"2026-11-18T02:14:54Z","outcome":"merged","pull_requests":[271,272,270,277,282],"merge_order":[271,272,277,282,270],"issues_opened":[273,284,285,287],"default_branch_moved_outside_run":[275,280,278,281]},"plan":{"routine_writes_approved":["add-review-label","post-qa-report","relabel-spec"],"qa_required":"report","qa_required_source":"human-added-after-draft","plan_shown":2,"concurrency_limit":3},"delegations":[{"id":"d255","issue":255,"kind":"building","executor":"live-session","model":"default","wave":1,"start_route":"direct","started_at":"2026-11-17","pr":271,"pr_opened_at":"2026-11-17T08:34:37Z","landed_at":"2026-11-17T20:31:40Z","ended_at":null,"outcome":"landed","final_head":"8838db3","merge_commit":"0d176a1","heads_reported":5,"send_backs":3,"branch_updates":1,"decision_requests":2,"shared_decision_requests":1,"rulings":0,"fence_widenings":0},{"id":"d256","issue":256,"kind":"building","executor":"live-session","model":"default","wave":1,"start_route":"direct","started_at":"2026-11-17","pr":272,"pr_opened_at":"2026-11-17T08:37:58Z","landed_at":"2026-11-17T21:04:12Z","ended_at":null,"outcome":"landed","final_head":"aa436ed","merge_commit":"ea4c15e","heads_reported":4,"send_backs":2,"branch_updates":1,"decision_requests":2,"shared_decision_requests":1,"rulings":0,"fence_widenings":2},{"id":"d257","issue":257,"kind":"building","executor":"live-session","model":"default","wave":1,"start_route":"direct","started_at":"2026-11-17","pr":270,"pr_opened_at":"2026-11-17T08:33:30Z","landed_at":"2026-11-18T02:11:54Z","ended_at":null,"outcome":"landed","final_head":"7c74a7f","merge_commit":"4413dcc","heads_reported":4,"send_backs":2,"branch_updates":1,"decision_requests":1,"shared_decision_requests":2,"rulings":1,"fence_widenings":0},{"id":"d258","issue":258,"kind":"building","executor":"live-session","model":"default","wave":2,"start_route":"direct","started_at":"2026-11-18","pr":277,"pr_opened_at":"2026-11-17T20:42:16Z","landed_at":"2026-11-17T21:35:01Z","ended_at":null,"outcome":"landed","final_head":"4ee655d","merge_commit":"e69bbf3","heads_reported":3,"send_backs":1,"branch_updates":1,"decision_requests":2,"shared_decision_requests":0,"rulings":0,"fence_widenings":1},{"id":"d259","issue":259,"kind":"building","executor":"live-session","model":"default","wave":2,"start_route":"direct","started_at":"2026-11-18","pr":282,"pr_opened_at":"2026-11-17T21:12:46Z","landed_at":"2026-11-17T22:41:53Z","ended_at":null,"outcome":"landed","final_head":"bfd3926","merge_commit":"7aba52d","heads_reported":2,"send_backs":0,"branch_updates":1,"decision_requests":2,"shared_decision_requests":0,"rulings":0,"fence_widenings":0},{"id":"d255-qa","issue":255,"kind":"qa","executor":"live-session","model":"default","wave":"after-d255","start_route":"direct","started_at":"2026-11-17","landed_at":null,"ended_at":null,"outcome":"void","pinned_head":"bf5cbe4","send_backs":0,"decision_requests":2,"rulings":0},{"id":"d255-qa2","issue":255,"kind":"qa","executor":"live-session","model":"default","wave":"after-d255","start_route":"direct","started_at":"2026-11-18","landed_at":null,"ended_at":null,"outcome":"qa-pass","pinned_head":"8838db3","send_backs":0,"decision_requests":0,"rulings":0},{"id":"d256-qa","issue":256,"kind":"qa","executor":"live-session","model":"default","wave":"after-d256","start_route":"card","started_at":"2026-11-18","landed_at":null,"ended_at":null,"outcome":"qa-pass","pinned_head":"aa436ed","send_backs":0,"decision_requests":1,"rulings":0},{"id":"d257-qa","issue":257,"kind":"qa","executor":"live-session","model":"default","wave":"after-d257","start_route":"card","started_at":"2026-11-18","landed_at":null,"ended_at":null,"outcome":"qa-pass","pinned_head":"7c74a7f","send_backs":0,"decision_requests":2,"rulings":0},{"id":"d258-qa","issue":258,"kind":"qa","executor":"live-session","model":"default","wave":"after-d258","start_route":"card","started_at":"2026-11-18","landed_at":null,"ended_at":null,"outcome":"qa-pass","pinned_head":"4ee655d","send_backs":0,"decision_requests":3,"rulings":0},{"id":"d259-qa","issue":259,"kind":"qa","executor":"live-session","model":"default","wave":"after-d259","start_route":"direct","started_at":"2026-11-18","landed_at":null,"ended_at":null,"outcome":"qa-pass","pinned_head":"bfd3926","send_backs":0,"decision_requests":1,"rulings":0}],"decision_requests":[{"id":"DR1","delegations":["d256"],"subject":"fence-widening","answered_by":"human","option":1},{"id":"DR2","delegations":["d256","d257"],"subject":"review-gate","answered_by":"human","option":1},{"id":"DR3","delegations":["d255","d257"],"subject":"review-gate","answered_by":"human","option":1,"standing":true},{"id":"DR4","delegations":["d256"],"subject":"fence-widening","answered_by":"human","option":1},{"id":"DR5","delegations":["d255"],"subject":"branch-update","answered_by":"human","option":1},{"id":"DR6","delegations":["d255"],"subject":"review-scope","answered_by":"human","option":1},{"id":"DR7","delegations":["d258"],"subject":"fence-widening","answered_by":"human","option":1},{"id":"DR8","delegations":["d258-qa"],"subject":"qa-readiness","answered_by":"human","option":1},{"id":"DR9","delegations":["d258-qa"],"subject":"qa-residue-choice","answered_by":"human","option":1},{"id":"DR10","delegations":["d258-qa"],"subject":"qa-plan-confirm","answered_by":"human","option":1},{"id":"DR11","delegations":["d258"],"subject":"merge-behind","answered_by":"human","option":1},{"id":"DR12","delegations":["d259"],"subject":"merge-behind","answered_by":"human","option":1},{"id":"DR12b","delegations":["d259"],"subject":"merge-behind","answered_by":"human","option":1},{"id":"DR13","delegations":["d257-qa"],"subject":"qa-deferral","answered_by":"human","option":1},{"id":null,"delegations":["d257"],"subject":"review-gate","answered_by":"chief-of-staff","option":1,"ruling_from":"DR3"},{"id":null,"delegations":["d255-qa"],"subject":"qa-readiness","answered_by":"human","option":1,"raised_in":"delegation-session"},{"id":null,"delegations":["d255-qa"],"subject":"qa-plan-confirm","answered_by":"human","option":1,"raised_in":"delegation-session"},{"id":null,"delegations":["d256-qa"],"subject":"qa-readiness","answered_by":"human","option":1,"raised_in":"delegation-session"},{"id":null,"delegations":["d257-qa"],"subject":"qa-plan-confirm","answered_by":"human","option":1,"raised_in":"delegation-session"},{"id":null,"delegations":["d259-qa"],"subject":"qa-plan-confirm","answered_by":"human","option":1,"raised_in":"delegation-session"}],"human_interventions":[{"at":"2026-11-17","at_source":"run-folder","delegation":null,"kind":"other","proposed_kind":"plan-change","channel":"chief-of-staff","waited_minutes":null},{"at":"2026-11-17T08:28:25Z","at_source":"gh-upper-bound","delegation":null,"kind":"plan-approval","channel":"chief-of-staff","waited_minutes":null},{"at":"2026-11-17T08:28:25Z","at_source":"gh","delegation":null,"kind":"write-as-human","approval":"plan","target_issue":253,"channel":"chief-of-staff","waited_minutes":null},{"at":"2026-11-17","at_source":"run-folder","delegation":"d256","kind":"decision-request","dr":"DR1","channel":"chief-of-staff","waited_minutes":null},{"at":"2026-11-17","at_source":"run-folder","delegation":null,"delegations":["d256","d257"],"kind":"decision-request","dr":"DR2","channel":"chief-of-staff","waited_minutes":null},{"at":"2026-11-17","at_source":"run-folder","delegation":null,"delegations":["d255","d257"],"kind":"decision-request","dr":"DR3","channel":"chief-of-staff","waited_minutes":null},{"at":"2026-11-17","at_source":"run-folder","delegation":"d256","kind":"decision-request","dr":"DR4","channel":"chief-of-staff","waited_minutes":null},{"at":"2026-11-17T09:28:30Z","at_source":"gh","delegation":null,"kind":"write-as-human","approval":"DR3","target_issue":273,"channel":"chief-of-staff","waited_minutes":null},{"at":"2026-11-17","at_source":"run-folder","delegation":"d257","kind":"permission-refusal","human_needed":false,"channel":"delegation-session","waited_minutes":null},{"at":"2026-11-17","at_source":"run-folder","delegation":"d255-qa","kind":"typed-command","command":"qa-plan","channel":"delegation-session","waited_minutes":null},{"at":"2026-11-17","at_source":"run-folder","delegation":"d255-qa","kind":"readiness-answer","channel":"delegation-session","waited_minutes":null},{"at":"2026-11-17","at_source":"run-folder","delegation":"d255-qa","kind":"other","proposed_kind":"qa-residue-choice","channel":"delegation-session","waited_minutes":null},{"at":"2026-11-17","at_source":"run-folder","delegation":"d255-qa","kind":"decision-request","subject":"qa-plan-confirm","channel":"delegation-session","waited_minutes":null},{"at":"2026-11-17","at_source":"run-folder","delegation":"d255-qa","kind":"typed-command","command":"manual-qa","channel":"delegation-session","waited_minutes":null},{"at":"2026-11-17","at_source":"run-folder","delegation":"d255-qa","kind":"other","proposed_kind":"stale-relay","channel":"chief-of-staff","waited_minutes":null},{"at":"2026-11-17","at_source":"run-folder","delegation":"d255-qa","kind":"other","proposed_kind":"review-box-pass","items":1,"channel":"chief-of-staff","waited_minutes":null},{"at":"2026-11-17","at_source":"run-folder","delegation":"d255","kind":"other","proposed_kind":"human-caught-error","channel":"chief-of-staff","waited_minutes":null},{"at":"2026-11-17","at_source":"run-folder","delegation":"d255","kind":"decision-request","dr":"DR5","channel":"chief-of-staff","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d255","kind":"decision-request","dr":"DR6","channel":"chief-of-staff","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d255-qa2","kind":"typed-command","command":"qa-plan","channel":"delegation-session","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d255-qa2","kind":"readiness-answer","channel":"delegation-session","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d255-qa2","kind":"other","proposed_kind":"qa-plan-confirm","channel":"delegation-session","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d255-qa2","kind":"typed-command","command":"manual-qa","channel":"delegation-session","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d255-qa2","kind":"other","proposed_kind":"review-box-pass","items":1,"channel":"chief-of-staff","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d255","kind":"merge","result":"refused","pr":271,"channel":"human-shell","waited_minutes":null},{"at":"2026-11-17T20:31:40Z","at_source":"gh","delegation":"d255","kind":"merge","result":"merged","admin_bypass":true,"pr":271,"waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d256-qa","kind":"card-start","channel":"app-card","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d256-qa","kind":"typed-command","command":"qa-plan","channel":"delegation-session","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d256-qa","kind":"readiness-answer","channel":"delegation-session","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d256-qa","kind":"other","proposed_kind":"qa-residue-choice","items":2,"channel":"delegation-session","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d256-qa","kind":"other","proposed_kind":"qa-plan-confirm","channel":"delegation-session","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d256-qa","kind":"typed-command","command":"manual-qa","channel":"delegation-session","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d256-qa","kind":"other","proposed_kind":"review-box-pass","items":7,"channel":"chief-of-staff","waited_minutes":null},{"at":"2026-11-17T21:04:12Z","at_source":"gh","delegation":"d256","kind":"merge","result":"merged","admin_bypass":true,"pr":272,"waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d258","kind":"decision-request","dr":"DR7","channel":"chief-of-staff","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":null,"kind":"other","proposed_kind":"session-housekeeping","sessions":5,"channel":"chief-of-staff","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d258-qa","kind":"card-start","channel":"app-card","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d258-qa","kind":"typed-command","command":"qa-plan","channel":"delegation-session","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d258-qa","kind":"readiness-answer","channel":"delegation-session","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d258-qa","kind":"readiness-answer","dr":"DR8","duplicate_of_previous":true,"channel":"chief-of-staff","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d258-qa","kind":"decision-request","dr":"DR9","subject":"qa-residue-choice","channel":"chief-of-staff","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d258-qa","kind":"decision-request","dr":"DR10","subject":"qa-plan-confirm","channel":"chief-of-staff","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d258-qa","kind":"typed-command","command":"manual-qa","channel":"delegation-session","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d258-qa","kind":"other","proposed_kind":"review-box-pass","items":4,"channel":"chief-of-staff","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d258","kind":"decision-request","dr":"DR11","channel":"chief-of-staff","waited_minutes":null},{"at":"2026-11-17T21:35:01Z","at_source":"gh","delegation":"d258","kind":"merge","result":"merged","admin_bypass":true,"pr":277,"waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d259","kind":"decision-request","dr":"DR12","channel":"chief-of-staff","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d259-qa","kind":"typed-command","command":"qa-plan","channel":"delegation-session","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d259-qa","kind":"other","proposed_kind":"qa-plan-confirm","channel":"delegation-session","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d259-qa","kind":"typed-command","command":"manual-qa","channel":"delegation-session","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d259-qa","kind":"other","proposed_kind":"review-box-pass","items":4,"channel":"chief-of-staff","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d259","kind":"decision-request","dr":"DR12b","channel":"chief-of-staff","waited_minutes":null},{"at":"2026-11-17T22:41:53Z","at_source":"gh","delegation":"d259","kind":"merge","result":"merged","admin_bypass":null,"pr":282,"before_chief_of_staff_listed":true,"waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d257-qa","kind":"card-start","channel":"app-card","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d257-qa","kind":"typed-command","command":"qa-plan","channel":"delegation-session","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d257-qa","kind":"decision-request","subject":"qa-plan-confirm","channel":"delegation-session","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d257-qa","kind":"typed-command","command":"manual-qa","channel":"delegation-session","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d257-qa","kind":"decision-request","dr":"DR13","subject":"qa-deferral","also":"review-box-pass","items":4,"channel":"chief-of-staff","waited_minutes":null},{"at":"2026-11-18T02:11:54Z","at_source":"gh","delegation":"d257","kind":"merge","result":"merged","admin_bypass":null,"pr":270,"waited_minutes":null},{"at":"2026-11-18T02:13:06Z","at_source":"gh","delegation":null,"kind":"close-out","action":"post-run-summary","target_issue":253,"waited_minutes":null},{"at":"2026-11-18T02:14:52Z","at_source":"gh","delegation":null,"kind":"close-out","action":"post-follow-ups","issues":[284,285],"waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":null,"kind":"close-out","action":"archive-sessions","sessions":6,"waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":null,"kind":"close-out","action":"delete-local-branches","count":5,"waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":null,"kind":"close-out","action":"delete-remote-branches","count":2,"waited_minutes":null},{"at":"2026-11-18T02:54:39Z","at_source":"gh","delegation":null,"kind":"close-out","action":"post-follow-ups","issues":[287],"after_run_closed":true,"waited_minutes":null}],"reviews":[{"pr":271,"head":"5cce1b0","round":1,"run":44048773785,"findings":3,"fixed":2,"answered":1,"gate":"fail"},{"pr":271,"head":"bf5cbe4","round":2,"run":44050130646,"findings":0,"fixed":0,"answered":0,"gate":"fail","counted_under":"DR3"},{"pr":271,"head":"d3fd9d5","round":3,"run":44065795837,"findings":1,"fixed":1,"answered":0,"gate":"pass"},{"pr":271,"head":"a2678cc","round":4,"run":44066586363,"findings":2,"fixed":2,"answered":0,"gate":"pass"},{"pr":271,"head":"8838db3","round":5,"run":44067722287,"findings":1,"fixed":0,"answered":1,"gate":"pass","answered_under":"DR6"},{"pr":272,"head":"418276f","round":1,"run":44049052019,"findings":4,"fixed":4,"answered":0,"gate":"fail","fence_widened":"DR1"},{"pr":272,"head":"73b799c","round":2,"run":44050859514,"findings":1,"fixed":1,"answered":0,"gate":"fail","fence_widened":"DR4"},{"pr":272,"head":"7f2333b","round":3,"run":44056270063,"findings":0,"fixed":0,"answered":0,"gate":"fail","counted_under":"DR3"},{"pr":272,"head":"aa436ed","round":4,"run":44170732989,"findings":0,"fixed":0,"answered":0,"gate":"fail","counted_under":"DR3"},{"pr":270,"head":"420fae4","round":1,"run":44049276908,"findings":2,"fixed":1,"answered":1,"gate":"fail"},{"pr":270,"head":"7e8c434","round":2,"run":44050867062,"findings":1,"fixed":1,"answered":0,"gate":"pass"},{"pr":270,"head":"3c16712","round":3,"run":44051661376,"findings":0,"fixed":0,"answered":0,"gate":"fail","counted_under":"DR3"},{"pr":270,"head":"7c74a7f","round":4,"run":44193064839,"findings":0,"fixed":0,"answered":0,"gate":"fail","counted_under":"DR3"},{"pr":277,"head":"5bd50ce","round":1,"run":null,"findings":2,"fixed":2,"answered":0,"gate":null},{"pr":277,"head":"39c00c2","round":2,"run":44173138903,"findings":0,"fixed":0,"answered":0,"gate":"fail","counted_under":"DR3"},{"pr":277,"head":"4ee655d","round":3,"run":44176358390,"findings":0,"fixed":0,"answered":0,"gate":"fail","counted_under":"DR3"},{"pr":282,"head":"0814a6f","round":1,"run":null,"findings":1,"fixed":1,"answered":0,"gate":null},{"pr":282,"head":"e744f9d","round":2,"run":44178667734,"findings":0,"fixed":0,"answered":0,"gate":"fail","counted_under":"DR3"},{"pr":282,"head":"bfd3926","round":3,"run":44181668326,"findings":0,"fixed":0,"answered":0,"gate":"fail","counted_under":"DR3"}],"ci":[{"pr":271,"head":"bf5cbe4","required":"pass","result":"fail","failed_checks":1,"behind_main":true},{"pr":271,"head":"8838db3","required":"pass","result":"pass","failed_checks":0},{"pr":272,"head":"aa436ed","required":"pass","result":"fail","failed_checks":1},{"pr":270,"head":"7c74a7f","required":"pass","result":"fail","failed_checks":1},{"pr":277,"head":"4ee655d","required":"pass","result":"fail","failed_checks":1,"behind_main":true},{"pr":282,"head":"bfd3926","required":"pass","result":"fail","failed_checks":1,"behind_main":true}],"regates":{"local_full_runs":21,"all_pass":true,"on_loose_merge_results":3},"rulings":{"made":1,"upheld":0,"overturned":0,"standing_ruling_applications":9},"qa":[{"delegation":"d255-qa","pr":271,"head":"bf5cbe4","target":"stack","stack_used":false,"route":"typed","readiness_source":"human","delivery":"working-copy","scenarios":0,"review_boxes":1,"deferred_scenarios":0,"result":"void","voided_by":"head-moved"},{"delegation":"d255-qa2","pr":271,"head":"8838db3","target":"stack","stack_used":false,"route":"typed","readiness_source":"human","delivery":"working-copy","scenarios":0,"review_boxes":1,"deferred_scenarios":0,"result":"pass"},{"delegation":"d256-qa","pr":272,"head":"aa436ed","target":"stack","stack_used":false,"route":"typed","readiness_source":"human","delivery":"working-copy","scenarios":0,"review_boxes":7,"deferred_scenarios":0,"result":"pass"},{"delegation":"d257-qa","pr":270,"head":"7c74a7f","target":"stack","stack_used":false,"route":"typed","readiness_source":"brief","delivery":"working-copy","scenarios":1,"review_boxes":4,"deferred_scenarios":1,"result":"pass"},{"delegation":"d258-qa","pr":277,"head":"4ee655d","target":"stack","stack_used":false,"route":"typed","readiness_source":"human","delivery":"working-copy","scenarios":0,"review_boxes":4,"deferred_scenarios":0,"result":"pass"},{"delegation":"d259-qa","pr":282,"head":"bfd3926","target":"stack","stack_used":false,"route":"typed","readiness_source":"brief","delivery":"working-copy","scenarios":0,"review_boxes":4,"deferred_scenarios":0,"result":"pass"}],"qa_human_steps_by_kind":{"typed-command":12,"plan-confirm":6,"review-box-pass":6,"readiness-answer":5,"card-start":3,"residue-choice":3,"qa-deferral":1,"stale-relay":1},"heartbeats":{"firings":null,"no_change":null,"side_session_wakeups":null},"harness_refusals":{"start_session_on_background_turn":3,"slash_command_as_message":1}},{"schema":"run-record/0","_provenance":{"run_folder":"activity.md, board.md, rulings.md, run-summary.md, delegations/*/activity.md, evidence/*","git":"commit author times (local +11:00, converted to Z) for at_bounds and head_committed_at","gh":"pr 387 createdAt/mergedAt/timeline (label, ready_for_review, merged), review comment created_at, actions runs created_at, issue 344/348-353 closedAt, issue 344 comment created_at","note":"Run folder gives dates only (one '~14:13' local time). Every Z time below came from git or gh unless marked."},"run":{"id":"2026-11-19-spec-344","kind":"spec","spec":344,"tickets":[348,349,350,351,352,353],"harness":"claude-code-desktop","support_level":"verified","decision_authority":"autonomous","landing":"integration-branch","landing_source":"inferred","started_at":null,"started_at_bounds":["2026-11-19T01:44:00Z","2026-11-19T03:10:20Z"],"plan_approved_at":null,"plan_approved_at_bounds":[null,"2026-11-19T03:10:20Z"],"pr_opened_at":"2026-11-19T04:41:12Z","merged_at":"2026-11-19T06:26:19Z","merge_commit":"25e3536","closed_at":"2026-11-19T06:27:22Z","outcome":"merged","pull_requests":[387],"base":{"cut_at":"2fc49b2","default_tip_at_merge_check":"9f24e15","merged_main_in":true}},"plan":{"routine_writes_approved":["open-final-pr"],"routine_writes_declined":["add-review-label"],"qa_required":"none","waves":6,"wave_shape":"serial","serial_reason":"scope-fence-overlap"},"delegations":[{"id":"d348","issue":348,"kind":"building","executor":"live-session","model":"default","wave":1,"start_route":"direct","started_at":null,"first_commit_at":"2026-11-19T03:10:20Z","head":"6fc67d7","head_committed_at":"2026-11-19T03:14:29Z","landed_at":null,"ended_at":null,"outcome":"landed","send_backs":0,"decision_requests":0,"rulings":0,"commits":7,"regate_attempts_by_chief":2,"regate_result":"pass"},{"id":"d349","issue":349,"kind":"building","executor":"live-session","model":"default","wave":2,"start_route":"direct","started_at":null,"first_commit_at":"2026-11-19T03:21:33Z","head":"f17e566","head_committed_at":"2026-11-19T03:26:08Z","landed_at":null,"ended_at":null,"outcome":"landed","send_backs":0,"decision_requests":0,"rulings":0,"commits":4,"regate_attempts_by_chief":1,"regate_result":"pass"},{"id":"d350","issue":350,"kind":"building","executor":"live-session","model":"default","wave":3,"start_route":"card","card_reason":"start-session-refused-heartbeat-turn","card":"task_184e1773","started_at":null,"first_commit_at":"2026-11-19T03:34:03Z","head":"7ea8b5d","head_committed_at":"2026-11-19T03:41:48Z","landed_at":null,"ended_at":null,"outcome":"landed","send_backs":0,"decision_requests":0,"rulings":0,"commits":6,"regate_attempts_by_chief":1,"regate_result":"pass"},{"id":"d351","issue":351,"kind":"building","executor":"live-session","model":"default","wave":4,"start_route":"card","card_reason":"app-started-turn","card":"task_ee8dfe89","started_at":null,"first_commit_at":"2026-11-19T03:50:21Z","head":"5159081","head_committed_at":"2026-11-19T03:57:07Z","landed_at":null,"ended_at":null,"outcome":"landed","send_backs":0,"decision_requests":0,"rulings":0,"commits":5,"regate_attempts_by_chief":1,"regate_result":"pass"},{"id":"d352","issue":352,"kind":"building","executor":"live-session","model":"default","wave":5,"start_route":"card","card_reason":"unrecorded","card":"task_2766ee4a","started_at":null,"first_commit_at":"2026-11-19T04:04:50Z","head":"d02f591","head_committed_at":"2026-11-19T04:07:38Z","landed_at":null,"ended_at":null,"outcome":"landed","send_backs":0,"decision_requests":0,"rulings":0,"commits":4,"regate_attempts_by_chief":1,"regate_result":"pass"},{"id":"d353","issue":353,"kind":"building","executor":"live-session","model":"default","wave":6,"start_route":"card","card_reason":"unrecorded","card":"task_e0243937","started_at":null,"first_commit_at":"2026-11-19T04:24:28Z","head":"75aa766","head_committed_at":"2026-11-19T04:28:59Z","landed_at":null,"ended_at":null,"outcome":"landed","send_backs":0,"decision_requests":0,"rulings":0,"commits":3,"regate_attempts_by_chief":1,"regate_result":"pass"},{"id":"d344-fix1","issue":344,"kind":"fix","executor":"live-session","model":"default","wave":"after-review","start_route":"card","card_reason":"start-session-refused-not-user-turn","card":"task_3e11ec7d","fixes_review_rounds":[1,2],"fence_widened":true,"started_at":null,"first_commit_at":"2026-11-19T05:06:23Z","head":"b779e0c","head_committed_at":"2026-11-19T06:05:01Z","landed_at":null,"landed_bounds_first":["2026-11-19T05:18:57Z","2026-11-19T05:23:04Z"],"landed_bounds_second":["2026-11-19T06:05:01Z","2026-11-19T06:08:27Z"],"ended_at":null,"outcome":"landed","send_backs":1,"decision_requests":0,"rulings":0,"commits":11,"regate_attempts_by_chief":2,"regate_result":"pass","permission_refusals":1}],"integration_row":{"send_backs":2,"decision_requests_raised":7,"final_state":"merged"},"human_interventions":[{"n":1,"at":null,"at_bounds":[null,"2026-11-19T03:10:20Z"],"delegation":null,"kind":"plan-approval","answer_batch":"A","waited_minutes":null},{"n":2,"at":null,"at_bounds":[null,"2026-11-19T03:10:20Z"],"delegation":null,"kind":"other","proposed_kind":"landing-choice","implicit":true,"answer_batch":"A","waited_minutes":null},{"n":3,"at":null,"at_bounds":["2026-11-19T03:26:08Z","2026-11-19T03:34:03Z"],"delegation":"d350","kind":"card-start","waited_minutes":null,"waited_minutes_max":8},{"n":4,"at":null,"at_bounds":["2026-11-19T03:41:48Z","2026-11-19T03:50:21Z"],"delegation":"d351","kind":"card-start","waited_minutes":null,"waited_minutes_max":9},{"n":5,"at":null,"at_bounds":["2026-11-19T03:57:07Z","2026-11-19T04:04:50Z"],"delegation":"d352","kind":"card-start","waited_minutes":null,"waited_minutes_max":8},{"n":6,"at":null,"at_bounds":["2026-11-19T04:07:38Z","2026-11-19T04:24:28Z"],"delegation":"d353","kind":"card-start","waited_minutes":null,"waited_minutes_max":17,"heartbeats_waiting":1},{"n":7,"at":"2026-11-19T04:43:08Z","at_source":"gh-label-event","delegation":null,"kind":"decision-request","topic":"review-trigger","waited_minutes":2,"waited_from":"pr_opened_at"},{"n":8,"at":"2026-11-19T04:43:08Z","at_source":"gh-label-event","delegation":null,"kind":"write-as-human","write":"add-label","performed_by":"chief-of-staff","waited_minutes":0},{"n":9,"at":null,"at_bounds":["2026-11-19T04:46:27Z","2026-11-19T05:06:23Z"],"delegation":"d344-fix1","kind":"decision-request","topic":"fence-widening","review_finding":"S1","answer_batch":"B","waited_minutes":null,"waited_minutes_max":20},{"n":10,"at":null,"at_bounds":["2026-11-19T04:46:27Z","2026-11-19T05:06:23Z"],"delegation":"d344-fix1","kind":"decision-request","topic":"fence-widening","review_finding":"S3","answer_batch":"B","waited_minutes":null,"waited_minutes_max":20},{"n":11,"at":null,"at_bounds":["2026-11-19T04:46:27Z","2026-11-19T05:06:23Z"],"delegation":null,"kind":"decision-request","topic":"behind-default-branch","answer":"merge-main-in","answer_batch":"B","waited_minutes":null,"waited_minutes_max":20},{"n":12,"at":null,"at_bounds":["2026-11-19T04:46:27Z","2026-11-19T05:06:23Z"],"delegation":"d344-fix1","kind":"card-start","waited_minutes":null,"heartbeats_waiting":1},{"n":13,"at":null,"at_bounds":["2026-11-19T05:23:04Z","2026-11-19T05:58:22Z"],"delegation":"d344-fix1","kind":"permission-refusal","refused":"gh-api-post-review-replies","covered_by":14,"waited_minutes":null},{"n":14,"at":"2026-11-19T05:58:22Z","at_source":"gh-first-reply","delegation":null,"kind":"decision-request","topic":"post-replies-and-retrigger-review","answer_batch":"C","waited_minutes":35,"waited_from":"b3609bb CI run created (push proxy)","heartbeats_waiting":4},{"n":15,"at":"2026-11-19T05:58:22Z","at_source":"gh-comments","delegation":"d344-fix1","kind":"write-as-human","write":"post-review-replies","count":7,"performed_by":"chief-of-staff","waited_minutes":0},{"n":16,"at":"2026-11-19T05:58:44Z","at_source":"gh-label-event","delegation":null,"kind":"write-as-human","write":"add-label","performed_by":"chief-of-staff","waited_minutes":0},{"n":17,"at":"2026-11-19T06:12:27Z","at_source":"gh-reply","delegation":null,"kind":"decision-request","topic":"post-replies-and-retrigger-review","answer_batch":"D","waited_minutes":4,"waited_from":"b779e0c CI run created (push proxy)","heartbeats_waiting":1},{"n":18,"at":"2026-11-19T06:12:27Z","at_source":"gh-comments","delegation":"d344-fix1","kind":"write-as-human","write":"post-review-replies","count":1,"performed_by":"chief-of-staff","waited_minutes":0},{"n":19,"at":"2026-11-19T06:12:31Z","at_source":"gh-label-event","delegation":null,"kind":"write-as-human","write":"add-label","performed_by":"chief-of-staff","waited_minutes":0},{"n":20,"at":"2026-11-19T06:26:04Z","at_source":"gh-timeline-only","in_activity_log":false,"delegation":null,"kind":"other","proposed_kind":"mark-ready","performed_by":"unknown","waited_minutes":null},{"n":21,"at":"2026-11-19T06:26:19Z","at_source":"gh-mergedAt","delegation":null,"kind":"merge","admin_bypass":true,"waited_minutes":12,"waited_from":"third review run updated_at 06:13:57Z"},{"n":22,"at":"2026-11-19T06:27:21Z","at_source":"gh-issue-comment","delegation":null,"kind":"close-out","topic":"post-summary-and-close-spec","waited_minutes":1},{"n":23,"at":null,"at_bounds":["2026-11-19T06:27:22Z",null],"delegation":null,"kind":"close-out","topic":"archive-sessions","count":7,"waited_minutes":null}],"chief_permission_refusals":[{"at":null,"refused":"start-session-user-asked","delegation":"d350","resolved_by":"card"},{"at":null,"refused":"start-session-user-asked","delegation":"d344-fix1","resolved_by":"card"}],"reviews":[{"pr":387,"head":"75aa766","round":1,"run":44460233005,"triggered_at":"2026-11-19T04:43:10Z","finished_at":"2026-11-19T04:46:27Z","findings":7,"findings_in_fence":5,"findings_outside_fence":2,"fixed":7,"answered":0,"replies_posted":7},{"pr":387,"head":"b3609bb","round":2,"run":44468839545,"triggered_at":"2026-11-19T05:58:46Z","finished_at":"2026-11-19T06:01:23Z","findings":1,"findings_in_fence":1,"findings_outside_fence":0,"fixed":1,"answered":0,"replies_posted":1,"prior_confirmed_fixed":7},{"pr":387,"head":"b779e0c","round":3,"run":44470493822,"triggered_at":"2026-11-19T06:12:34Z","finished_at":"2026-11-19T06:13:57Z","findings":0,"fixed":0,"answered":0,"replies_posted":0,"prior_confirmed_fixed":8,"settled":true}],"ci":[{"pr":387,"head":"75aa766","run":44460021218,"created_at":"2026-11-19T04:41:16Z","result":"pass","failed_checks":0,"wait_tool_errors":1},{"pr":387,"head":"b3609bb","run":44464787792,"created_at":"2026-11-19T05:23:04Z","result":"pass","failed_checks":0},{"pr":387,"head":"b779e0c","run":44469995716,"created_at":"2026-11-19T06:08:27Z","result":"pass","failed_checks":0}],"pr_checklist":{"head":"75aa766","pre_commit":"pass","npm_test_failed":2,"npm_test_failed_excluded_by_regate_skip":2},"regates":{"count":9,"pass":9,"chief_script_errors":1},"rulings":{"made":0,"upheld":0,"overturned":0,"review_held":false},"qa":[],"carry_forwards":{"count":5,"into_pr_body_notes":3},"heartbeats":{"id":"fc215603","firings":17,"no_change":10,"deleted_at":null},"wake_ups":{"count":10,"stale_idle_notices":3}}]</script>
+<script>
+// ───────────────────────── data ─────────────────────────
+const RAW = JSON.parse(document.getElementById('records').textContent);
+const ISO = s => typeof s === 'string' && s.length > 10 ? Date.parse(s) : null;
+const DAY = s => typeof s === 'string' && s.length === 10 ? s : null;
+const CAUSES = ['by-design','human-choice','harness-limit','permission-refusal','missing-config','spec-gap','skill-bug','tool-missing','other'];
+const AVOIDABLE = c => !['by-design','human-choice'].includes(c);
+const col = c => `var(--c-${c})`;
+const TOPIC_CAUSE = {
+  'fence-widening':'spec-gap','review-scope':'spec-gap','review-trigger':'missing-config',
+  'post-replies-and-retrigger-review':'missing-config','behind-default-branch':'human-choice',
+  'merge-behind':'human-choice','branch-update':'human-choice','review-gate':'skill-bug',
+  'qa-readiness':'missing-config','qa-plan-confirm':'human-choice','qa-residue-choice':'human-choice','qa-deferral':'human-choice'
+};
+function kindOf(h, isQa){
+  let k = h.kind === 'other' ? (h.proposed_kind || 'other') : h.kind;
+  if (h.kind === 'decision-request' && h.subject && h.subject.startsWith('qa-')) k = h.subject;
+  if (isQa && !k.startsWith('qa-') && ['typed-command','readiness-answer','review-box-pass','card-start'].includes(k)) k = 'qa-' + k;
+  if (k === 'qa-review-box-pass') k = 'qa-review-box';
+  return k;
+}
+// Prototype-assumed cause per human step (the v0 records predate the `cause` field).
+function causeOf(h, k, drSubject){
+  const topic = h.topic || h.subject || drSubject;
+  if (/plan-approval|landing-choice|plan-change|close-out/.test(k)) return 'by-design';
+  if (/card-start|typed-command|session-housekeeping/.test(k)) return 'harness-limit';
+  if (k === 'permission-refusal' || (k === 'merge' && h.result === 'refused')) return 'permission-refusal';
+  if (/readiness-answer|qa-readiness/.test(k)) return h.duplicate_of_previous ? 'skill-bug' : 'missing-config';
+  if (/stale-relay|human-caught-error/.test(k)) return 'skill-bug';
+  if (k === 'merge') return 'human-choice';
+  if (topic && TOPIC_CAUSE[topic]) return TOPIC_CAUSE[topic];
+  if (/qa-/.test(k)) return 'human-choice';
+  return 'other';
+}
+function normalize(r){
+  const run = r.run, dels = r.delegations || [];
+  const drSub = Object.fromEntries((r.decision_requests||[]).filter(d=>d.id).map(d=>[d.id,d.subject]));
+  const qaIds = new Set(dels.filter(d=>d.kind==='qa').map(d=>d.id));
+  const touches = [], writes = [];
+  (r.human_interventions||[]).forEach((h,i) => {
+    const w = when(h);
+    const k = kindOf(h, qaIds.has(h.delegation));
+    const actor = h.kind === 'write-as-human' ? 'chief-of-staff' : 'human';
+    const item = { i, k, w, del: h.delegation || (h.delegations||[])[0] || null, raw: h,
+      wait: h.waited_minutes ?? null, waitMax: h.waited_minutes_max ?? null, hb: h.heartbeats_waiting || 0 };
+    if (actor !== 'human' || h.covered_by || h.human_needed === false) { item.actor = actor === 'human' ? 'covered' : actor; writes.push(item); return; }
+    item.cause = causeOf(h, k, drSub[h.dr]); item.actor = 'human';
+    touches.push(item);
+  });
+  const D = dels.map(d => {
+    const s = ISO(d.started_at) || ISO(d.first_commit_at) || ISO(d.pr_opened_at);
+    const e = ISO(d.landed_at) || ISO((d.landed_bounds_second||[])[1]) || ISO(d.head_committed_at);
+    return { id:d.id, issue:d.issue, kind:d.kind, route:d.start_route, outcome:d.outcome, s, e,
+      sSrc: ISO(d.started_at) ? 'exact' : ISO(d.first_commit_at) ? 'first commit' : ISO(d.pr_opened_at) ? 'PR opened' : null,
+      eSrc: ISO(d.landed_at) ? 'landed' : d.landed_bounds_second ? 'landed (bound)' : ISO(d.head_committed_at) ? 'last commit' : null,
+      day: DAY(d.started_at), sendBacks: d.send_backs||0, drs: d.decision_requests||0, commits: d.commits,
+      touches: touches.filter(t=>t.del===d.id).length, wave: d.wave };
+  });
+  const times = [];
+  D.forEach(d=>{ if(d.s) times.push(d.s); if(d.e) times.push(d.e); });
+  touches.concat(writes).forEach(t=>{ if(t.w.t) times.push(t.w.t); });
+  const start = ISO(run.started_at) || ISO((run.started_at_bounds||[])[0]) || ISO(run.plan_approved_at) || Math.min(...times);
+  const end = ISO(run.closed_at) || Math.max(...times);
+  const reviews = (r.reviews||[]).map(v=>({pr:v.pr, round:v.round, t:ISO(v.triggered_at), e:ISO(v.finished_at), findings:v.findings, fixed:v.fixed}));
+  const ci = (r.ci||[]).map(c=>({pr:c.pr, t:ISO(c.created_at), result:c.result}));
+  return { id:run.id, spec:run.spec, kind:run.kind, authority:run.decision_authority, landing:run.landing, outcome:run.outcome,
+    tickets:run.tickets||[], prs:run.pull_requests||[], start, end, startBound: !ISO(run.started_at), plan:r.plan||{},
+    dels:D, touches, writes, reviews, ci, heartbeats:r.heartbeats||{}, operator: run.operator || 'you', synthetic: !!r._synthetic,
+    team: r._team || null, raw:r };
+}
+function when(o){
+  if (ISO(o.at)) return { t: ISO(o.at), p: 'exact' };
+  if (o.at_bounds){ const lo = ISO(o.at_bounds[0]), hi = ISO(o.at_bounds[1]); return { t: lo&&hi ? (lo+hi)/2 : (hi||lo), lo, hi, p: 'bounds' }; }
+  if (DAY(o.at)) return { day: o.at, p: 'date' };
+  return { p: 'unknown' };
+}
+// ───────── SYNTHETIC records (clearly marked): a later solo run trend + a 3-teammate Team Run ─────────
+function synth(id, operator, startIso, plan, team){
+  const t0 = Date.parse(startIso); const m = n => new Date(t0 + n*60000).toISOString();
+  const dels = [], hs = [{ at:m(0), kind:'plan-approval' }];
+  plan.forEach((p,i) => {
+    dels.push({ id:'d'+p.issue, issue:p.issue, kind:p.kind||'building', start_route:p.card?'card':'direct', started_at:m(p.s), landed_at:m(p.e), outcome:'landed', send_backs:p.sb||0, decision_requests:(p.dr||[]).length });
+    if (p.card) hs.push({ at:m(p.s-3), kind:'card-start', delegation:'d'+p.issue, waited_minutes:p.card });
+    (p.dr||[]).forEach(([at,topic,w]) => hs.push({ at:m(at), kind:'decision-request', topic, delegation:'d'+p.issue, waited_minutes:w }));
+  });
+  const last = Math.max(...plan.map(p=>p.e));
+  hs.push({ at:m(last+4), kind:'merge', waited_minutes:4 }, { at:m(last+6), kind:'close-out' });
+  return { _synthetic:true, _team:team||null, run:{ id, operator, spec:team?team.spec:id.split('-').pop(), kind:team?'team':'spec', decision_authority:'autonomous', landing:'integration-branch', started_at:m(0), closed_at:m(last+7), outcome:'merged', tickets:plan.map(p=>p.issue), pull_requests:[] }, plan:{}, delegations:dels, human_interventions:hs };
+}
+const SYN = [
+  synth('2026-11-24-spec-410','you','2026-11-24T01:00:00Z',[{issue:411,s:5,e:40},{issue:412,s:42,e:80,card:6},{issue:413,s:82,e:120,card:4,dr:[[100,'fence-widening',12]]}]),
+  synth('2026-11-27-spec-420','you','2026-11-27T02:00:00Z',[{issue:421,s:5,e:35},{issue:422,s:5,e:50},{issue:423,s:52,e:90,dr:[[70,'merge-behind',3]]}]),
+  synth('2026-12-02-spec-430-ana','teammate-ana','2026-12-02T00:00:00Z',[{issue:431,s:5,e:50},{issue:432,s:52,e:95,card:7}],{spec:430,run:'team-430'}),
+  synth('2026-12-02-spec-430-ben','teammate-ben','2026-12-02T00:20:00Z',[{issue:433,s:4,e:70,dr:[[30,'fence-widening',25],[55,'review-trigger',9]]},{issue:434,s:72,e:110}],{spec:430,run:'team-430'}),
+  synth('2026-12-02-spec-430-you','you','2026-12-02T00:10:00Z',[{issue:435,s:5,e:30},{issue:436,s:32,e:60},{issue:437,s:62,e:85,card:3}],{spec:430,run:'team-430'}),
+];
+const RUNS = RAW.concat(SYN).map(normalize).sort((a,b)=>a.start-b.start);
+const SOLO = RUNS.filter(r=>!r.team);
+const TEAM = RUNS.filter(r=>r.team);
+
+// ───────── derived: what to improve next run ─────────
+function nextRun(r){
+  const out = [], by = f => r.touches.filter(f);
+  const cards = by(t=>/card-start/.test(t.k));
+  if (cards.length) out.push({ n:cards.length, cause:'harness-limit', what:`${cards.length} Delegation start${cards.length>1?'s':''} needed a card click`, fix:'Start Delegations from a user turn, or batch the starts behind one click.' });
+  const typed = by(t=>/typed-command/.test(t.k));
+  if (typed.length) out.push({ n:typed.length, cause:'harness-limit', what:`${typed.length} QA commands were typed by hand`, fix:'Start QA Delegations with a brief instead of the typed route.' });
+  const cfg = by(t=>t.cause==='missing-config');
+  const declined = (r.plan.routine_writes_declined||[]);
+  if (cfg.length) out.push({ n:cfg.length, cause:'missing-config', what:`${cfg.length} touches asked for something config could answer`, fix: declined.length ? `Approve ${declined.join(', ')} as a routine write in the Dispatch Plan (declined this run).` : 'Put the answer in the brief or orchestrate.config.yml.' });
+  const spec = by(t=>t.cause==='spec-gap');
+  if (spec.length) out.push({ n:spec.length, cause:'spec-gap', what:`${spec.length} fence widenings or scope questions`, fix:'Scope fences in the spec were too tight; widen them while writing tickets.' });
+  const bug = by(t=>t.cause==='skill-bug');
+  if (bug.length) out.push({ n:bug.length, cause:'skill-bug', what:`${bug.length} touches traced to a skill bug`, fix:'File them against the skill (a cause can carry a linked issue id).' });
+  const perm = by(t=>t.cause==='permission-refusal').length + r.writes.filter(w=>w.actor==='covered').length;
+  if (perm) out.push({ n:perm, cause:'permission-refusal', what:`${perm} permission refusal${perm>1?'s':''}`, fix:'Add the refused tool to the allow list before the run.' });
+  const untimed = r.touches.filter(t=>t.w.p!=='exact').length;
+  if (untimed) out.push({ n:untimed, cause:'other', what:`${untimed} of ${r.touches.length} human steps have no exact time`, fix:'Run Events would record each one as it happens (old Activity Logs had dates only).', data:true });
+  return out.sort((a,b)=>b.n-a.n);
+}
+function causeCounts(touches){ const c = {}; CAUSES.forEach(k=>c[k]=0); touches.forEach(t=>c[t.cause]++); return c; }
+const hrs = ms => ms==null||isNaN(ms) ? '?' : (ms/3600000).toFixed(1)+'h';
+const mins = ms => ms==null||isNaN(ms) ? '?' : Math.round(ms/60000)+'m';
+const hm = t => t ? new Date(t).toISOString().slice(11,16) : '—';
+const ymd = t => t ? new Date(t).toISOString().slice(0,10) : '';
+const esc = s => String(s).replace(/[&<>]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const waitTxt = t => t.wait!=null ? `waited ${t.wait}m` : t.waitMax!=null ? `waited ≤${t.waitMax}m` : 'wait unknown';
+const causeChip = c => `<span class="chip"><span class="dot" style="background:${col(c)}"></span>${c}</span>`;
+const synTag = r => r.synthetic ? ' <span class="syn">synthetic</span>' : '';
+const legend = () => `<div class="small" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">${CAUSES.map(causeChip).join('')}</div>`;
+
+// ───────── shared drawing: a time-axis Gantt (used by A) ─────────
+function gantt(rows, t0, t1, opts={}){
+  const W = opts.w || 1100, L = opts.left || 150, R = 70, RH = opts.rh || 24, H = rows.length*RH + 28;
+  const x = t => L + (t - t0) / (t1 - t0 || 1) * (W - L - R);
+  let s = `<svg viewBox="0 0 ${W} ${H}" width="100%" style="min-width:${opts.min||700}px">`;
+  const span = t1 - t0, step = span > 20*3600e3 ? 3*3600e3 : span > 6*3600e3 ? 3600e3 : 30*60e3;
+  for (let t = Math.ceil(t0/step)*step; t <= t1; t += step) s += `<line x1="${x(t)}" x2="${x(t)}" y1="14" y2="${H}" stroke="var(--line)"/><text x="${x(t)}" y="10" text-anchor="middle" class="mt">${hm(t)}</text>`;
+  s += `<text x="${W-R+8}" y="10" class="mt">date only</text><line x1="${W-R+2}" x2="${W-R+2}" y1="14" y2="${H}" stroke="var(--line)" stroke-dasharray="3 3"/>`;
+  rows.forEach((row,i) => {
+    const y = 18 + i*RH, cy = y + RH/2;
+    if (row.group) { s += `<text x="4" y="${cy+4}" style="font-weight:600">${esc(row.label)}</text><line x1="0" x2="${W}" y1="${y}" y2="${y}" stroke="var(--line)"/>`; return; }
+    s += `<text x="${row.indent?16:4}" y="${cy+4}" ${row.dim?'class="mt"':''}>${esc(row.label)}</text>`;
+    (row.bars||[]).forEach(b => {
+      if (!b.s || !b.e) return;
+      s += `<rect x="${x(b.s)}" y="${y+5}" width="${Math.max(2,x(b.e)-x(b.s))}" height="${RH-10}" rx="3" fill="${b.fill||'var(--accent)'}" ${b.dash?'fill-opacity=".45" stroke="var(--accent)" stroke-dasharray="3 2"':''}><title>${esc(b.title||'')}</title></rect>`;
+    });
+    let dateOnly = 0;
+    (row.marks||[]).forEach(m => {
+      const c = m.color || 'var(--warn)';
+      if (m.w.p === 'exact') s += `<circle cx="${x(m.w.t)}" cy="${cy}" r="5" fill="${c}" stroke="var(--panel)"><title>${esc(m.title)}</title></circle>`;
+      else if (m.w.p === 'bounds' && m.w.lo && m.w.hi) s += `<g><title>${esc(m.title)} (time only known between ${hm(m.w.lo)} and ${hm(m.w.hi)})</title><line x1="${x(m.w.lo)}" x2="${x(m.w.hi)}" y1="${cy}" y2="${cy}" stroke="${c}" stroke-width="2" stroke-dasharray="2 2"/><circle cx="${x(m.w.t)}" cy="${cy}" r="4" fill="var(--panel)" stroke="${c}" stroke-width="2"/></g>`;
+      else if (m.w.p === 'bounds') s += `<circle cx="${x(m.w.t)}" cy="${cy}" r="4" fill="var(--panel)" stroke="${c}" stroke-width="2"><title>${esc(m.title)} (one-sided bound)</title></circle>`;
+      else { s += `<rect x="${W-R+6+(dateOnly%8)*7}" y="${cy-3-(Math.floor(dateOnly/8))*0}" width="5" height="6" fill="${c}"><title>${esc(m.title)} (${m.w.day||'no time'})</title></rect>`; dateOnly++; }
+    });
+    (row.ticks||[]).forEach(k => { if (k.t) s += `<line x1="${x(k.t)}" x2="${x(k.t)}" y1="${y+4}" y2="${y+RH-4}" stroke="${k.color||'var(--muted)'}" stroke-width="2"><title>${esc(k.title)}</title></line>`; });
+  });
+  return s + '</svg>';
+}
+function ganttRows(r, prefix=''){
+  const rows = [];
+  rows.push({ label: prefix+'Human', marks: r.touches.map(t=>({ w:t.w, color:col(t.cause), title:`${t.k} · ${t.cause} · ${waitTxt(t)}${t.del?' · '+t.del:''}` })) });
+  rows.push({ label: prefix+'Chief of Staff', dim:true,
+    marks: r.writes.map(w=>({ w:w.w, color:'var(--muted)', title:`${w.k} (actor: ${w.actor})` })),
+    ticks: r.reviews.map(v=>({t:v.t,color:'var(--accent)',title:`review round ${v.round}: ${v.findings} findings`})).concat(r.ci.map(c=>({t:c.t,color:c.result==='pass'?'var(--ok)':'var(--warn)',title:`CI ${c.result}`}))) });
+  r.dels.forEach(d => rows.push({ label:`${prefix}${d.id}${d.route==='card'?' ▣':''}`, indent:true,
+    bars:[{ s:d.s, e:d.e, dash: d.sSrc!=='exact', fill: d.kind==='qa'?'var(--c-spec-gap)':d.kind==='fix'?'var(--c-skill-bug)':'var(--accent)',
+      title:`${d.id} (${d.kind}, #${d.issue}) ${hm(d.s)}–${hm(d.e)} = ${mins(d.e-d.s)}; start from ${d.sSrc}, end from ${d.eSrc}; ${d.sendBacks} send-backs` }],
+    marks: (!d.s && d.day) ? [{ w:{p:'date',day:d.day}, color:'var(--c-spec-gap)', title:`${d.id} (${d.kind}) ran on ${d.day}, no times` }] : [] }));
+  return rows;
+}
+function stackBar(counts, w=300, h=14){
+  const total = Object.values(counts).reduce((a,b)=>a+b,0) || 1; let x = 0, s = `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">`;
+  CAUSES.forEach(c => { const cw = counts[c]/total*w; if (cw) { s += `<rect x="${x}" y="0" width="${cw}" height="${h}" fill="${col(c)}"><title>${c}: ${counts[c]}</title></rect>`; x += cw; } });
+  return s + '</svg>';
+}
+
+// ───────────────────────── VARIANT A: Swimlanes ─────────────────────────
+const A = { name: 'Swimlanes', run(r){
+  const nr = nextRun(r), cc = causeCounts(r.touches), av = r.touches.filter(t=>AVOIDABLE(t.cause)).length;
+  return `<div class="panel"><div class="kpis">
+    <div class="kpi"><b>${hrs(r.end-r.start)}${r.startBound?'<span class="muted" style="font-size:13px"> ≤</span>':''}</b><span>start → close</span></div>
+    <div class="kpi"><b>${r.dels.length}</b><span>Delegations</span></div>
+    <div class="kpi"><b>${r.touches.length}</b><span>human steps</span></div>
+    <div class="kpi"><b style="color:var(--warn)">${av}</b><span>avoidable</span></div>
+    <div class="kpi"><b>${r.reviews.length}</b><span>review rounds</span></div>
+    <div class="kpi"><b>${r.authority}</b><span>${r.landing}</span></div></div></div>
+  <div class="panel"><h2>Timeline ${synTag(r)}</h2><div class="small muted">● exact time · ○ with dashes: only known between two times · dashed bar: start or end is a proxy (first/last commit) · ▣ started from a card · right gutter: date only</div>
+    <div class="scroll">${gantt(ganttRows(r), r.start, r.end)}</div>${legend()}</div>
+  <div class="grid2"><div class="panel"><h3>Human steps by cause</h3>${CAUSES.filter(c=>cc[c]).map(c=>`<div style="display:flex;align-items:center;gap:8px;margin:4px 0"><span style="width:130px">${causeChip(c)}</span><svg width="200" height="12"><rect width="${cc[c]/r.touches.length*200}" height="12" fill="${col(c)}"/></svg><span class="mono small">${cc[c]}</span></div>`).join('')}</div>
+  <div class="panel"><h3>Next run</h3>${nr.map(n=>`<div style="margin:8px 0">${causeChip(n.cause)} <b>${esc(n.what)}</b><div class="small muted">${esc(n.fix)}</div></div>`).join('')}</div></div>`;
+}, runs(list){
+  const maxSpan = Math.max(...list.map(r=>r.end-r.start));
+  return `<div class="panel"><h2>Every run on one scale</h2><div class="small muted">Each run starts at 0; bar length is wall-clock to close. Human steps on the top lane.</div>
+  ${list.map(r=>`<div style="margin-top:14px"><b>${r.id}</b>${synTag(r)} <span class="muted small">${r.authority} · ${r.dels.length} Delegations · ${r.touches.length} human steps · ${hrs(r.end-r.start)}</span>
+  <div class="scroll">${gantt(ganttRows(r).slice(0,1).concat([{label:'Delegations',bars:r.dels.map(d=>({s:d.s,e:d.e,dash:d.sSrc!=='exact',title:d.id}))}]), r.start, r.start+maxSpan, {rh:20,min:600})}</div></div>`).join('')}</div>`;
+}, team(list){
+  const t0 = Math.min(...list.map(r=>r.start)), t1 = Math.max(...list.map(r=>r.end));
+  const rows = []; list.forEach(r => { rows.push({group:true,label:`${r.operator}`}); ganttRows(r,'  ').forEach(x=>rows.push(x)); });
+  return `<div class="panel"><h2>Team Run: spec #${list[0].team.spec} <span class="syn">synthetic</span></h2><div class="small muted">One Run Record per teammate's Chief of Staff, merged on one clock.</div><div class="scroll">${gantt(rows,t0,t1)}</div>${legend()}</div>
+  <div class="panel"><table><tr><th>Teammate</th><th class="num">Delegations</th><th class="num">Human steps</th><th class="num">Avoidable</th><th class="num">Duration</th></tr>${list.map(r=>`<tr><td>${r.operator}</td><td class="num">${r.dels.length}</td><td class="num">${r.touches.length}</td><td class="num">${r.touches.filter(t=>AVOIDABLE(t.cause)).length}</td><td class="num">${hrs(r.end-r.start)}</td></tr>`).join('')}</table></div>`;
+}};
+
+// ───────────────────────── VARIANT B: Human-step ledger ─────────────────────────
+const B = { name: 'Human-step ledger', run(r){
+  const nr = nextRun(r), av = r.touches.filter(t=>AVOIDABLE(t.cause));
+  const kinds = [...new Set(r.touches.map(t=>t.k))].sort();
+  const used = CAUSES.filter(c=>r.touches.some(t=>t.cause===c));
+  const cell = (k,c) => r.touches.filter(t=>t.k===k&&t.cause===c).length;
+  const maxCell = Math.max(1,...kinds.flatMap(k=>used.map(c=>cell(k,c))));
+  const waits = r.touches.map(t=>t.wait ?? t.waitMax).filter(x=>x!=null);
+  return `<div class="panel" style="display:flex;gap:28px;flex-wrap:wrap;align-items:flex-end">
+    <div><div style="font-size:44px;font-weight:700;line-height:1">${r.touches.length}</div><div class="muted">times you were needed${synTag(r)}</div></div>
+    <div><div style="font-size:44px;font-weight:700;line-height:1;color:var(--warn)">${av.length}</div><div class="muted">could go next run</div></div>
+    <div><div style="font-size:44px;font-weight:700;line-height:1">${waits.length?waits.reduce((a,b)=>a+b,0)+'m':'?'}</div><div class="muted">known waiting (${waits.length} of ${r.touches.length} steps timed)</div></div>
+    <div class="small muted" style="max-width:300px">${r.id} · ${r.authority} · ${r.dels.length} Delegations · ${hrs(r.end-r.start)}</div></div>
+  <div class="panel"><h3>Every touch, in order</h3><div class="waffle" style="margin-top:8px">${r.touches.map(t=>`<i style="background:${col(t.cause)};${AVOIDABLE(t.cause)?'':'opacity:.45'}" title="#${t.i+1} ${t.k} · ${t.cause} · ${t.del||'run'} · ${t.w.p==='exact'?hm(t.w.t):t.w.day||'bounded'}"></i>`).join('')}</div>${legend()}</div>
+  <div class="grid2">
+   <div class="panel"><h2>Fix these next run</h2>${nr.map(n=>`<div class="todo" style="border-color:${col(n.cause)}"><b>−${n.n}</b> ${esc(n.what)}<div class="small muted">${esc(n.fix)}</div></div>`).join('')}</div>
+   <div class="panel heat"><h2>Kind × cause</h2><div class="scroll"><table><tr><th>kind</th>${used.map(c=>`<th class="num" title="${c}"><span class="dot" style="background:${col(c)}"></span></th>`).join('')}<th class="num">Σ</th></tr>
+   ${kinds.map(k=>`<tr><td class="mono small">${k}</td>${used.map(c=>{const n=cell(k,c);return `<td class="num" style="background:${n?`color-mix(in srgb, ${col(c)} ${20+60*n/maxCell}%, transparent)`:''}">${n||''}</td>`}).join('')}<td class="num">${r.touches.filter(t=>t.k===k).length}</td></tr>`).join('')}</table></div></div></div>
+  <div class="panel"><h2>Delegations</h2><table><tr><th>Delegation</th><th>kind</th><th>start</th><th class="num">time</th><th class="num">human steps</th><th class="num">send-backs</th><th>outcome</th></tr>
+  ${r.dels.map(d=>`<tr><td class="mono">${d.id}</td><td>${d.kind}</td><td>${d.route==='card'?'<span class="chip" style="color:var(--warn)">card</span>':'direct'}</td><td class="num">${d.s&&d.e?mins(d.e-d.s):'<span class="muted">'+(d.day||'?')+'</span>'}</td><td class="num"><b>${d.touches||''}</b></td><td class="num">${d.sendBacks||''}</td><td>${d.outcome}</td></tr>`).join('')}</table></div>`;
+}, runs(list){
+  const maxT = Math.max(...list.map(r=>r.touches.length));
+  return `<div class="panel"><h2>Human steps per run</h2><div class="small muted">Bar = human steps, coloured by cause (faded = by design or the human's choice). Ratio = steps per Delegation.</div>
+  <table><tr><th>Run</th><th>authority</th><th class="num">Deleg.</th><th style="width:45%">human steps by cause</th><th class="num">total</th><th class="num">avoidable</th><th class="num">per Deleg.</th></tr>
+  ${list.map(r=>{const cc=causeCounts(r.touches);const av=r.touches.filter(t=>AVOIDABLE(t.cause)).length;return `<tr><td class="mono small">${r.id}${synTag(r)}</td><td>${r.authority}</td><td class="num">${r.dels.length}</td><td>${stackBar(cc,Math.max(8,r.touches.length/maxT*420))}</td><td class="num">${r.touches.length}</td><td class="num" style="color:var(--warn)">${av}</td><td class="num">${(r.touches.length/r.dels.length).toFixed(1)}</td></tr>`}).join('')}</table>${legend()}</div>
+  <div class="panel"><h2>Most common avoidable causes across runs</h2>${(()=>{const all=causeCounts(list.flatMap(r=>r.touches));return CAUSES.filter(c=>AVOIDABLE(c)&&all[c]).sort((a,b)=>all[b]-all[a]).map(c=>`<div class="todo" style="border-color:${col(c)}"><b>${all[c]}</b> ${c} <span class="small muted">in ${list.filter(r=>r.touches.some(t=>t.cause===c)).length} of ${list.length} runs</span></div>`).join('')})()}</div>`;
+}, team(list){
+  return `<div class="panel"><h2>Team Run: spec #${list[0].team.spec} <span class="syn">synthetic</span></h2><div class="small muted">Who was needed, how often, and for what. One column per teammate.</div>
+  <div style="display:grid;grid-template-columns:repeat(${list.length},1fr);gap:12px;margin-top:10px">${list.map(r=>`<div class="panel" style="margin:0"><b>${r.operator}</b><div style="font-size:32px;font-weight:700">${r.touches.length}</div><div class="small muted">human steps · ${r.dels.length} Delegations · ${hrs(r.end-r.start)}</div><div class="waffle" style="margin-top:8px">${r.touches.map(t=>`<i style="background:${col(t.cause)};${AVOIDABLE(t.cause)?'':'opacity:.45'}" title="${t.k} · ${t.cause}"></i>`).join('')}</div>${nextRun(r).filter(n=>!n.data).slice(0,2).map(n=>`<div class="small" style="margin-top:6px">− ${esc(n.what)}</div>`).join('')}</div>`).join('')}</div>${legend()}</div>`;
+}};
+
+// ───────────────────────── VARIANT C: Run story (feed) ─────────────────────────
+function events(r){
+  const ev = [];
+  const at = (w) => w.p==='exact' ? w.t : w.p==='bounds' ? w.t : null;
+  r.dels.forEach(d=>{ if(d.s) ev.push({t:d.s,cls:'del',txt:`<b>${d.id}</b> starts${d.route==='card'?' (from a card)':''} <span class="muted small">· ${d.kind} #${d.issue} · from ${d.sSrc}</span>`});
+    if(d.e) ev.push({t:d.e,cls:'del',txt:`<b>${d.id}</b> ${d.eSrc} after ${mins(d.e-d.s)} <span class="muted small">· ${d.outcome}${d.sendBacks?' · '+d.sendBacks+' send-backs':''}</span>`});
+    if(!d.s && d.day) ev.push({day:d.day,cls:'del',txt:`<b>${d.id}</b> ran <span class="muted small">· ${d.kind} · ${d.outcome} · no times recorded</span>`}); });
+  r.touches.forEach(t=>ev.push({t:at(t.w),day:t.w.day,approx:t.w.p!=='exact',cls:'human',txt:`<b>You</b>: ${t.k} ${causeChip(t.cause)} <span class="muted small">${t.del?'· '+t.del+' ':''}· ${waitTxt(t)}${t.hb?' · '+t.hb+' heartbeat'+(t.hb>1?'s':'')+' waiting':''}</span>`}));
+  r.writes.forEach(w=>ev.push({t:at(w.w),day:w.w.day,approx:w.w.p!=='exact',cls:'cos',txt:`<span class="muted">Chief of Staff: ${w.k} (actor <span class="mono">${w.actor}</span>)</span>`}));
+  r.reviews.forEach(v=>v.t&&ev.push({t:v.t,cls:'cos',txt:`<span class="muted">Review round ${v.round}: ${v.findings} findings${v.e?' in '+mins(v.e-v.t):''}</span>`}));
+  r.ci.forEach(c=>c.t&&ev.push({t:c.t,cls:'cos',txt:`<span class="muted">CI <span style="color:${c.result==='pass'?'var(--ok)':'var(--warn)'}">${c.result}</span></span>`}));
+  const key = e => e.t ?? (Date.parse(e.day+'T23:59:00Z'));
+  return ev.sort((a,b)=>key(a)-key(b));
+}
+const C = { name: 'Run story', run(r){
+  const ev = events(r); let lastDay = '';
+  const maxD = Math.max(...r.dels.map(d=>d.s&&d.e?d.e-d.s:0),1);
+  return `<div class="cgrid"><div class="panel"><h2>${r.id}${synTag(r)}</h2><div class="small muted" style="margin-bottom:10px">Read top to bottom. Orange rows are the times you were needed. ~ = time only known between two bounds; "day" = date only.</div><div class="feed">
+  ${ev.map(e=>{const d=e.t?ymd(e.t):e.day;const hdr=d!==lastDay?`<div style="margin:12px 0 4px -90px;font-weight:600">${d}</div>`:'';lastDay=d;return hdr+`<div class="ev ${e.cls}"><span class="t">${e.t?(e.approx?'~':'')+hm(e.t):'day'}</span>${e.txt}</div>`}).join('')}
+  </div></div>
+  <div class="sticky"><div class="panel"><h3>Delegation time</h3>${r.dels.map(d=>`<div style="display:flex;align-items:center;gap:6px;margin:5px 0" class="small"><span class="mono" style="width:80px">${d.id}</span><svg width="140" height="10"><rect width="${d.s&&d.e?(d.e-d.s)/maxD*140:0}" height="10" rx="2" fill="${d.kind==='qa'?'var(--c-spec-gap)':'var(--accent)'}"/></svg><span class="mono">${d.s&&d.e?mins(d.e-d.s):'?'}</span>${d.touches?`<span class="chip" style="color:var(--warn)">${d.touches}✋</span>`:''}</div>`).join('')}</div>
+  <div class="panel"><h3>Retro: next run</h3>${nextRun(r).map(n=>`<div style="margin:8px 0" class="small"><b>${esc(n.what)}</b><br><span class="muted">${esc(n.fix)}</span></div>`).join('')}</div></div></div>`;
+}, runs(list){
+  const metrics = [['duration h',r=>(r.end-r.start)/3600e3],['Delegations',r=>r.dels.length],['human steps',r=>r.touches.length],['avoidable',r=>r.touches.filter(t=>AVOIDABLE(t.cause)).length],['card starts',r=>r.touches.filter(t=>/card-start/.test(t.k)).length],['send-backs',r=>r.dels.reduce((a,d)=>a+d.sendBacks,0)],['review rounds',r=>r.reviews.length],['known wait m',r=>r.touches.reduce((a,t)=>a+(t.wait??t.waitMax??0),0)]];
+  const max = metrics.map(([,f])=>Math.max(...list.map(f),1));
+  return `<div class="panel"><h2>Runs at a glance</h2><div class="small muted">Darker = more. Read down a column to see a trend.</div><div class="scroll"><table><tr><th>Run</th>${metrics.map(([m])=>`<th class="num">${m}</th>`).join('')}</tr>
+  ${list.map(r=>`<tr><td class="mono small">${r.id}${synTag(r)}<div class="muted">${r.operator} · ${r.authority}</div></td>${metrics.map(([,f],i)=>{const v=f(r);return `<td class="num" style="background:color-mix(in srgb, var(--warn) ${Math.round(v/max[i]*70)}%, transparent)">${Number.isInteger(v)?v:v.toFixed(1)}</td>`}).join('')}</tr>`).join('')}</table></div></div>`;
+}, team(list){
+  const all = list.flatMap(r=>events(r).map(e=>({...e,op:r.operator}))).filter(e=>e.t).sort((a,b)=>a.t-b.t);
+  const ops = list.map(r=>r.operator), hue = o => ['var(--c-human-choice)','var(--c-spec-gap)','var(--c-skill-bug)'][ops.indexOf(o)%3];
+  return `<div class="panel"><h2>Team Run: spec #${list[0].team.spec} <span class="syn">synthetic</span></h2><div class="small muted">Everyone's runs in one story; the coloured edge says whose Chief of Staff wrote it.</div>
+  <div style="margin:8px 0">${ops.map(o=>`<span class="chip" style="border-left:4px solid ${hue(o)}">${o}</span>`).join(' ')}</div>
+  <div class="feed">${all.map(e=>`<div class="ev ${e.cls}" style="box-shadow:inset 4px 0 0 ${hue(e.op)}"><span class="t">${hm(e.t)}</span><span class="small mono muted">${e.op}</span> ${e.txt.replace('<b>You</b>','<b>'+e.op+'</b>')}</div>`).join('')}</div></div>`;
+}};
+
+// ───────────────────────── VARIANT D: Terminal report (no page) ─────────────────────────
+const pad = (s,n) => (String(s)+' '.repeat(n)).slice(0,n), lpad = (s,n) => (' '.repeat(n)+String(s)).slice(-n);
+function asciiBar(r, d, W=48){ if(!d.s||!d.e) return '·'.repeat(W); const a=Math.round((d.s-r.start)/(r.end-r.start)*W), b=Math.max(a+1,Math.round((d.e-r.start)/(r.end-r.start)*W)); return ' '.repeat(a)+(d.sSrc==='exact'?'█':'▓').repeat(b-a)+' '.repeat(Math.max(0,W-b)); }
+const D = { name: 'Terminal report (orchestrate --report)', run(r){
+  const cc = causeCounts(r.touches), nr = nextRun(r);
+  let o = `<span class="d">$ orchestrate --report ${r.id}</span>\n\n<span class="h">Run ${r.id}</span>${r.synthetic?'  <span class="r">[synthetic]</span>':''}\n`;
+  o += `  ${r.kind} #${r.spec} · ${r.authority} · ${r.landing} · ${r.outcome} · ${hrs(r.end-r.start)}${r.startBound?' (start is a bound)':''}\n  ${ymd(r.start)} ${hm(r.start)} → ${ymd(r.end)} ${hm(r.end)} UTC\n\n`;
+  o += `<span class="h">Delegations</span>${' '.repeat(16)}${hm(r.start)}${' '.repeat(38)}${hm(r.end)}\n`;
+  r.dels.forEach(d=>{ o += `  ${pad(d.id,11)} ${pad(d.kind,8)} ${pad(d.route,6)} |<span class="b">${asciiBar(r,d)}</span>| ${lpad(d.s&&d.e?mins(d.e-d.s):'?',5)}  ${d.touches?'<span class="r">'+d.touches+' human</span>':''}\n`; });
+  o += `  <span class="d">█ exact  ▓ start/end from commits  · no times</span>\n\n<span class="h">Human steps: ${r.touches.length}</span> (${r.touches.filter(t=>AVOIDABLE(t.cause)).length} avoidable, ${r.touches.filter(t=>t.w.p==='exact').length} with exact time)\n`;
+  CAUSES.filter(c=>cc[c]).sort((a,b)=>cc[b]-cc[a]).forEach(c=>{ const ks={}; r.touches.filter(t=>t.cause===c).forEach(t=>ks[t.k]=(ks[t.k]||0)+1);
+    o += `  ${AVOIDABLE(c)?'<span class="r">':'<span class="d">'}${pad(c,19)}</span>${lpad(cc[c],3)}  ${'■'.repeat(cc[c])}\n${Object.entries(ks).map(([k,n])=>`  <span class="d">${' '.repeat(22)}${lpad(n,3)} ${k}</span>`).join('\n')}\n`; });
+  o += `\n<span class="h">Next run</span>\n` + nr.map((n,i)=>`  ${i+1}. ${n.what}\n     <span class="g">→ ${n.fix}</span>`).join('\n');
+  o += `\n\n<span class="d">Also: --report --runs · --report --team &lt;spec&gt; · --report --json</span>`;
+  return `<div class="term">${o}</div><div class="note">Delivery proposal: no page at all. The Chief of Staff prints this at close-out and on demand; the same derivation can write a page later.</div>`;
+}, runs(list){
+  let o = `<span class="d">$ orchestrate --report --runs</span>\n\n<span class="h">${pad('run',26)} ${pad('who',13)} ${pad('auth',10)} ${lpad('dur',6)} ${lpad('del',4)} ${lpad('human',6)} ${lpad('avoid',6)}  trend</span>\n`;
+  list.forEach(r=>{ const av=r.touches.filter(t=>AVOIDABLE(t.cause)).length; o += `${pad(r.id,26)} ${pad(r.operator,13)} ${pad(r.authority,10)} ${lpad(hrs(r.end-r.start),6)} ${lpad(r.dels.length,4)} ${lpad(r.touches.length,6)} <span class="r">${lpad(av,6)}</span>  ${'▮'.repeat(Math.ceil(av/2))}${r.synthetic?' <span class="d">synthetic</span>':''}\n`; });
+  const all = causeCounts(list.flatMap(r=>r.touches));
+  o += `\n<span class="h">Top avoidable causes</span>\n` + CAUSES.filter(c=>AVOIDABLE(c)&&all[c]).sort((a,b)=>all[b]-all[a]).map(c=>`  ${pad(c,19)} ${lpad(all[c],3)}`).join('\n');
+  return `<div class="term">${o}</div>`;
+}, team(list){
+  const t0 = Math.min(...list.map(r=>r.start)), t1 = Math.max(...list.map(r=>r.end)), W = 48;
+  let o = `<span class="d">$ orchestrate --report --team ${list[0].team.spec}</span>   <span class="r">[synthetic]</span>\n\n<span class="h">Team Run spec #${list[0].team.spec}</span>   ${hm(t0)} → ${hm(t1)} UTC\n\n`;
+  list.forEach(r=>{ o += `<span class="h">${r.operator}</span>  ${r.dels.length} Delegations · ${r.touches.length} human steps · ${hrs(r.end-r.start)}\n`;
+    r.dels.forEach(d=>{ const a=Math.round((d.s-t0)/(t1-t0)*W), b=Math.max(a+1,Math.round((d.e-t0)/(t1-t0)*W)); o += `  ${pad(d.id,8)} |<span class="b">${' '.repeat(a)+'█'.repeat(b-a)+' '.repeat(Math.max(0,W-b))}</span>| ${d.touches?'<span class="r">'+d.touches+' human</span>':''}\n`; }); o+='\n'; });
+  return `<div class="term">${o}</div>`;
+}};
+
+// ───────────────────────── switcher + views ─────────────────────────
+const VARIANTS = { A, B, C, D }, KEYS = Object.keys(VARIANTS);
+const VIEWS = [['run','This run'],['runs','Across runs'],['team','Team Run']];
+const STATE = new URLSearchParams(location.search);
+const q = () => STATE;
+function set(k, v){ STATE.set(k, v); try { history.replaceState(null, '', '?' + STATE); } catch (e) { /* data:/file preview: keep state in memory */ } render(); }
+function render(){
+  const p = q(), v = KEYS.includes(p.get('variant')) ? p.get('variant') : 'A', view = p.get('view') || 'run';
+  const runId = p.get('run') || RAW[RAW.length-1].run.id, r = RUNS.find(x=>x.id===runId) || RUNS[0];
+  document.getElementById('views').innerHTML = VIEWS.map(([k,l])=>`<button class="${k===view?'on':''}" data-view="${k}">${l}</button>`).join(' ');
+  const sel = document.getElementById('runSel'); sel.style.display = view==='run' ? '' : 'none';
+  sel.innerHTML = RUNS.map(x=>`<option value="${x.id}" ${x.id===r.id?'selected':''}>${x.id}${x.synthetic?' (synthetic)':''}</option>`).join('');
+  document.getElementById('where').textContent = view==='run' ? `${r.tickets.length} tickets · PRs ${r.prs.join(', ')||'—'}` : view==='runs' ? `${SOLO.length} runs (${SOLO.filter(x=>x.synthetic).length} synthetic)` : `${TEAM.length} teammates`;
+  const V = VARIANTS[v];
+  document.getElementById('app').innerHTML = view==='runs' ? V.runs(SOLO) : view==='team' ? V.team(TEAM) : V.run(r);
+  document.getElementById('vlabel').textContent = `${v} (${V.name})`;
+  document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>set('view',b.dataset.view));
+}
+const cycle = d => { const v = q().get('variant') || 'A'; set('variant', KEYS[(KEYS.indexOf(v)+d+KEYS.length)%KEYS.length]); };
+document.getElementById('prev').onclick = () => cycle(-1);
+document.getElementById('next').onclick = () => cycle(1);
+document.getElementById('runSel').onchange = e => set('run', e.target.value);
+addEventListener('keydown', e => { if (e.target.closest('input,textarea,select,[contenteditable]')) return; if (e.key==='ArrowLeft') cycle(-1); if (e.key==='ArrowRight') cycle(1); });
+render();
+</script>
+</body>
+</html>
