@@ -24,7 +24,13 @@ const recipe = () => parseYamlSubset(recipeText());
 const DEEP = "security/deep-scan";
 
 const scratch = mkdtempSync(join(tmpdir(), "deep-scan-dogfood-test-"));
-after(() => rmSync(scratch, { recursive: true, force: true }));
+after(() => {
+  try {
+    rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  } catch {
+    // Windows: a timed-out python3 store stub can still hold the folder open.
+  }
+});
 let n = 0;
 const freshDir = () => mkdtempSync(join(scratch, `${++n}-`));
 
