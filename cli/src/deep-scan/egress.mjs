@@ -1,8 +1,9 @@
 // The setup phase's egress gate (#369): an HTTP proxy that runs in the
 // launcher, on the host, outside the sandbox, and forwards only to the Scan
 // recipe's `registries`. The sandbox sits on a Docker network with no route
-// out (`--internal`), so this proxy is its only way to the internet during
-// setup, and the network is cut before the agent step. Node core only.
+// out (`--internal`), and reaches this proxy only through a relay, so the
+// proxy is its only way to the internet during setup; the network is cut
+// before the agent step. Node core only.
 
 import { createServer, request } from "node:http";
 import { connect } from "node:net";
@@ -69,7 +70,7 @@ function forwardedHeaders(headers, url) {
 }
 
 /**
- * Start the proxy on `bind` (an address on the sandbox's network, never all
+ * Start the proxy on `bind` (an address the relay reaches, never all
  * interfaces). `refused` collects every host it turned away.
  * @param {{ registries: string[], bind: string }} opts
  * @returns {Promise<{ port: number, refused: string[], close: () => Promise<void> }>}

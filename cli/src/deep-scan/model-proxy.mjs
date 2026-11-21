@@ -77,8 +77,9 @@ const DROPPED = new Set([
 ]);
 
 /**
- * Start the proxy on `bind` (an address the sandbox reaches, never all
- * interfaces). `refused` collects every host or path it turned away.
+ * Start the proxy on `bind` (an address the relay reaches, never all
+ * interfaces; on Docker Sandboxes, 127.0.0.1, which its policy lets the
+ * sandbox reach). `refused` collects every host or path it turned away.
  * With `maxTokens`, the first request once the counted tokens reach it is
  * refused, as is every one after, and `onCap` is called once. The answer
  * that crosses the cap is delivered: a request in flight is never cut.
