@@ -38,6 +38,12 @@ These are word for word the definitions in Agent-kit's root glossary, where a co
 
 **Run Summary**: The account of a finished run, offered after the human merges, for the issue that groups the run's work.
 
+**Run Record**: The structured, machine-readable account of one run, written at close-out and holding only fields that are safe to publish (counts, ids, durations, outcomes, and each human intervention with its kind), never quoted issue text or command output; what a Consumer may keep or upload once the raw run folder is gone.
+
+**Run Event**: One timestamped, structured entry for a single step of a run (a spawn, a human step, a land, a review, a CI result), written as it happens by whoever did it; the Run Record is derived from a run's Run Events.
+
+**Sink**: A store off the machine that a Consumer has configured to receive Run Records, or opted-in raw run folders; one Sink may serve many repositories, each writing only into its own namespace.
+
 **Ready to Merge**: A Delegation whose CI is green, whose review is settled, whose QA requirement is met on its current head, whose Rulings are upheld, and whose branch merges cleanly into the default branch as it now is, and is not behind it where the repository requires branches to be up to date, unless the human chose to merge it as it is; the only Delegations the closing list names.
 
 **Team Run**: A spec run started with `--team`, in which each teammate runs their own Chief of Staff over the spec's tickets assigned to them alone, beside the others, and every one of them reads one Shared Board.
