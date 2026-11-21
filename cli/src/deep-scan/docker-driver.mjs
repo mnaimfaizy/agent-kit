@@ -136,12 +136,27 @@ export function dockerDriver({ runtime, id, call }) {
         ]),
         "starting the sandbox",
       );
-      if (network) await onAlone(network, "the setup network");
+      if (!network) return {};
+      await onAlone(network, "the setup network");
+      return {
+        isolation:
+          "Isolation: checked from the host before the target starts; the sandbox reaches only the setup relay's port.",
+      };
     },
 
-    /** Unpack `tar` at the sandbox's root. */
+    /**
+     * Unpack `tar` at the sandbox's root, through `docker exec` as root (as
+     * `docker cp` would write it). Never `docker cp`: under gVisor, what it
+     * writes into a running container is hidden from the sandbox once the
+     * sandbox has looked up that path (#404).
+     */
     async copyIn(tar, what) {
-      must(await docker(["cp", "-", `${name}:/`], { stdin: tar }), what);
+      must(
+        await docker(["exec", "-i", "--user", "0:0", name, "tar", "-x", "-f", "-", "-C", "/"], {
+          stdin: tar,
+        }),
+        what,
+      );
     },
 
     /** Claude Code is already in the image. */
@@ -214,12 +229,34 @@ export function dockerDriver({ runtime, id, call }) {
       return {
         url: `http://${hostOf(relay)}:${modelProxy.port}`,
         note: `through a relay on the isolated network ${modelNetwork}`,
+        isolation:
+          "Isolation: checked from the host before the agent step; the sandbox reaches only the model relay's port.",
       };
     },
 
-    /** The file at `path`, read from the tar `docker cp` writes. */
+    /**
+     * The file at `path`, as a tar `docker exec` writes from the sandbox:
+     * first checked in the sandbox (a regular file, not a link, of at most
+     * `maxBytes`), then, on the host, read as exactly one regular file of at
+     * most `maxBytes`. Never `docker cp`, which under gVisor cannot read
+     * what the sandbox wrote (#404).
+     */
     async copyOut(path, { maxBytes }) {
-      const r = await docker(["cp", `${name}:${path}`, "-"]);
+      const r = await docker([
+        "exec",
+        "--user",
+        "0:0",
+        name,
+        "sh",
+        "-c",
+        copyOutScript(path, maxBytes),
+      ]);
+      if (r.status === 4) return { error: "it is not a regular file (checked in the sandbox)" };
+      if (r.status === 5) {
+        return {
+          error: `it is larger than ${maxBytes / 1024 / 1024} MiB (checked in the sandbox)`,
+        };
+      }
       if (r.status !== 0) return { missing: r };
       return singleFileOf(r.stdout, { maxBytes });
     },
@@ -490,6 +527,25 @@ export function dockerDriver({ runtime, id, call }) {
       "no_proxy=localhost,127.0.0.1",
     ];
   }
+}
+
+/**
+ * The script that checks the report at `path` in the sandbox and writes it
+ * as a tar of that one file: exit 3 when there is none, 4 when it is not a
+ * regular file, 5 when it is larger than `maxBytes`.
+ * @param {string} path an absolute path the launcher names, with no quote
+ * @param {number} maxBytes
+ */
+export function copyOutScript(path, maxBytes) {
+  const dir = path.slice(0, path.lastIndexOf("/")) || "/";
+  const base = path.slice(path.lastIndexOf("/") + 1);
+  return [
+    `p=${path};`,
+    `if [ ! -e "$p" ] && [ ! -L "$p" ]; then echo "no file at $p" >&2; exit 3; fi;`,
+    `{ [ -f "$p" ] && [ ! -L "$p" ]; } || exit 4;`,
+    `[ "$(wc -c < "$p")" -le ${maxBytes} ] || exit 5;`,
+    `exec tar -c -f - -C ${dir} ${base}`,
+  ].join(" ");
 }
 
 /**

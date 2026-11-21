@@ -59,7 +59,8 @@ import {
 } from "../cli/src/deep-scan/relay.mjs";
 import { StepFailed } from "../cli/src/deep-scan/steps.mjs";
 import { ENV_TEMPLATES } from "../cli/src/deep-scan/preflight.mjs";
-import { tarOf } from "../cli/src/deep-scan/tar.mjs";
+import { singleFileOf, tarOf } from "../cli/src/deep-scan/tar.mjs";
+import { copyOutScript } from "../cli/src/deep-scan/docker-driver.mjs";
 
 const GIT_ID = [
   "-c",
@@ -335,6 +336,13 @@ const REPORT_TEXT = "# Deep scan report\n\nFrom the sandbox.\n";
 const reportTar = (text = REPORT_TEXT) =>
   tarOf([{ path: "report.md", data: Buffer.from(text) }]).toString("base64");
 
+/**
+ * The fake's key for the copy-out: `docker exec` runs the in-sandbox check
+ * and then `tar -c` of the report, whose stdout is the archive (#404: under
+ * gVisor, `docker cp` cannot see what the sandbox wrote).
+ */
+const COPY_OUT = "~tar -c -f - -C /agent-kit/out report.md";
+
 /** `docker network inspect --format {{json .}}` for an isolated sandbox network. */
 const ISOLATED = {
   Name: "agent-kit-deep-net",
@@ -388,7 +396,7 @@ function docker({
       status: 0,
       stdout: "{}\n",
     },
-    "cp agent-kit-deep-": { status: 0, base64: reportTar() },
+    [COPY_OUT]: { status: 0, base64: reportTar() },
     ...extra,
   };
 }
@@ -1488,7 +1496,15 @@ const verb = (args) =>
   args.slice(0, args[0] === "network" || args[0] === "container" ? 2 : 1).join(" ");
 const isAgentStep = (a) => a[0] === "exec" && Boolean(a.at(-1)?.startsWith("set -eu"));
 const isSetupStep = (a) =>
-  a[0] === "exec" && !isAgentStep(a) && a.includes("-c") && !a.at(-1).startsWith("cat ");
+  a[0] === "exec" &&
+  !isAgentStep(a) &&
+  !a.includes("--user") &&
+  a.includes("-c") &&
+  !a.at(-1).startsWith("cat ");
+/** A copy-in: a tar on stdin, unpacked at the sandbox's root by `docker exec` (#404). */
+const isCopyIn = (a) => a[0] === "exec" && a.includes("-i") && a.includes("-x");
+/** The copy-out: `docker exec` checks the report in the sandbox, then tars it (#404). */
+const isCopyOut = (a) => a[0] === "exec" && Boolean(a.at(-1)?.includes("tar -c -f -"));
 const removed = (calls) =>
   calls.filter((a) => a[0] === "rm" || (a[0] === "network" && a[1] === "rm") || a[0] === "image");
 const containerOf = (calls) => {
@@ -1521,8 +1537,8 @@ describe("the sandbox lifecycle runs in order on the chosen runtime", () => {
       "run",
       "run",
       "container inspect",
-      "cp",
-      "cp",
+      "exec",
+      "exec",
       "exec",
       "exec",
       "exec",
@@ -1536,9 +1552,9 @@ describe("the sandbox lifecycle runs in order on the chosen runtime", () => {
       "run",
       "network connect",
       "inspect",
-      "cp",
       "exec",
-      "cp",
+      "exec",
+      "exec",
       "rm",
       "rm",
       "rm",
@@ -1656,9 +1672,21 @@ describe("the repository is copied in, never mounted, and only the listed inputs
     const res = await run(dir);
     assert.equal(res.code, 0, res.text);
     const calls = lifecycle(res);
-    const cp = calls.find((a) => a[0] === "cp" && a[1] === "-");
-    assert.deepEqual(cp, ["cp", "-", `${containerOf(calls)}:/`]);
-    const tree = tarEntries(stdinOf(res, (a) => a[0] === "cp" && a[1] === "-"));
+    const cp = calls.find(isCopyIn);
+    assert.deepEqual(cp, [
+      "exec",
+      "-i",
+      "--user",
+      "0:0",
+      containerOf(calls),
+      "tar",
+      "-x",
+      "-f",
+      "-",
+      "-C",
+      "/",
+    ]);
+    const tree = tarEntries(stdinOf(res, isCopyIn));
     const files = tree.filter((e) => e.type === "0");
     assert.deepEqual(
       files.map((e) => e.name).sort(),
@@ -1687,7 +1715,7 @@ describe("the repository is copied in, never mounted, and only the listed inputs
     git(dir, "commit", "-qm", "feature");
     const res = await run(dir);
     assert.equal(res.code, 0, res.text);
-    const names = tarEntries(stdinOf(res, (a) => a[0] === "cp" && a[1] === "-")).map((e) => e.name);
+    const names = tarEntries(stdinOf(res, isCopyIn)).map((e) => e.name);
     assert.ok(names.includes("workspace/README.md"));
     assert.ok(!names.includes("workspace/feature.js"), names.join(", "));
   });
@@ -1711,7 +1739,9 @@ describe("the repository is copied in, never mounted, and only the listed inputs
     });
     assert.equal(res.code, 0, res.text);
     assert.deepEqual(fetched, ["https://example.com/guides/framework-security.md"]);
-    const copies = res.shims.filter((c) => c[0] === "docker" && c[1] === "cp" && c[2] === "-");
+    const copies = res.shims.filter(
+      (c) => c[0] === "docker" && isCopyIn(c.slice(1).filter((a) => typeof a === "string")),
+    );
     assert.equal(
       copies.length,
       4,
@@ -1876,7 +1906,7 @@ describe("a failing setup, start or ready step ends the run before the agent ste
       if (field !== "setup") assert.match(res.err, /Output of start:\n {2}server log: port in use/);
       const calls = lifecycle(res);
       assert.ok(!calls.some(isAgentStep), "the agent step never ran");
-      assert.ok(!calls.some((a) => a[0] === "cp" && a[1] !== "-"), "nothing was copied out");
+      assert.ok(!calls.some(isCopyOut), "nothing was copied out");
       assert.equal(readdirSync(res.reportDir).length, 0);
       assert.deepEqual(removed(calls).map(verb), [
         "rm",
@@ -1909,11 +1939,55 @@ describe("a failing setup, start or ready step ends the run before the agent ste
 describe("only the report file comes out", () => {
   it("copies out the one report path, and nothing else", async () => {
     const res = await run(recipeRepo(VALID));
-    const out = lifecycle(res).filter((a) => a[0] === "cp" && a[1] !== "-");
+    const calls = lifecycle(res);
+    const out = calls.filter(isCopyOut);
     assert.equal(out.length, 1);
-    assert.match(out[0][1], /^agent-kit-deep-[0-9a-f]+:\/agent-kit\/out\/report\.md$/);
-    assert.equal(out[0][2], "-");
+    assert.deepEqual(out[0].slice(0, -1), [
+      "exec",
+      "--user",
+      "0:0",
+      containerOf(calls),
+      "sh",
+      "-c",
+    ]);
+    assert.match(out[0].at(-1), /^p=\/agent-kit\/out\/report\.md; /);
+    assert.match(out[0].at(-1), /tar -c -f - -C \/agent-kit\/out report\.md$/);
   });
+
+  it("moves files with docker exec, never docker cp, which gVisor's overlay hides (#404)", async () => {
+    const res = await run(recipeRepo(VALID));
+    assert.equal(res.code, 0, res.text);
+    const calls = lifecycle(res);
+    assert.ok(!calls.some((a) => a[0] === "cp"), calls.map((a) => a.join(" ")).join("\n"));
+    // The brief goes in after the start step wrote under /agent-kit: through exec.
+    const docker = res.shims.filter((c) => c[0] === "docker").map((c) => c.slice(1));
+    const strings = (c) => c.filter((x) => typeof x === "string");
+    const start = docker.findIndex(
+      (c) => isSetupStep(strings(c)) && /mkdir -p \/agent-kit\/logs/.test(c.at(-1)),
+    );
+    const brief = docker.findIndex((c) => {
+      const tag = c.find((x) => x && typeof x === "object" && x.stdin);
+      if (!isCopyIn(strings(c)) || !tag) return false;
+      const names = tarEntries(readFileSync(join(res.host.dir, tag.stdin))).map((e) => e.name);
+      return names.includes("agent-kit/in/brief.md");
+    });
+    assert.ok(start >= 0 && brief > start, docker.map((c) => verb(strings(c))).join(", "));
+    // The report comes out after the agent step wrote it: through exec too.
+    assert.ok(calls.findIndex(isCopyOut) > calls.findIndex(isAgentStep));
+  });
+
+  for (const [status, why] of [
+    [4, /the report was not copied out: it is not a regular file \(checked in the sandbox\)\./],
+    [5, /the report was not copied out: it is larger than 10 MiB \(checked in the sandbox\)\./],
+  ]) {
+    it(`refuses a report the sandbox's check fails with ${status}, and writes nothing`, async () => {
+      const host = gvisorWith({ [COPY_OUT]: { status, stderr: "" } });
+      const res = await run(recipeRepo(VALID), [], { host });
+      assert.equal(res.code, 1, res.text);
+      assert.match(res.err, why);
+      assert.equal(readdirSync(res.reportDir).length, 0);
+    });
+  }
 
   const file = (path, text) => ({ path, data: Buffer.from(text) });
   const bad = [
@@ -1928,7 +2002,7 @@ describe("only the report file comes out", () => {
   for (const [name, archive, why] of bad) {
     it(`refuses a copy-out that is ${name}, and writes no report`, async () => {
       const host = gvisorWith({
-        "cp agent-kit-deep-": { status: 0, base64: archive().toString("base64") },
+        [COPY_OUT]: { status: 0, base64: archive().toString("base64") },
       });
       const res = await run(recipeRepo(VALID), [], { host });
       assert.equal(res.code, 1, res.text);
@@ -1942,7 +2016,7 @@ describe("only the report file comes out", () => {
     const link = tarOf([file("report.md", "")]);
     link[156] = "2".charCodeAt(0);
     const host = gvisorWith({
-      "cp agent-kit-deep-": { status: 0, base64: link.toString("base64") },
+      [COPY_OUT]: { status: 0, base64: link.toString("base64") },
     });
     const res = await run(recipeRepo(VALID), [], { host });
     assert.equal(res.code, 1, res.text);
@@ -1952,7 +2026,7 @@ describe("only the report file comes out", () => {
 
   it("ends with exit 1 when the agent step leaves no report", async () => {
     const host = gvisorWith({
-      "cp agent-kit-deep-": { status: 1, stderr: "Error: Could not find the file\n" },
+      [COPY_OUT]: { status: 1, stderr: "Error: Could not find the file\n" },
     });
     const res = await run(recipeRepo(VALID), [], { host });
     assert.equal(res.code, 1, res.text);
@@ -2033,7 +2107,7 @@ describe("teardown runs on success, failure and interrupt", () => {
       assert.equal(res.code, code, res.text);
       assert.match(res.err, new RegExp(`Interrupted \\(${signal}\\)`));
       const calls = lifecycle(res);
-      assert.ok(!calls.some((a) => a[0] === "cp" && a[1] !== "-"), "nothing copied out");
+      assert.ok(!calls.some(isCopyOut), "nothing copied out");
       assert.deepEqual(removed(calls).map(verb), [
         "rm",
         "rm",
@@ -2955,8 +3029,8 @@ describe("the agent step runs the real Claude Code, with only a placeholder key 
       "run",
       "run",
       "container inspect",
-      "cp",
-      "cp",
+      "exec",
+      "exec",
       "exec",
       "exec",
       "exec",
@@ -2970,9 +3044,9 @@ describe("the agent step runs the real Claude Code, with only a placeholder key 
       "run",
       "network connect",
       "inspect",
-      "cp",
       "exec",
-      "cp",
+      "exec",
+      "exec",
       "rm",
       "rm",
       "rm",
@@ -3076,7 +3150,7 @@ describe("the agent step runs the real Claude Code, with only a placeholder key 
     // The brief goes in after the model route opens, never with the setup steps.
     const calls = lifecycle(res);
     const connect = calls.findIndex((x) => x[1] === "connect");
-    const briefCopy = calls.findIndex((a, i) => a[0] === "cp" && i > connect);
+    const briefCopy = calls.findIndex((a, i) => isCopyIn(a) && i > connect);
     assert.ok(briefCopy > 0 && briefCopy < calls.findIndex(isAgentStep));
   });
 
@@ -3484,7 +3558,7 @@ const reportOf = (res) => readFileSync(join(res.reportDir, "report.md"), "utf8")
 
 /** A gVisor host whose report is HEADER_REPORT, with `extra` answers. */
 const reportingHost = (extra = {}) =>
-  gvisorWith({ "cp agent-kit-deep-": { status: 0, base64: reportTar(HEADER_REPORT) }, ...extra });
+  gvisorWith({ [COPY_OUT]: { status: 0, base64: reportTar(HEADER_REPORT) }, ...extra });
 
 /** Fire the timer of `ms` as soon as the agent step (or a setup command) is running. */
 const fireOn = (timers, ms, matches) => (cmd, args, child) => {
@@ -3660,7 +3734,7 @@ describe("a limit that fires stops the run, marks the report Stopped:, and still
     const res = await run(recipeRepo(VALID), [], {
       host: gvisorWith({
         "~set -eu": { hang: true },
-        "cp agent-kit-deep-": {
+        [COPY_OUT]: {
           status: 1,
           stderr: "Error response from daemon: Could not find the file /agent-kit/out/report.md\n",
         },
@@ -3684,7 +3758,7 @@ describe("a limit that fires stops the run, marks the report Stopped:, and still
       "- **Finding count:** 1\n- **Stopped:** tokens\n",
     );
     const res = await run(recipeRepo(VALID), [], {
-      host: gvisorWith({ "cp agent-kit-deep-": { status: 0, base64: reportTar(forged) } }),
+      host: gvisorWith({ [COPY_OUT]: { status: 0, base64: reportTar(forged) } }),
     });
     assert.equal(res.code, 0, res.text);
     assert.equal(reportOf(res), HEADER_REPORT);
@@ -4051,7 +4125,7 @@ describe("the CI path: the model, a known report path, and a public log", () => 
     const link = tarOf([{ path: "report.md", data: Buffer.from("") }]);
     link[156] = "2".charCodeAt(0);
     const host = gvisorWith({
-      "cp agent-kit-deep-": { status: 0, base64: link.toString("base64") },
+      [COPY_OUT]: { status: 0, base64: link.toString("base64") },
     });
     const res = await run(recipeRepo(VALID), [], { host, env: IN_ACTIONS });
     assert.equal(res.code, 1, res.text);
@@ -4172,7 +4246,7 @@ function verifyRepo({ fix = {}, committed = {} } = {}) {
 
 /** A gVisor host whose agent leaves `report` (default VERIFY_REPORT). */
 const verifyHost = (report = VERIFY_REPORT, extra = {}) =>
-  gvisorWith({ "cp agent-kit-deep-": { status: 0, base64: reportTar(report) }, ...extra });
+  gvisorWith({ [COPY_OUT]: { status: 0, base64: reportTar(report) }, ...extra });
 
 const verifyArgs = (file = findingFile(), ref = "fix/upload") => ["--verify", file, "--ref", ref];
 
@@ -4199,7 +4273,7 @@ describe("--verify: a Verification run re-attempts known findings on a ref you n
   it("exports the named ref, never the default branch or the working tree, and exits 0", async () => {
     const res = await run(verifyRepo(), verifyArgs(), { host: verifyHost() });
     assert.equal(res.code, 0, res.text);
-    const tree = tarEntries(stdinOf(res, (a) => a[0] === "cp" && a[1] === "-"));
+    const tree = tarEntries(stdinOf(res, isCopyIn));
     const upload = tree.find((e) => e.name === "workspace/src/upload.js");
     assert.equal(upload.data.toString("utf8"), "fixed\n");
     assert.match(
@@ -4217,7 +4291,7 @@ describe("--verify: a Verification run re-attempts known findings on a ref you n
     for (const ref of ["fix-tag", sha]) {
       const res = await run(dir, verifyArgs(findingFile(), ref), { host: verifyHost() });
       assert.equal(res.code, 0, `${ref}: ${res.text}`);
-      const tree = tarEntries(stdinOf(res, (a) => a[0] === "cp" && a[1] === "-"));
+      const tree = tarEntries(stdinOf(res, isCopyIn));
       assert.equal(
         tree.find((e) => e.name === "workspace/src/upload.js").data.toString("utf8"),
         "fixed\n",
@@ -5189,7 +5263,7 @@ describe("a model API that refuses the credential is named as such", () => {
         runtimes: { ...RUNC, ...RUNSC },
         extra: {
           [key]: { status: 1, model: 2, stderr: "API Error: 401\n" },
-          "cp agent-kit-deep-": { status: 1, stderr: "Error: Could not find the file\n" },
+          [COPY_OUT]: { status: 1, stderr: "Error: Could not find the file\n" },
         },
       }),
       runsc: ok("runsc version release-20251110.0\n"),
@@ -6049,6 +6123,53 @@ describe("Docker Engine: the sandbox's only route to the host is a relay on an i
       gone.some((n) => n.endsWith("-probe-model")),
       gone.join(", "),
     );
+  });
+
+  it("says when the isolation check passed, before the target starts and before the agent step", async () => {
+    const res = await run(recipeRepo(VALID));
+    assert.equal(res.code, 0, res.text);
+    const lines = res.out.split("\n");
+    const at = (re) => lines.findIndex((l) => re.test(l));
+    const setup = at(
+      /^Isolation: checked from the host before the target starts; the sandbox reaches only the setup relay's port\.$/,
+    );
+    const model = at(
+      /^Isolation: checked from the host before the agent step; the sandbox reaches only the model relay's port\.$/,
+    );
+    assert.ok(setup >= 0 && model >= 0, res.out);
+    assert.ok(setup < at(/^Copied in: /), "before anything of the target's goes in");
+    assert.ok(at(/^Setup: setup\[0\] ok/) < model && model < at(/^Agent step: /), res.out);
+  });
+
+  it(
+    "checks the report in the sandbox with a real sh, then tars that one file",
+    { skip: process.platform === "win32" && "needs a POSIX sh and symbolic links" },
+    () => {
+      const dir = mkdtempSync(join(tmp, "copy-out-"));
+      const sh = (path, max) => spawnSync("sh", ["-c", copyOutScript(path, max)]);
+      writeFileSync(join(dir, "report.md"), REPORT_TEXT);
+      const ok = sh(join(dir, "report.md"), 1024);
+      assert.equal(ok.status, 0, ok.stderr.toString());
+      assert.deepEqual(singleFileOf(ok.stdout, { maxBytes: 1024 }), {
+        name: "report.md",
+        data: Buffer.from(REPORT_TEXT),
+      });
+      assert.equal(sh(join(dir, "missing.md"), 1024).status, 3);
+      mkdirSync(join(dir, "folder.md"));
+      assert.equal(sh(join(dir, "folder.md"), 1024).status, 4);
+      symlinkSync(join(dir, "report.md"), join(dir, "link.md"));
+      assert.equal(sh(join(dir, "link.md"), 1024).status, 4);
+      assert.equal(sh(join(dir, "report.md"), 4).status, 5);
+    },
+  );
+
+  it("says nothing of isolation when a check fails", async () => {
+    const host = gvisorWith({
+      "run --rm": { status: 0, stdout: '["connected","connected","unreachable"]\n' },
+    });
+    const res = await run(recipeRepo(VALID), [], { host });
+    assert.equal(res.code, 1, res.text);
+    assert.doesNotMatch(res.out, /^Isolation: /m);
   });
 
   it("prints no Note: about other host services: the route reaches the relay alone", async () => {

@@ -97,7 +97,7 @@ const SETUP_ORDER = ["setup", "start", "ready", "seed"];
  * @typedef {{
  *   container: string,
  *   prepare: (steps: object, ctx: { archive: Function, out: Function, branch: string, short: string }) => Promise<void>,
- *   start: (steps: object) => Promise<void>,
+ *   start: (steps: object) => Promise<{ isolation?: string } | void>,
  *   copyIn: (tar: Buffer, what: string) => Promise<void>,
  *   installAgent: (out: Function) => Promise<void>,
  *   openSetupEgress: (registries: string[]) => Promise<{ env: string[], note: string }>,
@@ -105,7 +105,7 @@ const SETUP_ORDER = ["setup", "start", "ready", "seed"];
  *   exec: (script: string, opts?: { env?: string[], workdir?: string | null }) => Promise<import("../exec.mjs").StartResult>,
  *   cutEgress: () => Promise<void>,
  *   egressLeft: () => Promise<string | null>,
- *   openModelRoute: (startProxy: (bind: string) => Promise<{ port: number, close: () => Promise<void> }>) => Promise<{ url: string, note: string }>,
+ *   openModelRoute: (startProxy: (bind: string) => Promise<{ port: number, close: () => Promise<void> }>) => Promise<{ url: string, note: string, isolation?: string }>,
  *   copyOut: (path: string, opts: { maxBytes: number }) => Promise<{ name: string, data: Buffer } | { error: string } | { missing: import("../exec.mjs").StartResult }>,
  *   close: () => Promise<void>,
  *   teardown: () => Array<{ what: string, cmd: string, args: string[] }>,
@@ -320,7 +320,9 @@ async function lifecycle({
 
   // 2. The sandbox: no mount, no host environment, no Docker socket.
   out(`Sandbox: starting ${driver.container} on ${runtime.name}.`);
-  await driver.start(steps);
+  // On Docker Engine, the isolation check passed before the target starts.
+  const started = await driver.start(steps);
+  if (started?.isolation) out(started.isolation);
 
   // 3. Copy in: the trusted ref's tree (a Verification run's: the ref the
   // maintainer named), then the grounding, and nothing else.
@@ -433,6 +435,7 @@ async function lifecycle({
   if (extra !== null) {
     throw new StepFailed([`FAILED  more than the model route is open: ${extra}.`, ENDS_HERE]);
   }
+  if (route.isolation) out(route.isolation);
   out(
     `Model route: only the model proxy on your machine (${route.note}), which forwards to the model API alone, with your ${credentialKind === "subscription" ? "token as its bearer value" : "key"}; checked from the host.`,
   );

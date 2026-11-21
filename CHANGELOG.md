@@ -46,6 +46,7 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ### Fixed
 
+- `agent-kit deep-scan` on gVisor now gets its brief in and its report out ([#404](https://github.com/mnaimfaizy/agent-kit/issues/404), part of [#362](https://github.com/mnaimfaizy/agent-kit/issues/362)). Under `runsc`, what `docker cp` wrote into the running sandbox was hidden once the sandbox had touched that path (the start step's `/agent-kit/logs`), so the agent step found no brief, and `docker cp` could not read the report back either. The Docker driver now moves every file through `docker exec`: a tar on stdin unpacked by `tar -x` at the sandbox's root, and the report checked in the sandbox (a regular file of at most 10 MiB) and written out by `tar -c`, then checked again on your machine. The run also prints an `Isolation:` line each time the route check passes, before the target starts and before the agent step. **Consumer action:** none; the recipe's image needs `tar`, as nearly every image has.
 - `prepare-release.sh` no longer rewrites the `release:` field of [Deprecation register](docs/deprecations.yml) entries when it bumps the previous tag's pins ([#361](https://github.com/mnaimfaizy/agent-kit/issues/361)). That field is the release each rename shipped in, so the bump left the register claiming the previous release's renames shipped in the new one, and a re-run of `prepare` could list them in the new release's notes. The register is now history, like the CHANGELOG and the ADRs. **Consumer action:** none.
 
 ## [1.0.0-beta.9] - 2026-11-19
