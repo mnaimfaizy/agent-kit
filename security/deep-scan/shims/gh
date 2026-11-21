@@ -21,7 +21,7 @@ if (!process.stdin.isTTY) {
   }
 }
 const tokenVariables = Object.keys(process.env)
-  .filter((name) => /TOKEN|^GH_|^GITHUB_PAT/i.test(name) && process.env[name])
+  .filter((name) => /TOKEN|PASSWORD|SECRET|_PAT$/i.test(name) && process.env[name])
   .sort();
 
 const log = process.env.DEEP_SCAN_SHIM_LOG;

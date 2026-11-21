@@ -33,7 +33,7 @@ import {
 } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { delimiter, dirname, join, relative, sep } from "node:path";
+import { delimiter, dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { startMailShim } from "./shims/mail.mjs";
 
@@ -72,8 +72,8 @@ function cleanEnv(ctx, extra = {}) {
   };
 }
 
-function run(cmd, args, { cwd, env, input = "" }) {
-  const r = spawnSync(cmd, args, { cwd, env, input, encoding: "utf8", timeout: TIMEOUT_MS });
+function run(cmd, args, { cwd, env, input = "", timeout = TIMEOUT_MS }) {
+  const r = spawnSync(cmd, args, { cwd, env, input, encoding: "utf8", timeout });
   return { status: r.status, stdout: r.stdout ?? "", stderr: r.stderr ?? String(r.error ?? "") };
 }
 
@@ -583,10 +583,8 @@ async function notifyEmail(ctx) {
   const python = run(
     bash(),
     ["-c", "command -v python3 >/dev/null && python3 -c 'import smtplib, ssl'"],
-    {
-      cwd: ctx.work,
-      env: cleanEnv(ctx),
-    },
+    // Short: Windows' app-store python3 stub can hang instead of failing.
+    { cwd: ctx.work, env: cleanEnv(ctx), timeout: 5_000 },
   );
   if (python.status !== 0) {
     results.push({

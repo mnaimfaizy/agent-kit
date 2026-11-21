@@ -56,6 +56,17 @@ describe("Agent-kit's own Scan recipe", () => {
     }
   });
 
+  it("has every fixture in the fixtures README's table, with the entry point it drives", () => {
+    const readme = readFileSync(join(root, DEEP, "README.md"), "utf8");
+    for (const { fixture, drives } of recipe().fixtures.filter((f) => f.fixture)) {
+      assert.match(
+        readme,
+        new RegExp(`^\\| \`${fixture}\` +\\| \`${drives.replaceAll(".", "\\.")}\` +\\|`, "m"),
+        `${fixture} is not in ${DEEP}/README.md with ${drives}`,
+      );
+    }
+  });
+
   it("names a stock image pinned by digest, and no Dockerfile", () => {
     const r = recipe();
     assert.match(r.image, /^[a-z0-9./-]+:[A-Za-z0-9._-]+@sha256:[0-9a-f]{64}$/);
