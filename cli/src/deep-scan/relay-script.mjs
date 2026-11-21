@@ -22,16 +22,17 @@ const [mode, ...rest] = process.argv.slice(2);
 
 if (mode === "forward") {
   const [listen, host, port] = rest;
-  const server = createServer((client) => {
-    const upstream = connect({ host, port: Number(port) });
-    const end = () => {
+  // Half-close: when one side ends, `pipe` ends the other once what is
+  // queued for it is written, so a reply that ends at once arrives whole.
+  // Only an error tears both sides down.
+  const server = createServer({ allowHalfOpen: true }, (client) => {
+    const upstream = connect({ host, port: Number(port), allowHalfOpen: true });
+    const fail = () => {
       client.destroy();
       upstream.destroy();
     };
-    for (const socket of [client, upstream]) {
-      socket.on("error", end);
-      socket.on("close", end);
-    }
+    client.on("error", fail);
+    upstream.on("error", fail);
     client.pipe(upstream);
     upstream.pipe(client);
   });

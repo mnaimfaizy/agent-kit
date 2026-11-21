@@ -6073,7 +6073,11 @@ describe("the relay script: staged, digest-checked, Node core only (#404)", () =
   };
 
   it("forwards its one port to the target, both ways", async () => {
-    const target = createNetServer((socket) => socket.on("data", (d) => socket.end(`echo ${d}`)));
+    const target = createNetServer((socket) => {
+      // The relay is killed at the end: a reset then is not the test's.
+      socket.on("error", () => {});
+      socket.on("data", (d) => socket.end(`echo ${d}`));
+    });
     await new Promise((r) => target.listen(0, "127.0.0.1", r));
     const listen = await freePort();
     const relay = node(["forward", String(listen), "127.0.0.1", String(target.address().port)]);
@@ -6087,6 +6091,36 @@ describe("the relay script: staged, digest-checked, Node core only (#404)", () =
         socket.on("error", reject);
       });
       assert.equal(answer, "echo hi");
+    } finally {
+      relay.child.kill();
+      target.close();
+    }
+  });
+
+  it("keeps the whole reply when the client half-closes and the target ends at once", async () => {
+    // The target reads the request to its end, then writes a large reply
+    // and closes straight away: the relay must still deliver every byte.
+    const reply = Buffer.alloc(8 * 1024 * 1024, 0x61);
+    const target = createNetServer({ allowHalfOpen: true }, (socket) => {
+      socket.on("error", () => {});
+      socket.resume();
+      socket.on("end", () => socket.end(reply));
+    });
+    await new Promise((r) => target.listen(0, "127.0.0.1", r));
+    const listen = await freePort();
+    const relay = node(["forward", String(listen), "127.0.0.1", String(target.address().port)]);
+    try {
+      await relay.first;
+      const got = await new Promise((resolve, reject) => {
+        const socket = connectNet({ port: listen, host: "127.0.0.1", allowHalfOpen: true }, () =>
+          socket.end("request"),
+        );
+        let size = 0;
+        socket.on("data", (d) => (size += d.length));
+        socket.on("end", () => resolve(size));
+        socket.on("error", reject);
+      });
+      assert.equal(got, reply.length);
     } finally {
       relay.child.kill();
       target.close();

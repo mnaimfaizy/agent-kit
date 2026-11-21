@@ -24,7 +24,7 @@ export const RELAY_IMAGE =
 /** The relay script as it ships, and its pinned SHA-256. */
 export const RELAY_SCRIPT_FILE = fileURLToPath(new URL("./relay-script.mjs", import.meta.url));
 export const RELAY_SCRIPT_SHA256 =
-  "dba81f93ed2d8265ba909c0da7b87f8639258d8b192a9f017d496232e9af8c4e";
+  "dd9b2857a9d186d003faeaed9d22ad0f3cca6456d7b4e3f7d93d6d1df9be5eaf";
 
 /** Where the relay and the probe find the staged script. */
 export const RELAY_SCRIPT_PATH = "/agent-kit/relay.mjs";
