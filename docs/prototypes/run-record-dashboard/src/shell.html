@@ -1,0 +1,32 @@
+<!doctype html>
+<!--
+  PROTOTYPE, throwaway (wayfinder ticket #394 "Dashboard designs for Run Records", map #391). Never merged.
+  Round 2: one multi-page dashboard (hash routes) with drill-down to every Delegation and human step,
+  a text log per run, raw record JSON, and a multi-repo overview.
+  Real data: the two hand-derived Run Records. Everything marked SYNTHETIC is generated in synth.js.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Run Record Dashboard</title>
+<style>/*CSS*/</style>
+</head>
+<body>
+<header class="top">
+  <span class="proto">PROTOTYPE</span>
+  <a href="#/" class="brand">Run Records</a>
+  <nav class="crumbs" id="crumbs"></nav>
+  <span class="grow"></span>
+  <button id="theme" title="Light / dark">◐</button>
+</header>
+<div class="layout">
+  <aside class="side" id="side"></aside>
+  <main class="main" id="app"></main>
+</div>
+<script id="records" type="application/json">/*RECORDS*/</script>
+<script id="logs" type="application/json">/*LOGS*/</script>
+<script>/*SYNTH*/</script>
+<script>/*APP*/</script>
+</body>
+</html>

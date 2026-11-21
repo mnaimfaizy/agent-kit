@@ -1,107 +1,255 @@
 <!doctype html>
 <!--
-  PROTOTYPE, throwaway (wayfinder ticket #394 "Dashboard designs for Run Records", map #391).
-  Four structurally different dashboard designs for a Consumer, switchable via ?variant=A..D
-  and the floating bar (or ← →). Views: ?view=run | runs | team. Never merged.
-  Data: the two hand-derived Run Records (real) + clearly marked SYNTHETIC records for the
-  across-runs trend and the Team Run, which have no real sample yet.
-  `cause` is not in the v0 records: this page assigns one per human step (see causeOf) to
-  show what the decided field would let the dashboard do.
+  PROTOTYPE, throwaway (wayfinder ticket #394 "Dashboard designs for Run Records", map #391). Never merged.
+  Round 2: one multi-page dashboard (hash routes) with drill-down to every Delegation and human step,
+  a text log per run, raw record JSON, and a multi-repo overview.
+  Real data: the two hand-derived Run Records. Everything marked SYNTHETIC is generated in synth.js.
 -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Run Record Dashboard</title>
-<style>
-:root{
-  --bg:#f7f7f5; --panel:#fff; --ink:#1c1d1f; --muted:#6b6e75; --line:#e2e2de; --soft:#efefeb;
-  --accent:#3b5bdb; --warn:#c2410c; --ok:#2f9e44;
-  --c-by-design:#9aa0a6; --c-human-choice:#5c7cfa; --c-harness-limit:#e8590c; --c-permission-refusal:#d6336c;
-  --c-missing-config:#f59f00; --c-spec-gap:#12b886; --c-skill-bug:#7048e8; --c-tool-missing:#1098ad; --c-other:#495057;
+<style>:root{
+  --bg:#f6f6f3; --panel:#fff; --ink:#1b1c1e; --muted:#646770; --line:#e1e1dc; --soft:#f0f0ec; --hover:#eceef7;
+  --accent:#3b5bdb; --ok:#2b8a3e; --bad:#c92a2a; --side:#fbfbf9;
   --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
-  --bg:#141517; --panel:#1d1e21; --ink:#e7e7e4; --muted:#9a9ca3; --line:#2e3034; --soft:#25272b; --accent:#748ffc;
+  --bg:#131416; --panel:#1c1d20; --ink:#e8e8e5; --muted:#9b9da4; --line:#2d2f33; --soft:#25272b; --hover:#262a38; --accent:#7b93ff; --side:#18191b;
 }}
-:root[data-theme="dark"]{ --bg:#141517; --panel:#1d1e21; --ink:#e7e7e4; --muted:#9a9ca3; --line:#2e3034; --soft:#25272b; --accent:#748ffc; }
+:root[data-theme="dark"]{ --bg:#131416; --panel:#1c1d20; --ink:#e8e8e5; --muted:#9b9da4; --line:#2d2f33; --soft:#25272b; --hover:#262a38; --accent:#7b93ff; --side:#18191b; }
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;padding-bottom:90px}
-h1,h2,h3{margin:0;font-weight:600} h2{font-size:16px} h3{font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
-.top{display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:12px 16px;border-bottom:1px solid var(--line);background:var(--panel);position:sticky;top:0;z-index:5}
-.top .proto{font:11px var(--mono);background:#ffe066;color:#222;padding:2px 6px;border-radius:3px}
-.top select,.top button{font:inherit;padding:4px 8px;border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:6px;cursor:pointer}
-.top button.on{background:var(--ink);color:var(--panel)}
-.wrap{max-width:1200px;margin:0 auto;padding:16px}
-.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:14px}
-.muted{color:var(--muted)} .mono{font-family:var(--mono)} .small{font-size:12px}
-.chip{display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:1px 7px;border-radius:99px;background:var(--soft);white-space:nowrap}
-.dot{width:8px;height:8px;border-radius:50%;display:inline-block}
-.syn{font:10px var(--mono);background:repeating-linear-gradient(45deg,#ffe06655,#ffe06655 4px,transparent 4px,transparent 8px);border:1px dashed #c9a400;padding:0 5px;border-radius:3px}
-table{border-collapse:collapse;width:100%} th,td{text-align:left;padding:5px 8px;border-bottom:1px solid var(--line);font-size:13px} th{color:var(--muted);font-weight:500;font-size:12px}
-td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
-.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px} @media(max-width:800px){.grid2{grid-template-columns:1fr}}
-.kpis{display:flex;flex-wrap:wrap;gap:24px} .kpi b{display:block;font-size:24px;font-weight:600;font-variant-numeric:tabular-nums} .kpi span{color:var(--muted);font-size:12px}
-svg text{fill:var(--ink);font-size:11px} svg .mt{fill:var(--muted)}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}
+a{color:var(--accent);text-decoration:none} a:hover{text-decoration:underline}
+h1{font-size:22px;margin:0 0 2px} h2{font-size:16px;margin:0 0 8px} h3{font-size:12px;margin:0 0 6px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+.top{display:flex;align-items:center;gap:12px;padding:10px 16px;background:var(--panel);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:10}
+.top .brand{font-weight:700;color:var(--ink)} .grow{flex:1}
+.top button{font:inherit;background:var(--soft);border:1px solid var(--line);color:var(--ink);border-radius:6px;padding:3px 9px;cursor:pointer}
+.proto{font:11px var(--mono);background:#ffe066;color:#222;padding:2px 6px;border-radius:3px}
+.crumbs{font-size:13px;color:var(--muted)} .crumbs a{color:var(--muted)} .crumbs b{color:var(--ink);font-weight:500}
+.layout{display:grid;grid-template-columns:230px 1fr;min-height:calc(100vh - 46px)}
+@media(max-width:860px){.layout{grid-template-columns:1fr}.side{display:none}}
+.side{background:var(--side);border-right:1px solid var(--line);padding:14px 10px;font-size:13px;position:sticky;top:46px;height:calc(100vh - 46px);overflow:auto}
+.side .sec{margin:14px 6px 4px;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.side a{display:block;padding:4px 8px;border-radius:6px;color:var(--ink)} .side a:hover{background:var(--hover);text-decoration:none}
+.side a.on{background:var(--hover);font-weight:600}
+.side .sub{padding-left:18px;color:var(--muted);font-size:12px}
+.main{padding:18px 22px 60px;max-width:1280px;width:100%}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:14px}
+.row{display:flex;gap:14px;flex-wrap:wrap} .row>.panel{flex:1;min-width:280px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px} .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+@media(max-width:1000px){.grid2,.grid3{grid-template-columns:1fr}}
+.muted{color:var(--muted)} .small{font-size:12px} .mono{font-family:var(--mono)} .nowrap{white-space:nowrap}
+.kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.kpi b{display:block;font-size:22px;font-weight:650;font-variant-numeric:tabular-nums;line-height:1.2}
+.kpi span{font-size:12px;color:var(--muted)} .kpi em{font-style:normal;font-size:11px;color:var(--muted);display:block}
+table{border-collapse:collapse;width:100%} th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);font-size:13px;vertical-align:top}
+th{color:var(--muted);font-weight:500;font-size:12px;white-space:nowrap} td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+tr.click{cursor:pointer} tr.click:hover td{background:var(--hover)}
 .scroll{overflow-x:auto}
-/* switcher */
-.switch{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:#111;color:#fff;border-radius:99px;display:flex;align-items:center;gap:6px;padding:6px 8px;box-shadow:0 6px 24px #0006;z-index:20;font:13px system-ui}
-.switch button{background:#333;color:#fff;border:0;border-radius:99px;width:30px;height:30px;cursor:pointer;font-size:15px}
-.switch .lbl{min-width:220px;text-align:center}
-/* variant D */
-.term{background:#0f1115;color:#d4d7dd;font:12.5px/1.5 var(--mono);padding:18px;border-radius:10px;white-space:pre;overflow-x:auto}
-.term .h{color:#ffd43b} .term .d{color:#868e96} .term .r{color:#ff8787} .term .g{color:#8ce99a} .term .b{color:#74c0fc}
-/* variant C */
-.feed{position:relative;margin-left:90px} .feed:before{content:"";position:absolute;left:-14px;top:0;bottom:0;border-left:2px solid var(--line)}
-.ev{position:relative;padding:5px 10px;margin:4px 0;border-radius:8px}
-.ev .t{position:absolute;left:-104px;width:80px;text-align:right;font:11px var(--mono);color:var(--muted);top:7px}
-.ev:before{content:"";position:absolute;left:-19px;top:11px;width:10px;height:10px;border-radius:50%;background:var(--line)}
-.ev.human{background:var(--soft);border-left:3px solid var(--warn)} .ev.human:before{background:var(--warn)}
-.ev.del:before{background:var(--accent)} .ev.cos:before{background:var(--muted)}
-.cgrid{display:grid;grid-template-columns:1fr 320px;gap:14px;align-items:start} @media(max-width:900px){.cgrid{grid-template-columns:1fr}}
-.sticky{position:sticky;top:64px}
-/* variant B */
-.waffle{display:flex;flex-wrap:wrap;gap:3px} .waffle i{width:16px;height:16px;border-radius:3px;display:block}
-.heat td.num{min-width:34px}
-.todo{border-left:4px solid var(--accent);padding:8px 12px;margin:8px 0;background:var(--soft);border-radius:0 8px 8px 0}
-.todo b{font-variant-numeric:tabular-nums}
-.note{font-size:12px;color:var(--muted);border-top:1px dashed var(--line);margin-top:10px;padding-top:8px}
+.chip{display:inline-flex;align-items:center;gap:5px;font-size:12px;padding:1px 8px 1px 6px;border-radius:99px;border:1px solid var(--line);background:var(--panel);white-space:nowrap}
+.sw{width:11px;height:11px;border-radius:3px;display:inline-block;flex:none}
+.tag{font-size:11px;padding:0 6px;border-radius:4px;background:var(--soft);color:var(--muted);white-space:nowrap}
+.tag.avoid{background:#fff0e6;color:#b4410a} .tag.exp{background:var(--soft)}
+:root[data-theme="dark"] .tag.avoid{background:#3a2414;color:#ffa66b}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .tag.avoid{background:#3a2414;color:#ffa66b}}
+.tag.ok{background:#e6f4ea;color:var(--ok)} .tag.bad{background:#fdecec;color:var(--bad)}
+.syn{font:10px var(--mono);border:1px dashed #c9a400;color:#8a6d00;background:#fff7d1;padding:0 5px;border-radius:3px;white-space:nowrap}
+:root[data-theme="dark"] .syn{background:#3a3110;color:#ffd84d}
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin:14px 0;flex-wrap:wrap}
+.tabs a{padding:7px 12px;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px}
+.tabs a.on{color:var(--ink);border-color:var(--accent);font-weight:600} .tabs a:hover{text-decoration:none;color:var(--ink)}
+.tabs .n{font-size:11px;background:var(--soft);border-radius:99px;padding:0 6px;margin-left:4px}
+pre.log{background:#0f1115;color:#d6d9df;font:12px/1.55 var(--mono);padding:14px;border-radius:8px;overflow:auto;max-height:70vh;white-space:pre;margin:0}
+pre.prose{white-space:pre-wrap}
+.log .h{color:#ffd43b} .log .d{color:#868e96} .log .r{color:#ff8a65} .log .g{color:#8ce99a} .log .b{color:#74c0fc}
+.btn{font:inherit;font-size:12px;background:var(--soft);border:1px solid var(--line);color:var(--ink);border-radius:6px;padding:3px 10px;cursor:pointer}
+.bar{display:flex;align-items:center;gap:8px;margin:5px 0} .bar .lbl{width:150px;flex:none} .bar .val{font:12px var(--mono);width:40px;text-align:right}
+.track{flex:1;height:12px;background:var(--soft);border-radius:3px;overflow:hidden;display:flex}
+.dl{display:grid;grid-template-columns:max-content 1fr;gap:4px 16px;font-size:13px} .dl dt{color:var(--muted)} .dl dd{margin:0}
+.callout{border-left:4px solid var(--accent);background:var(--soft);padding:8px 12px;border-radius:0 8px 8px 0;margin:8px 0}
+.todo{display:grid;grid-template-columns:44px 1fr;gap:10px;align-items:start;padding:8px 0;border-bottom:1px solid var(--line)}
+.todo .n{font:600 18px var(--mono);text-align:right}
+select,input{font:inherit;font-size:13px;padding:3px 6px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--ink)}
+.filters{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
+svg text{fill:var(--ink);font-size:11px} svg .mt{fill:var(--muted)} svg a:hover circle,svg a:hover rect{stroke:var(--ink);stroke-width:2}
+.legend{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.sentence{font-size:15px;margin:4px 0 10px}
 </style>
 </head>
 <body>
-<div class="top">
+<header class="top">
   <span class="proto">PROTOTYPE</span>
-  <h1 style="font-size:15px">Run Records</h1>
-  <span id="views"></span>
-  <select id="runSel" title="Run"></select>
-  <span class="muted small" id="where"></span>
+  <a href="#/" class="brand">Run Records</a>
+  <nav class="crumbs" id="crumbs"></nav>
+  <span class="grow"></span>
+  <button id="theme" title="Light / dark">◐</button>
+</header>
+<div class="layout">
+  <aside class="side" id="side"></aside>
+  <main class="main" id="app"></main>
 </div>
-<div class="wrap" id="app"></div>
-<div class="switch" id="switch"><button id="prev" title="Previous variant (←)">‹</button><span class="lbl" id="vlabel"></span><button id="next" title="Next variant (→)">›</button></div>
-
 <script id="records" type="application/json">[{"schema":"run-record/0","_provenance":{"run_folder_tz":"+11:00 (log dates are local dates; gh times are UTC)","from_gh":["run.plan_approved_at (upper bound: #253 relabel time)","run.closed_at (last close-out write)","delegations[].pr_opened_at","delegations[].landed_at","human_interventions[].at where at_source=gh"],"from_git":["base commit time only"],"everything_else":"run-folder"},"run":{"id":"2026-11-17-spec-253","kind":"tickets","spec":253,"tickets":[255,256,257,258,259],"tickets_out_of_run":[252],"harness":"claude-code-desktop","support_level":"verified","decision_authority":"relay","landing":"per-ticket","base":"5014606","started_at":"2026-11-17","plan_approved_at":"2026-11-17T08:28:25Z","closed_at":"2026-11-18T02:14:54Z","outcome":"merged","pull_requests":[271,272,270,277,282],"merge_order":[271,272,277,282,270],"issues_opened":[273,284,285,287],"default_branch_moved_outside_run":[275,280,278,281]},"plan":{"routine_writes_approved":["add-review-label","post-qa-report","relabel-spec"],"qa_required":"report","qa_required_source":"human-added-after-draft","plan_shown":2,"concurrency_limit":3},"delegations":[{"id":"d255","issue":255,"kind":"building","executor":"live-session","model":"default","wave":1,"start_route":"direct","started_at":"2026-11-17","pr":271,"pr_opened_at":"2026-11-17T08:34:37Z","landed_at":"2026-11-17T20:31:40Z","ended_at":null,"outcome":"landed","final_head":"8838db3","merge_commit":"0d176a1","heads_reported":5,"send_backs":3,"branch_updates":1,"decision_requests":2,"shared_decision_requests":1,"rulings":0,"fence_widenings":0},{"id":"d256","issue":256,"kind":"building","executor":"live-session","model":"default","wave":1,"start_route":"direct","started_at":"2026-11-17","pr":272,"pr_opened_at":"2026-11-17T08:37:58Z","landed_at":"2026-11-17T21:04:12Z","ended_at":null,"outcome":"landed","final_head":"aa436ed","merge_commit":"ea4c15e","heads_reported":4,"send_backs":2,"branch_updates":1,"decision_requests":2,"shared_decision_requests":1,"rulings":0,"fence_widenings":2},{"id":"d257","issue":257,"kind":"building","executor":"live-session","model":"default","wave":1,"start_route":"direct","started_at":"2026-11-17","pr":270,"pr_opened_at":"2026-11-17T08:33:30Z","landed_at":"2026-11-18T02:11:54Z","ended_at":null,"outcome":"landed","final_head":"7c74a7f","merge_commit":"4413dcc","heads_reported":4,"send_backs":2,"branch_updates":1,"decision_requests":1,"shared_decision_requests":2,"rulings":1,"fence_widenings":0},{"id":"d258","issue":258,"kind":"building","executor":"live-session","model":"default","wave":2,"start_route":"direct","started_at":"2026-11-18","pr":277,"pr_opened_at":"2026-11-17T20:42:16Z","landed_at":"2026-11-17T21:35:01Z","ended_at":null,"outcome":"landed","final_head":"4ee655d","merge_commit":"e69bbf3","heads_reported":3,"send_backs":1,"branch_updates":1,"decision_requests":2,"shared_decision_requests":0,"rulings":0,"fence_widenings":1},{"id":"d259","issue":259,"kind":"building","executor":"live-session","model":"default","wave":2,"start_route":"direct","started_at":"2026-11-18","pr":282,"pr_opened_at":"2026-11-17T21:12:46Z","landed_at":"2026-11-17T22:41:53Z","ended_at":null,"outcome":"landed","final_head":"bfd3926","merge_commit":"7aba52d","heads_reported":2,"send_backs":0,"branch_updates":1,"decision_requests":2,"shared_decision_requests":0,"rulings":0,"fence_widenings":0},{"id":"d255-qa","issue":255,"kind":"qa","executor":"live-session","model":"default","wave":"after-d255","start_route":"direct","started_at":"2026-11-17","landed_at":null,"ended_at":null,"outcome":"void","pinned_head":"bf5cbe4","send_backs":0,"decision_requests":2,"rulings":0},{"id":"d255-qa2","issue":255,"kind":"qa","executor":"live-session","model":"default","wave":"after-d255","start_route":"direct","started_at":"2026-11-18","landed_at":null,"ended_at":null,"outcome":"qa-pass","pinned_head":"8838db3","send_backs":0,"decision_requests":0,"rulings":0},{"id":"d256-qa","issue":256,"kind":"qa","executor":"live-session","model":"default","wave":"after-d256","start_route":"card","started_at":"2026-11-18","landed_at":null,"ended_at":null,"outcome":"qa-pass","pinned_head":"aa436ed","send_backs":0,"decision_requests":1,"rulings":0},{"id":"d257-qa","issue":257,"kind":"qa","executor":"live-session","model":"default","wave":"after-d257","start_route":"card","started_at":"2026-11-18","landed_at":null,"ended_at":null,"outcome":"qa-pass","pinned_head":"7c74a7f","send_backs":0,"decision_requests":2,"rulings":0},{"id":"d258-qa","issue":258,"kind":"qa","executor":"live-session","model":"default","wave":"after-d258","start_route":"card","started_at":"2026-11-18","landed_at":null,"ended_at":null,"outcome":"qa-pass","pinned_head":"4ee655d","send_backs":0,"decision_requests":3,"rulings":0},{"id":"d259-qa","issue":259,"kind":"qa","executor":"live-session","model":"default","wave":"after-d259","start_route":"direct","started_at":"2026-11-18","landed_at":null,"ended_at":null,"outcome":"qa-pass","pinned_head":"bfd3926","send_backs":0,"decision_requests":1,"rulings":0}],"decision_requests":[{"id":"DR1","delegations":["d256"],"subject":"fence-widening","answered_by":"human","option":1},{"id":"DR2","delegations":["d256","d257"],"subject":"review-gate","answered_by":"human","option":1},{"id":"DR3","delegations":["d255","d257"],"subject":"review-gate","answered_by":"human","option":1,"standing":true},{"id":"DR4","delegations":["d256"],"subject":"fence-widening","answered_by":"human","option":1},{"id":"DR5","delegations":["d255"],"subject":"branch-update","answered_by":"human","option":1},{"id":"DR6","delegations":["d255"],"subject":"review-scope","answered_by":"human","option":1},{"id":"DR7","delegations":["d258"],"subject":"fence-widening","answered_by":"human","option":1},{"id":"DR8","delegations":["d258-qa"],"subject":"qa-readiness","answered_by":"human","option":1},{"id":"DR9","delegations":["d258-qa"],"subject":"qa-residue-choice","answered_by":"human","option":1},{"id":"DR10","delegations":["d258-qa"],"subject":"qa-plan-confirm","answered_by":"human","option":1},{"id":"DR11","delegations":["d258"],"subject":"merge-behind","answered_by":"human","option":1},{"id":"DR12","delegations":["d259"],"subject":"merge-behind","answered_by":"human","option":1},{"id":"DR12b","delegations":["d259"],"subject":"merge-behind","answered_by":"human","option":1},{"id":"DR13","delegations":["d257-qa"],"subject":"qa-deferral","answered_by":"human","option":1},{"id":null,"delegations":["d257"],"subject":"review-gate","answered_by":"chief-of-staff","option":1,"ruling_from":"DR3"},{"id":null,"delegations":["d255-qa"],"subject":"qa-readiness","answered_by":"human","option":1,"raised_in":"delegation-session"},{"id":null,"delegations":["d255-qa"],"subject":"qa-plan-confirm","answered_by":"human","option":1,"raised_in":"delegation-session"},{"id":null,"delegations":["d256-qa"],"subject":"qa-readiness","answered_by":"human","option":1,"raised_in":"delegation-session"},{"id":null,"delegations":["d257-qa"],"subject":"qa-plan-confirm","answered_by":"human","option":1,"raised_in":"delegation-session"},{"id":null,"delegations":["d259-qa"],"subject":"qa-plan-confirm","answered_by":"human","option":1,"raised_in":"delegation-session"}],"human_interventions":[{"at":"2026-11-17","at_source":"run-folder","delegation":null,"kind":"other","proposed_kind":"plan-change","channel":"chief-of-staff","waited_minutes":null},{"at":"2026-11-17T08:28:25Z","at_source":"gh-upper-bound","delegation":null,"kind":"plan-approval","channel":"chief-of-staff","waited_minutes":null},{"at":"2026-11-17T08:28:25Z","at_source":"gh","delegation":null,"kind":"write-as-human","approval":"plan","target_issue":253,"channel":"chief-of-staff","waited_minutes":null},{"at":"2026-11-17","at_source":"run-folder","delegation":"d256","kind":"decision-request","dr":"DR1","channel":"chief-of-staff","waited_minutes":null},{"at":"2026-11-17","at_source":"run-folder","delegation":null,"delegations":["d256","d257"],"kind":"decision-request","dr":"DR2","channel":"chief-of-staff","waited_minutes":null},{"at":"2026-11-17","at_source":"run-folder","delegation":null,"delegations":["d255","d257"],"kind":"decision-request","dr":"DR3","channel":"chief-of-staff","waited_minutes":null},{"at":"2026-11-17","at_source":"run-folder","delegation":"d256","kind":"decision-request","dr":"DR4","channel":"chief-of-staff","waited_minutes":null},{"at":"2026-11-17T09:28:30Z","at_source":"gh","delegation":null,"kind":"write-as-human","approval":"DR3","target_issue":273,"channel":"chief-of-staff","waited_minutes":null},{"at":"2026-11-17","at_source":"run-folder","delegation":"d257","kind":"permission-refusal","human_needed":false,"channel":"delegation-session","waited_minutes":null},{"at":"2026-11-17","at_source":"run-folder","delegation":"d255-qa","kind":"typed-command","command":"qa-plan","channel":"delegation-session","waited_minutes":null},{"at":"2026-11-17","at_source":"run-folder","delegation":"d255-qa","kind":"readiness-answer","channel":"delegation-session","waited_minutes":null},{"at":"2026-11-17","at_source":"run-folder","delegation":"d255-qa","kind":"other","proposed_kind":"qa-residue-choice","channel":"delegation-session","waited_minutes":null},{"at":"2026-11-17","at_source":"run-folder","delegation":"d255-qa","kind":"decision-request","subject":"qa-plan-confirm","channel":"delegation-session","waited_minutes":null},{"at":"2026-11-17","at_source":"run-folder","delegation":"d255-qa","kind":"typed-command","command":"manual-qa","channel":"delegation-session","waited_minutes":null},{"at":"2026-11-17","at_source":"run-folder","delegation":"d255-qa","kind":"other","proposed_kind":"stale-relay","channel":"chief-of-staff","waited_minutes":null},{"at":"2026-11-17","at_source":"run-folder","delegation":"d255-qa","kind":"other","proposed_kind":"review-box-pass","items":1,"channel":"chief-of-staff","waited_minutes":null},{"at":"2026-11-17","at_source":"run-folder","delegation":"d255","kind":"other","proposed_kind":"human-caught-error","channel":"chief-of-staff","waited_minutes":null},{"at":"2026-11-17","at_source":"run-folder","delegation":"d255","kind":"decision-request","dr":"DR5","channel":"chief-of-staff","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d255","kind":"decision-request","dr":"DR6","channel":"chief-of-staff","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d255-qa2","kind":"typed-command","command":"qa-plan","channel":"delegation-session","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d255-qa2","kind":"readiness-answer","channel":"delegation-session","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d255-qa2","kind":"other","proposed_kind":"qa-plan-confirm","channel":"delegation-session","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d255-qa2","kind":"typed-command","command":"manual-qa","channel":"delegation-session","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d255-qa2","kind":"other","proposed_kind":"review-box-pass","items":1,"channel":"chief-of-staff","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d255","kind":"merge","result":"refused","pr":271,"channel":"human-shell","waited_minutes":null},{"at":"2026-11-17T20:31:40Z","at_source":"gh","delegation":"d255","kind":"merge","result":"merged","admin_bypass":true,"pr":271,"waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d256-qa","kind":"card-start","channel":"app-card","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d256-qa","kind":"typed-command","command":"qa-plan","channel":"delegation-session","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d256-qa","kind":"readiness-answer","channel":"delegation-session","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d256-qa","kind":"other","proposed_kind":"qa-residue-choice","items":2,"channel":"delegation-session","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d256-qa","kind":"other","proposed_kind":"qa-plan-confirm","channel":"delegation-session","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d256-qa","kind":"typed-command","command":"manual-qa","channel":"delegation-session","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d256-qa","kind":"other","proposed_kind":"review-box-pass","items":7,"channel":"chief-of-staff","waited_minutes":null},{"at":"2026-11-17T21:04:12Z","at_source":"gh","delegation":"d256","kind":"merge","result":"merged","admin_bypass":true,"pr":272,"waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d258","kind":"decision-request","dr":"DR7","channel":"chief-of-staff","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":null,"kind":"other","proposed_kind":"session-housekeeping","sessions":5,"channel":"chief-of-staff","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d258-qa","kind":"card-start","channel":"app-card","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d258-qa","kind":"typed-command","command":"qa-plan","channel":"delegation-session","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d258-qa","kind":"readiness-answer","channel":"delegation-session","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d258-qa","kind":"readiness-answer","dr":"DR8","duplicate_of_previous":true,"channel":"chief-of-staff","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d258-qa","kind":"decision-request","dr":"DR9","subject":"qa-residue-choice","channel":"chief-of-staff","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d258-qa","kind":"decision-request","dr":"DR10","subject":"qa-plan-confirm","channel":"chief-of-staff","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d258-qa","kind":"typed-command","command":"manual-qa","channel":"delegation-session","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d258-qa","kind":"other","proposed_kind":"review-box-pass","items":4,"channel":"chief-of-staff","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d258","kind":"decision-request","dr":"DR11","channel":"chief-of-staff","waited_minutes":null},{"at":"2026-11-17T21:35:01Z","at_source":"gh","delegation":"d258","kind":"merge","result":"merged","admin_bypass":true,"pr":277,"waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d259","kind":"decision-request","dr":"DR12","channel":"chief-of-staff","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d259-qa","kind":"typed-command","command":"qa-plan","channel":"delegation-session","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d259-qa","kind":"other","proposed_kind":"qa-plan-confirm","channel":"delegation-session","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d259-qa","kind":"typed-command","command":"manual-qa","channel":"delegation-session","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d259-qa","kind":"other","proposed_kind":"review-box-pass","items":4,"channel":"chief-of-staff","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d259","kind":"decision-request","dr":"DR12b","channel":"chief-of-staff","waited_minutes":null},{"at":"2026-11-17T22:41:53Z","at_source":"gh","delegation":"d259","kind":"merge","result":"merged","admin_bypass":null,"pr":282,"before_chief_of_staff_listed":true,"waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d257-qa","kind":"card-start","channel":"app-card","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d257-qa","kind":"typed-command","command":"qa-plan","channel":"delegation-session","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d257-qa","kind":"decision-request","subject":"qa-plan-confirm","channel":"delegation-session","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d257-qa","kind":"typed-command","command":"manual-qa","channel":"delegation-session","waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":"d257-qa","kind":"decision-request","dr":"DR13","subject":"qa-deferral","also":"review-box-pass","items":4,"channel":"chief-of-staff","waited_minutes":null},{"at":"2026-11-18T02:11:54Z","at_source":"gh","delegation":"d257","kind":"merge","result":"merged","admin_bypass":null,"pr":270,"waited_minutes":null},{"at":"2026-11-18T02:13:06Z","at_source":"gh","delegation":null,"kind":"close-out","action":"post-run-summary","target_issue":253,"waited_minutes":null},{"at":"2026-11-18T02:14:52Z","at_source":"gh","delegation":null,"kind":"close-out","action":"post-follow-ups","issues":[284,285],"waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":null,"kind":"close-out","action":"archive-sessions","sessions":6,"waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":null,"kind":"close-out","action":"delete-local-branches","count":5,"waited_minutes":null},{"at":"2026-11-18","at_source":"run-folder","delegation":null,"kind":"close-out","action":"delete-remote-branches","count":2,"waited_minutes":null},{"at":"2026-11-18T02:54:39Z","at_source":"gh","delegation":null,"kind":"close-out","action":"post-follow-ups","issues":[287],"after_run_closed":true,"waited_minutes":null}],"reviews":[{"pr":271,"head":"5cce1b0","round":1,"run":44048773785,"findings":3,"fixed":2,"answered":1,"gate":"fail"},{"pr":271,"head":"bf5cbe4","round":2,"run":44050130646,"findings":0,"fixed":0,"answered":0,"gate":"fail","counted_under":"DR3"},{"pr":271,"head":"d3fd9d5","round":3,"run":44065795837,"findings":1,"fixed":1,"answered":0,"gate":"pass"},{"pr":271,"head":"a2678cc","round":4,"run":44066586363,"findings":2,"fixed":2,"answered":0,"gate":"pass"},{"pr":271,"head":"8838db3","round":5,"run":44067722287,"findings":1,"fixed":0,"answered":1,"gate":"pass","answered_under":"DR6"},{"pr":272,"head":"418276f","round":1,"run":44049052019,"findings":4,"fixed":4,"answered":0,"gate":"fail","fence_widened":"DR1"},{"pr":272,"head":"73b799c","round":2,"run":44050859514,"findings":1,"fixed":1,"answered":0,"gate":"fail","fence_widened":"DR4"},{"pr":272,"head":"7f2333b","round":3,"run":44056270063,"findings":0,"fixed":0,"answered":0,"gate":"fail","counted_under":"DR3"},{"pr":272,"head":"aa436ed","round":4,"run":44170732989,"findings":0,"fixed":0,"answered":0,"gate":"fail","counted_under":"DR3"},{"pr":270,"head":"420fae4","round":1,"run":44049276908,"findings":2,"fixed":1,"answered":1,"gate":"fail"},{"pr":270,"head":"7e8c434","round":2,"run":44050867062,"findings":1,"fixed":1,"answered":0,"gate":"pass"},{"pr":270,"head":"3c16712","round":3,"run":44051661376,"findings":0,"fixed":0,"answered":0,"gate":"fail","counted_under":"DR3"},{"pr":270,"head":"7c74a7f","round":4,"run":44193064839,"findings":0,"fixed":0,"answered":0,"gate":"fail","counted_under":"DR3"},{"pr":277,"head":"5bd50ce","round":1,"run":null,"findings":2,"fixed":2,"answered":0,"gate":null},{"pr":277,"head":"39c00c2","round":2,"run":44173138903,"findings":0,"fixed":0,"answered":0,"gate":"fail","counted_under":"DR3"},{"pr":277,"head":"4ee655d","round":3,"run":44176358390,"findings":0,"fixed":0,"answered":0,"gate":"fail","counted_under":"DR3"},{"pr":282,"head":"0814a6f","round":1,"run":null,"findings":1,"fixed":1,"answered":0,"gate":null},{"pr":282,"head":"e744f9d","round":2,"run":44178667734,"findings":0,"fixed":0,"answered":0,"gate":"fail","counted_under":"DR3"},{"pr":282,"head":"bfd3926","round":3,"run":44181668326,"findings":0,"fixed":0,"answered":0,"gate":"fail","counted_under":"DR3"}],"ci":[{"pr":271,"head":"bf5cbe4","required":"pass","result":"fail","failed_checks":1,"behind_main":true},{"pr":271,"head":"8838db3","required":"pass","result":"pass","failed_checks":0},{"pr":272,"head":"aa436ed","required":"pass","result":"fail","failed_checks":1},{"pr":270,"head":"7c74a7f","required":"pass","result":"fail","failed_checks":1},{"pr":277,"head":"4ee655d","required":"pass","result":"fail","failed_checks":1,"behind_main":true},{"pr":282,"head":"bfd3926","required":"pass","result":"fail","failed_checks":1,"behind_main":true}],"regates":{"local_full_runs":21,"all_pass":true,"on_loose_merge_results":3},"rulings":{"made":1,"upheld":0,"overturned":0,"standing_ruling_applications":9},"qa":[{"delegation":"d255-qa","pr":271,"head":"bf5cbe4","target":"stack","stack_used":false,"route":"typed","readiness_source":"human","delivery":"working-copy","scenarios":0,"review_boxes":1,"deferred_scenarios":0,"result":"void","voided_by":"head-moved"},{"delegation":"d255-qa2","pr":271,"head":"8838db3","target":"stack","stack_used":false,"route":"typed","readiness_source":"human","delivery":"working-copy","scenarios":0,"review_boxes":1,"deferred_scenarios":0,"result":"pass"},{"delegation":"d256-qa","pr":272,"head":"aa436ed","target":"stack","stack_used":false,"route":"typed","readiness_source":"human","delivery":"working-copy","scenarios":0,"review_boxes":7,"deferred_scenarios":0,"result":"pass"},{"delegation":"d257-qa","pr":270,"head":"7c74a7f","target":"stack","stack_used":false,"route":"typed","readiness_source":"brief","delivery":"working-copy","scenarios":1,"review_boxes":4,"deferred_scenarios":1,"result":"pass"},{"delegation":"d258-qa","pr":277,"head":"4ee655d","target":"stack","stack_used":false,"route":"typed","readiness_source":"human","delivery":"working-copy","scenarios":0,"review_boxes":4,"deferred_scenarios":0,"result":"pass"},{"delegation":"d259-qa","pr":282,"head":"bfd3926","target":"stack","stack_used":false,"route":"typed","readiness_source":"brief","delivery":"working-copy","scenarios":0,"review_boxes":4,"deferred_scenarios":0,"result":"pass"}],"qa_human_steps_by_kind":{"typed-command":12,"plan-confirm":6,"review-box-pass":6,"readiness-answer":5,"card-start":3,"residue-choice":3,"qa-deferral":1,"stale-relay":1},"heartbeats":{"firings":null,"no_change":null,"side_session_wakeups":null},"harness_refusals":{"start_session_on_background_turn":3,"slash_command_as_message":1}},{"schema":"run-record/0","_provenance":{"run_folder":"activity.md, board.md, rulings.md, run-summary.md, delegations/*/activity.md, evidence/*","git":"commit author times (local +11:00, converted to Z) for at_bounds and head_committed_at","gh":"pr 387 createdAt/mergedAt/timeline (label, ready_for_review, merged), review comment created_at, actions runs created_at, issue 344/348-353 closedAt, issue 344 comment created_at","note":"Run folder gives dates only (one '~14:13' local time). Every Z time below came from git or gh unless marked."},"run":{"id":"2026-11-19-spec-344","kind":"spec","spec":344,"tickets":[348,349,350,351,352,353],"harness":"claude-code-desktop","support_level":"verified","decision_authority":"autonomous","landing":"integration-branch","landing_source":"inferred","started_at":null,"started_at_bounds":["2026-11-19T01:44:00Z","2026-11-19T03:10:20Z"],"plan_approved_at":null,"plan_approved_at_bounds":[null,"2026-11-19T03:10:20Z"],"pr_opened_at":"2026-11-19T04:41:12Z","merged_at":"2026-11-19T06:26:19Z","merge_commit":"25e3536","closed_at":"2026-11-19T06:27:22Z","outcome":"merged","pull_requests":[387],"base":{"cut_at":"2fc49b2","default_tip_at_merge_check":"9f24e15","merged_main_in":true}},"plan":{"routine_writes_approved":["open-final-pr"],"routine_writes_declined":["add-review-label"],"qa_required":"none","waves":6,"wave_shape":"serial","serial_reason":"scope-fence-overlap"},"delegations":[{"id":"d348","issue":348,"kind":"building","executor":"live-session","model":"default","wave":1,"start_route":"direct","started_at":null,"first_commit_at":"2026-11-19T03:10:20Z","head":"6fc67d7","head_committed_at":"2026-11-19T03:14:29Z","landed_at":null,"ended_at":null,"outcome":"landed","send_backs":0,"decision_requests":0,"rulings":0,"commits":7,"regate_attempts_by_chief":2,"regate_result":"pass"},{"id":"d349","issue":349,"kind":"building","executor":"live-session","model":"default","wave":2,"start_route":"direct","started_at":null,"first_commit_at":"2026-11-19T03:21:33Z","head":"f17e566","head_committed_at":"2026-11-19T03:26:08Z","landed_at":null,"ended_at":null,"outcome":"landed","send_backs":0,"decision_requests":0,"rulings":0,"commits":4,"regate_attempts_by_chief":1,"regate_result":"pass"},{"id":"d350","issue":350,"kind":"building","executor":"live-session","model":"default","wave":3,"start_route":"card","card_reason":"start-session-refused-heartbeat-turn","card":"task_184e1773","started_at":null,"first_commit_at":"2026-11-19T03:34:03Z","head":"7ea8b5d","head_committed_at":"2026-11-19T03:41:48Z","landed_at":null,"ended_at":null,"outcome":"landed","send_backs":0,"decision_requests":0,"rulings":0,"commits":6,"regate_attempts_by_chief":1,"regate_result":"pass"},{"id":"d351","issue":351,"kind":"building","executor":"live-session","model":"default","wave":4,"start_route":"card","card_reason":"app-started-turn","card":"task_ee8dfe89","started_at":null,"first_commit_at":"2026-11-19T03:50:21Z","head":"5159081","head_committed_at":"2026-11-19T03:57:07Z","landed_at":null,"ended_at":null,"outcome":"landed","send_backs":0,"decision_requests":0,"rulings":0,"commits":5,"regate_attempts_by_chief":1,"regate_result":"pass"},{"id":"d352","issue":352,"kind":"building","executor":"live-session","model":"default","wave":5,"start_route":"card","card_reason":"unrecorded","card":"task_2766ee4a","started_at":null,"first_commit_at":"2026-11-19T04:04:50Z","head":"d02f591","head_committed_at":"2026-11-19T04:07:38Z","landed_at":null,"ended_at":null,"outcome":"landed","send_backs":0,"decision_requests":0,"rulings":0,"commits":4,"regate_attempts_by_chief":1,"regate_result":"pass"},{"id":"d353","issue":353,"kind":"building","executor":"live-session","model":"default","wave":6,"start_route":"card","card_reason":"unrecorded","card":"task_e0243937","started_at":null,"first_commit_at":"2026-11-19T04:24:28Z","head":"75aa766","head_committed_at":"2026-11-19T04:28:59Z","landed_at":null,"ended_at":null,"outcome":"landed","send_backs":0,"decision_requests":0,"rulings":0,"commits":3,"regate_attempts_by_chief":1,"regate_result":"pass"},{"id":"d344-fix1","issue":344,"kind":"fix","executor":"live-session","model":"default","wave":"after-review","start_route":"card","card_reason":"start-session-refused-not-user-turn","card":"task_3e11ec7d","fixes_review_rounds":[1,2],"fence_widened":true,"started_at":null,"first_commit_at":"2026-11-19T05:06:23Z","head":"b779e0c","head_committed_at":"2026-11-19T06:05:01Z","landed_at":null,"landed_bounds_first":["2026-11-19T05:18:57Z","2026-11-19T05:23:04Z"],"landed_bounds_second":["2026-11-19T06:05:01Z","2026-11-19T06:08:27Z"],"ended_at":null,"outcome":"landed","send_backs":1,"decision_requests":0,"rulings":0,"commits":11,"regate_attempts_by_chief":2,"regate_result":"pass","permission_refusals":1}],"integration_row":{"send_backs":2,"decision_requests_raised":7,"final_state":"merged"},"human_interventions":[{"n":1,"at":null,"at_bounds":[null,"2026-11-19T03:10:20Z"],"delegation":null,"kind":"plan-approval","answer_batch":"A","waited_minutes":null},{"n":2,"at":null,"at_bounds":[null,"2026-11-19T03:10:20Z"],"delegation":null,"kind":"other","proposed_kind":"landing-choice","implicit":true,"answer_batch":"A","waited_minutes":null},{"n":3,"at":null,"at_bounds":["2026-11-19T03:26:08Z","2026-11-19T03:34:03Z"],"delegation":"d350","kind":"card-start","waited_minutes":null,"waited_minutes_max":8},{"n":4,"at":null,"at_bounds":["2026-11-19T03:41:48Z","2026-11-19T03:50:21Z"],"delegation":"d351","kind":"card-start","waited_minutes":null,"waited_minutes_max":9},{"n":5,"at":null,"at_bounds":["2026-11-19T03:57:07Z","2026-11-19T04:04:50Z"],"delegation":"d352","kind":"card-start","waited_minutes":null,"waited_minutes_max":8},{"n":6,"at":null,"at_bounds":["2026-11-19T04:07:38Z","2026-11-19T04:24:28Z"],"delegation":"d353","kind":"card-start","waited_minutes":null,"waited_minutes_max":17,"heartbeats_waiting":1},{"n":7,"at":"2026-11-19T04:43:08Z","at_source":"gh-label-event","delegation":null,"kind":"decision-request","topic":"review-trigger","waited_minutes":2,"waited_from":"pr_opened_at"},{"n":8,"at":"2026-11-19T04:43:08Z","at_source":"gh-label-event","delegation":null,"kind":"write-as-human","write":"add-label","performed_by":"chief-of-staff","waited_minutes":0},{"n":9,"at":null,"at_bounds":["2026-11-19T04:46:27Z","2026-11-19T05:06:23Z"],"delegation":"d344-fix1","kind":"decision-request","topic":"fence-widening","review_finding":"S1","answer_batch":"B","waited_minutes":null,"waited_minutes_max":20},{"n":10,"at":null,"at_bounds":["2026-11-19T04:46:27Z","2026-11-19T05:06:23Z"],"delegation":"d344-fix1","kind":"decision-request","topic":"fence-widening","review_finding":"S3","answer_batch":"B","waited_minutes":null,"waited_minutes_max":20},{"n":11,"at":null,"at_bounds":["2026-11-19T04:46:27Z","2026-11-19T05:06:23Z"],"delegation":null,"kind":"decision-request","topic":"behind-default-branch","answer":"merge-main-in","answer_batch":"B","waited_minutes":null,"waited_minutes_max":20},{"n":12,"at":null,"at_bounds":["2026-11-19T04:46:27Z","2026-11-19T05:06:23Z"],"delegation":"d344-fix1","kind":"card-start","waited_minutes":null,"heartbeats_waiting":1},{"n":13,"at":null,"at_bounds":["2026-11-19T05:23:04Z","2026-11-19T05:58:22Z"],"delegation":"d344-fix1","kind":"permission-refusal","refused":"gh-api-post-review-replies","covered_by":14,"waited_minutes":null},{"n":14,"at":"2026-11-19T05:58:22Z","at_source":"gh-first-reply","delegation":null,"kind":"decision-request","topic":"post-replies-and-retrigger-review","answer_batch":"C","waited_minutes":35,"waited_from":"b3609bb CI run created (push proxy)","heartbeats_waiting":4},{"n":15,"at":"2026-11-19T05:58:22Z","at_source":"gh-comments","delegation":"d344-fix1","kind":"write-as-human","write":"post-review-replies","count":7,"performed_by":"chief-of-staff","waited_minutes":0},{"n":16,"at":"2026-11-19T05:58:44Z","at_source":"gh-label-event","delegation":null,"kind":"write-as-human","write":"add-label","performed_by":"chief-of-staff","waited_minutes":0},{"n":17,"at":"2026-11-19T06:12:27Z","at_source":"gh-reply","delegation":null,"kind":"decision-request","topic":"post-replies-and-retrigger-review","answer_batch":"D","waited_minutes":4,"waited_from":"b779e0c CI run created (push proxy)","heartbeats_waiting":1},{"n":18,"at":"2026-11-19T06:12:27Z","at_source":"gh-comments","delegation":"d344-fix1","kind":"write-as-human","write":"post-review-replies","count":1,"performed_by":"chief-of-staff","waited_minutes":0},{"n":19,"at":"2026-11-19T06:12:31Z","at_source":"gh-label-event","delegation":null,"kind":"write-as-human","write":"add-label","performed_by":"chief-of-staff","waited_minutes":0},{"n":20,"at":"2026-11-19T06:26:04Z","at_source":"gh-timeline-only","in_activity_log":false,"delegation":null,"kind":"other","proposed_kind":"mark-ready","performed_by":"unknown","waited_minutes":null},{"n":21,"at":"2026-11-19T06:26:19Z","at_source":"gh-mergedAt","delegation":null,"kind":"merge","admin_bypass":true,"waited_minutes":12,"waited_from":"third review run updated_at 06:13:57Z"},{"n":22,"at":"2026-11-19T06:27:21Z","at_source":"gh-issue-comment","delegation":null,"kind":"close-out","topic":"post-summary-and-close-spec","waited_minutes":1},{"n":23,"at":null,"at_bounds":["2026-11-19T06:27:22Z",null],"delegation":null,"kind":"close-out","topic":"archive-sessions","count":7,"waited_minutes":null}],"chief_permission_refusals":[{"at":null,"refused":"start-session-user-asked","delegation":"d350","resolved_by":"card"},{"at":null,"refused":"start-session-user-asked","delegation":"d344-fix1","resolved_by":"card"}],"reviews":[{"pr":387,"head":"75aa766","round":1,"run":44460233005,"triggered_at":"2026-11-19T04:43:10Z","finished_at":"2026-11-19T04:46:27Z","findings":7,"findings_in_fence":5,"findings_outside_fence":2,"fixed":7,"answered":0,"replies_posted":7},{"pr":387,"head":"b3609bb","round":2,"run":44468839545,"triggered_at":"2026-11-19T05:58:46Z","finished_at":"2026-11-19T06:01:23Z","findings":1,"findings_in_fence":1,"findings_outside_fence":0,"fixed":1,"answered":0,"replies_posted":1,"prior_confirmed_fixed":7},{"pr":387,"head":"b779e0c","round":3,"run":44470493822,"triggered_at":"2026-11-19T06:12:34Z","finished_at":"2026-11-19T06:13:57Z","findings":0,"fixed":0,"answered":0,"replies_posted":0,"prior_confirmed_fixed":8,"settled":true}],"ci":[{"pr":387,"head":"75aa766","run":44460021218,"created_at":"2026-11-19T04:41:16Z","result":"pass","failed_checks":0,"wait_tool_errors":1},{"pr":387,"head":"b3609bb","run":44464787792,"created_at":"2026-11-19T05:23:04Z","result":"pass","failed_checks":0},{"pr":387,"head":"b779e0c","run":44469995716,"created_at":"2026-11-19T06:08:27Z","result":"pass","failed_checks":0}],"pr_checklist":{"head":"75aa766","pre_commit":"pass","npm_test_failed":2,"npm_test_failed_excluded_by_regate_skip":2},"regates":{"count":9,"pass":9,"chief_script_errors":1},"rulings":{"made":0,"upheld":0,"overturned":0,"review_held":false},"qa":[],"carry_forwards":{"count":5,"into_pr_body_notes":3},"heartbeats":{"id":"fc215603","firings":17,"no_change":10,"deleted_at":null},"wake_ups":{"count":10,"stale_idle_notices":3}}]</script>
-<script>
-// ───────────────────────── data ─────────────────────────
-const RAW = JSON.parse(document.getElementById('records').textContent);
+<script id="logs" type="application/json">{}</script>
+<script>// SYNTHETIC Run Records (prototype only). Seeded, so every build shows the same numbers.
+// The shape is v0 plus the fields #393 decided (cause per human step) and the ones this prototype
+// found missing (run.repo, run.operator, run.team_run, Delegation started_at/ended_at).
+function rng(seed){ return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+function hex(R){ return Math.floor(R()*0xfffffff).toString(16).padStart(7,'0').slice(0,7); }
+
+function synthRun(o){
+  const R = rng(o.seed), btw = (a,b) => a + Math.floor(R()*(b-a+1)), t0 = Date.parse(o.start);
+  const iso = m => new Date(t0 + m*60000).toISOString();
+  const hs = [], dels = [], reviews = [], ci = [], prs = [];
+  const touch = (m, kind, cause, x = {}) => hs.push({ at: iso(m), kind, cause, delegation: x.delegation || null, waited_minutes: x.wait ?? btw(0, 10), ...x.extra });
+  touch(0, 'plan-approval', 'by-design', { wait: btw(2, 15) });
+  const per = o.landing === 'per-ticket';
+  let waveStart = btw(4, 9), waveEnd = waveStart, wave = 1, end = 0;
+  const tickets = Array.from({ length: o.n }, (_, i) => (o.ticketBase ?? o.spec) + 1 + i);
+  tickets.forEach((iss, i) => {
+    if (i > 0 && i % o.parallel === 0) { waveStart = waveEnd + btw(2, 6); wave++; }
+    const id = 'd' + iss; let s = waveStart + btw(0, 4);
+    const card = R() < o.cardRate;
+    if (card) { const w = btw(3, 18); touch(s + w, 'card-start', 'harness-limit', { delegation: id, wait: w }); s += w; }
+    const dur = btw(18, 75); let e = s + dur, drs = 0;
+    if (R() < o.gapRate) { const w = btw(3, 25); touch(s + btw(5, dur - 5) + w, 'decision-request', 'spec-gap', { delegation: id, wait: w, extra: { topic: 'fence-widening' } }); e += w; drs++; }
+    if (R() < o.permRate) touch(s + btw(3, dur), 'permission-refusal', 'permission-refusal', { delegation: id, wait: btw(1, 9) });
+    if (R() < o.bugRate) touch(s + btw(3, dur), 'stale-relay', 'skill-bug', { delegation: id, wait: btw(1, 6) });
+    const abandoned = o.abandonAt === i;
+    const sb = !abandoned && R() < 0.3 ? 1 : 0;
+    dels.push({ id, issue: iss, kind: 'building', executor: 'live-session', model: 'default', wave, start_route: card ? 'card' : 'direct',
+      started_at: iso(s), ended_at: iso(e), landed_at: abandoned ? null : iso(e), outcome: abandoned ? 'abandoned' : 'landed',
+      send_backs: sb, decision_requests: drs, rulings: 0, commits: btw(2, 9), head: hex(R) });
+    let last = e;
+    if (per && !abandoned) {
+      const pr = o.prBase + i; prs.push(pr);
+      const rounds = btw(1, 3);
+      for (let r = 1; r <= rounds; r++) { const f = r === rounds ? 0 : btw(1, 5); reviews.push({ pr, head: hex(R), round: r, triggered_at: iso(last + 1), finished_at: iso(last + 4), findings: f, fixed: f, answered: 0 }); last += btw(6, 15); }
+      const fail = R() < 0.18; ci.push({ pr, head: hex(R), created_at: iso(last), result: fail ? 'fail' : 'pass', failed_checks: fail ? 1 : 0 });
+      if (o.qa) {
+        const qid = id + '-qa', qs = last + btw(1, 4), qd = btw(12, 30);
+        dels.push({ id: qid, issue: iss, kind: 'qa', executor: 'live-session', model: 'default', wave: 'after-' + id, start_route: R() < o.cardRate ? 'card' : 'direct', started_at: iso(qs), ended_at: iso(qs + qd), outcome: 'qa-pass', send_backs: 0, decision_requests: 1, rulings: 0 });
+        if (R() < o.qaTyped) { touch(qs + 1, 'qa-typed-command', 'harness-limit', { delegation: qid, extra: { command: 'qa-plan' } }); touch(qs + 8, 'qa-typed-command', 'harness-limit', { delegation: qid, extra: { command: 'manual-qa' } }); }
+        if (R() < o.qaTyped) touch(qs + 3, 'qa-readiness-answer', 'missing-config', { delegation: qid });
+        if (R() < 0.25) touch(qs + 5, 'qa-stack-start', 'tool-missing', { delegation: qid });
+        touch(qs + qd, 'qa-review-box', 'human-choice', { delegation: qid, wait: btw(2, 30) });
+        last = qs + qd;
+      }
+      touch(last + btw(3, 25), 'merge', 'human-choice', { delegation: id, extra: { pr } });
+    }
+    waveEnd = Math.max(waveEnd, last); end = Math.max(end, last);
+  });
+  if (!per) {
+    const pr = o.prBase; prs.push(pr); let t = waveEnd + 3;
+    if (R() < o.cfgRate) touch(t + 2, 'decision-request', 'missing-config', { wait: btw(1, 12), extra: { topic: 'review-trigger' } });
+    const rounds = btw(1, 3);
+    for (let r = 1; r <= rounds; r++) { const f = r === rounds ? 0 : btw(1, 7); reviews.push({ pr, head: hex(R), round: r, triggered_at: iso(t + 3), finished_at: iso(t + 6), findings: f, fixed: f, answered: 0 });
+      if (f && R() < o.cfgRate) touch(t + 9, 'decision-request', 'missing-config', { wait: btw(2, 30), extra: { topic: 'post-replies-and-retrigger-review' } });
+      t += btw(15, 40); }
+    ci.push({ pr, head: hex(R), created_at: iso(t), result: 'pass', failed_checks: 0 });
+    if (o.outcome !== 'abandoned') touch(t + btw(4, 15), 'merge', 'human-choice', { wait: btw(2, 15), extra: { pr } });
+    end = t + 16;
+  }
+  touch(end + 2, 'close-out', 'by-design', { wait: btw(0, 4) });
+  return { schema: 'run-record/0', _synthetic: true,
+    run: { id: o.id, repo: o.repo, operator: o.operator || 'you', team_run: o.team || null, kind: o.team ? 'team' : 'spec', spec: o.spec, tickets,
+      harness: 'claude-code-desktop', support_level: 'verified', decision_authority: o.authority, landing: o.landing,
+      started_at: iso(0), plan_approved_at: iso(hs[0].waited_minutes), closed_at: iso(end + 3), outcome: o.outcome || 'merged', pull_requests: prs },
+    plan: { routine_writes_approved: o.cfgRate < 0.3 ? ['open-final-pr', 'add-review-label', 'post-review-replies'] : ['open-final-pr'], routine_writes_declined: o.cfgRate >= 0.3 ? ['add-review-label'] : [],
+      qa_required: o.qa ? 'report' : 'none', waves: wave, concurrency_limit: o.parallel },
+    delegations: dels, human_interventions: hs, reviews, ci, rulings: { made: Math.floor(R()*2), upheld: 0, overturned: 0 },
+    heartbeats: { firings: btw(6, 30), no_change: btw(3, 12) } };
+}
+
+// Repos: each repo is a Consumer; runs get better over time (rates fall), so trends are visible.
+const SYNTH_REPOS = [
+  { repo: 'mnaimfaizy/agent-kit', note: 'Real runs from 17 and 19 Nov, plus synthetic runs before them for a trend', runs: [
+    { date: '2026-10-21T01:00:00Z', spec: 150, n: 4, authority: 'relay', landing: 'per-ticket', qa: false, parallel: 2, k: 1.0 },
+    { date: '2026-11-02T03:00:00Z', spec: 180, n: 5, authority: 'relay', landing: 'per-ticket', qa: false, parallel: 3, k: .9 },
+    { date: '2026-11-10T00:30:00Z', spec: 214, n: 3, authority: 'autonomous', landing: 'integration-branch', qa: false, parallel: 1, k: .8 } ] },
+  { repo: 'example-org/storefront-web', note: 'Web app with QA on every ticket', runs: [
+    { date: '2026-10-06T22:00:00Z', spec: 400, n: 3, authority: 'relay', landing: 'per-ticket', qa: true, parallel: 2, k: 1.0 },
+    { date: '2026-10-14T23:00:00Z', spec: 420, n: 4, authority: 'relay', landing: 'per-ticket', qa: true, parallel: 2, k: .95 },
+    { date: '2026-10-23T21:30:00Z', spec: 440, n: 5, authority: 'relay', landing: 'per-ticket', qa: true, parallel: 3, k: .85, operator: 'teammate-ana' },
+    { date: '2026-11-01T22:10:00Z', spec: 460, n: 4, authority: 'autonomous', landing: 'per-ticket', qa: true, parallel: 2, k: .7 },
+    { date: '2026-11-08T20:00:00Z', spec: 480, n: 6, authority: 'autonomous', landing: 'per-ticket', qa: true, parallel: 3, k: .55, operator: 'teammate-ana' },
+    { date: '2026-11-14T21:45:00Z', spec: 500, n: 3, authority: 'autonomous', landing: 'per-ticket', qa: true, parallel: 3, k: .4 },
+    { date: '2026-11-19T22:30:00Z', spec: 520, n: 5, authority: 'autonomous', landing: 'per-ticket', qa: true, parallel: 3, k: .3 } ] },
+  { repo: 'example-org/billing-api', note: 'Backend service; one abandoned run and one Team Run', runs: [
+    { date: '2026-10-09T02:00:00Z', spec: 600, n: 5, authority: 'relay', landing: 'integration-branch', qa: false, parallel: 1, k: 1.0 },
+    { date: '2026-10-20T03:00:00Z', spec: 620, n: 4, authority: 'autonomous', landing: 'integration-branch', qa: false, parallel: 2, k: .9, outcome: 'abandoned', abandonAt: 2 },
+    { team: 'team-billing-640', spec: 640, date: '2026-11-04T01:00:00Z', members: [
+        { operator: 'you', n: 3, off: 0 }, { operator: 'teammate-ana', n: 2, off: 25 }, { operator: 'teammate-ben', n: 3, off: 40 } ],
+      authority: 'autonomous', landing: 'integration-branch', qa: false, parallel: 1, k: .75 },
+    { date: '2026-11-12T02:20:00Z', spec: 660, n: 6, authority: 'autonomous', landing: 'integration-branch', qa: false, parallel: 2, k: .55, operator: 'teammate-ben' },
+    { date: '2026-11-18T01:10:00Z', spec: 680, n: 4, authority: 'autonomous', landing: 'integration-branch', qa: false, parallel: 2, k: .45 } ] },
+  { repo: 'example-org/docs-site', note: 'Small docs repo, short runs', runs: [
+    { date: '2026-10-12T05:00:00Z', spec: 800, n: 2, authority: 'autonomous', landing: 'integration-branch', qa: false, parallel: 2, k: .6 },
+    { date: '2026-10-26T04:00:00Z', spec: 810, n: 3, authority: 'autonomous', landing: 'integration-branch', qa: false, parallel: 3, k: .5 },
+    { date: '2026-11-06T06:00:00Z', spec: 820, n: 2, authority: 'autonomous', landing: 'integration-branch', qa: false, parallel: 2, k: .35 },
+    { date: '2026-11-16T05:30:00Z', spec: 830, n: 3, authority: 'autonomous', landing: 'integration-branch', qa: false, parallel: 3, k: .25 } ] },
+];
+
+const SYNTH_RECORDS = [];
+SYNTH_REPOS.forEach((r, ri) => r.runs.forEach((x, i) => {
+  const rates = k => ({ cardRate: .55*k, gapRate: .35*k, permRate: .12*k, bugRate: .1*k, qaTyped: .9*k + .1, cfgRate: .6*k });
+  const base = { repo: r.repo, authority: x.authority, landing: x.landing, qa: x.qa, parallel: x.parallel, prBase: x.spec + 50, ...rates(x.k) };
+  if (x.team) {
+    let start = 0;
+    x.members.forEach((m, j) => { const st = new Date(Date.parse(x.date) + m.off*60000).toISOString();
+      SYNTH_RECORDS.push(synthRun({ ...base, id: `${st.slice(0,10)}-spec-${x.spec}-${m.operator}`, spec: x.spec, ticketBase: x.spec + start, team: x.team, operator: m.operator, n: m.n, start: st, prBase: x.spec + 50 + j, seed: 1000*ri + 100*i + j + 7 }));
+      start += m.n; });
+    return;
+  }
+  SYNTH_RECORDS.push(synthRun({ ...base, id: `${x.date.slice(0,10)}-spec-${x.spec}`, spec: x.spec, n: x.n, start: x.date, operator: x.operator, outcome: x.outcome, abandonAt: x.abandonAt, seed: 1000*ri + 100*i + 1 }));
+}));
+</script>
+<script>// ═══════════════════════ vocabulary: every colour has a name, a meaning and a fix ═══════════════════════
+const CAUSE_INFO = {
+  'by-design':          { color:'#8a9099', avoidable:false, label:'By design',          meaning:'A step the process asks for on purpose: approving the Dispatch Plan, the landing choice, close-out.', fix:'Nothing to fix. Shown so the total adds up.' },
+  'human-choice':       { color:'#4c6ef5', avoidable:false, label:'Your choice',        meaning:'A decision that is yours to make: merging, choosing to merge main in, passing QA Review boxes.', fix:'Keep, or approve it ahead of time if you always answer the same way.' },
+  'harness-limit':      { color:'#f76707', avoidable:true,  label:'Harness limit',      meaning:'The harness would not let the Chief of Staff do it: a session start refused on a background turn became a card click; QA commands had to be typed.', fix:'Start Delegations from a user turn, or batch the starts; start QA from a brief.' },
+  'permission-refusal': { color:'#e03131', avoidable:true,  label:'Permission refusal', meaning:'A tool call was refused by the permission mode and needed you.', fix:'Add the tool to the allow list before the run.' },
+  'missing-config':     { color:'#e8b100', avoidable:true,  label:'Missing config',     meaning:'You were asked for something the config or the Dispatch Plan could have answered: a review label, posting replies, readiness answers.', fix:'Approve it as a routine write in the Dispatch Plan or set it in orchestrate.config.yml.' },
+  'spec-gap':           { color:'#0ca678', avoidable:true,  label:'Spec gap',           meaning:'The spec or ticket did not cover it: a scope fence too tight, an unclear review scope.', fix:'Widen the fences or state the scope when writing tickets.' },
+  'skill-bug':          { color:'#ae3ec9', avoidable:true,  label:'Skill bug',          meaning:'The skill did the wrong thing and you caught it, or it asked twice.', fix:'File it against the skill; the cause can carry the issue id.' },
+  'tool-missing':       { color:'#15aabf', avoidable:true,  label:'Tool missing',       meaning:'A tool the run needed was not there (e.g. no way to start the stack), so you did it by hand.', fix:'Install or configure the tool, or teach the skill to start it.' },
+  'other':              { color:'#5c5f66', avoidable:true,  label:'Other',              meaning:'Not yet classified.', fix:'Classify it; a new cause may be needed.' },
+};
+const CAUSES = Object.keys(CAUSE_INFO);
+const KIND_INFO = {
+  'plan-approval':'You approved the Dispatch Plan.', 'landing-choice':'You chose how work lands (integration branch or per ticket).', 'plan-change':'You changed the plan before approving it.',
+  'card-start':'You clicked a card to start a Delegation the Chief of Staff could not start itself.', 'decision-request':'You answered a Decision Request.',
+  'permission-refusal':'A tool call was refused and needed you.', 'merge':'You merged a pull request.', 'close-out':'You did a close-out step (summary, archive, branches).',
+  'mark-ready':'A PR was marked ready for review.', 'stale-relay':'You relayed a message that was already out of date.', 'human-caught-error':'You caught a mistake.',
+  'session-housekeeping':'You tidied sessions by hand.', 'qa-typed-command':'You typed a QA command (/qa-plan, /manual-qa) into a session.',
+  'qa-readiness-answer':'You answered a QA readiness question.', 'qa-plan-confirm':'You confirmed a QA Plan.', 'qa-residue-choice':'You chose what to do with QA leftovers.',
+  'qa-review-box':'You passed QA Review boxes.', 'qa-deferral':'You deferred a QA scenario.', 'qa-card-start':'You clicked a card to start a QA Delegation.', 'qa-stack-start':'You started the stack by hand for QA.',
+  'write-as-human':'The Chief of Staff made a write on your behalf after you answered (actor: chief-of-staff). Not counted as a human step.',
+};
+const TOPIC_CAUSE = { 'fence-widening':'spec-gap','review-scope':'spec-gap','review-trigger':'missing-config','post-replies-and-retrigger-review':'missing-config',
+  'behind-default-branch':'human-choice','merge-behind':'human-choice','branch-update':'human-choice','review-gate':'skill-bug',
+  'qa-readiness':'missing-config','qa-plan-confirm':'human-choice','qa-residue-choice':'human-choice','qa-deferral':'human-choice' };
+
+// ═══════════════════════ normalising a Run Record ═══════════════════════
 const ISO = s => typeof s === 'string' && s.length > 10 ? Date.parse(s) : null;
 const DAY = s => typeof s === 'string' && s.length === 10 ? s : null;
-const CAUSES = ['by-design','human-choice','harness-limit','permission-refusal','missing-config','spec-gap','skill-bug','tool-missing','other'];
-const AVOIDABLE = c => !['by-design','human-choice'].includes(c);
-const col = c => `var(--c-${c})`;
-const TOPIC_CAUSE = {
-  'fence-widening':'spec-gap','review-scope':'spec-gap','review-trigger':'missing-config',
-  'post-replies-and-retrigger-review':'missing-config','behind-default-branch':'human-choice',
-  'merge-behind':'human-choice','branch-update':'human-choice','review-gate':'skill-bug',
-  'qa-readiness':'missing-config','qa-plan-confirm':'human-choice','qa-residue-choice':'human-choice','qa-deferral':'human-choice'
-};
+function when(o){
+  if (ISO(o.at)) return { t: ISO(o.at), p: 'exact' };
+  if (o.at_bounds){ const lo = ISO(o.at_bounds[0]), hi = ISO(o.at_bounds[1]); return { t: lo&&hi ? (lo+hi)/2 : (hi||lo), lo, hi, p: 'bounds' }; }
+  if (DAY(o.at)) return { day: o.at, p: 'date' };
+  return { p: 'unknown' };
+}
 function kindOf(h, isQa){
   let k = h.kind === 'other' ? (h.proposed_kind || 'other') : h.kind;
   if (h.kind === 'decision-request' && h.subject && h.subject.startsWith('qa-')) k = h.subject;
-  if (isQa && !k.startsWith('qa-') && ['typed-command','readiness-answer','review-box-pass','card-start'].includes(k)) k = 'qa-' + k;
-  if (k === 'qa-review-box-pass') k = 'qa-review-box';
+  if (k === 'review-box-pass') k = 'qa-review-box';
+  if (isQa && !k.startsWith('qa-') && ['typed-command','readiness-answer','card-start'].includes(k)) k = 'qa-' + k;
   return k;
 }
-// Prototype-assumed cause per human step (the v0 records predate the `cause` field).
+// The hand-derived records predate `cause`; this assigns one (marked "assumed" in the UI). Synthetic records carry their own.
 function causeOf(h, k, drSubject){
   const topic = h.topic || h.subject || drSubject;
   if (/plan-approval|landing-choice|plan-change|close-out/.test(k)) return 'by-design';
@@ -118,289 +266,387 @@ function normalize(r){
   const run = r.run, dels = r.delegations || [];
   const drSub = Object.fromEntries((r.decision_requests||[]).filter(d=>d.id).map(d=>[d.id,d.subject]));
   const qaIds = new Set(dels.filter(d=>d.kind==='qa').map(d=>d.id));
-  const touches = [], writes = [];
-  (r.human_interventions||[]).forEach((h,i) => {
-    const w = when(h);
+  const steps = (r.human_interventions||[]).map((h,i) => {
     const k = kindOf(h, qaIds.has(h.delegation));
-    const actor = h.kind === 'write-as-human' ? 'chief-of-staff' : 'human';
-    const item = { i, k, w, del: h.delegation || (h.delegations||[])[0] || null, raw: h,
-      wait: h.waited_minutes ?? null, waitMax: h.waited_minutes_max ?? null, hb: h.heartbeats_waiting || 0 };
-    if (actor !== 'human' || h.covered_by || h.human_needed === false) { item.actor = actor === 'human' ? 'covered' : actor; writes.push(item); return; }
-    item.cause = causeOf(h, k, drSub[h.dr]); item.actor = 'human';
-    touches.push(item);
+    const actor = h.kind === 'write-as-human' ? 'chief-of-staff' : (h.covered_by || h.human_needed === false) ? 'covered' : 'human';
+    const cause = actor === 'human' ? (h.cause || causeOf(h, k, drSub[h.dr])) : null;
+    return { n: h.n || i+1, k, w: when(h), del: h.delegation || (h.delegations||[])[0] || null, raw: h, actor, cause, assumed: actor==='human' && !h.cause,
+      wait: h.waited_minutes ?? null, waitMax: h.waited_minutes_max ?? null, hb: h.heartbeats_waiting || 0,
+      topic: h.topic || h.subject || drSub[h.dr] || h.command || h.write || h.action || null };
   });
+  const touches = steps.filter(s=>s.actor==='human');
   const D = dels.map(d => {
     const s = ISO(d.started_at) || ISO(d.first_commit_at) || ISO(d.pr_opened_at);
-    const e = ISO(d.landed_at) || ISO((d.landed_bounds_second||[])[1]) || ISO(d.head_committed_at);
-    return { id:d.id, issue:d.issue, kind:d.kind, route:d.start_route, outcome:d.outcome, s, e,
-      sSrc: ISO(d.started_at) ? 'exact' : ISO(d.first_commit_at) ? 'first commit' : ISO(d.pr_opened_at) ? 'PR opened' : null,
-      eSrc: ISO(d.landed_at) ? 'landed' : d.landed_bounds_second ? 'landed (bound)' : ISO(d.head_committed_at) ? 'last commit' : null,
-      day: DAY(d.started_at), sendBacks: d.send_backs||0, drs: d.decision_requests||0, commits: d.commits,
-      touches: touches.filter(t=>t.del===d.id).length, wave: d.wave };
+    const e = ISO(d.ended_at) || ISO(d.landed_at) || ISO((d.landed_bounds_second||[])[1]) || ISO(d.head_committed_at);
+    return { id:d.id, issue:d.issue, kind:d.kind, route:d.start_route, outcome:d.outcome, s, e, raw:d,
+      sSrc: ISO(d.started_at) ? 'started' : ISO(d.first_commit_at) ? 'first commit' : ISO(d.pr_opened_at) ? 'PR opened' : null,
+      eSrc: ISO(d.ended_at) ? 'ended' : ISO(d.landed_at) ? 'landed' : d.landed_bounds_second ? 'landed (bound)' : ISO(d.head_committed_at) ? 'last commit' : null,
+      day: DAY(d.started_at), sendBacks: d.send_backs||0, drs: d.decision_requests||0, commits: d.commits, wave: d.wave, pr: d.pr,
+      touches: touches.filter(t=>t.del===d.id) };
   });
   const times = [];
   D.forEach(d=>{ if(d.s) times.push(d.s); if(d.e) times.push(d.e); });
-  touches.concat(writes).forEach(t=>{ if(t.w.t) times.push(t.w.t); });
+  steps.forEach(t=>{ if(t.w.t) times.push(t.w.t); });
   const start = ISO(run.started_at) || ISO((run.started_at_bounds||[])[0]) || ISO(run.plan_approved_at) || Math.min(...times);
   const end = ISO(run.closed_at) || Math.max(...times);
-  const reviews = (r.reviews||[]).map(v=>({pr:v.pr, round:v.round, t:ISO(v.triggered_at), e:ISO(v.finished_at), findings:v.findings, fixed:v.fixed}));
-  const ci = (r.ci||[]).map(c=>({pr:c.pr, t:ISO(c.created_at), result:c.result}));
-  return { id:run.id, spec:run.spec, kind:run.kind, authority:run.decision_authority, landing:run.landing, outcome:run.outcome,
+  const reviews = (r.reviews||[]).map(v=>({ ...v, t:ISO(v.triggered_at), e:ISO(v.finished_at) }));
+  const ci = (r.ci||[]).map(c=>({ ...c, t:ISO(c.created_at) }));
+  const N = { id:run.id, repo: run.repo || 'mnaimfaizy/agent-kit', operator: run.operator || 'you', team: run.team_run || null,
+    spec:run.spec, kind:run.kind, authority:run.decision_authority, landing:run.landing, outcome:run.outcome, harness: run.harness,
     tickets:run.tickets||[], prs:run.pull_requests||[], start, end, startBound: !ISO(run.started_at), plan:r.plan||{},
-    dels:D, touches, writes, reviews, ci, heartbeats:r.heartbeats||{}, operator: run.operator || 'you', synthetic: !!r._synthetic,
-    team: r._team || null, raw:r };
+    dels:D, steps, touches, reviews, ci, heartbeats:r.heartbeats||{}, rulings: r.rulings||{}, synthetic: !!r._synthetic, raw:r };
+  N.avoidable = touches.filter(t=>CAUSE_INFO[t.cause].avoidable);
+  N.knownWait = touches.reduce((a,t)=>a+(t.wait ?? 0),0);
+  N.events = buildEvents(N, run);
+  return N;
 }
-function when(o){
-  if (ISO(o.at)) return { t: ISO(o.at), p: 'exact' };
-  if (o.at_bounds){ const lo = ISO(o.at_bounds[0]), hi = ISO(o.at_bounds[1]); return { t: lo&&hi ? (lo+hi)/2 : (hi||lo), lo, hi, p: 'bounds' }; }
-  if (DAY(o.at)) return { day: o.at, p: 'date' };
-  return { p: 'unknown' };
-}
-// ───────── SYNTHETIC records (clearly marked): a later solo run trend + a 3-teammate Team Run ─────────
-function synth(id, operator, startIso, plan, team){
-  const t0 = Date.parse(startIso); const m = n => new Date(t0 + n*60000).toISOString();
-  const dels = [], hs = [{ at:m(0), kind:'plan-approval' }];
-  plan.forEach((p,i) => {
-    dels.push({ id:'d'+p.issue, issue:p.issue, kind:p.kind||'building', start_route:p.card?'card':'direct', started_at:m(p.s), landed_at:m(p.e), outcome:'landed', send_backs:p.sb||0, decision_requests:(p.dr||[]).length });
-    if (p.card) hs.push({ at:m(p.s-3), kind:'card-start', delegation:'d'+p.issue, waited_minutes:p.card });
-    (p.dr||[]).forEach(([at,topic,w]) => hs.push({ at:m(at), kind:'decision-request', topic, delegation:'d'+p.issue, waited_minutes:w }));
+function buildEvents(r, run){
+  const ev = [], add = (w, who, what, extra={}) => ev.push({ w, who, what, ...extra });
+  const X = t => ({ t, p:'exact' });
+  if (ISO(run.started_at)) add(X(ISO(run.started_at)), 'chief-of-staff', 'run-started');
+  else if (run.started_at_bounds) add(when({at_bounds:run.started_at_bounds}), 'chief-of-staff', 'run-started');
+  else if (DAY(run.started_at)) add({day:run.started_at,p:'date'}, 'chief-of-staff', 'run-started');
+  r.dels.forEach(d => {
+    if (d.s) add(X(d.s), 'delegation', d.sSrc==='started'?'delegation-started':'delegation-'+d.sSrc.replace(' ','-'), { del:d.id, detail:`${d.kind} #${d.issue} start=${d.route}` });
+    else if (d.day) add({day:d.day,p:'date'}, 'delegation', 'delegation-ran', { del:d.id, detail:`${d.kind} #${d.issue} (no times recorded)` });
+    if (d.e) add(X(d.e), 'delegation', 'delegation-'+d.eSrc.replace(/[ ()]+/g,'-').replace(/-$/,''), { del:d.id, detail:`outcome=${d.outcome} send_backs=${d.sendBacks}` });
   });
-  const last = Math.max(...plan.map(p=>p.e));
-  hs.push({ at:m(last+4), kind:'merge', waited_minutes:4 }, { at:m(last+6), kind:'close-out' });
-  return { _synthetic:true, _team:team||null, run:{ id, operator, spec:team?team.spec:id.split('-').pop(), kind:team?'team':'spec', decision_authority:'autonomous', landing:'integration-branch', started_at:m(0), closed_at:m(last+7), outcome:'merged', tickets:plan.map(p=>p.issue), pull_requests:[] }, plan:{}, delegations:dels, human_interventions:hs };
+  r.steps.forEach(s => add(s.w, s.actor==='human'?'human':s.actor, s.k, { del:s.del, step:s.n, cause:s.cause,
+    detail: [s.topic && `topic=${s.topic}`, s.cause && `cause=${s.cause}`, s.wait!=null ? `waited=${s.wait}m` : s.waitMax!=null ? `waited<=${s.waitMax}m` : (s.actor==='human'?'waited=?':null), s.hb && `heartbeats_waiting=${s.hb}`].filter(Boolean).join(' ') }));
+  r.reviews.forEach(v => { if (v.t) add(X(v.t), 'review', 'review-triggered', { detail:`pr=${v.pr} round=${v.round} head=${v.head||'?'}` });
+    if (v.e) add(X(v.e), 'review', 'review-finished', { detail:`pr=${v.pr} round=${v.round} findings=${v.findings} fixed=${v.fixed}` });
+    if (!v.t) add({p:'unknown'}, 'review', 'review-round', { detail:`pr=${v.pr} round=${v.round} findings=${v.findings} (no time)` }); });
+  r.ci.forEach(c => add(c.t ? X(c.t) : {p:'unknown'}, 'ci', 'ci-'+c.result, { detail:`pr=${c.pr} head=${c.head||'?'} failed_checks=${c.failed_checks??'?'}` }));
+  if (ISO(run.pr_opened_at)) add(X(ISO(run.pr_opened_at)), 'chief-of-staff', 'pr-opened', { detail:`pr=${(run.pull_requests||[]).join(',')}` });
+  if (ISO(run.merged_at)) add(X(ISO(run.merged_at)), 'github', 'pr-merged', { detail:`merge_commit=${run.merge_commit||'?'}` });
+  if (ISO(run.closed_at)) add(X(ISO(run.closed_at)), 'chief-of-staff', 'run-closed', { detail:`outcome=${run.outcome}` });
+  const key = e => e.w.t ?? (e.w.day ? Date.parse(e.w.day+'T23:59:00Z') : 9e15);
+  return ev.map((e,i)=>({...e,i})).sort((a,b)=>key(a)-key(b) || a.i-b.i);
 }
-const SYN = [
-  synth('2026-11-24-spec-410','you','2026-11-24T01:00:00Z',[{issue:411,s:5,e:40},{issue:412,s:42,e:80,card:6},{issue:413,s:82,e:120,card:4,dr:[[100,'fence-widening',12]]}]),
-  synth('2026-11-27-spec-420','you','2026-11-27T02:00:00Z',[{issue:421,s:5,e:35},{issue:422,s:5,e:50},{issue:423,s:52,e:90,dr:[[70,'merge-behind',3]]}]),
-  synth('2026-12-02-spec-430-ana','teammate-ana','2026-12-02T00:00:00Z',[{issue:431,s:5,e:50},{issue:432,s:52,e:95,card:7}],{spec:430,run:'team-430'}),
-  synth('2026-12-02-spec-430-ben','teammate-ben','2026-12-02T00:20:00Z',[{issue:433,s:4,e:70,dr:[[30,'fence-widening',25],[55,'review-trigger',9]]},{issue:434,s:72,e:110}],{spec:430,run:'team-430'}),
-  synth('2026-12-02-spec-430-you','you','2026-12-02T00:10:00Z',[{issue:435,s:5,e:30},{issue:436,s:32,e:60},{issue:437,s:62,e:85,card:3}],{spec:430,run:'team-430'}),
-];
-const RUNS = RAW.concat(SYN).map(normalize).sort((a,b)=>a.start-b.start);
-const SOLO = RUNS.filter(r=>!r.team);
-const TEAM = RUNS.filter(r=>r.team);
 
-// ───────── derived: what to improve next run ─────────
-function nextRun(r){
-  const out = [], by = f => r.touches.filter(f);
-  const cards = by(t=>/card-start/.test(t.k));
-  if (cards.length) out.push({ n:cards.length, cause:'harness-limit', what:`${cards.length} Delegation start${cards.length>1?'s':''} needed a card click`, fix:'Start Delegations from a user turn, or batch the starts behind one click.' });
-  const typed = by(t=>/typed-command/.test(t.k));
-  if (typed.length) out.push({ n:typed.length, cause:'harness-limit', what:`${typed.length} QA commands were typed by hand`, fix:'Start QA Delegations with a brief instead of the typed route.' });
-  const cfg = by(t=>t.cause==='missing-config');
-  const declined = (r.plan.routine_writes_declined||[]);
-  if (cfg.length) out.push({ n:cfg.length, cause:'missing-config', what:`${cfg.length} touches asked for something config could answer`, fix: declined.length ? `Approve ${declined.join(', ')} as a routine write in the Dispatch Plan (declined this run).` : 'Put the answer in the brief or orchestrate.config.yml.' });
-  const spec = by(t=>t.cause==='spec-gap');
-  if (spec.length) out.push({ n:spec.length, cause:'spec-gap', what:`${spec.length} fence widenings or scope questions`, fix:'Scope fences in the spec were too tight; widen them while writing tickets.' });
-  const bug = by(t=>t.cause==='skill-bug');
-  if (bug.length) out.push({ n:bug.length, cause:'skill-bug', what:`${bug.length} touches traced to a skill bug`, fix:'File them against the skill (a cause can carry a linked issue id).' });
-  const perm = by(t=>t.cause==='permission-refusal').length + r.writes.filter(w=>w.actor==='covered').length;
-  if (perm) out.push({ n:perm, cause:'permission-refusal', what:`${perm} permission refusal${perm>1?'s':''}`, fix:'Add the refused tool to the allow list before the run.' });
-  const untimed = r.touches.filter(t=>t.w.p!=='exact').length;
-  if (untimed) out.push({ n:untimed, cause:'other', what:`${untimed} of ${r.touches.length} human steps have no exact time`, fix:'Run Events would record each one as it happens (old Activity Logs had dates only).', data:true });
-  return out.sort((a,b)=>b.n-a.n);
-}
-function causeCounts(touches){ const c = {}; CAUSES.forEach(k=>c[k]=0); touches.forEach(t=>c[t.cause]++); return c; }
-const hrs = ms => ms==null||isNaN(ms) ? '?' : (ms/3600000).toFixed(1)+'h';
+// ═══════════════════════ data ═══════════════════════
+const REAL = JSON.parse(document.getElementById('records').textContent);
+const LOGS = JSON.parse(document.getElementById('logs').textContent);
+const RUNS = REAL.concat(SYNTH_RECORDS).map(normalize).sort((a,b)=>b.start-a.start);
+const RUN = Object.fromEntries(RUNS.map(r=>[r.id,r]));
+const REPO_NAMES = [...new Set(SYNTH_REPOS.map(r=>r.repo).concat(RUNS.map(r=>r.repo)))];
+const REPO_NOTE = Object.fromEntries(SYNTH_REPOS.map(r=>[r.repo,r.note]));
+const runsOf = repo => RUNS.filter(r=>r.repo===repo);
+const TEAMS = [...new Set(RUNS.filter(r=>r.team).map(r=>r.team))];
+
+// ═══════════════════════ helpers ═══════════════════════
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const hrs = ms => ms==null||isNaN(ms) ? '?' : ms < 3600e3 ? Math.round(ms/60000)+'m' : (ms/3600e3).toFixed(1)+'h';
 const mins = ms => ms==null||isNaN(ms) ? '?' : Math.round(ms/60000)+'m';
 const hm = t => t ? new Date(t).toISOString().slice(11,16) : '—';
 const ymd = t => t ? new Date(t).toISOString().slice(0,10) : '';
-const esc = s => String(s).replace(/[&<>]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
-const waitTxt = t => t.wait!=null ? `waited ${t.wait}m` : t.waitMax!=null ? `waited ≤${t.waitMax}m` : 'wait unknown';
-const causeChip = c => `<span class="chip"><span class="dot" style="background:${col(c)}"></span>${c}</span>`;
-const synTag = r => r.synthetic ? ' <span class="syn">synthetic</span>' : '';
-const legend = () => `<div class="small" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">${CAUSES.map(causeChip).join('')}</div>`;
+const fmtDate = t => t ? new Date(t).toLocaleDateString('en-GB',{day:'numeric',month:'short',timeZone:'UTC'}) : '';
+const median = a => { if (!a.length) return null; const s=[...a].sort((x,y)=>x-y); return s[Math.floor(s.length/2)]; };
+const pct = (a,b) => b ? Math.round(a/b*100)+'%' : '—';
+const ci = c => CAUSE_INFO[c] || CAUSE_INFO.other;
+const chip = c => `<span class="chip" title="${esc(ci(c).meaning)}"><span class="sw" style="background:${ci(c).color}"></span>${esc(ci(c).label)}</span>`;
+const avoidTag = c => c ? (ci(c).avoidable ? '<span class="tag avoid">avoidable</span>' : '<span class="tag exp">expected</span>') : '';
+const syn = r => r && r.synthetic ? ' <span class="syn">synthetic</span>' : '';
+const outTag = o => `<span class="tag ${o==='merged'||o==='landed'||o==='qa-pass'?'ok':o==='abandoned'||o==='qa-fail'?'bad':''}">${esc(o)}</span>`;
+const whenTxt = w => w.p==='exact' ? `${ymd(w.t)} ${hm(w.t)}` : w.p==='bounds' ? `~${hm(w.t)} <span class="muted small">(${w.lo?hm(w.lo):'?'}–${w.hi?hm(w.hi):'?'})</span>` : w.p==='date' ? `${w.day} <span class="muted small">(date only)</span>` : '<span class="muted">unknown</span>';
+const waitTxt = t => t.wait!=null ? `${t.wait}m` : t.waitMax!=null ? `≤${t.waitMax}m` : '<span class="muted">?</span>';
+const link = (href, txt) => `<a href="#${href}">${txt}</a>`;
+const runLink = r => link(`/run/${r.id}`, esc(r.id));
+const causeCounts = ts => { const c = Object.fromEntries(CAUSES.map(k=>[k,0])); ts.forEach(t=>c[t.cause]++); return c; };
+function legend(counts){ return `<div class="legend">${CAUSES.filter(c=>!counts||counts[c]).map(c=>chip(c)+(counts?`<span class="small mono" style="margin:0 8px 0 -2px">${counts[c]}</span>`:'')).join('')}<a class="small" href="#/key" style="margin-left:6px">What do the colours mean?</a></div>`; }
+function causeBars(touches, total){
+  const cc = causeCounts(touches), max = Math.max(1, ...Object.values(cc));
+  return CAUSES.filter(c=>cc[c]).sort((a,b)=>cc[b]-cc[a]).map(c=>`<div class="bar"><span class="lbl">${chip(c)}</span><div class="track"><span style="width:${cc[c]/max*100}%;background:${ci(c).color}"></span></div><span class="val">${cc[c]}</span>${avoidTag(c)}</div>`).join('') || '<div class="muted">No human steps.</div>';
+}
+function stackTrack(touches, width){
+  const cc = causeCounts(touches), tot = touches.length || 1;
+  return `<div class="track" style="${width?`width:${width}px;flex:none`:''}">${CAUSES.filter(c=>cc[c]).map(c=>`<span title="${ci(c).label}: ${cc[c]}" style="width:${cc[c]/tot*100}%;background:${ci(c).color}"></span>`).join('')}</div>`;
+}
+function spark(vals, w=110, h=26){
+  if (!vals.length) return '';
+  const max = Math.max(1,...vals), dx = vals.length>1 ? w/(vals.length-1) : 0;
+  const pts = vals.map((v,i)=>`${(i*dx).toFixed(1)},${(h-2-v/max*(h-4)).toFixed(1)}`).join(' ');
+  return `<svg width="${w}" height="${h}"><polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="1.5"/>${vals.map((v,i)=>`<circle cx="${i*dx}" cy="${h-2-v/max*(h-4)}" r="2" fill="var(--accent)"/>`).join('')}</svg>`;
+}
+const kpi = (v, l, e='') => `<div class="kpi"><b>${v}</b><span>${l}</span>${e?`<em>${e}</em>`:''}</div>`;
 
-// ───────── shared drawing: a time-axis Gantt (used by A) ─────────
+// ═══════════════════════ what to improve next run ═══════════════════════
+function nextRun(r){
+  const out = [], by = f => r.touches.filter(f);
+  const cards = by(t=>/card-start/.test(t.k));
+  if (cards.length) out.push({ n:cards.length, cause:'harness-limit', what:`${cards.length} Delegation start${cards.length>1?'s':''} needed your click on a card`, fix:'Start Delegations from a user turn, or batch the starts behind one click.' });
+  const typed = by(t=>/typed-command/.test(t.k));
+  if (typed.length) out.push({ n:typed.length, cause:'harness-limit', what:`${typed.length} QA commands typed by hand`, fix:'Start QA Delegations with a brief instead of the typed route.' });
+  const cfg = by(t=>t.cause==='missing-config'), declined = r.plan.routine_writes_declined || [];
+  if (cfg.length) out.push({ n:cfg.length, cause:'missing-config', what:`${cfg.length} question${cfg.length>1?'s':''} that config could answer`, fix: declined.length ? `Approve ${declined.join(', ')} as a routine write in the Dispatch Plan (declined this run).` : 'Put the answer in the brief or orchestrate.config.yml.' });
+  const spec = by(t=>t.cause==='spec-gap');
+  if (spec.length) out.push({ n:spec.length, cause:'spec-gap', what:`${spec.length} fence widening${spec.length>1?'s':''} or scope question${spec.length>1?'s':''}`, fix:'Scope fences were too tight; widen them while writing tickets.' });
+  ['skill-bug','permission-refusal','tool-missing'].forEach(c => { const x = by(t=>t.cause===c); if (x.length) out.push({ n:x.length, cause:c, what:`${x.length} × ${ci(c).label.toLowerCase()}`, fix:ci(c).fix }); });
+  const untimed = r.touches.filter(t=>t.w.p!=='exact').length;
+  if (untimed) out.push({ n:untimed, cause:null, what:`${untimed} of ${r.touches.length} human steps have no exact time`, fix:'Run Events would record each one as it happens (old Activity Logs have dates only).' });
+  return out.sort((a,b)=>b.n-a.n);
+}
+const nextRunHtml = r => nextRun(r).map(n=>`<div class="todo"><span class="n" style="color:${n.cause?ci(n.cause).color:'var(--muted)'}">${n.n}</span><div><b>${esc(n.what)}</b> ${n.cause?chip(n.cause):'<span class="tag">data</span>'}<div class="small muted">${esc(n.fix)}</div></div></div>`).join('') || '<div class="muted">Nothing avoidable. 🎉</div>';
+
+// ═══════════════════════ timeline (Gantt) ═══════════════════════
 function gantt(rows, t0, t1, opts={}){
-  const W = opts.w || 1100, L = opts.left || 150, R = 70, RH = opts.rh || 24, H = rows.length*RH + 28;
+  const W = opts.w || 1150, L = 170, R = 86, RH = opts.rh || 26, H = rows.length*RH + 30;
   const x = t => L + (t - t0) / (t1 - t0 || 1) * (W - L - R);
-  let s = `<svg viewBox="0 0 ${W} ${H}" width="100%" style="min-width:${opts.min||700}px">`;
-  const span = t1 - t0, step = span > 20*3600e3 ? 3*3600e3 : span > 6*3600e3 ? 3600e3 : 30*60e3;
-  for (let t = Math.ceil(t0/step)*step; t <= t1; t += step) s += `<line x1="${x(t)}" x2="${x(t)}" y1="14" y2="${H}" stroke="var(--line)"/><text x="${x(t)}" y="10" text-anchor="middle" class="mt">${hm(t)}</text>`;
-  s += `<text x="${W-R+8}" y="10" class="mt">date only</text><line x1="${W-R+2}" x2="${W-R+2}" y1="14" y2="${H}" stroke="var(--line)" stroke-dasharray="3 3"/>`;
+  let s = `<svg viewBox="0 0 ${W} ${H}" width="100%" style="min-width:760px">`;
+  const span = t1 - t0, step = span > 20*3600e3 ? 3*3600e3 : span > 6*3600e3 ? 3600e3 : span > 2*3600e3 ? 30*60e3 : 15*60e3;
+  for (let t = Math.ceil(t0/step)*step; t <= t1; t += step) s += `<line x1="${x(t)}" x2="${x(t)}" y1="16" y2="${H}" stroke="var(--line)"/><text x="${x(t)}" y="11" text-anchor="middle" class="mt">${hm(t)}</text>`;
+  s += `<text x="${W-R+10}" y="11" class="mt">date only</text><line x1="${W-R+4}" x2="${W-R+4}" y1="16" y2="${H}" stroke="var(--line)" stroke-dasharray="3 3"/>`;
   rows.forEach((row,i) => {
-    const y = 18 + i*RH, cy = y + RH/2;
-    if (row.group) { s += `<text x="4" y="${cy+4}" style="font-weight:600">${esc(row.label)}</text><line x1="0" x2="${W}" y1="${y}" y2="${y}" stroke="var(--line)"/>`; return; }
-    s += `<text x="${row.indent?16:4}" y="${cy+4}" ${row.dim?'class="mt"':''}>${esc(row.label)}</text>`;
-    (row.bars||[]).forEach(b => {
-      if (!b.s || !b.e) return;
-      s += `<rect x="${x(b.s)}" y="${y+5}" width="${Math.max(2,x(b.e)-x(b.s))}" height="${RH-10}" rx="3" fill="${b.fill||'var(--accent)'}" ${b.dash?'fill-opacity=".45" stroke="var(--accent)" stroke-dasharray="3 2"':''}><title>${esc(b.title||'')}</title></rect>`;
-    });
+    const y = 20 + i*RH, cy = y + RH/2;
+    if (i % 2 === 0) s += `<rect x="0" y="${y}" width="${W-R}" height="${RH}" fill="var(--soft)" opacity=".5"/>`;
+    if (row.group) { s += `<text x="4" y="${cy+4}" style="font-weight:700">${esc(row.label)}</text>`; return; }
+    const label = `<text x="${row.indent?18:6}" y="${cy+4}" ${row.dim?'class="mt"':''} ${row.bold?'style="font-weight:600"':''}>${esc(row.label)}</text>`;
+    s += row.href ? `<a href="#${row.href}">${label}</a>` : label;
+    (row.bars||[]).forEach(b => { if (!b.s || !b.e) return;
+      const rect = `<rect x="${x(b.s)}" y="${y+6}" width="${Math.max(3,x(b.e)-x(b.s))}" height="${RH-12}" rx="3" fill="${b.fill||'var(--accent)'}" ${b.proxy?`fill-opacity=".35" stroke="${b.fill||'var(--accent)'}" stroke-dasharray="4 2"`:''}><title>${esc(b.title||'')}</title></rect>`;
+      s += b.href ? `<a href="#${b.href}">${rect}</a>` : rect; });
     let dateOnly = 0;
     (row.marks||[]).forEach(m => {
-      const c = m.color || 'var(--warn)';
-      if (m.w.p === 'exact') s += `<circle cx="${x(m.w.t)}" cy="${cy}" r="5" fill="${c}" stroke="var(--panel)"><title>${esc(m.title)}</title></circle>`;
-      else if (m.w.p === 'bounds' && m.w.lo && m.w.hi) s += `<g><title>${esc(m.title)} (time only known between ${hm(m.w.lo)} and ${hm(m.w.hi)})</title><line x1="${x(m.w.lo)}" x2="${x(m.w.hi)}" y1="${cy}" y2="${cy}" stroke="${c}" stroke-width="2" stroke-dasharray="2 2"/><circle cx="${x(m.w.t)}" cy="${cy}" r="4" fill="var(--panel)" stroke="${c}" stroke-width="2"/></g>`;
-      else if (m.w.p === 'bounds') s += `<circle cx="${x(m.w.t)}" cy="${cy}" r="4" fill="var(--panel)" stroke="${c}" stroke-width="2"><title>${esc(m.title)} (one-sided bound)</title></circle>`;
-      else { s += `<rect x="${W-R+6+(dateOnly%8)*7}" y="${cy-3-(Math.floor(dateOnly/8))*0}" width="5" height="6" fill="${c}"><title>${esc(m.title)} (${m.w.day||'no time'})</title></rect>`; dateOnly++; }
+      const c = m.color || 'var(--muted)'; let g;
+      if (m.w.p === 'exact') g = `<circle cx="${x(m.w.t)}" cy="${cy}" r="6" fill="${c}" stroke="var(--panel)" stroke-width="1.5"><title>${esc(m.title)}</title></circle>`;
+      else if (m.w.p === 'bounds' && m.w.t) g = `<g><title>${esc(m.title)} — time only known ${m.w.lo?'after '+hm(m.w.lo):''} ${m.w.hi?'before '+hm(m.w.hi):''}</title>${m.w.lo&&m.w.hi?`<line x1="${x(m.w.lo)}" x2="${x(m.w.hi)}" y1="${cy}" y2="${cy}" stroke="${c}" stroke-width="2.5" stroke-dasharray="3 2"/>`:''}<circle cx="${x(m.w.t)}" cy="${cy}" r="5" fill="var(--panel)" stroke="${c}" stroke-width="2.5"/></g>`;
+      else { g = `<rect x="${W-R+9+(dateOnly%9)*8}" y="${cy-4+Math.floor(dateOnly/9)*0}" width="6" height="8" rx="1" fill="${c}"><title>${esc(m.title)} (${m.w.day||'no time'})</title></rect>`; dateOnly++; }
+      s += m.href ? `<a href="#${m.href}">${g}</a>` : g;
     });
-    (row.ticks||[]).forEach(k => { if (k.t) s += `<line x1="${x(k.t)}" x2="${x(k.t)}" y1="${y+4}" y2="${y+RH-4}" stroke="${k.color||'var(--muted)'}" stroke-width="2"><title>${esc(k.title)}</title></line>`; });
+    (row.ticks||[]).forEach(k => { if (k.t) s += `<line x1="${x(k.t)}" x2="${x(k.t)}" y1="${y+5}" y2="${y+RH-5}" stroke="${k.color}" stroke-width="3"><title>${esc(k.title)}</title></line>`; });
   });
   return s + '</svg>';
 }
+const DEL_FILL = { building:'#3b5bdb', fix:'#ae3ec9', qa:'#0ca678', analysis:'#868e96' };
 function ganttRows(r, prefix=''){
   const rows = [];
-  rows.push({ label: prefix+'Human', marks: r.touches.map(t=>({ w:t.w, color:col(t.cause), title:`${t.k} · ${t.cause} · ${waitTxt(t)}${t.del?' · '+t.del:''}` })) });
+  rows.push({ label: prefix+'You (human steps)', bold:true, marks: r.touches.map(t=>({ w:t.w, color:ci(t.cause).color, href:`/run/${r.id}/step/${t.n}`, title:`Step ${t.n}: ${t.k} · ${ci(t.cause).label} · waited ${t.wait ?? (t.waitMax!=null?'≤'+t.waitMax:'?')}m${t.del?' · '+t.del:''}` })) });
   rows.push({ label: prefix+'Chief of Staff', dim:true,
-    marks: r.writes.map(w=>({ w:w.w, color:'var(--muted)', title:`${w.k} (actor: ${w.actor})` })),
-    ticks: r.reviews.map(v=>({t:v.t,color:'var(--accent)',title:`review round ${v.round}: ${v.findings} findings`})).concat(r.ci.map(c=>({t:c.t,color:c.result==='pass'?'var(--ok)':'var(--warn)',title:`CI ${c.result}`}))) });
-  r.dels.forEach(d => rows.push({ label:`${prefix}${d.id}${d.route==='card'?' ▣':''}`, indent:true,
-    bars:[{ s:d.s, e:d.e, dash: d.sSrc!=='exact', fill: d.kind==='qa'?'var(--c-spec-gap)':d.kind==='fix'?'var(--c-skill-bug)':'var(--accent)',
-      title:`${d.id} (${d.kind}, #${d.issue}) ${hm(d.s)}–${hm(d.e)} = ${mins(d.e-d.s)}; start from ${d.sSrc}, end from ${d.eSrc}; ${d.sendBacks} send-backs` }],
-    marks: (!d.s && d.day) ? [{ w:{p:'date',day:d.day}, color:'var(--c-spec-gap)', title:`${d.id} (${d.kind}) ran on ${d.day}, no times` }] : [] }));
+    marks: r.steps.filter(s=>s.actor!=='human').map(w=>({ w:w.w, color:'#868e96', href:`/run/${r.id}/step/${w.n}`, title:`Step ${w.n}: ${w.k} (actor: ${w.actor})` })),
+    ticks: r.reviews.map(v=>({t:v.t,color:'#7048e8',title:`Review round ${v.round} on PR ${v.pr}: ${v.findings} findings`})).concat(r.ci.map(c=>({t:c.t,color:c.result==='pass'?'#2b8a3e':'#c92a2a',title:`CI ${c.result} on PR ${c.pr}`}))) });
+  r.dels.forEach(d => rows.push({ label:`${prefix}${d.id}${d.route==='card'?'  ▣ card':''}`, indent:true, href:`/run/${r.id}/delegation/${d.id}`,
+    bars:[{ s:d.s, e:d.e, proxy: d.sSrc!=='started', fill: DEL_FILL[d.kind]||'#3b5bdb', href:`/run/${r.id}/delegation/${d.id}`,
+      title:`${d.id} (${d.kind}, #${d.issue}) ${hm(d.s)}–${hm(d.e)} = ${mins(d.e-d.s)}. Start from ${d.sSrc}, end from ${d.eSrc}.` }],
+    marks: (!d.s && d.day) ? [{ w:{p:'date',day:d.day}, color:DEL_FILL[d.kind], title:`${d.id} ran on ${d.day}, no times` }] : [] }));
   return rows;
 }
-function stackBar(counts, w=300, h=14){
-  const total = Object.values(counts).reduce((a,b)=>a+b,0) || 1; let x = 0, s = `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">`;
-  CAUSES.forEach(c => { const cw = counts[c]/total*w; if (cw) { s += `<rect x="${x}" y="0" width="${cw}" height="${h}" fill="${col(c)}"><title>${c}: ${counts[c]}</title></rect>`; x += cw; } });
-  return s + '</svg>';
-}
+const ganttKey = () => `<div class="small muted" style="display:flex;flex-wrap:wrap;gap:14px;margin:6px 0">
+  <span><svg width="14" height="14"><circle cx="7" cy="7" r="5" fill="#f76707"/></svg> exact time</span>
+  <span><svg width="34" height="14"><line x1="2" x2="32" y1="7" y2="7" stroke="#f76707" stroke-width="2.5" stroke-dasharray="3 2"/><circle cx="17" cy="7" r="4" fill="var(--panel)" stroke="#f76707" stroke-width="2.5"/></svg> only known between two times</span>
+  <span><svg width="12" height="14"><rect x="3" y="3" width="6" height="8" fill="#f76707"/></svg> date only (right gutter)</span>
+  <span><svg width="30" height="14"><rect x="1" y="3" width="28" height="8" rx="2" fill="#3b5bdb"/></svg> Delegation, real start/end</span>
+  <span><svg width="30" height="14"><rect x="1" y="3" width="28" height="8" rx="2" fill="#3b5bdb" fill-opacity=".35" stroke="#3b5bdb" stroke-dasharray="4 2"/></svg> start/end guessed from commits or PR</span>
+  <span>Bar colour: <b style="color:#3b5bdb">building</b> · <b style="color:#ae3ec9">fix</b> · <b style="color:#0ca678">QA</b></span>
+  <span><svg width="10" height="14"><line x1="5" x2="5" y1="1" y2="13" stroke="#7048e8" stroke-width="3"/></svg> review round <svg width="10" height="14"><line x1="5" x2="5" y1="1" y2="13" stroke="#2b8a3e" stroke-width="3"/></svg> CI pass <svg width="10" height="14"><line x1="5" x2="5" y1="1" y2="13" stroke="#c92a2a" stroke-width="3"/></svg> CI fail</span>
+  <span>Click any mark or bar to open it.</span></div>`;
 
-// ───────────────────────── VARIANT A: Swimlanes ─────────────────────────
-const A = { name: 'Swimlanes', run(r){
-  const nr = nextRun(r), cc = causeCounts(r.touches), av = r.touches.filter(t=>AVOIDABLE(t.cause)).length;
-  return `<div class="panel"><div class="kpis">
-    <div class="kpi"><b>${hrs(r.end-r.start)}${r.startBound?'<span class="muted" style="font-size:13px"> ≤</span>':''}</b><span>start → close</span></div>
-    <div class="kpi"><b>${r.dels.length}</b><span>Delegations</span></div>
-    <div class="kpi"><b>${r.touches.length}</b><span>human steps</span></div>
-    <div class="kpi"><b style="color:var(--warn)">${av}</b><span>avoidable</span></div>
-    <div class="kpi"><b>${r.reviews.length}</b><span>review rounds</span></div>
-    <div class="kpi"><b>${r.authority}</b><span>${r.landing}</span></div></div></div>
-  <div class="panel"><h2>Timeline ${synTag(r)}</h2><div class="small muted">● exact time · ○ with dashes: only known between two times · dashed bar: start or end is a proxy (first/last commit) · ▣ started from a card · right gutter: date only</div>
-    <div class="scroll">${gantt(ganttRows(r), r.start, r.end)}</div>${legend()}</div>
-  <div class="grid2"><div class="panel"><h3>Human steps by cause</h3>${CAUSES.filter(c=>cc[c]).map(c=>`<div style="display:flex;align-items:center;gap:8px;margin:4px 0"><span style="width:130px">${causeChip(c)}</span><svg width="200" height="12"><rect width="${cc[c]/r.touches.length*200}" height="12" fill="${col(c)}"/></svg><span class="mono small">${cc[c]}</span></div>`).join('')}</div>
-  <div class="panel"><h3>Next run</h3>${nr.map(n=>`<div style="margin:8px 0">${causeChip(n.cause)} <b>${esc(n.what)}</b><div class="small muted">${esc(n.fix)}</div></div>`).join('')}</div></div>`;
-}, runs(list){
-  const maxSpan = Math.max(...list.map(r=>r.end-r.start));
-  return `<div class="panel"><h2>Every run on one scale</h2><div class="small muted">Each run starts at 0; bar length is wall-clock to close. Human steps on the top lane.</div>
-  ${list.map(r=>`<div style="margin-top:14px"><b>${r.id}</b>${synTag(r)} <span class="muted small">${r.authority} · ${r.dels.length} Delegations · ${r.touches.length} human steps · ${hrs(r.end-r.start)}</span>
-  <div class="scroll">${gantt(ganttRows(r).slice(0,1).concat([{label:'Delegations',bars:r.dels.map(d=>({s:d.s,e:d.e,dash:d.sSrc!=='exact',title:d.id}))}]), r.start, r.start+maxSpan, {rh:20,min:600})}</div></div>`).join('')}</div>`;
-}, team(list){
+// ═══════════════════════ text: the record as a log ═══════════════════════
+const pad = (s,n) => (String(s ?? '')+' '.repeat(n)).slice(0,n);
+function logTime(w){
+  if (w.p==='exact') return new Date(w.t).toISOString().replace('T',' ').slice(0,19)+'Z';
+  if (w.p==='bounds') return `~${new Date(w.t).toISOString().replace('T',' ').slice(0,16)}Z (${w.lo?hm(w.lo):'?'}-${w.hi?hm(w.hi):'?'})`;
+  if (w.p==='date') return `${w.day} (date only)`;
+  return '(no time)';
+}
+function textLog(r, events = r.events){
+  const head = `# Run ${r.id}${r.synthetic?'  [SYNTHETIC]':''}\n# repo=${r.repo} operator=${r.operator} spec=${r.spec} authority=${r.authority} landing=${r.landing} outcome=${r.outcome}\n# Derived from the Run Record: ids, times, kinds and causes only. No issue text or command output.\n\n`;
+  return head + events.map(e => `${pad(logTime(e.w),36)} ${pad(e.who,15)} ${pad(e.del||'-',11)} ${pad(e.what,28)} ${e.step?`step=${e.step} `:''}${e.detail||''}`).join('\n') + '\n';
+}
+function reportText(r){
+  const cc = causeCounts(r.touches), W = 50;
+  const bar = d => { if(!d.s||!d.e) return '·'.repeat(W); const a=Math.round((d.s-r.start)/(r.end-r.start)*W), b=Math.max(a+1,Math.round((d.e-r.start)/(r.end-r.start)*W)); return ' '.repeat(Math.max(0,a))+(d.sSrc==='started'?'█':'▓').repeat(Math.max(1,b-a))+' '.repeat(Math.max(0,W-b)); };
+  let o = `$ orchestrate --report ${r.id}\n\nRun ${r.id}${r.synthetic?'  [synthetic]':''}\n  ${r.repo} · spec #${r.spec} · ${r.authority} · ${r.landing} · ${r.outcome} · ${hrs(r.end-r.start)}\n\nDelegations\n`;
+  r.dels.forEach(d=>{ o += `  ${pad(d.id,11)} ${pad(d.kind,9)} ${pad(d.route,7)}|${bar(d)}| ${pad(d.s&&d.e?mins(d.e-d.s):'?',5)} ${d.touches.length?d.touches.length+' human':''}\n`; });
+  o += `  █ real start/end  ▓ from commits  · no times\n\nHuman steps: ${r.touches.length} (${r.avoidable.length} avoidable)\n`;
+  CAUSES.filter(c=>cc[c]).sort((a,b)=>cc[b]-cc[a]).forEach(c=>{ o += `  ${pad(ci(c).label,20)} ${pad(cc[c],4)}${'■'.repeat(cc[c])}${ci(c).avoidable?'':'  (expected)'}\n`; });
+  o += `\nNext run\n` + nextRun(r).map((n,i)=>`  ${i+1}. ${n.what}\n     → ${n.fix}`).join('\n') + '\n';
+  return o;
+}
+function copyFrom(id){ const el = document.getElementById(id), txt = el.innerText;
+  const done = () => { const b = document.querySelector(`[data-copy="${id}"]`); if (b) { b.textContent = 'Copied'; setTimeout(()=>b.textContent='Copy',1200); } };
+  (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(done).catch(()=>{ const rg=document.createRange(); rg.selectNodeContents(el); const s=getSelection(); s.removeAllRanges(); s.addRange(rg); try{document.execCommand('copy');done();}catch(e){} }); }
+function downloadFrom(id, name){ const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([document.getElementById(id).innerText],{type:'text/plain'})); a.download=name; a.click(); }
+const textBox = (id, txt, name, cls='') => `<div style="display:flex;gap:6px;justify-content:flex-end;margin-bottom:6px"><button class="btn" data-copy="${id}" onclick="copyFrom('${id}')">Copy</button><button class="btn" onclick="downloadFrom('${id}','${name}')">Download .txt</button></div><pre class="log ${cls}" id="${id}">${esc(txt)}</pre>`;
+
+// ═══════════════════════ pages ═══════════════════════
+function pageOverview(){
+  const all = RUNS, touches = all.flatMap(r=>r.touches), av = all.flatMap(r=>r.avoidable);
+  const recent = all.slice(0, 12);
+  const byRepo = REPO_NAMES.map(n=>({ n, runs: runsOf(n) }));
+  return { crumbs: [['Overview']], html: `<h1>All repos</h1><div class="muted" style="margin-bottom:12px">${REPO_NAMES.length} Consumers · ${all.length} runs since ${fmtDate(Math.min(...all.map(r=>r.start)))} · <span class="syn">synthetic</span> data mixed with 2 real Run Records</div>
+  <div class="kpis" style="margin-bottom:14px">${kpi(all.length,'runs', `${all.filter(r=>r.outcome==='merged').length} merged`)}${kpi(all.reduce((a,r)=>a+r.dels.length,0),'Delegations')}${kpi(touches.length,'human steps',`${(touches.length/all.length).toFixed(1)} per run`)}${kpi(pct(av.length,touches.length),'avoidable',`${av.length} steps`)}${kpi(hrs(median(all.map(r=>r.end-r.start))),'median run time')}${kpi(hrs(all.reduce((a,r)=>a+r.knownWait,0)*60000),'known waiting on you')}${kpi(TEAMS.length,'Team Runs')}</div>
+  <div class="panel"><h2>Repos</h2><div class="scroll"><table><tr><th>Repo</th><th class="num">Runs</th><th>Last run</th><th class="num">Merged</th><th class="num">Human steps / run</th><th>Avoidable steps per run, oldest → newest</th><th>Top avoidable cause</th><th>Mix of causes</th></tr>
+  ${byRepo.map(({n,runs})=>{ const chron=[...runs].reverse(), ts=runs.flatMap(r=>r.avoidable), cc=causeCounts(ts), top=CAUSES.filter(c=>cc[c]).sort((a,b)=>cc[b]-cc[a])[0];
+    return `<tr class="click" data-go="/repo/${encodeURIComponent(n)}"><td>${link('/repo/'+encodeURIComponent(n), `<b>${esc(n)}</b>`)}<div class="small muted">${esc(REPO_NOTE[n]||'')}</div></td><td class="num">${runs.length}</td><td class="nowrap">${fmtDate(runs[0]?.start)}</td><td class="num">${pct(runs.filter(r=>r.outcome==='merged').length,runs.length)}</td><td class="num">${(runs.reduce((a,r)=>a+r.touches.length,0)/runs.length).toFixed(1)}</td><td>${spark(chron.map(r=>r.avoidable.length))}</td><td>${top?chip(top):'—'}</td><td style="min-width:140px">${stackTrack(runs.flatMap(r=>r.touches))}</td></tr>`}).join('')}</table></div>${legend()}</div>
+  <div class="grid2"><div class="panel"><h2>Avoidable human steps, by repo</h2>${byRepo.map(({n,runs})=>{const a=runs.flatMap(r=>r.avoidable);return `<div class="bar"><span class="lbl small">${esc(n.split('/')[1])}</span>${stackTrack(a, Math.max(4,a.length*5))}<span class="val">${a.length}</span></div>`}).join('')}<div class="small muted">Bar length = number of avoidable steps; segments = causes.</div></div>
+  <div class="panel"><h2>Most common avoidable causes</h2>${causeBars(av)}</div></div>
+  <div class="panel"><h2>Recent runs</h2>${runsTable(recent, true)}</div>` };
+}
+function runsTable(list, showRepo){
+  return `<div class="scroll"><table><tr><th>Started</th>${showRepo?'<th>Repo</th>':''}<th>Run</th><th>Who</th><th>Decisions</th><th class="num">Deleg.</th><th class="num">Time</th><th class="num">Human steps</th><th class="num">Avoidable</th><th style="min-width:120px">Causes</th><th>Outcome</th></tr>
+  ${list.map(r=>`<tr class="click" data-go="/run/${r.id}"><td class="nowrap">${fmtDate(r.start)}</td>${showRepo?`<td class="small">${esc(r.repo)}</td>`:''}<td>${runLink(r)}${syn(r)}${r.team?' <span class="tag">team</span>':''}</td><td>${esc(r.operator)}</td><td>${r.authority}</td><td class="num">${r.dels.length}</td><td class="num">${hrs(r.end-r.start)}</td><td class="num">${r.touches.length}</td><td class="num">${r.avoidable.length}</td><td>${stackTrack(r.touches)}</td><td>${outTag(r.outcome)}</td></tr>`).join('')}</table></div>`;
+}
+function pageRepo(name){
+  const runs = runsOf(name); if (!runs.length) return notFound();
+  const chron = [...runs].reverse(), ts = runs.flatMap(r=>r.touches);
+  const W = 1100, H = 230, L = 40, bw = Math.min(60, (W-L-20)/chron.length - 10), max = Math.max(...chron.map(r=>r.touches.length));
+  let svg = `<svg viewBox="0 0 ${W} ${H+40}" width="100%" style="min-width:600px">`;
+  for (let v=0; v<=max; v+=Math.max(5,Math.ceil(max/5/5)*5)) { const y = H - v/max*(H-20); svg += `<line x1="${L}" x2="${W}" y1="${y}" y2="${y}" stroke="var(--line)"/><text x="${L-6}" y="${y+4}" text-anchor="end" class="mt">${v}</text>`; }
+  chron.forEach((r,i) => { const x = L + 10 + i*((W-L-20)/chron.length); let y = H; const cc = causeCounts(r.touches);
+    let g = ''; CAUSES.forEach(c => { if (!cc[c]) return; const h = cc[c]/max*(H-20); y -= h; g += `<rect x="${x}" y="${y}" width="${bw}" height="${h}" fill="${ci(c).color}"><title>${r.id}: ${ci(c).label} ${cc[c]}</title></rect>`; });
+    svg += `<a href="#/run/${r.id}">${g}<text x="${x+bw/2}" y="${y-4}" text-anchor="middle" style="font-weight:600">${r.touches.length}</text><text x="${x+bw/2}" y="${H+14}" text-anchor="middle" class="mt">${fmtDate(r.start)}</text><text x="${x+bw/2}" y="${H+28}" text-anchor="middle" class="mt">${r.synthetic?'synthetic':'real'}${r.team?' · team':''}</text></a>`; });
+  svg += '</svg>';
+  const ops = [...new Set(runs.map(r=>r.operator))];
+  return { crumbs: [['Overview','/'],[name]], html: `<h1>${esc(name)}</h1><div class="muted" style="margin-bottom:12px">${esc(REPO_NOTE[name]||'')}</div>
+  <div class="kpis" style="margin-bottom:14px">${kpi(runs.length,'runs')}${kpi(pct(runs.filter(r=>r.outcome==='merged').length,runs.length),'merged')}${kpi(runs.reduce((a,r)=>a+r.dels.length,0),'Delegations')}${kpi(ts.length,'human steps')}${kpi(pct(runs.flatMap(r=>r.avoidable).length,ts.length),'avoidable')}${kpi(hrs(median(runs.map(r=>r.end-r.start))),'median run time')}${kpi(ops.length,'people running it')}</div>
+  <div class="panel"><h2>Human steps per run, by cause</h2><div class="small muted">Oldest on the left. Click a bar to open the run.</div><div class="scroll">${svg}</div>${legend(causeCounts(ts))}</div>
+  <div class="grid2"><div class="panel"><h2>All human steps in this repo</h2>${causeBars(ts)}</div>
+  <div class="panel"><h2>People</h2><table><tr><th>Who</th><th class="num">Runs</th><th class="num">Delegations</th><th class="num">Human steps / Delegation</th><th class="num">Median run time</th></tr>${ops.map(o=>{const rs=runs.filter(r=>r.operator===o);const d=rs.reduce((a,r)=>a+r.dels.length,0);return `<tr><td>${esc(o)}</td><td class="num">${rs.length}</td><td class="num">${d}</td><td class="num">${(rs.reduce((a,r)=>a+r.touches.length,0)/d).toFixed(1)}</td><td class="num">${hrs(median(rs.map(r=>r.end-r.start)))}</td></tr>`}).join('')}</table>
+  ${[...new Set(runs.filter(r=>r.team).map(r=>r.team))].map(t=>`<div class="callout">Team Run: ${link('/team/'+t, esc(t))}</div>`).join('')}</div></div>
+  <div class="panel"><h2>Runs</h2>${runsTable(runs)}</div>` };
+}
+const RUN_TABS = [['summary','Summary'],['timeline','Timeline'],['delegations','Delegations'],['steps','Human steps'],['reviews','Reviews & CI'],['log','Log'],['record','Record (JSON)']];
+let STEP_FILTER = { kind:'', cause:'', del:'', actor:'human' };
+let LOG_MODE = 'events';
+function pageRun(id, tab='summary'){
+  const r = RUN[id]; if (!r) return notFound();
+  const counts = { delegations:r.dels.length, steps:r.touches.length, reviews:r.reviews.length+r.ci.length, log:r.events.length };
+  const head = `<h1>${esc(r.id)}${syn(r)} ${outTag(r.outcome)}</h1>
+  <div class="sentence">Spec #${r.spec} in <b>${esc(r.repo)}</b>, run by ${esc(r.operator)}: ${r.tickets.length} tickets, ${r.dels.length} Delegations, ${r.authority} decisions, landing ${r.landing}. ${hrs(r.end-r.start)}${r.startBound?' at most':''} from start to close. You were needed <b>${r.touches.length}</b> times; <b style="color:#d9480f">${r.avoidable.length}</b> of them could go next run.${r.team?` Part of Team Run ${link('/team/'+r.team, esc(r.team))}.`:''}</div>
+  <nav class="tabs">${RUN_TABS.map(([k,l])=>`<a href="#/run/${r.id}/${k}" class="${k===tab?'on':''}">${l}${counts[k]!=null?`<span class="n">${counts[k]}</span>`:''}</a>`).join('')}</nav>`;
+  const body = ({ summary: runSummary, timeline: runTimeline, delegations: runDelegations, steps: runSteps, reviews: runReviews, log: runLog, record: runRecord }[tab] || runSummary)(r);
+  return { crumbs: [['Overview','/'],[r.repo,'/repo/'+encodeURIComponent(r.repo)],[r.id]], html: head + body };
+}
+function runSummary(r){
+  const fails = r.ci.filter(c=>c.result==='fail').length;
+  const kinds = {}; r.touches.forEach(t=>kinds[t.k]=(kinds[t.k]||0)+1);
+  return `<div class="kpis" style="margin-bottom:14px">${kpi(hrs(r.end-r.start)+(r.startBound?' ≤':''),'start → close', `${fmtDate(r.start)} ${hm(r.start)} → ${hm(r.end)} UTC`)}${kpi(r.dels.length,'Delegations', `${r.dels.filter(d=>d.route==='card').length} started from a card`)}${kpi(r.touches.length,'human steps',`${r.steps.length-r.touches.length} more done by the Chief of Staff`)}${kpi(`<i style="font-style:normal;color:#d9480f">${r.avoidable.length}</i>`,'avoidable')}${kpi(r.knownWait+'m','known waiting on you',`${r.touches.filter(t=>t.wait!=null).length} of ${r.touches.length} steps timed`)}${kpi(r.reviews.length,'review rounds',`${r.reviews.reduce((a,v)=>a+(v.findings||0),0)} findings`)}${kpi(r.ci.length,'CI runs',fails?`${fails} failed`:'all passed')}${kpi(r.dels.reduce((a,d)=>a+d.sendBacks,0),'send-backs')}${kpi(r.heartbeats.firings ?? '?','heartbeats',r.heartbeats.no_change!=null?`${r.heartbeats.no_change} with no change`:'')}</div>
+  <div class="grid2"><div class="panel"><h2>What to improve next run</h2>${nextRunHtml(r)}</div>
+  <div class="panel"><h2>Why you were needed</h2>${causeBars(r.touches)}<h3 style="margin-top:14px">By kind</h3>${Object.entries(kinds).sort((a,b)=>b[1]-a[1]).map(([k,n])=>`<div class="bar"><span class="lbl mono small" title="${esc(KIND_INFO[k]||'')}">${esc(k)}</span><div class="track"><span style="width:${n/Math.max(...Object.values(kinds))*100}%;background:var(--muted)"></span></div><span class="val">${n}</span></div>`).join('')}
+  ${r.touches.some(t=>t.assumed)?'<div class="small muted" style="margin-top:8px">Causes on this real record were assigned by the prototype: the hand-derived records predate the <code>cause</code> field.</div>':''}</div></div>
+  <div class="grid2"><div class="panel"><h2>Plan</h2><dl class="dl"><dt>Decision authority</dt><dd>${r.authority}</dd><dt>Landing</dt><dd>${r.landing}</dd><dt>QA required</dt><dd>${r.plan.qa_required||'—'}</dd><dt>Waves</dt><dd>${r.plan.waves ?? '—'}${r.plan.wave_shape?` (${r.plan.wave_shape}${r.plan.serial_reason?', '+r.plan.serial_reason:''})`:''}</dd><dt>Routine writes approved</dt><dd>${(r.plan.routine_writes_approved||[]).map(w=>`<span class="tag">${w}</span>`).join(' ')||'—'}</dd><dt>Routine writes declined</dt><dd>${(r.plan.routine_writes_declined||[]).map(w=>`<span class="tag avoid">${w}</span>`).join(' ')||'—'}</dd><dt>Harness</dt><dd>${r.harness||'—'}</dd></dl></div>
+  <div class="panel"><h2>Outcome</h2><dl class="dl"><dt>Outcome</dt><dd>${outTag(r.outcome)}</dd><dt>Pull requests</dt><dd>${r.prs.map(p=>`#${p}`).join(', ')||'—'}</dd><dt>Tickets</dt><dd>${r.tickets.map(t=>`#${t}`).join(', ')}</dd><dt>Rulings</dt><dd>${r.rulings.made ?? 0} made, ${r.rulings.overturned ?? 0} overturned</dd><dt>Closed</dt><dd>${r.end?new Date(r.end).toISOString().replace('T',' ').slice(0,16)+' UTC':'—'}</dd></dl></div></div>
+  <div class="panel"><h2>Delegations</h2>${delTable(r)}</div>`;
+}
+function runTimeline(r){
+  return `<div class="panel"><h2>The run on one clock</h2>${ganttKey()}<div class="scroll">${gantt(ganttRows(r), r.start, r.end)}</div>${legend(causeCounts(r.touches))}
+  <div class="small muted">Human-step dots are coloured by <b>cause</b> (why you were needed). Hover for details, click to open the step.</div></div>`;
+}
+function delTable(r){
+  return `<div class="scroll"><table><tr><th>Delegation</th><th>Kind</th><th class="num">Ticket</th><th>Started</th><th>Start</th><th class="num">Time</th><th>Timing from</th><th class="num">Human steps</th><th class="num">Send-backs</th><th class="num">Decision Requests</th><th>Outcome</th></tr>
+  ${r.dels.map(d=>`<tr class="click" data-go="/run/${r.id}/delegation/${d.id}"><td>${link(`/run/${r.id}/delegation/${d.id}`, `<b class="mono">${d.id}</b>`)}</td><td><span class="sw" style="background:${DEL_FILL[d.kind]}"></span> ${d.kind}</td><td class="num">#${d.issue}</td><td class="nowrap">${d.s?hm(d.s):d.day||'?'}</td><td>${d.route==='card'?'<span class="tag avoid">card</span>':'direct'}</td><td class="num">${d.s&&d.e?mins(d.e-d.s):'?'}</td><td class="small muted">${d.sSrc?`${d.sSrc} → ${d.eSrc}`:'no times'}</td><td class="num"><b>${d.touches.length||''}</b></td><td class="num">${d.sendBacks||''}</td><td class="num">${d.drs||''}</td><td>${outTag(d.outcome)}</td></tr>`).join('')}</table></div>`;
+}
+const runDelegations = r => `<div class="panel"><h2>Delegations</h2><div class="small muted" style="margin-bottom:8px">Click a row for the Delegation's own page: its timing, its human steps and its log.</div>${delTable(r)}</div>`;
+function stepsTable(r, list){
+  return `<div class="scroll"><table><tr><th class="num">#</th><th>When</th><th>Who</th><th>Kind</th><th>Cause</th><th></th><th>Delegation</th><th>About</th><th class="num">Waited</th></tr>
+  ${list.map(t=>`<tr class="click" data-go="/run/${r.id}/step/${t.n}"><td class="num">${link(`/run/${r.id}/step/${t.n}`, t.n)}</td><td class="nowrap">${whenTxt(t.w)}</td><td>${t.actor==='human'?'you':`<span class="muted">${t.actor}</span>`}</td><td class="mono small" title="${esc(KIND_INFO[t.k]||'')}">${esc(t.k)}</td><td>${t.cause?chip(t.cause):''}</td><td>${avoidTag(t.cause)}</td><td class="mono small">${t.del||'—'}</td><td class="small">${esc(t.topic||'')}</td><td class="num">${t.actor==='human'?waitTxt(t):''}</td></tr>`).join('')}</table></div>`;
+}
+function runSteps(r){
+  const f = STEP_FILTER;
+  const list = r.steps.filter(t => (f.actor==='all' || t.actor===f.actor || (f.actor==='other' && t.actor!=='human')) && (!f.kind||t.k===f.kind) && (!f.cause||t.cause===f.cause) && (!f.del||t.del===f.del));
+  const opt = (name, vals, cur, all) => `<label class="small muted">${name} <select data-filter="${name.toLowerCase()}"><option value="">${all}</option>${vals.map(v=>`<option ${v===cur?'selected':''} value="${esc(v)}">${esc(v)}</option>`).join('')}</select></label>`;
+  return `<div class="panel"><h2>Every step that involved you</h2>
+  <div class="filters"><label class="small muted">Who <select data-filter="actor">${[['human','you (counted)'],['other','Chief of Staff / covered'],['all','everything']].map(([v,l])=>`<option value="${v}" ${f.actor===v?'selected':''}>${l}</option>`).join('')}</select></label>
+  ${opt('Kind',[...new Set(r.steps.map(t=>t.k))].sort(),f.kind,'all kinds')}${opt('Cause',CAUSES.filter(c=>r.touches.some(t=>t.cause===c)),f.cause,'all causes')}${opt('Del',r.dels.map(d=>d.id),f.del,'all Delegations')}
+  <span class="small muted">${list.length} shown</span> <button class="btn" onclick="STEP_FILTER={kind:'',cause:'',del:'',actor:'human'};render()">Reset</button></div>
+  ${stepsTable(r, list)}<div class="small muted" style="margin-top:8px">One human step = one touch from you (an answer, a click, a typed command). Writes the Chief of Staff made after your answer carry <code>actor: chief-of-staff</code> and are not counted.</div></div>`;
+}
+function runReviews(r){
+  return `<div class="grid2"><div class="panel"><h2>Review rounds</h2><table><tr><th>PR</th><th class="num">Round</th><th>Head</th><th>Triggered</th><th class="num">Took</th><th class="num">Findings</th><th class="num">Fixed</th><th class="num">Answered</th></tr>${r.reviews.map(v=>`<tr><td>#${v.pr}</td><td class="num">${v.round}</td><td class="mono small">${v.head||''}</td><td>${v.t?hm(v.t):'?'}</td><td class="num">${v.t&&v.e?mins(v.e-v.t):'?'}</td><td class="num">${v.findings??''}</td><td class="num">${v.fixed??''}</td><td class="num">${v.answered??''}</td></tr>`).join('')||'<tr><td colspan="8" class="muted">None</td></tr>'}</table></div>
+  <div class="panel"><h2>CI</h2><table><tr><th>PR</th><th>Head</th><th>Created</th><th>Result</th><th class="num">Failed checks</th></tr>${r.ci.map(c=>`<tr><td>#${c.pr}</td><td class="mono small">${c.head||''}</td><td>${c.t?hm(c.t):'?'}</td><td>${outTag(c.result==='pass'?'landed':'qa-fail').replace(/landed|qa-fail/,c.result)}</td><td class="num">${c.failed_checks??''}</td></tr>`).join('')||'<tr><td colspan="5" class="muted">None</td></tr>'}</table></div></div>`;
+}
+function runLog(r){
+  const prose = LOGS[r.id];
+  const modes = [['events','Run Events as text'],['report','Report (orchestrate --report)'],['activity','Activity Log (local only)']];
+  let body;
+  if (LOG_MODE === 'report') body = textBox('logtxt', reportText(r), `${r.id}-report.txt`);
+  else if (LOG_MODE === 'activity') body = prose ? `<div class="callout small">This is the prose Activity Log from <code>tmp/orchestrate/${r.id}/activity.md</code>. It is only in a page built on this machine with <code>--local-logs</code>, and it is never part of an uploaded Run Record.</div>${textBox('logtxt', prose, `${r.id}-activity.md`, 'prose')}`
+    : `<div class="callout">${r.synthetic?'Synthetic runs have no Activity Log.':`No Activity Log in this page. Build with <code>node docs/prototypes/run-record-dashboard/build.mjs --local-logs</code> to read <code>tmp/orchestrate/${r.id}/activity.md</code> into a local-only page (<code>dashboard.local.html</code>, gitignored).`} The Run Record holds no prose by design; the Run Events view shows everything it does hold.</div>`;
+  else body = textBox('logtxt', textLog(r), `${r.id}-events.txt`);
+  return `<div class="panel"><div class="filters">${modes.map(([k,l])=>`<button class="btn" style="${k===LOG_MODE?'background:var(--ink);color:var(--panel)':''}" onclick="LOG_MODE='${k}';render()">${l}</button>`).join('')}</div>${body}</div>`;
+}
+const runRecord = r => `<div class="panel"><div class="small muted" style="margin-bottom:6px">The Run Record exactly as stored${r.synthetic?' (synthetic)':''}. Safe to publish: ids, times, counts, enums.</div>${textBox('rectxt', JSON.stringify(r.raw, null, 2), `${r.id}.json`)}</div>`;
+
+function pageDelegation(id, did){
+  const r = RUN[id], d = r && r.dels.find(x=>x.id===did); if (!d) return notFound();
+  const evs = r.events.filter(e=>e.del===did);
+  const rv = r.reviews.filter(v=>d.pr ? v.pr===d.pr : false), idx = r.dels.indexOf(d), prev = r.dels[idx-1], next = r.dels[idx+1];
+  const t0 = Math.min(d.s||Infinity, ...d.touches.map(t=>t.w.lo||t.w.t||Infinity)), t1 = Math.max(d.e||0, ...d.touches.map(t=>t.w.hi||t.w.t||0));
+  return { crumbs: [['Overview','/'],[r.repo,'/repo/'+encodeURIComponent(r.repo)],[r.id,'/run/'+r.id+'/delegations'],[did]], html: `<h1><span class="mono">${did}</span>${syn(r)} ${outTag(d.outcome)}</h1>
+  <div class="sentence">A <b>${d.kind}</b> Delegation for ticket #${d.issue}, started ${d.route==='card'?'<b>from a card you clicked</b>':'directly by the Chief of Staff'}${d.s&&d.e?`, ${mins(d.e-d.s)} from ${d.sSrc} to ${d.eSrc}`:d.day?`, on ${d.day} (no times recorded)`:''}. It needed you ${d.touches.length} time${d.touches.length===1?'':'s'}.</div>
+  <div class="small" style="margin-bottom:10px">${prev?link(`/run/${r.id}/delegation/${prev.id}`,'← '+prev.id):''} ${next?' · '+link(`/run/${r.id}/delegation/${next.id}`,next.id+' →'):''}</div>
+  <div class="grid2"><div class="panel"><h2>Facts</h2><dl class="dl">${Object.entries(d.raw).map(([k,v])=>`<dt class="mono small">${esc(k)}</dt><dd class="mono small">${esc(typeof v==='object'?JSON.stringify(v):v)}</dd>`).join('')}</dl></div>
+  <div class="panel"><h2>Why it needed you</h2>${causeBars(d.touches)}${d.sSrc && d.sSrc!=='started'?`<div class="callout small">The record has no start time for this Delegation, so its time runs from the <b>${d.sSrc}</b>. It really started earlier.</div>`:''}</div></div>
+  ${d.s&&isFinite(t0)?`<div class="panel"><h2>Timeline</h2>${gantt([ganttRows(r)[0], ...ganttRows(r).slice(2).filter(x=>x.href.endsWith('/'+did))].map((row,i)=>i===0?{...row,marks:row.marks.filter((m,j)=>r.touches[j].del===did)}:row), t0-5*60e3, t1+5*60e3, {rh:30})}</div>`:''}
+  <div class="panel"><h2>Human steps</h2>${d.touches.length?stepsTable(r, d.touches):'<div class="muted">None. 🎉</div>'}</div>
+  ${rv.length?`<div class="panel"><h2>Review rounds on PR #${d.pr}</h2><table><tr><th class="num">Round</th><th class="num">Findings</th><th class="num">Fixed</th></tr>${rv.map(v=>`<tr><td class="num">${v.round}</td><td class="num">${v.findings}</td><td class="num">${v.fixed}</td></tr>`).join('')}</table></div>`:''}
+  <div class="panel"><h2>Log</h2>${textBox('dlog', textLog(r, evs), `${r.id}-${did}.txt`)}</div>` };
+}
+function pageStep(id, n){
+  const r = RUN[id], s = r && r.steps.find(x=>String(x.n)===String(n)); if (!s) return notFound();
+  const i = r.steps.indexOf(s), prev = r.steps[i-1], next = r.steps[i+1];
+  const ei = r.events.findIndex(e=>e.step===s.n), near = r.events.slice(Math.max(0,ei-4), ei+5);
+  const c = s.cause && ci(s.cause);
+  const at = s.w.p==='exact' ? `At ${hm(s.w.t)} UTC on ${fmtDate(s.w.t)}` : s.w.p==='bounds' ? `Some time ${s.w.lo?'after '+hm(s.w.lo):''}${s.w.lo&&s.w.hi?' and ':''}${s.w.hi?'before '+hm(s.w.hi):''} UTC` : s.w.p==='date' ? `On ${s.w.day} (no time recorded)` : 'At an unknown time';
+  return { crumbs: [['Overview','/'],[r.repo,'/repo/'+encodeURIComponent(r.repo)],[r.id,'/run/'+r.id+'/steps'],['Step '+s.n]], html: `<h1>Step ${s.n}: <span class="mono">${esc(s.k)}</span>${syn(r)}</h1>
+  <div class="sentence">${at}, ${s.actor==='human'?'you were needed':`the <b>${s.actor}</b> acted (not counted as a human step)`}: ${esc((KIND_INFO[s.k]||s.k).replace(/^You /,'').replace(/^./,x=>x.toLowerCase()))}${s.del?` For ${link(`/run/${r.id}/delegation/${s.del}`, s.del)}.`:''}</div>
+  <div class="small" style="margin-bottom:10px">${prev?link(`/run/${r.id}/step/${prev.n}`,'← step '+prev.n):''} ${next?' · '+link(`/run/${r.id}/step/${next.n}`,'step '+next.n+' →'):''} · ${link(`/run/${r.id}/steps`,'all steps')}</div>
+  <div class="grid2"><div class="panel"><h2>Fields</h2><dl class="dl"><dt>When</dt><dd>${whenTxt(s.w)}${s.raw.at_source?` <span class="small muted">from ${esc(s.raw.at_source)}</span>`:''}</dd><dt>Who</dt><dd>${s.actor==='human'?'you':s.actor}</dd><dt>Kind</dt><dd class="mono">${esc(s.k)}</dd><dt>Cause</dt><dd>${s.cause?chip(s.cause)+' '+avoidTag(s.cause)+(s.assumed?' <span class="small muted">(assigned by the prototype)</span>':''):'—'}</dd><dt>Delegation</dt><dd>${s.del?link(`/run/${r.id}/delegation/${s.del}`,s.del):'— (run level)'}</dd><dt>About</dt><dd>${esc(s.topic||'—')}</dd><dt>Waited</dt><dd>${waitTxt(s)}${s.raw.waited_from?` <span class="small muted">since ${esc(s.raw.waited_from)}</span>`:''}</dd><dt>Heartbeats waiting</dt><dd>${s.hb||0}</dd></dl></div>
+  <div class="panel"><h2>Why, and what to do</h2>${c?`<div class="callout" style="border-color:${c.color}"><b>${c.label}</b>: ${esc(c.meaning)}</div><div><b>Next run:</b> ${esc(c.fix)}</div>`:'<div class="muted">Not a human step, so no cause.</div>'}</div></div>
+  <div class="panel"><h2>Around this step</h2>${textBox('slog', textLog(r, near).split('\n').slice(4).join('\n'), `${r.id}-step-${s.n}.txt`)}</div>
+  <div class="panel"><h2>Raw entry</h2>${textBox('sraw', JSON.stringify(s.raw, null, 2), `${r.id}-step-${s.n}.json`)}</div>` };
+}
+function pageTeam(team){
+  const list = RUNS.filter(r=>r.team===team).sort((a,b)=>a.start-b.start); if (!list.length) return notFound();
   const t0 = Math.min(...list.map(r=>r.start)), t1 = Math.max(...list.map(r=>r.end));
-  const rows = []; list.forEach(r => { rows.push({group:true,label:`${r.operator}`}); ganttRows(r,'  ').forEach(x=>rows.push(x)); });
-  return `<div class="panel"><h2>Team Run: spec #${list[0].team.spec} <span class="syn">synthetic</span></h2><div class="small muted">One Run Record per teammate's Chief of Staff, merged on one clock.</div><div class="scroll">${gantt(rows,t0,t1)}</div>${legend()}</div>
-  <div class="panel"><table><tr><th>Teammate</th><th class="num">Delegations</th><th class="num">Human steps</th><th class="num">Avoidable</th><th class="num">Duration</th></tr>${list.map(r=>`<tr><td>${r.operator}</td><td class="num">${r.dels.length}</td><td class="num">${r.touches.length}</td><td class="num">${r.touches.filter(t=>AVOIDABLE(t.cause)).length}</td><td class="num">${hrs(r.end-r.start)}</td></tr>`).join('')}</table></div>`;
-}};
-
-// ───────────────────────── VARIANT B: Human-step ledger ─────────────────────────
-const B = { name: 'Human-step ledger', run(r){
-  const nr = nextRun(r), av = r.touches.filter(t=>AVOIDABLE(t.cause));
-  const kinds = [...new Set(r.touches.map(t=>t.k))].sort();
-  const used = CAUSES.filter(c=>r.touches.some(t=>t.cause===c));
-  const cell = (k,c) => r.touches.filter(t=>t.k===k&&t.cause===c).length;
-  const maxCell = Math.max(1,...kinds.flatMap(k=>used.map(c=>cell(k,c))));
-  const waits = r.touches.map(t=>t.wait ?? t.waitMax).filter(x=>x!=null);
-  return `<div class="panel" style="display:flex;gap:28px;flex-wrap:wrap;align-items:flex-end">
-    <div><div style="font-size:44px;font-weight:700;line-height:1">${r.touches.length}</div><div class="muted">times you were needed${synTag(r)}</div></div>
-    <div><div style="font-size:44px;font-weight:700;line-height:1;color:var(--warn)">${av.length}</div><div class="muted">could go next run</div></div>
-    <div><div style="font-size:44px;font-weight:700;line-height:1">${waits.length?waits.reduce((a,b)=>a+b,0)+'m':'?'}</div><div class="muted">known waiting (${waits.length} of ${r.touches.length} steps timed)</div></div>
-    <div class="small muted" style="max-width:300px">${r.id} · ${r.authority} · ${r.dels.length} Delegations · ${hrs(r.end-r.start)}</div></div>
-  <div class="panel"><h3>Every touch, in order</h3><div class="waffle" style="margin-top:8px">${r.touches.map(t=>`<i style="background:${col(t.cause)};${AVOIDABLE(t.cause)?'':'opacity:.45'}" title="#${t.i+1} ${t.k} · ${t.cause} · ${t.del||'run'} · ${t.w.p==='exact'?hm(t.w.t):t.w.day||'bounded'}"></i>`).join('')}</div>${legend()}</div>
-  <div class="grid2">
-   <div class="panel"><h2>Fix these next run</h2>${nr.map(n=>`<div class="todo" style="border-color:${col(n.cause)}"><b>−${n.n}</b> ${esc(n.what)}<div class="small muted">${esc(n.fix)}</div></div>`).join('')}</div>
-   <div class="panel heat"><h2>Kind × cause</h2><div class="scroll"><table><tr><th>kind</th>${used.map(c=>`<th class="num" title="${c}"><span class="dot" style="background:${col(c)}"></span></th>`).join('')}<th class="num">Σ</th></tr>
-   ${kinds.map(k=>`<tr><td class="mono small">${k}</td>${used.map(c=>{const n=cell(k,c);return `<td class="num" style="background:${n?`color-mix(in srgb, ${col(c)} ${20+60*n/maxCell}%, transparent)`:''}">${n||''}</td>`}).join('')}<td class="num">${r.touches.filter(t=>t.k===k).length}</td></tr>`).join('')}</table></div></div></div>
-  <div class="panel"><h2>Delegations</h2><table><tr><th>Delegation</th><th>kind</th><th>start</th><th class="num">time</th><th class="num">human steps</th><th class="num">send-backs</th><th>outcome</th></tr>
-  ${r.dels.map(d=>`<tr><td class="mono">${d.id}</td><td>${d.kind}</td><td>${d.route==='card'?'<span class="chip" style="color:var(--warn)">card</span>':'direct'}</td><td class="num">${d.s&&d.e?mins(d.e-d.s):'<span class="muted">'+(d.day||'?')+'</span>'}</td><td class="num"><b>${d.touches||''}</b></td><td class="num">${d.sendBacks||''}</td><td>${d.outcome}</td></tr>`).join('')}</table></div>`;
-}, runs(list){
-  const maxT = Math.max(...list.map(r=>r.touches.length));
-  return `<div class="panel"><h2>Human steps per run</h2><div class="small muted">Bar = human steps, coloured by cause (faded = by design or the human's choice). Ratio = steps per Delegation.</div>
-  <table><tr><th>Run</th><th>authority</th><th class="num">Deleg.</th><th style="width:45%">human steps by cause</th><th class="num">total</th><th class="num">avoidable</th><th class="num">per Deleg.</th></tr>
-  ${list.map(r=>{const cc=causeCounts(r.touches);const av=r.touches.filter(t=>AVOIDABLE(t.cause)).length;return `<tr><td class="mono small">${r.id}${synTag(r)}</td><td>${r.authority}</td><td class="num">${r.dels.length}</td><td>${stackBar(cc,Math.max(8,r.touches.length/maxT*420))}</td><td class="num">${r.touches.length}</td><td class="num" style="color:var(--warn)">${av}</td><td class="num">${(r.touches.length/r.dels.length).toFixed(1)}</td></tr>`}).join('')}</table>${legend()}</div>
-  <div class="panel"><h2>Most common avoidable causes across runs</h2>${(()=>{const all=causeCounts(list.flatMap(r=>r.touches));return CAUSES.filter(c=>AVOIDABLE(c)&&all[c]).sort((a,b)=>all[b]-all[a]).map(c=>`<div class="todo" style="border-color:${col(c)}"><b>${all[c]}</b> ${c} <span class="small muted">in ${list.filter(r=>r.touches.some(t=>t.cause===c)).length} of ${list.length} runs</span></div>`).join('')})()}</div>`;
-}, team(list){
-  return `<div class="panel"><h2>Team Run: spec #${list[0].team.spec} <span class="syn">synthetic</span></h2><div class="small muted">Who was needed, how often, and for what. One column per teammate.</div>
-  <div style="display:grid;grid-template-columns:repeat(${list.length},1fr);gap:12px;margin-top:10px">${list.map(r=>`<div class="panel" style="margin:0"><b>${r.operator}</b><div style="font-size:32px;font-weight:700">${r.touches.length}</div><div class="small muted">human steps · ${r.dels.length} Delegations · ${hrs(r.end-r.start)}</div><div class="waffle" style="margin-top:8px">${r.touches.map(t=>`<i style="background:${col(t.cause)};${AVOIDABLE(t.cause)?'':'opacity:.45'}" title="${t.k} · ${t.cause}"></i>`).join('')}</div>${nextRun(r).filter(n=>!n.data).slice(0,2).map(n=>`<div class="small" style="margin-top:6px">− ${esc(n.what)}</div>`).join('')}</div>`).join('')}</div>${legend()}</div>`;
-}};
-
-// ───────────────────────── VARIANT C: Run story (feed) ─────────────────────────
-function events(r){
-  const ev = [];
-  const at = (w) => w.p==='exact' ? w.t : w.p==='bounds' ? w.t : null;
-  r.dels.forEach(d=>{ if(d.s) ev.push({t:d.s,cls:'del',txt:`<b>${d.id}</b> starts${d.route==='card'?' (from a card)':''} <span class="muted small">· ${d.kind} #${d.issue} · from ${d.sSrc}</span>`});
-    if(d.e) ev.push({t:d.e,cls:'del',txt:`<b>${d.id}</b> ${d.eSrc} after ${mins(d.e-d.s)} <span class="muted small">· ${d.outcome}${d.sendBacks?' · '+d.sendBacks+' send-backs':''}</span>`});
-    if(!d.s && d.day) ev.push({day:d.day,cls:'del',txt:`<b>${d.id}</b> ran <span class="muted small">· ${d.kind} · ${d.outcome} · no times recorded</span>`}); });
-  r.touches.forEach(t=>ev.push({t:at(t.w),day:t.w.day,approx:t.w.p!=='exact',cls:'human',txt:`<b>You</b>: ${t.k} ${causeChip(t.cause)} <span class="muted small">${t.del?'· '+t.del+' ':''}· ${waitTxt(t)}${t.hb?' · '+t.hb+' heartbeat'+(t.hb>1?'s':'')+' waiting':''}</span>`}));
-  r.writes.forEach(w=>ev.push({t:at(w.w),day:w.w.day,approx:w.w.p!=='exact',cls:'cos',txt:`<span class="muted">Chief of Staff: ${w.k} (actor <span class="mono">${w.actor}</span>)</span>`}));
-  r.reviews.forEach(v=>v.t&&ev.push({t:v.t,cls:'cos',txt:`<span class="muted">Review round ${v.round}: ${v.findings} findings${v.e?' in '+mins(v.e-v.t):''}</span>`}));
-  r.ci.forEach(c=>c.t&&ev.push({t:c.t,cls:'cos',txt:`<span class="muted">CI <span style="color:${c.result==='pass'?'var(--ok)':'var(--warn)'}">${c.result}</span></span>`}));
-  const key = e => e.t ?? (Date.parse(e.day+'T23:59:00Z'));
-  return ev.sort((a,b)=>key(a)-key(b));
+  const rows = []; list.forEach(r => { rows.push({ group:true, label:r.operator }); ganttRows(r,'  ').forEach(x=>rows.push(x)); });
+  const ts = list.flatMap(r=>r.touches);
+  return { crumbs: [['Overview','/'],[list[0].repo,'/repo/'+encodeURIComponent(list[0].repo)],['Team Run '+team]], html: `<h1>Team Run ${esc(team)} <span class="syn">synthetic</span></h1>
+  <div class="sentence">Spec #${list[0].spec} in <b>${esc(list[0].repo)}</b>: ${list.length} teammates, each running their own Chief of Staff over their own tickets, on one Shared Board. One Run Record each, merged here on one clock.</div>
+  <div class="kpis" style="margin-bottom:14px">${kpi(list.length,'teammates')}${kpi(list.reduce((a,r)=>a+r.dels.length,0),'Delegations')}${kpi(hrs(t1-t0),'first start → last close')}${kpi(ts.length,'human steps')}${kpi(list.flatMap(r=>r.avoidable).length,'avoidable')}</div>
+  <div class="panel"><h2>Everyone on one clock</h2>${ganttKey()}<div class="scroll">${gantt(rows,t0,t1)}</div>${legend(causeCounts(ts))}</div>
+  <div class="panel"><h2>Teammates</h2><table><tr><th>Who</th><th>Run</th><th>Tickets</th><th class="num">Delegations</th><th class="num">Time</th><th class="num">Human steps</th><th class="num">Avoidable</th><th style="min-width:140px">Causes</th><th>Biggest fix</th></tr>
+  ${list.map(r=>{const n=nextRun(r).find(x=>x.cause);return `<tr class="click" data-go="/run/${r.id}"><td><b>${esc(r.operator)}</b></td><td>${runLink(r)}</td><td class="small">${r.tickets.map(t=>'#'+t).join(' ')}</td><td class="num">${r.dels.length}</td><td class="num">${hrs(r.end-r.start)}</td><td class="num">${r.touches.length}</td><td class="num">${r.avoidable.length}</td><td>${stackTrack(r.touches)}</td><td class="small">${n?esc(n.what):'—'}</td></tr>`}).join('')}</table></div>` };
 }
-const C = { name: 'Run story', run(r){
-  const ev = events(r); let lastDay = '';
-  const maxD = Math.max(...r.dels.map(d=>d.s&&d.e?d.e-d.s:0),1);
-  return `<div class="cgrid"><div class="panel"><h2>${r.id}${synTag(r)}</h2><div class="small muted" style="margin-bottom:10px">Read top to bottom. Orange rows are the times you were needed. ~ = time only known between two bounds; "day" = date only.</div><div class="feed">
-  ${ev.map(e=>{const d=e.t?ymd(e.t):e.day;const hdr=d!==lastDay?`<div style="margin:12px 0 4px -90px;font-weight:600">${d}</div>`:'';lastDay=d;return hdr+`<div class="ev ${e.cls}"><span class="t">${e.t?(e.approx?'~':'')+hm(e.t):'day'}</span>${e.txt}</div>`}).join('')}
-  </div></div>
-  <div class="sticky"><div class="panel"><h3>Delegation time</h3>${r.dels.map(d=>`<div style="display:flex;align-items:center;gap:6px;margin:5px 0" class="small"><span class="mono" style="width:80px">${d.id}</span><svg width="140" height="10"><rect width="${d.s&&d.e?(d.e-d.s)/maxD*140:0}" height="10" rx="2" fill="${d.kind==='qa'?'var(--c-spec-gap)':'var(--accent)'}"/></svg><span class="mono">${d.s&&d.e?mins(d.e-d.s):'?'}</span>${d.touches?`<span class="chip" style="color:var(--warn)">${d.touches}✋</span>`:''}</div>`).join('')}</div>
-  <div class="panel"><h3>Retro: next run</h3>${nextRun(r).map(n=>`<div style="margin:8px 0" class="small"><b>${esc(n.what)}</b><br><span class="muted">${esc(n.fix)}</span></div>`).join('')}</div></div></div>`;
-}, runs(list){
-  const metrics = [['duration h',r=>(r.end-r.start)/3600e3],['Delegations',r=>r.dels.length],['human steps',r=>r.touches.length],['avoidable',r=>r.touches.filter(t=>AVOIDABLE(t.cause)).length],['card starts',r=>r.touches.filter(t=>/card-start/.test(t.k)).length],['send-backs',r=>r.dels.reduce((a,d)=>a+d.sendBacks,0)],['review rounds',r=>r.reviews.length],['known wait m',r=>r.touches.reduce((a,t)=>a+(t.wait??t.waitMax??0),0)]];
-  const max = metrics.map(([,f])=>Math.max(...list.map(f),1));
-  return `<div class="panel"><h2>Runs at a glance</h2><div class="small muted">Darker = more. Read down a column to see a trend.</div><div class="scroll"><table><tr><th>Run</th>${metrics.map(([m])=>`<th class="num">${m}</th>`).join('')}</tr>
-  ${list.map(r=>`<tr><td class="mono small">${r.id}${synTag(r)}<div class="muted">${r.operator} · ${r.authority}</div></td>${metrics.map(([,f],i)=>{const v=f(r);return `<td class="num" style="background:color-mix(in srgb, var(--warn) ${Math.round(v/max[i]*70)}%, transparent)">${Number.isInteger(v)?v:v.toFixed(1)}</td>`}).join('')}</tr>`).join('')}</table></div></div>`;
-}, team(list){
-  const all = list.flatMap(r=>events(r).map(e=>({...e,op:r.operator}))).filter(e=>e.t).sort((a,b)=>a.t-b.t);
-  const ops = list.map(r=>r.operator), hue = o => ['var(--c-human-choice)','var(--c-spec-gap)','var(--c-skill-bug)'][ops.indexOf(o)%3];
-  return `<div class="panel"><h2>Team Run: spec #${list[0].team.spec} <span class="syn">synthetic</span></h2><div class="small muted">Everyone's runs in one story; the coloured edge says whose Chief of Staff wrote it.</div>
-  <div style="margin:8px 0">${ops.map(o=>`<span class="chip" style="border-left:4px solid ${hue(o)}">${o}</span>`).join(' ')}</div>
-  <div class="feed">${all.map(e=>`<div class="ev ${e.cls}" style="box-shadow:inset 4px 0 0 ${hue(e.op)}"><span class="t">${hm(e.t)}</span><span class="small mono muted">${e.op}</span> ${e.txt.replace('<b>You</b>','<b>'+e.op+'</b>')}</div>`).join('')}</div></div>`;
-}};
+function pageKey(){
+  return { crumbs: [['Overview','/'],['Key']], html: `<h1>What the colours and words mean</h1><div class="muted" style="margin-bottom:12px">Colour is never the only signal: every chip also says its name, and every human step says whether it was avoidable.</div>
+  <div class="panel"><h2>Causes: why you were needed</h2><table><tr><th>Colour</th><th>Cause</th><th>Next run?</th><th>Meaning</th><th>Typical fix</th></tr>${CAUSES.map(c=>`<tr><td><span class="sw" style="background:${ci(c).color};width:28px;height:16px"></span></td><td><b>${ci(c).label}</b><div class="mono small muted">${c}</div></td><td>${avoidTag(c)}</td><td>${esc(ci(c).meaning)}</td><td class="small">${esc(ci(c).fix)}</td></tr>`).join('')}</table>
+  <div class="small muted" style="margin-top:8px"><b>By design</b> and <b>Your choice</b> are expected; everything else counts as avoidable. <code>by-design</code> is a cause this prototype proposes adding to the curated list.</div></div>
+  <div class="panel"><h2>Kinds: what you did</h2><table><tr><th>Kind</th><th>Meaning</th></tr>${Object.entries(KIND_INFO).map(([k,v])=>`<tr><td class="mono small">${k}</td><td>${esc(v)}</td></tr>`).join('')}</table></div>
+  <div class="panel"><h2>Timeline marks</h2>${ganttKey()}</div>
+  <div class="panel"><h2>Real and synthetic</h2>Two runs are real Run Records hand-derived from past runs (spec-344, spec-253); their times are often only bounds or dates, because the old Activity Logs had no times. Everything tagged <span class="syn">synthetic</span> is generated so the multi-repo, trend and Team Run pages have something to show.</div>` };
+}
+const notFound = () => ({ crumbs:[['Overview','/'],['Not found']], html:'<h1>Not found</h1><a href="#/">Back to overview</a>' });
 
-// ───────────────────────── VARIANT D: Terminal report (no page) ─────────────────────────
-const pad = (s,n) => (String(s)+' '.repeat(n)).slice(0,n), lpad = (s,n) => (' '.repeat(n)+String(s)).slice(-n);
-function asciiBar(r, d, W=48){ if(!d.s||!d.e) return '·'.repeat(W); const a=Math.round((d.s-r.start)/(r.end-r.start)*W), b=Math.max(a+1,Math.round((d.e-r.start)/(r.end-r.start)*W)); return ' '.repeat(a)+(d.sSrc==='exact'?'█':'▓').repeat(b-a)+' '.repeat(Math.max(0,W-b)); }
-const D = { name: 'Terminal report (orchestrate --report)', run(r){
-  const cc = causeCounts(r.touches), nr = nextRun(r);
-  let o = `<span class="d">$ orchestrate --report ${r.id}</span>\n\n<span class="h">Run ${r.id}</span>${r.synthetic?'  <span class="r">[synthetic]</span>':''}\n`;
-  o += `  ${r.kind} #${r.spec} · ${r.authority} · ${r.landing} · ${r.outcome} · ${hrs(r.end-r.start)}${r.startBound?' (start is a bound)':''}\n  ${ymd(r.start)} ${hm(r.start)} → ${ymd(r.end)} ${hm(r.end)} UTC\n\n`;
-  o += `<span class="h">Delegations</span>${' '.repeat(16)}${hm(r.start)}${' '.repeat(38)}${hm(r.end)}\n`;
-  r.dels.forEach(d=>{ o += `  ${pad(d.id,11)} ${pad(d.kind,8)} ${pad(d.route,6)} |<span class="b">${asciiBar(r,d)}</span>| ${lpad(d.s&&d.e?mins(d.e-d.s):'?',5)}  ${d.touches?'<span class="r">'+d.touches+' human</span>':''}\n`; });
-  o += `  <span class="d">█ exact  ▓ start/end from commits  · no times</span>\n\n<span class="h">Human steps: ${r.touches.length}</span> (${r.touches.filter(t=>AVOIDABLE(t.cause)).length} avoidable, ${r.touches.filter(t=>t.w.p==='exact').length} with exact time)\n`;
-  CAUSES.filter(c=>cc[c]).sort((a,b)=>cc[b]-cc[a]).forEach(c=>{ const ks={}; r.touches.filter(t=>t.cause===c).forEach(t=>ks[t.k]=(ks[t.k]||0)+1);
-    o += `  ${AVOIDABLE(c)?'<span class="r">':'<span class="d">'}${pad(c,19)}</span>${lpad(cc[c],3)}  ${'■'.repeat(cc[c])}\n${Object.entries(ks).map(([k,n])=>`  <span class="d">${' '.repeat(22)}${lpad(n,3)} ${k}</span>`).join('\n')}\n`; });
-  o += `\n<span class="h">Next run</span>\n` + nr.map((n,i)=>`  ${i+1}. ${n.what}\n     <span class="g">→ ${n.fix}</span>`).join('\n');
-  o += `\n\n<span class="d">Also: --report --runs · --report --team &lt;spec&gt; · --report --json</span>`;
-  return `<div class="term">${o}</div><div class="note">Delivery proposal: no page at all. The Chief of Staff prints this at close-out and on demand; the same derivation can write a page later.</div>`;
-}, runs(list){
-  let o = `<span class="d">$ orchestrate --report --runs</span>\n\n<span class="h">${pad('run',26)} ${pad('who',13)} ${pad('auth',10)} ${lpad('dur',6)} ${lpad('del',4)} ${lpad('human',6)} ${lpad('avoid',6)}  trend</span>\n`;
-  list.forEach(r=>{ const av=r.touches.filter(t=>AVOIDABLE(t.cause)).length; o += `${pad(r.id,26)} ${pad(r.operator,13)} ${pad(r.authority,10)} ${lpad(hrs(r.end-r.start),6)} ${lpad(r.dels.length,4)} ${lpad(r.touches.length,6)} <span class="r">${lpad(av,6)}</span>  ${'▮'.repeat(Math.ceil(av/2))}${r.synthetic?' <span class="d">synthetic</span>':''}\n`; });
-  const all = causeCounts(list.flatMap(r=>r.touches));
-  o += `\n<span class="h">Top avoidable causes</span>\n` + CAUSES.filter(c=>AVOIDABLE(c)&&all[c]).sort((a,b)=>all[b]-all[a]).map(c=>`  ${pad(c,19)} ${lpad(all[c],3)}`).join('\n');
-  return `<div class="term">${o}</div>`;
-}, team(list){
-  const t0 = Math.min(...list.map(r=>r.start)), t1 = Math.max(...list.map(r=>r.end)), W = 48;
-  let o = `<span class="d">$ orchestrate --report --team ${list[0].team.spec}</span>   <span class="r">[synthetic]</span>\n\n<span class="h">Team Run spec #${list[0].team.spec}</span>   ${hm(t0)} → ${hm(t1)} UTC\n\n`;
-  list.forEach(r=>{ o += `<span class="h">${r.operator}</span>  ${r.dels.length} Delegations · ${r.touches.length} human steps · ${hrs(r.end-r.start)}\n`;
-    r.dels.forEach(d=>{ const a=Math.round((d.s-t0)/(t1-t0)*W), b=Math.max(a+1,Math.round((d.e-t0)/(t1-t0)*W)); o += `  ${pad(d.id,8)} |<span class="b">${' '.repeat(a)+'█'.repeat(b-a)+' '.repeat(Math.max(0,W-b))}</span>| ${d.touches?'<span class="r">'+d.touches+' human</span>':''}\n`; }); o+='\n'; });
-  return `<div class="term">${o}</div>`;
-}};
-
-// ───────────────────────── switcher + views ─────────────────────────
-const VARIANTS = { A, B, C, D }, KEYS = Object.keys(VARIANTS);
-const VIEWS = [['run','This run'],['runs','Across runs'],['team','Team Run']];
-const STATE = new URLSearchParams(location.search);
-const q = () => STATE;
-function set(k, v){ STATE.set(k, v); try { history.replaceState(null, '', '?' + STATE); } catch (e) { /* data:/file preview: keep state in memory */ } render(); }
+// ═══════════════════════ router, side nav ═══════════════════════
+let ROUTE = location.hash.slice(1) || '/';
+function go(path){ ROUTE = path; try { history.pushState(null, '', '#' + path); } catch (e) {} render(); scrollTo(0, 0); }
+addEventListener('popstate', () => { ROUTE = location.hash.slice(1) || '/'; render(); });
+document.addEventListener('click', e => {
+  const a = e.target.closest('a'); const h = a && (a.getAttribute('href') || a.getAttribute('xlink:href'));
+  if (h && h.startsWith('#/')) { e.preventDefault(); go(h.slice(1)); return; }
+  const tr = e.target.closest('[data-go]'); if (tr && !a) go(tr.dataset.go);
+});
+document.addEventListener('change', e => { const f = e.target.dataset.filter; if (!f) return; STEP_FILTER[f] = e.target.value; render(); });
+function side(){
+  const on = p => ROUTE === p || ROUTE.startsWith(p + '/') ? 'on' : '';
+  let s = `<a href="#/" class="${ROUTE==='/'?'on':''}">Overview</a><div class="sec">Repos</div>`;
+  REPO_NAMES.forEach(n => { const p = '/repo/' + encodeURIComponent(n); const cur = ROUTE.startsWith('/run/') && RUN[ROUTE.split('/')[2]]?.repo === n;
+    s += `<a href="#${p}" class="${on(p)||(cur?'on':'')}">${esc(n.split('/')[1])} <span class="muted small">${runsOf(n).length}</span></a>`;
+    if (on(p) || cur) runsOf(n).slice(0, 8).forEach(r => s += `<a class="sub ${ROUTE.startsWith('/run/'+r.id)?'on':''}" href="#/run/${r.id}">${fmtDate(r.start)} · spec ${r.spec}${r.team?' · '+r.operator:''}</a>`); });
+  s += `<div class="sec">Team Runs</div>` + TEAMS.map(t => `<a href="#/team/${t}" class="${on('/team/'+t)}">${esc(t)}</a>`).join('');
+  s += `<div class="sec">Help</div><a href="#/key" class="${on('/key')}">Key: colours &amp; words</a>`;
+  return s;
+}
 function render(){
-  const p = q(), v = KEYS.includes(p.get('variant')) ? p.get('variant') : 'A', view = p.get('view') || 'run';
-  const runId = p.get('run') || RAW[RAW.length-1].run.id, r = RUNS.find(x=>x.id===runId) || RUNS[0];
-  document.getElementById('views').innerHTML = VIEWS.map(([k,l])=>`<button class="${k===view?'on':''}" data-view="${k}">${l}</button>`).join(' ');
-  const sel = document.getElementById('runSel'); sel.style.display = view==='run' ? '' : 'none';
-  sel.innerHTML = RUNS.map(x=>`<option value="${x.id}" ${x.id===r.id?'selected':''}>${x.id}${x.synthetic?' (synthetic)':''}</option>`).join('');
-  document.getElementById('where').textContent = view==='run' ? `${r.tickets.length} tickets · PRs ${r.prs.join(', ')||'—'}` : view==='runs' ? `${SOLO.length} runs (${SOLO.filter(x=>x.synthetic).length} synthetic)` : `${TEAM.length} teammates`;
-  const V = VARIANTS[v];
-  document.getElementById('app').innerHTML = view==='runs' ? V.runs(SOLO) : view==='team' ? V.team(TEAM) : V.run(r);
-  document.getElementById('vlabel').textContent = `${v} (${V.name})`;
-  document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>set('view',b.dataset.view));
+  const p = ROUTE.split('/').filter(Boolean).map(decodeURIComponent);
+  const page = !p.length ? pageOverview() : p[0]==='repo' ? pageRepo(p[1]) : p[0]==='team' ? pageTeam(p[1]) : p[0]==='key' ? pageKey()
+    : p[0]==='run' ? (p[2]==='step' ? pageStep(p[1], p[3]) : p[2]==='delegation' ? pageDelegation(p[1], p[3]) : pageRun(p[1], p[2])) : notFound();
+  document.getElementById('app').innerHTML = page.html;
+  document.getElementById('crumbs').innerHTML = page.crumbs.map(([l,h],i)=> h && i < page.crumbs.length-1 ? `<a href="#${h}">${esc(l)}</a>` : `<b>${esc(l)}</b>`).join(' › ');
+  document.getElementById('side').innerHTML = side();
 }
-const cycle = d => { const v = q().get('variant') || 'A'; set('variant', KEYS[(KEYS.indexOf(v)+d+KEYS.length)%KEYS.length]); };
-document.getElementById('prev').onclick = () => cycle(-1);
-document.getElementById('next').onclick = () => cycle(1);
-document.getElementById('runSel').onchange = e => set('run', e.target.value);
-addEventListener('keydown', e => { if (e.target.closest('input,textarea,select,[contenteditable]')) return; if (e.key==='ArrowLeft') cycle(-1); if (e.key==='ArrowRight') cycle(1); });
+document.getElementById('theme').onclick = () => { const d = document.documentElement, dark = d.dataset.theme ? d.dataset.theme==='dark' : matchMedia('(prefers-color-scheme: dark)').matches; d.dataset.theme = dark ? 'light' : 'dark'; };
 render();
 </script>
 </body>
