@@ -6,6 +6,8 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
+## [1.0.0-beta.10] - 2026-11-21
+
 ### Added
 
 - `security-response` keeps a **Security Response Run** ([#348](https://github.com/mnaimfaizy/agent-kit/issues/348), part of [#344](https://github.com/mnaimfaizy/agent-kit/issues/344)): a private local board that tracks a maintainer's response to every open draft advisory and is resumed by a later session. Every mode now opens the run when draft advisories exist and none is open, resumes the open run otherwise (at most one is open), and with no drafts and no open run reports "nothing to respond to" and writes nothing. The run lives in `tmp/security-response/<date>/` (`.2`, `.3` when taken), with no config key; before the first write the skill checks the path with `git check-ignore`, offers the `.gitignore` line when it is not ignored, and writes nothing without a yes. It holds `board.md`, an append-only `activity.md`, `triage/<concept-id>.md` and `originals/<GHSA-id>.json`, each advisory saved there before any PATCH that rewrites it publicly. Each `GHSA:F<n>` gets a provisional concept id from its title, and findings with the same id fold into one row. `status` prints the board: Waiting on you, Next (agent), a findings table and an advisories table. The new run doc `RUN.md` defines the board and the Evidence (`untriaged`, `confirmed`, `rejected`, `duplicate`, `below-floor`), Delivery (`open`, `fix PR open`, `merged`, `released`, `fixed`, `accepted-risk`) and advisory states, and what is final. The `argument-hint` gains `record <what>` and `close`, not available yet. **Consumer action:** add `tmp/security-response/` to your `.gitignore`, or say yes when the skill offers it.
