@@ -15,14 +15,22 @@ Round 1 (commit 677d6d2) had four single-page variants. The maintainer found the
 
 | Page | Route | Shows |
 | --- | --- | --- |
-| Overview | `#/` | Every Consumer repo: runs, merge rate, human steps per run, a sparkline of avoidable steps, top cause, recent runs |
-| Repo | `#/repo/<owner/name>` | Human steps per run stacked by cause (oldest → newest), all causes, people, runs table, link to any Team Run |
-| Run | `#/run/<id>/<tab>` | Tabs: **Summary** (KPIs, next run, why you were needed, plan, outcome), **Timeline** (Gantt on one clock), **Delegations**, **Human steps** (filterable), **Reviews & CI**, **Log**, **Record (JSON)** |
-| Log tab | `#/run/<id>/log` | *Run Events as text* (derived from the record, copy or download), *Report* (`orchestrate --report` text), *Activity Log* (the local prose, only in a `--local-logs` build) |
-| Delegation | `#/run/<id>/delegation/<d>` | Its facts, why it needed you, its own timeline, its steps, its log |
-| Step | `#/run/<id>/step/<n>` | One human step in a sentence, its fields, the cause explained with its fix, the log around it, the raw entry |
-| Team Run | `#/team/<id>` | Every teammate's record merged on one clock, plus a teammates table |
+| All repositories | `#/` | Every repository in the sink: runs, merge rate, human steps per run, avoidable trend, top cause, a chart comparing repositories over time, recent runs, and the sink's namespace tree |
+| Repository | `#/repo/<owner%2Fname>` | One repository's namespace: human steps per run stacked by cause, all causes, people, runs, Team Runs |
+| Run | `#/repo/<owner%2Fname>/run/<id>/<tab>` | Tabs: **Summary** (KPIs, next run, why you were needed, plan, outcome), **Timeline** (Gantt on one clock), **Delegations**, **Human steps** (filterable), **Reviews & CI**, **Log**, **Record (JSON)** |
+| Log tab | `…/run/<id>/log` | *Run Events as text* (derived from the record, copy or download), *Report* (`orchestrate --report` text), *Activity Log* (the local prose, only in a `--local-logs` build) |
+| Delegation | `…/run/<id>/delegation/<d>` | Its facts, why it needed you, its own timeline, its steps, its log |
+| Step | `…/run/<id>/step/<n>` | One human step in a sentence, its fields, the cause explained with its fix, the log around it, the raw entry |
+| Team Run | `#/repo/<owner%2Fname>/team/<id>` | Every teammate's record merged on one clock, plus a teammates table |
 | Key | `#/key` | What every colour, cause, kind and timeline mark means |
+
+## Several repositories in one sink
+
+A requirement added during round 2 (on #394): one shared sink can hold Run Records from several repositories, each in its own namespace (`run-records/<owner>/<name>/<run-id>.json`).
+
+- The **Repository** switcher in the header sets the scope: *All repositories*, or one repository. The sidebar, breadcrumbs and pages follow the scope.
+- **Every run, Delegation, step and Team Run route includes the repository.** Run ids are only unique inside one repository: the sample data has `2026-11-19-spec-344` in both `mnaimfaizy/agent-kit` (real) and `example-org/docs-site` (synthetic), and each opens its own run.
+- *All repositories* compares the repositories (table, chart over time, avoidable causes by repository). A repository's page is that repository's own overview.
 
 ## Data
 

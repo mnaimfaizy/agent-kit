@@ -120,7 +120,12 @@ function buildEvents(r, run){
 const REAL = JSON.parse(document.getElementById('records').textContent);
 const LOGS = JSON.parse(document.getElementById('logs').textContent);
 const RUNS = REAL.concat(SYNTH_RECORDS).map(normalize).sort((a,b)=>b.start-a.start);
-const RUN = Object.fromEntries(RUNS.map(r=>[r.id,r]));
+const RUN = Object.fromEntries(RUNS.map(r=>[r.repo+'::'+r.id,r]));   // run ids repeat across repositories: the key is the namespace
+const enc = encodeURIComponent;
+const rp = r => `/repo/${enc(r.repo)}/run/${r.id}`;
+const TEAM_REPO = Object.fromEntries(RUNS.filter(r=>r.team).map(r=>[r.team,r.repo]));
+const tp = t => `/repo/${enc(TEAM_REPO[t])}/team/${t}`;
+const sinkPath = r => `run-records/${r.repo}/${r.id}.json`;
 const REPO_NAMES = [...new Set(SYNTH_REPOS.map(r=>r.repo).concat(RUNS.map(r=>r.repo)))];
 const REPO_NOTE = Object.fromEntries(SYNTH_REPOS.map(r=>[r.repo,r.note]));
 const runsOf = repo => RUNS.filter(r=>r.repo===repo);
@@ -143,7 +148,7 @@ const outTag = o => `<span class="tag ${o==='merged'||o==='landed'||o==='qa-pass
 const whenTxt = w => w.p==='exact' ? `${ymd(w.t)} ${hm(w.t)}` : w.p==='bounds' ? `~${hm(w.t)} <span class="muted small">(${w.lo?hm(w.lo):'?'}–${w.hi?hm(w.hi):'?'})</span>` : w.p==='date' ? `${w.day} <span class="muted small">(date only)</span>` : '<span class="muted">unknown</span>';
 const waitTxt = t => t.wait!=null ? `${t.wait}m` : t.waitMax!=null ? `≤${t.waitMax}m` : '<span class="muted">?</span>';
 const link = (href, txt) => `<a href="#${href}">${txt}</a>`;
-const runLink = r => link(`/run/${r.id}`, esc(r.id));
+const runLink = r => link(`${rp(r)}`, esc(r.id));
 const causeCounts = ts => { const c = Object.fromEntries(CAUSES.map(k=>[k,0])); ts.forEach(t=>c[t.cause]++); return c; };
 function legend(counts){ return `<div class="legend">${CAUSES.filter(c=>!counts||counts[c]).map(c=>chip(c)+(counts?`<span class="small mono" style="margin:0 8px 0 -2px">${counts[c]}</span>`:'')).join('')}<a class="small" href="#/key" style="margin-left:6px">What do the colours mean?</a></div>`; }
 function causeBars(touches, total){
@@ -212,12 +217,12 @@ function gantt(rows, t0, t1, opts={}){
 const DEL_FILL = { building:'#3b5bdb', fix:'#ae3ec9', qa:'#0ca678', analysis:'#868e96' };
 function ganttRows(r, prefix=''){
   const rows = [];
-  rows.push({ label: prefix+'You (human steps)', bold:true, marks: r.touches.map(t=>({ w:t.w, color:ci(t.cause).color, href:`/run/${r.id}/step/${t.n}`, title:`Step ${t.n}: ${t.k} · ${ci(t.cause).label} · waited ${t.wait ?? (t.waitMax!=null?'≤'+t.waitMax:'?')}m${t.del?' · '+t.del:''}` })) });
+  rows.push({ label: prefix+'You (human steps)', bold:true, marks: r.touches.map(t=>({ w:t.w, color:ci(t.cause).color, href:`${rp(r)}/step/${t.n}`, title:`Step ${t.n}: ${t.k} · ${ci(t.cause).label} · waited ${t.wait ?? (t.waitMax!=null?'≤'+t.waitMax:'?')}m${t.del?' · '+t.del:''}` })) });
   rows.push({ label: prefix+'Chief of Staff', dim:true,
-    marks: r.steps.filter(s=>s.actor!=='human').map(w=>({ w:w.w, color:'#868e96', href:`/run/${r.id}/step/${w.n}`, title:`Step ${w.n}: ${w.k} (actor: ${w.actor})` })),
+    marks: r.steps.filter(s=>s.actor!=='human').map(w=>({ w:w.w, color:'#868e96', href:`${rp(r)}/step/${w.n}`, title:`Step ${w.n}: ${w.k} (actor: ${w.actor})` })),
     ticks: r.reviews.map(v=>({t:v.t,color:'#7048e8',title:`Review round ${v.round} on PR ${v.pr}: ${v.findings} findings`})).concat(r.ci.map(c=>({t:c.t,color:c.result==='pass'?'#2b8a3e':'#c92a2a',title:`CI ${c.result} on PR ${c.pr}`}))) });
-  r.dels.forEach(d => rows.push({ label:`${prefix}${d.id}${d.route==='card'?'  ▣ card':''}`, indent:true, href:`/run/${r.id}/delegation/${d.id}`,
-    bars:[{ s:d.s, e:d.e, proxy: d.sSrc!=='started', fill: DEL_FILL[d.kind]||'#3b5bdb', href:`/run/${r.id}/delegation/${d.id}`,
+  r.dels.forEach(d => rows.push({ label:`${prefix}${d.id}${d.route==='card'?'  ▣ card':''}`, indent:true, href:`${rp(r)}/delegation/${d.id}`,
+    bars:[{ s:d.s, e:d.e, proxy: d.sSrc!=='started', fill: DEL_FILL[d.kind]||'#3b5bdb', href:`${rp(r)}/delegation/${d.id}`,
       title:`${d.id} (${d.kind}, #${d.issue}) ${hm(d.s)}–${hm(d.e)} = ${mins(d.e-d.s)}. Start from ${d.sSrc}, end from ${d.eSrc}.` }],
     marks: (!d.s && d.day) ? [{ w:{p:'date',day:d.day}, color:DEL_FILL[d.kind], title:`${d.id} ran on ${d.day}, no times` }] : [] }));
   return rows;
@@ -265,18 +270,44 @@ function pageOverview(){
   const all = RUNS, touches = all.flatMap(r=>r.touches), av = all.flatMap(r=>r.avoidable);
   const recent = all.slice(0, 12);
   const byRepo = REPO_NAMES.map(n=>({ n, runs: runsOf(n) }));
-  return { crumbs: [['Overview']], html: `<h1>All repos</h1><div class="muted" style="margin-bottom:12px">${REPO_NAMES.length} Consumers · ${all.length} runs since ${fmtDate(Math.min(...all.map(r=>r.start)))} · <span class="syn">synthetic</span> data mixed with 2 real Run Records</div>
+  return { crumbs: [['All repositories']], html: `<h1>All repositories</h1><div class="muted" style="margin-bottom:12px">${REPO_NAMES.length} Consumers · ${all.length} runs since ${fmtDate(Math.min(...all.map(r=>r.start)))} · <span class="syn">synthetic</span> data mixed with 2 real Run Records</div>
   <div class="kpis" style="margin-bottom:14px">${kpi(all.length,'runs', `${all.filter(r=>r.outcome==='merged').length} merged`)}${kpi(all.reduce((a,r)=>a+r.dels.length,0),'Delegations')}${kpi(touches.length,'human steps',`${(touches.length/all.length).toFixed(1)} per run`)}${kpi(pct(av.length,touches.length),'avoidable',`${av.length} steps`)}${kpi(hrs(median(all.map(r=>r.end-r.start))),'median run time')}${kpi(hrs(all.reduce((a,r)=>a+r.knownWait,0)*60000),'known waiting on you')}${kpi(TEAMS.length,'Team Runs')}</div>
   <div class="panel"><h2>Repos</h2><div class="scroll"><table><tr><th>Repo</th><th class="num">Runs</th><th>Last run</th><th class="num">Merged</th><th class="num">Human steps / run</th><th>Avoidable steps per run, oldest → newest</th><th>Top avoidable cause</th><th>Mix of causes</th></tr>
   ${byRepo.map(({n,runs})=>{ const chron=[...runs].reverse(), ts=runs.flatMap(r=>r.avoidable), cc=causeCounts(ts), top=CAUSES.filter(c=>cc[c]).sort((a,b)=>cc[b]-cc[a])[0];
     return `<tr class="click" data-go="/repo/${encodeURIComponent(n)}"><td>${link('/repo/'+encodeURIComponent(n), `<b>${esc(n)}</b>`)}<div class="small muted">${esc(REPO_NOTE[n]||'')}</div></td><td class="num">${runs.length}</td><td class="nowrap">${fmtDate(runs[0]?.start)}</td><td class="num">${pct(runs.filter(r=>r.outcome==='merged').length,runs.length)}</td><td class="num">${(runs.reduce((a,r)=>a+r.touches.length,0)/runs.length).toFixed(1)}</td><td>${spark(chron.map(r=>r.avoidable.length))}</td><td>${top?chip(top):'—'}</td><td style="min-width:140px">${stackTrack(runs.flatMap(r=>r.touches))}</td></tr>`}).join('')}</table></div>${legend()}</div>
   <div class="grid2"><div class="panel"><h2>Avoidable human steps, by repo</h2>${byRepo.map(({n,runs})=>{const a=runs.flatMap(r=>r.avoidable);return `<div class="bar"><span class="lbl small">${esc(n.split('/')[1])}</span>${stackTrack(a, Math.max(4,a.length*5))}<span class="val">${a.length}</span></div>`}).join('')}<div class="small muted">Bar length = number of avoidable steps; segments = causes.</div></div>
   <div class="panel"><h2>Most common avoidable causes</h2>${causeBars(av)}</div></div>
-  <div class="panel"><h2>Recent runs</h2>${runsTable(recent, true)}</div>` };
+  <div class="panel"><h2>Compare repositories over time</h2><div class="small muted">Avoidable human steps per Delegation, one line per repository, one point per run. Lines are told apart by dash pattern and end label, not colour (colour means cause elsewhere).</div><div class="scroll">${compareChart()}</div></div>
+  <div class="panel"><h2>Recent runs, every repository</h2>${runsTable(recent, true)}</div>
+  <div class="panel"><h2>The shared sink</h2><div class="small muted" style="margin-bottom:8px">One sink holds every repository's Run Records, each in its own namespace. Run ids are only unique inside a namespace: <code>2026-11-19-spec-344</code> exists in two repositories here.</div>
+  <pre class="log">${esc(sinkTree())}</pre></div>` };
+}
+function sinkTree(){
+  let o = 'run-records/\n';
+  REPO_NAMES.forEach((n,i) => { const last = i===REPO_NAMES.length-1, [own, name] = n.split('/'), runs = runsOf(n);
+    o += `${last?'└──':'├──'} ${own}/${name}/   (${runs.length} records${runs.some(r=>!r.synthetic)?'':', synthetic'})\n`;
+    runs.slice(0,3).forEach((r,j) => o += `${last?'    ':'│   '}${j===Math.min(2,runs.length-1)&&runs.length<=3?'└──':'├──'} ${r.id}.json\n`);
+    if (runs.length > 3) o += `${last?'    ':'│   '}└── … ${runs.length-3} more\n`; });
+  return o;
+}
+function compareChart(){
+  const W = 1100, H = 240, L = 40, R = 190, all = RUNS, t0 = Math.min(...all.map(r=>r.start)), t1 = Math.max(...all.map(r=>r.start));
+  const val = r => r.avoidable.length / Math.max(1, r.dels.length), max = Math.max(...all.map(val));
+  const x = t => L + (t-t0)/(t1-t0)*(W-L-R), y = v => H - 10 - v/max*(H-30);
+  const dashes = ['', '6 4', '2 3', '10 3 2 3'];
+  let s = `<svg viewBox="0 0 ${W} ${H+20}" width="100%" style="min-width:640px">`;
+  for (let v = 0; v <= max; v += .5) s += `<line x1="${L}" x2="${W-R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)"/><text x="${L-6}" y="${y(v)+4}" text-anchor="end" class="mt">${v}</text>`;
+  for (let t = Date.UTC(2026,9,1); t <= t1; t += 7*864e5) s += `<text x="${x(t)}" y="${H+12}" text-anchor="middle" class="mt">${fmtDate(t)}</text>`;
+  REPO_NAMES.forEach((n,i) => { const runs = [...runsOf(n)].reverse().filter((r,j,a)=>!r.team || a.findIndex(q=>q.team===r.team)===j);
+    const pts = runs.map(r=>[x(r.start), y(val(r)), r]);
+    s += `<polyline points="${pts.map(p=>p[0]+','+p[1]).join(' ')}" fill="none" stroke="var(--ink)" stroke-width="2" stroke-dasharray="${dashes[i%4]}"/>`;
+    pts.forEach(([px,py,r]) => s += `<a href="#${rp(r)}"><circle cx="${px}" cy="${py}" r="4" fill="var(--panel)" stroke="var(--ink)" stroke-width="2"><title>${n} · ${r.id}: ${r.avoidable.length} avoidable / ${r.dels.length} Delegations</title></circle></a>`);
+    const lp = pts[pts.length-1]; s += `<line x1="${W-R+10}" x2="${W-R+40}" y1="${20+i*22}" y2="${20+i*22}" stroke="var(--ink)" stroke-width="2" stroke-dasharray="${dashes[i%4]}"/><a href="#/repo/${enc(n)}"><text x="${W-R+46}" y="${24+i*22}">${esc(n)}</text></a>`; });
+  return s + '</svg>';
 }
 function runsTable(list, showRepo){
   return `<div class="scroll"><table><tr><th>Started</th>${showRepo?'<th>Repo</th>':''}<th>Run</th><th>Who</th><th>Decisions</th><th class="num">Deleg.</th><th class="num">Time</th><th class="num">Human steps</th><th class="num">Avoidable</th><th style="min-width:120px">Causes</th><th>Outcome</th></tr>
-  ${list.map(r=>`<tr class="click" data-go="/run/${r.id}"><td class="nowrap">${fmtDate(r.start)}</td>${showRepo?`<td class="small">${esc(r.repo)}</td>`:''}<td>${runLink(r)}${syn(r)}${r.team?' <span class="tag">team</span>':''}</td><td>${esc(r.operator)}</td><td>${r.authority}</td><td class="num">${r.dels.length}</td><td class="num">${hrs(r.end-r.start)}</td><td class="num">${r.touches.length}</td><td class="num">${r.avoidable.length}</td><td>${stackTrack(r.touches)}</td><td>${outTag(r.outcome)}</td></tr>`).join('')}</table></div>`;
+  ${list.map(r=>`<tr class="click" data-go="${rp(r)}"><td class="nowrap">${fmtDate(r.start)}</td>${showRepo?`<td class="small">${esc(r.repo)}</td>`:''}<td>${runLink(r)}${syn(r)}${r.team?' <span class="tag">team</span>':''}</td><td>${esc(r.operator)}</td><td>${r.authority}</td><td class="num">${r.dels.length}</td><td class="num">${hrs(r.end-r.start)}</td><td class="num">${r.touches.length}</td><td class="num">${r.avoidable.length}</td><td>${stackTrack(r.touches)}</td><td>${outTag(r.outcome)}</td></tr>`).join('')}</table></div>`;
 }
 function pageRepo(name){
   const runs = runsOf(name); if (!runs.length) return notFound();
@@ -286,15 +317,15 @@ function pageRepo(name){
   for (let v=0; v<=max; v+=Math.max(5,Math.ceil(max/5/5)*5)) { const y = H - v/max*(H-20); svg += `<line x1="${L}" x2="${W}" y1="${y}" y2="${y}" stroke="var(--line)"/><text x="${L-6}" y="${y+4}" text-anchor="end" class="mt">${v}</text>`; }
   chron.forEach((r,i) => { const x = L + 10 + i*((W-L-20)/chron.length); let y = H; const cc = causeCounts(r.touches);
     let g = ''; CAUSES.forEach(c => { if (!cc[c]) return; const h = cc[c]/max*(H-20); y -= h; g += `<rect x="${x}" y="${y}" width="${bw}" height="${h}" fill="${ci(c).color}"><title>${r.id}: ${ci(c).label} ${cc[c]}</title></rect>`; });
-    svg += `<a href="#/run/${r.id}">${g}<text x="${x+bw/2}" y="${y-4}" text-anchor="middle" style="font-weight:600">${r.touches.length}</text><text x="${x+bw/2}" y="${H+14}" text-anchor="middle" class="mt">${fmtDate(r.start)}</text><text x="${x+bw/2}" y="${H+28}" text-anchor="middle" class="mt">${r.synthetic?'synthetic':'real'}${r.team?' · team':''}</text></a>`; });
+    svg += `<a href="#${rp(r)}">${g}<text x="${x+bw/2}" y="${y-4}" text-anchor="middle" style="font-weight:600">${r.touches.length}</text><text x="${x+bw/2}" y="${H+14}" text-anchor="middle" class="mt">${fmtDate(r.start)}</text><text x="${x+bw/2}" y="${H+28}" text-anchor="middle" class="mt">${r.synthetic?'synthetic':'real'}${r.team?' · team':''}</text></a>`; });
   svg += '</svg>';
   const ops = [...new Set(runs.map(r=>r.operator))];
-  return { crumbs: [['Overview','/'],[name]], html: `<h1>${esc(name)}</h1><div class="muted" style="margin-bottom:12px">${esc(REPO_NOTE[name]||'')}</div>
+  return { crumbs: [['All repositories','/'],[name]], html: `<h1>${esc(name)}</h1><div class="muted" style="margin-bottom:12px">${esc(REPO_NOTE[name]||'')} · Showing only this repository's namespace (<code>run-records/${esc(name)}/</code>). ${link('/','See all repositories')}</div>
   <div class="kpis" style="margin-bottom:14px">${kpi(runs.length,'runs')}${kpi(pct(runs.filter(r=>r.outcome==='merged').length,runs.length),'merged')}${kpi(runs.reduce((a,r)=>a+r.dels.length,0),'Delegations')}${kpi(ts.length,'human steps')}${kpi(pct(runs.flatMap(r=>r.avoidable).length,ts.length),'avoidable')}${kpi(hrs(median(runs.map(r=>r.end-r.start))),'median run time')}${kpi(ops.length,'people running it')}</div>
   <div class="panel"><h2>Human steps per run, by cause</h2><div class="small muted">Oldest on the left. Click a bar to open the run.</div><div class="scroll">${svg}</div>${legend(causeCounts(ts))}</div>
   <div class="grid2"><div class="panel"><h2>All human steps in this repo</h2>${causeBars(ts)}</div>
   <div class="panel"><h2>People</h2><table><tr><th>Who</th><th class="num">Runs</th><th class="num">Delegations</th><th class="num">Human steps / Delegation</th><th class="num">Median run time</th></tr>${ops.map(o=>{const rs=runs.filter(r=>r.operator===o);const d=rs.reduce((a,r)=>a+r.dels.length,0);return `<tr><td>${esc(o)}</td><td class="num">${rs.length}</td><td class="num">${d}</td><td class="num">${(rs.reduce((a,r)=>a+r.touches.length,0)/d).toFixed(1)}</td><td class="num">${hrs(median(rs.map(r=>r.end-r.start)))}</td></tr>`}).join('')}</table>
-  ${[...new Set(runs.filter(r=>r.team).map(r=>r.team))].map(t=>`<div class="callout">Team Run: ${link('/team/'+t, esc(t))}</div>`).join('')}</div></div>
+  ${[...new Set(runs.filter(r=>r.team).map(r=>r.team))].map(t=>`<div class="callout">Team Run: ${link(tp(t), esc(t))}</div>`).join('')}</div></div>
   <div class="panel"><h2>Runs</h2>${runsTable(runs)}</div>` };
 }
 const RUN_TABS = [['summary','Summary'],['timeline','Timeline'],['delegations','Delegations'],['steps','Human steps'],['reviews','Reviews & CI'],['log','Log'],['record','Record (JSON)']];
@@ -304,10 +335,10 @@ function pageRun(id, tab='summary'){
   const r = RUN[id]; if (!r) return notFound();
   const counts = { delegations:r.dels.length, steps:r.touches.length, reviews:r.reviews.length+r.ci.length, log:r.events.length };
   const head = `<h1>${esc(r.id)}${syn(r)} ${outTag(r.outcome)}</h1>
-  <div class="sentence">Spec #${r.spec} in <b>${esc(r.repo)}</b>, run by ${esc(r.operator)}: ${r.tickets.length} tickets, ${r.dels.length} Delegations, ${r.authority} decisions, landing ${r.landing}. ${hrs(r.end-r.start)}${r.startBound?' at most':''} from start to close. You were needed <b>${r.touches.length}</b> times; <b style="color:#d9480f">${r.avoidable.length}</b> of them could go next run.${r.team?` Part of Team Run ${link('/team/'+r.team, esc(r.team))}.`:''}</div>
-  <nav class="tabs">${RUN_TABS.map(([k,l])=>`<a href="#/run/${r.id}/${k}" class="${k===tab?'on':''}">${l}${counts[k]!=null?`<span class="n">${counts[k]}</span>`:''}</a>`).join('')}</nav>`;
+  <div class="sentence">Spec #${r.spec} in <b>${esc(r.repo)}</b>, run by ${esc(r.operator)}: ${r.tickets.length} tickets, ${r.dels.length} Delegations, ${r.authority} decisions, landing ${r.landing}. ${hrs(r.end-r.start)}${r.startBound?' at most':''} from start to close. You were needed <b>${r.touches.length}</b> times; <b style="color:#d9480f">${r.avoidable.length}</b> of them could go next run.${r.team?` Part of Team Run ${link(tp(r.team), esc(r.team))}.`:''}</div>
+  <nav class="tabs">${RUN_TABS.map(([k,l])=>`<a href="#${rp(r)}/${k}" class="${k===tab?'on':''}">${l}${counts[k]!=null?`<span class="n">${counts[k]}</span>`:''}</a>`).join('')}</nav>`;
   const body = ({ summary: runSummary, timeline: runTimeline, delegations: runDelegations, steps: runSteps, reviews: runReviews, log: runLog, record: runRecord }[tab] || runSummary)(r);
-  return { crumbs: [['Overview','/'],[r.repo,'/repo/'+encodeURIComponent(r.repo)],[r.id]], html: head + body };
+  return { crumbs: [['All repositories','/'],[r.repo,'/repo/'+enc(r.repo)],[r.id]], html: head + body };
 }
 function runSummary(r){
   const fails = r.ci.filter(c=>c.result==='fail').length;
@@ -317,7 +348,7 @@ function runSummary(r){
   <div class="panel"><h2>Why you were needed</h2>${causeBars(r.touches)}<h3 style="margin-top:14px">By kind</h3>${Object.entries(kinds).sort((a,b)=>b[1]-a[1]).map(([k,n])=>`<div class="bar"><span class="lbl mono small" title="${esc(KIND_INFO[k]||'')}">${esc(k)}</span><div class="track"><span style="width:${n/Math.max(...Object.values(kinds))*100}%;background:var(--muted)"></span></div><span class="val">${n}</span></div>`).join('')}
   ${r.touches.some(t=>t.assumed)?'<div class="small muted" style="margin-top:8px">Causes on this real record were assigned by the prototype: the hand-derived records predate the <code>cause</code> field.</div>':''}</div></div>
   <div class="grid2"><div class="panel"><h2>Plan</h2><dl class="dl"><dt>Decision authority</dt><dd>${r.authority}</dd><dt>Landing</dt><dd>${r.landing}</dd><dt>QA required</dt><dd>${r.plan.qa_required||'—'}</dd><dt>Waves</dt><dd>${r.plan.waves ?? '—'}${r.plan.wave_shape?` (${r.plan.wave_shape}${r.plan.serial_reason?', '+r.plan.serial_reason:''})`:''}</dd><dt>Routine writes approved</dt><dd>${(r.plan.routine_writes_approved||[]).map(w=>`<span class="tag">${w}</span>`).join(' ')||'—'}</dd><dt>Routine writes declined</dt><dd>${(r.plan.routine_writes_declined||[]).map(w=>`<span class="tag avoid">${w}</span>`).join(' ')||'—'}</dd><dt>Harness</dt><dd>${r.harness||'—'}</dd></dl></div>
-  <div class="panel"><h2>Outcome</h2><dl class="dl"><dt>Outcome</dt><dd>${outTag(r.outcome)}</dd><dt>Pull requests</dt><dd>${r.prs.map(p=>`#${p}`).join(', ')||'—'}</dd><dt>Tickets</dt><dd>${r.tickets.map(t=>`#${t}`).join(', ')}</dd><dt>Rulings</dt><dd>${r.rulings.made ?? 0} made, ${r.rulings.overturned ?? 0} overturned</dd><dt>Closed</dt><dd>${r.end?new Date(r.end).toISOString().replace('T',' ').slice(0,16)+' UTC':'—'}</dd></dl></div></div>
+  <div class="panel"><h2>Outcome</h2><dl class="dl"><dt>Outcome</dt><dd>${outTag(r.outcome)}</dd><dt>Pull requests</dt><dd>${r.prs.map(p=>`#${p}`).join(', ')||'—'}</dd><dt>Tickets</dt><dd>${r.tickets.map(t=>`#${t}`).join(', ')}</dd><dt>Rulings</dt><dd>${r.rulings.made ?? 0} made, ${r.rulings.overturned ?? 0} overturned</dd><dt>Sink namespace</dt><dd class="mono small">${esc(sinkPath(r))}</dd><dt>Closed</dt><dd>${r.end?new Date(r.end).toISOString().replace('T',' ').slice(0,16)+' UTC':'—'}</dd></dl></div></div>
   <div class="panel"><h2>Delegations</h2>${delTable(r)}</div>`;
 }
 function runTimeline(r){
@@ -326,12 +357,12 @@ function runTimeline(r){
 }
 function delTable(r){
   return `<div class="scroll"><table><tr><th>Delegation</th><th>Kind</th><th class="num">Ticket</th><th>Started</th><th>Start</th><th class="num">Time</th><th>Timing from</th><th class="num">Human steps</th><th class="num">Send-backs</th><th class="num">Decision Requests</th><th>Outcome</th></tr>
-  ${r.dels.map(d=>`<tr class="click" data-go="/run/${r.id}/delegation/${d.id}"><td>${link(`/run/${r.id}/delegation/${d.id}`, `<b class="mono">${d.id}</b>`)}</td><td><span class="sw" style="background:${DEL_FILL[d.kind]}"></span> ${d.kind}</td><td class="num">#${d.issue}</td><td class="nowrap">${d.s?hm(d.s):d.day||'?'}</td><td>${d.route==='card'?'<span class="tag avoid">card</span>':'direct'}</td><td class="num">${d.s&&d.e?mins(d.e-d.s):'?'}</td><td class="small muted">${d.sSrc?`${d.sSrc} → ${d.eSrc}`:'no times'}</td><td class="num"><b>${d.touches.length||''}</b></td><td class="num">${d.sendBacks||''}</td><td class="num">${d.drs||''}</td><td>${outTag(d.outcome)}</td></tr>`).join('')}</table></div>`;
+  ${r.dels.map(d=>`<tr class="click" data-go="${rp(r)}/delegation/${d.id}"><td>${link(`${rp(r)}/delegation/${d.id}`, `<b class="mono">${d.id}</b>`)}</td><td><span class="sw" style="background:${DEL_FILL[d.kind]}"></span> ${d.kind}</td><td class="num">#${d.issue}</td><td class="nowrap">${d.s?hm(d.s):d.day||'?'}</td><td>${d.route==='card'?'<span class="tag avoid">card</span>':'direct'}</td><td class="num">${d.s&&d.e?mins(d.e-d.s):'?'}</td><td class="small muted">${d.sSrc?`${d.sSrc} → ${d.eSrc}`:'no times'}</td><td class="num"><b>${d.touches.length||''}</b></td><td class="num">${d.sendBacks||''}</td><td class="num">${d.drs||''}</td><td>${outTag(d.outcome)}</td></tr>`).join('')}</table></div>`;
 }
 const runDelegations = r => `<div class="panel"><h2>Delegations</h2><div class="small muted" style="margin-bottom:8px">Click a row for the Delegation's own page: its timing, its human steps and its log.</div>${delTable(r)}</div>`;
 function stepsTable(r, list){
   return `<div class="scroll"><table><tr><th class="num">#</th><th>When</th><th>Who</th><th>Kind</th><th>Cause</th><th></th><th>Delegation</th><th>About</th><th class="num">Waited</th></tr>
-  ${list.map(t=>`<tr class="click" data-go="/run/${r.id}/step/${t.n}"><td class="num">${link(`/run/${r.id}/step/${t.n}`, t.n)}</td><td class="nowrap">${whenTxt(t.w)}</td><td>${t.actor==='human'?'you':`<span class="muted">${t.actor}</span>`}</td><td class="mono small" title="${esc(KIND_INFO[t.k]||'')}">${esc(t.k)}</td><td>${t.cause?chip(t.cause):''}</td><td>${avoidTag(t.cause)}</td><td class="mono small">${t.del||'—'}</td><td class="small">${esc(t.topic||'')}</td><td class="num">${t.actor==='human'?waitTxt(t):''}</td></tr>`).join('')}</table></div>`;
+  ${list.map(t=>`<tr class="click" data-go="${rp(r)}/step/${t.n}"><td class="num">${link(`${rp(r)}/step/${t.n}`, t.n)}</td><td class="nowrap">${whenTxt(t.w)}</td><td>${t.actor==='human'?'you':`<span class="muted">${t.actor}</span>`}</td><td class="mono small" title="${esc(KIND_INFO[t.k]||'')}">${esc(t.k)}</td><td>${t.cause?chip(t.cause):''}</td><td>${avoidTag(t.cause)}</td><td class="mono small">${t.del||'—'}</td><td class="small">${esc(t.topic||'')}</td><td class="num">${t.actor==='human'?waitTxt(t):''}</td></tr>`).join('')}</table></div>`;
 }
 function runSteps(r){
   const f = STEP_FILTER;
@@ -357,16 +388,16 @@ function runLog(r){
   else body = textBox('logtxt', textLog(r), `${r.id}-events.txt`);
   return `<div class="panel"><div class="filters">${modes.map(([k,l])=>`<button class="btn" style="${k===LOG_MODE?'background:var(--ink);color:var(--panel)':''}" onclick="LOG_MODE='${k}';render()">${l}</button>`).join('')}</div>${body}</div>`;
 }
-const runRecord = r => `<div class="panel"><div class="small muted" style="margin-bottom:6px">The Run Record exactly as stored${r.synthetic?' (synthetic)':''}. Safe to publish: ids, times, counts, enums.</div>${textBox('rectxt', JSON.stringify(r.raw, null, 2), `${r.id}.json`)}</div>`;
+const runRecord = r => `<div class="panel"><div class="small muted" style="margin-bottom:6px">The Run Record exactly as stored${r.synthetic?' (synthetic)':''}, at <code>${esc(sinkPath(r))}</code> in the shared sink. Safe to publish: ids, times, counts, enums.</div>${textBox('rectxt', JSON.stringify(r.raw, null, 2), `${r.id}.json`)}</div>`;
 
 function pageDelegation(id, did){
   const r = RUN[id], d = r && r.dels.find(x=>x.id===did); if (!d) return notFound();
   const evs = r.events.filter(e=>e.del===did);
   const rv = r.reviews.filter(v=>d.pr ? v.pr===d.pr : false), idx = r.dels.indexOf(d), prev = r.dels[idx-1], next = r.dels[idx+1];
   const t0 = Math.min(d.s||Infinity, ...d.touches.map(t=>t.w.lo||t.w.t||Infinity)), t1 = Math.max(d.e||0, ...d.touches.map(t=>t.w.hi||t.w.t||0));
-  return { crumbs: [['Overview','/'],[r.repo,'/repo/'+encodeURIComponent(r.repo)],[r.id,'/run/'+r.id+'/delegations'],[did]], html: `<h1><span class="mono">${did}</span>${syn(r)} ${outTag(d.outcome)}</h1>
+  return { crumbs: [['All repositories','/'],[r.repo,'/repo/'+enc(r.repo)],[r.id,rp(r)+'/delegations'],[did]], html: `<h1><span class="mono">${did}</span>${syn(r)} ${outTag(d.outcome)}</h1>
   <div class="sentence">A <b>${d.kind}</b> Delegation for ticket #${d.issue}, started ${d.route==='card'?'<b>from a card you clicked</b>':'directly by the Chief of Staff'}${d.s&&d.e?`, ${mins(d.e-d.s)} from ${d.sSrc} to ${d.eSrc}`:d.day?`, on ${d.day} (no times recorded)`:''}. It needed you ${d.touches.length} time${d.touches.length===1?'':'s'}.</div>
-  <div class="small" style="margin-bottom:10px">${prev?link(`/run/${r.id}/delegation/${prev.id}`,'← '+prev.id):''} ${next?' · '+link(`/run/${r.id}/delegation/${next.id}`,next.id+' →'):''}</div>
+  <div class="small" style="margin-bottom:10px">${prev?link(`${rp(r)}/delegation/${prev.id}`,'← '+prev.id):''} ${next?' · '+link(`${rp(r)}/delegation/${next.id}`,next.id+' →'):''}</div>
   <div class="grid2"><div class="panel"><h2>Facts</h2><dl class="dl">${Object.entries(d.raw).map(([k,v])=>`<dt class="mono small">${esc(k)}</dt><dd class="mono small">${esc(typeof v==='object'?JSON.stringify(v):v)}</dd>`).join('')}</dl></div>
   <div class="panel"><h2>Why it needed you</h2>${causeBars(d.touches)}${d.sSrc && d.sSrc!=='started'?`<div class="callout small">The record has no start time for this Delegation, so its time runs from the <b>${d.sSrc}</b>. It really started earlier.</div>`:''}</div></div>
   ${d.s&&isFinite(t0)?`<div class="panel"><h2>Timeline</h2>${gantt([ganttRows(r)[0], ...ganttRows(r).slice(2).filter(x=>x.href.endsWith('/'+did))].map((row,i)=>i===0?{...row,marks:row.marks.filter((m,j)=>r.touches[j].del===did)}:row), t0-5*60e3, t1+5*60e3, {rh:30})}</div>`:''}
@@ -380,10 +411,10 @@ function pageStep(id, n){
   const ei = r.events.findIndex(e=>e.step===s.n), near = r.events.slice(Math.max(0,ei-4), ei+5);
   const c = s.cause && ci(s.cause);
   const at = s.w.p==='exact' ? `At ${hm(s.w.t)} UTC on ${fmtDate(s.w.t)}` : s.w.p==='bounds' ? `Some time ${s.w.lo?'after '+hm(s.w.lo):''}${s.w.lo&&s.w.hi?' and ':''}${s.w.hi?'before '+hm(s.w.hi):''} UTC` : s.w.p==='date' ? `On ${s.w.day} (no time recorded)` : 'At an unknown time';
-  return { crumbs: [['Overview','/'],[r.repo,'/repo/'+encodeURIComponent(r.repo)],[r.id,'/run/'+r.id+'/steps'],['Step '+s.n]], html: `<h1>Step ${s.n}: <span class="mono">${esc(s.k)}</span>${syn(r)}</h1>
-  <div class="sentence">${at}, ${s.actor==='human'?'you were needed':`the <b>${s.actor}</b> acted (not counted as a human step)`}: ${esc((KIND_INFO[s.k]||s.k).replace(/^You /,'').replace(/^./,x=>x.toLowerCase()))}${s.del?` For ${link(`/run/${r.id}/delegation/${s.del}`, s.del)}.`:''}</div>
-  <div class="small" style="margin-bottom:10px">${prev?link(`/run/${r.id}/step/${prev.n}`,'← step '+prev.n):''} ${next?' · '+link(`/run/${r.id}/step/${next.n}`,'step '+next.n+' →'):''} · ${link(`/run/${r.id}/steps`,'all steps')}</div>
-  <div class="grid2"><div class="panel"><h2>Fields</h2><dl class="dl"><dt>When</dt><dd>${whenTxt(s.w)}${s.raw.at_source?` <span class="small muted">from ${esc(s.raw.at_source)}</span>`:''}</dd><dt>Who</dt><dd>${s.actor==='human'?'you':s.actor}</dd><dt>Kind</dt><dd class="mono">${esc(s.k)}</dd><dt>Cause</dt><dd>${s.cause?chip(s.cause)+' '+avoidTag(s.cause)+(s.assumed?' <span class="small muted">(assigned by the prototype)</span>':''):'—'}</dd><dt>Delegation</dt><dd>${s.del?link(`/run/${r.id}/delegation/${s.del}`,s.del):'— (run level)'}</dd><dt>About</dt><dd>${esc(s.topic||'—')}</dd><dt>Waited</dt><dd>${waitTxt(s)}${s.raw.waited_from?` <span class="small muted">since ${esc(s.raw.waited_from)}</span>`:''}</dd><dt>Heartbeats waiting</dt><dd>${s.hb||0}</dd></dl></div>
+  return { crumbs: [['All repositories','/'],[r.repo,'/repo/'+enc(r.repo)],[r.id,rp(r)+'/steps'],['Step '+s.n]], html: `<h1>Step ${s.n}: <span class="mono">${esc(s.k)}</span>${syn(r)}</h1>
+  <div class="sentence">${at}, ${s.actor==='human'?'you were needed':`the <b>${s.actor}</b> acted (not counted as a human step)`}: ${esc((KIND_INFO[s.k]||s.k).replace(/^You /,'').replace(/^./,x=>x.toLowerCase()))}${s.del?` For ${link(`${rp(r)}/delegation/${s.del}`, s.del)}.`:''}</div>
+  <div class="small" style="margin-bottom:10px">${prev?link(`${rp(r)}/step/${prev.n}`,'← step '+prev.n):''} ${next?' · '+link(`${rp(r)}/step/${next.n}`,'step '+next.n+' →'):''} · ${link(`${rp(r)}/steps`,'all steps')}</div>
+  <div class="grid2"><div class="panel"><h2>Fields</h2><dl class="dl"><dt>When</dt><dd>${whenTxt(s.w)}${s.raw.at_source?` <span class="small muted">from ${esc(s.raw.at_source)}</span>`:''}</dd><dt>Who</dt><dd>${s.actor==='human'?'you':s.actor}</dd><dt>Kind</dt><dd class="mono">${esc(s.k)}</dd><dt>Cause</dt><dd>${s.cause?chip(s.cause)+' '+avoidTag(s.cause)+(s.assumed?' <span class="small muted">(assigned by the prototype)</span>':''):'—'}</dd><dt>Delegation</dt><dd>${s.del?link(`${rp(r)}/delegation/${s.del}`,s.del):'— (run level)'}</dd><dt>About</dt><dd>${esc(s.topic||'—')}</dd><dt>Waited</dt><dd>${waitTxt(s)}${s.raw.waited_from?` <span class="small muted">since ${esc(s.raw.waited_from)}</span>`:''}</dd><dt>Heartbeats waiting</dt><dd>${s.hb||0}</dd></dl></div>
   <div class="panel"><h2>Why, and what to do</h2>${c?`<div class="callout" style="border-color:${c.color}"><b>${c.label}</b>: ${esc(c.meaning)}</div><div><b>Next run:</b> ${esc(c.fix)}</div>`:'<div class="muted">Not a human step, so no cause.</div>'}</div></div>
   <div class="panel"><h2>Around this step</h2>${textBox('slog', textLog(r, near).split('\n').slice(4).join('\n'), `${r.id}-step-${s.n}.txt`)}</div>
   <div class="panel"><h2>Raw entry</h2>${textBox('sraw', JSON.stringify(s.raw, null, 2), `${r.id}-step-${s.n}.json`)}</div>` };
@@ -393,22 +424,22 @@ function pageTeam(team){
   const t0 = Math.min(...list.map(r=>r.start)), t1 = Math.max(...list.map(r=>r.end));
   const rows = []; list.forEach(r => { rows.push({ group:true, label:r.operator }); ganttRows(r,'  ').forEach(x=>rows.push(x)); });
   const ts = list.flatMap(r=>r.touches);
-  return { crumbs: [['Overview','/'],[list[0].repo,'/repo/'+encodeURIComponent(list[0].repo)],['Team Run '+team]], html: `<h1>Team Run ${esc(team)} <span class="syn">synthetic</span></h1>
+  return { crumbs: [['All repositories','/'],[list[0].repo,'/repo/'+encodeURIComponent(list[0].repo)],['Team Run '+team]], html: `<h1>Team Run ${esc(team)} <span class="syn">synthetic</span></h1>
   <div class="sentence">Spec #${list[0].spec} in <b>${esc(list[0].repo)}</b>: ${list.length} teammates, each running their own Chief of Staff over their own tickets, on one Shared Board. One Run Record each, merged here on one clock.</div>
   <div class="kpis" style="margin-bottom:14px">${kpi(list.length,'teammates')}${kpi(list.reduce((a,r)=>a+r.dels.length,0),'Delegations')}${kpi(hrs(t1-t0),'first start → last close')}${kpi(ts.length,'human steps')}${kpi(list.flatMap(r=>r.avoidable).length,'avoidable')}</div>
   <div class="panel"><h2>Everyone on one clock</h2>${ganttKey()}<div class="scroll">${gantt(rows,t0,t1)}</div>${legend(causeCounts(ts))}</div>
   <div class="panel"><h2>Teammates</h2><table><tr><th>Who</th><th>Run</th><th>Tickets</th><th class="num">Delegations</th><th class="num">Time</th><th class="num">Human steps</th><th class="num">Avoidable</th><th style="min-width:140px">Causes</th><th>Biggest fix</th></tr>
-  ${list.map(r=>{const n=nextRun(r).find(x=>x.cause);return `<tr class="click" data-go="/run/${r.id}"><td><b>${esc(r.operator)}</b></td><td>${runLink(r)}</td><td class="small">${r.tickets.map(t=>'#'+t).join(' ')}</td><td class="num">${r.dels.length}</td><td class="num">${hrs(r.end-r.start)}</td><td class="num">${r.touches.length}</td><td class="num">${r.avoidable.length}</td><td>${stackTrack(r.touches)}</td><td class="small">${n?esc(n.what):'—'}</td></tr>`}).join('')}</table></div>` };
+  ${list.map(r=>{const n=nextRun(r).find(x=>x.cause);return `<tr class="click" data-go="${rp(r)}"><td><b>${esc(r.operator)}</b></td><td>${runLink(r)}</td><td class="small">${r.tickets.map(t=>'#'+t).join(' ')}</td><td class="num">${r.dels.length}</td><td class="num">${hrs(r.end-r.start)}</td><td class="num">${r.touches.length}</td><td class="num">${r.avoidable.length}</td><td>${stackTrack(r.touches)}</td><td class="small">${n?esc(n.what):'—'}</td></tr>`}).join('')}</table></div>` };
 }
 function pageKey(){
-  return { crumbs: [['Overview','/'],['Key']], html: `<h1>What the colours and words mean</h1><div class="muted" style="margin-bottom:12px">Colour is never the only signal: every chip also says its name, and every human step says whether it was avoidable.</div>
+  return { crumbs: [['All repositories','/'],['Key']], html: `<h1>What the colours and words mean</h1><div class="muted" style="margin-bottom:12px">Colour is never the only signal: every chip also says its name, and every human step says whether it was avoidable.</div>
   <div class="panel"><h2>Causes: why you were needed</h2><table><tr><th>Colour</th><th>Cause</th><th>Next run?</th><th>Meaning</th><th>Typical fix</th></tr>${CAUSES.map(c=>`<tr><td><span class="sw" style="background:${ci(c).color};width:28px;height:16px"></span></td><td><b>${ci(c).label}</b><div class="mono small muted">${c}</div></td><td>${avoidTag(c)}</td><td>${esc(ci(c).meaning)}</td><td class="small">${esc(ci(c).fix)}</td></tr>`).join('')}</table>
   <div class="small muted" style="margin-top:8px"><b>By design</b> and <b>Your choice</b> are expected; everything else counts as avoidable. <code>by-design</code> is a cause this prototype proposes adding to the curated list.</div></div>
   <div class="panel"><h2>Kinds: what you did</h2><table><tr><th>Kind</th><th>Meaning</th></tr>${Object.entries(KIND_INFO).map(([k,v])=>`<tr><td class="mono small">${k}</td><td>${esc(v)}</td></tr>`).join('')}</table></div>
   <div class="panel"><h2>Timeline marks</h2>${ganttKey()}</div>
   <div class="panel"><h2>Real and synthetic</h2>Two runs are real Run Records hand-derived from past runs (spec-344, spec-253); their times are often only bounds or dates, because the old Activity Logs had no times. Everything tagged <span class="syn">synthetic</span> is generated so the multi-repo, trend and Team Run pages have something to show.</div>` };
 }
-const notFound = () => ({ crumbs:[['Overview','/'],['Not found']], html:'<h1>Not found</h1><a href="#/">Back to overview</a>' });
+const notFound = () => ({ crumbs:[['All repositories','/'],['Not found']], html:'<h1>Not found</h1><a href="#/">Back to overview</a>' });
 
 // ═══════════════════════ router, side nav ═══════════════════════
 let ROUTE = location.hash.slice(1) || '/';
@@ -420,23 +451,38 @@ document.addEventListener('click', e => {
   const tr = e.target.closest('[data-go]'); if (tr && !a) go(tr.dataset.go);
 });
 document.addEventListener('change', e => { const f = e.target.dataset.filter; if (!f) return; STEP_FILTER[f] = e.target.value; render(); });
+// Scope: "all repositories" at #/ and #/key; one repository anywhere under #/repo/<owner%2Fname>/...
+const scopeOf = () => { const m = ROUTE.match(/^\/repo\/([^/]+)/); return m ? decodeURIComponent(m[1]) : ''; };
 function side(){
-  const on = p => ROUTE === p || ROUTE.startsWith(p + '/') ? 'on' : '';
-  let s = `<a href="#/" class="${ROUTE==='/'?'on':''}">Overview</a><div class="sec">Repos</div>`;
-  REPO_NAMES.forEach(n => { const p = '/repo/' + encodeURIComponent(n); const cur = ROUTE.startsWith('/run/') && RUN[ROUTE.split('/')[2]]?.repo === n;
-    s += `<a href="#${p}" class="${on(p)||(cur?'on':'')}">${esc(n.split('/')[1])} <span class="muted small">${runsOf(n).length}</span></a>`;
-    if (on(p) || cur) runsOf(n).slice(0, 8).forEach(r => s += `<a class="sub ${ROUTE.startsWith('/run/'+r.id)?'on':''}" href="#/run/${r.id}">${fmtDate(r.start)} · spec ${r.spec}${r.team?' · '+r.operator:''}</a>`); });
-  s += `<div class="sec">Team Runs</div>` + TEAMS.map(t => `<a href="#/team/${t}" class="${on('/team/'+t)}">${esc(t)}</a>`).join('');
+  const on = p => ROUTE === p || ROUTE.startsWith(p + '/') ? 'on' : '', scope = scopeOf();
+  let s = `<a href="#/" class="${ROUTE==='/'?'on':''}">All repositories <span class="muted small">${REPO_NAMES.length}</span></a>`;
+  if (!scope) {
+    s += `<div class="sec">Repositories</div>` + REPO_NAMES.map(n => `<a href="#/repo/${enc(n)}">${esc(n)} <span class="muted small">${runsOf(n).length}</span></a>`).join('');
+    s += `<div class="sec">Team Runs</div>` + TEAMS.map(t => `<a href="#${tp(t)}">${esc(t)} <span class="muted small">${esc(TEAM_REPO[t].split('/')[1])}</span></a>`).join('');
+  } else {
+    const p = '/repo/' + enc(scope), runs = runsOf(scope), teams = TEAMS.filter(t=>TEAM_REPO[t]===scope);
+    s += `<div class="sec">${esc(scope)}</div><a href="#${p}" class="${ROUTE===p?'on':''}">Repository overview</a><div class="sec">Runs (${runs.length})</div>`;
+    s += runs.map(r => `<a class="sub ${ROUTE.startsWith(rp(r))?'on':''}" href="#${rp(r)}">${fmtDate(r.start)} · spec ${r.spec}${r.team?' · '+r.operator:''}${r.synthetic?'':' · real'}</a>`).join('');
+    if (teams.length) s += `<div class="sec">Team Runs</div>` + teams.map(t => `<a href="#${tp(t)}" class="${on(tp(t))}">${esc(t)}</a>`).join('');
+  }
   s += `<div class="sec">Help</div><a href="#/key" class="${on('/key')}">Key: colours &amp; words</a>`;
   return s;
 }
+function switcher(){
+  const scope = scopeOf();
+  return `<label class="small muted">Repository <select id="repoSel"><option value="">All repositories (${REPO_NAMES.length})</option>${REPO_NAMES.map(n=>`<option value="${esc(n)}" ${n===scope?'selected':''}>${esc(n)} (${runsOf(n).length} runs)</option>`).join('')}</select></label>`;
+}
 function render(){
   const p = ROUTE.split('/').filter(Boolean).map(decodeURIComponent);
-  const page = !p.length ? pageOverview() : p[0]==='repo' ? pageRepo(p[1]) : p[0]==='team' ? pageTeam(p[1]) : p[0]==='key' ? pageKey()
-    : p[0]==='run' ? (p[2]==='step' ? pageStep(p[1], p[3]) : p[2]==='delegation' ? pageDelegation(p[1], p[3]) : pageRun(p[1], p[2])) : notFound();
+  const key = p[0]==='repo' && p[2]==='run' ? p[1]+'::'+p[3] : null;
+  const page = !p.length ? pageOverview() : p[0]==='key' ? pageKey()
+    : p[0]==='repo' ? (p[2]==='team' ? pageTeam(p[3]) : p[2]==='run' ? (p[4]==='step' ? pageStep(key, p[5]) : p[4]==='delegation' ? pageDelegation(key, p[5]) : pageRun(key, p[4])) : pageRepo(p[1]))
+    : notFound();
   document.getElementById('app').innerHTML = page.html;
   document.getElementById('crumbs').innerHTML = page.crumbs.map(([l,h],i)=> h && i < page.crumbs.length-1 ? `<a href="#${h}">${esc(l)}</a>` : `<b>${esc(l)}</b>`).join(' › ');
   document.getElementById('side').innerHTML = side();
+  document.getElementById('switch').innerHTML = switcher();
+  document.getElementById('repoSel').onchange = e => go(e.target.value ? '/repo/' + enc(e.target.value) : '/');
 }
 document.getElementById('theme').onclick = () => { const d = document.documentElement, dark = d.dataset.theme ? d.dataset.theme==='dark' : matchMedia('(prefers-color-scheme: dark)').matches; d.dataset.theme = dark ? 'light' : 'dark'; };
 render();

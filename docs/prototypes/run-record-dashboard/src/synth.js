@@ -94,7 +94,7 @@ const SYNTH_REPOS = [
     { date: '2026-10-12T05:00:00Z', spec: 800, n: 2, authority: 'autonomous', landing: 'integration-branch', qa: false, parallel: 2, k: .6 },
     { date: '2026-10-26T04:00:00Z', spec: 810, n: 3, authority: 'autonomous', landing: 'integration-branch', qa: false, parallel: 3, k: .5 },
     { date: '2026-11-06T06:00:00Z', spec: 820, n: 2, authority: 'autonomous', landing: 'integration-branch', qa: false, parallel: 2, k: .35 },
-    { date: '2026-11-16T05:30:00Z', spec: 830, n: 3, authority: 'autonomous', landing: 'integration-branch', qa: false, parallel: 3, k: .25 } ] },
+    { date: '2026-11-19T05:30:00Z', spec: 344, n: 3, authority: 'autonomous', landing: 'integration-branch', qa: false, parallel: 3, k: .25 } ] },
 ];
 
 const SYNTH_RECORDS = [];
