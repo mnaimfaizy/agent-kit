@@ -1,0 +1,307 @@
+<!doctype html>
+<!--
+  PROTOTYPE, throwaway (wayfinder ticket #407 "Live run board a human can watch in the browser", map #391). Never merged.
+  Four structurally different live boards, switchable via ?variant=A|B|C|D and the floating bar (← → keys),
+  plus a delivery sketch (?variant=delivery). Data: the real spec-344 run replayed as a fake live run (replay-spec-344.js).
+  Styles: shared.css, copied from the approved past-runs dashboard (prototype/run-record-dashboard).
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Live run board</title>
+<link rel="icon" id="fav" href="data:,">
+<link rel="stylesheet" href="shared.css">
+<style>
+  .live{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 0 rgba(43,138,62,.6);animation:pulse 2s infinite}
+  .dot.off{background:var(--muted);animation:none}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(43,138,62,.5)}70%{box-shadow:0 0 0 7px rgba(43,138,62,0)}100%{box-shadow:0 0 0 0 rgba(43,138,62,0)}}
+  .replay{display:flex;align-items:center;gap:6px;font:11px var(--mono);background:#fff7d1;border:1px dashed #c9a400;color:#5c4a00;padding:3px 8px;border-radius:6px}
+  .replay input[type=range]{width:160px} .replay button,.replay select{font:11px var(--mono);padding:1px 6px}
+  :root[data-theme="dark"] .replay{background:#3a3110;color:#ffd84d}
+  @media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .replay{background:#3a3110;color:#ffd84d}}
+  .wrap{padding:16px 20px 90px;max-width:1500px;margin:0 auto}
+  .runline{display:flex;gap:14px;flex-wrap:wrap;align-items:baseline;margin-bottom:12px}
+  .runline .small b{color:var(--ink)}
+  .sw{flex:none}
+  /* switcher */
+  .switcher{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);display:flex;align-items:center;gap:10px;background:#111;color:#fff;border-radius:99px;padding:6px 8px;box-shadow:0 6px 24px rgba(0,0,0,.35);z-index:50;font:13px system-ui}
+  .switcher button{background:#333;color:#fff;border:0;border-radius:99px;width:30px;height:30px;cursor:pointer;font-size:15px}
+  .switcher span{min-width:230px;text-align:center}
+  /* A: kanban */
+  .kan{display:grid;grid-template-columns:repeat(6,minmax(150px,1fr));gap:10px;align-items:start}
+  @media(max-width:1000px){.kan{grid-template-columns:repeat(2,1fr)}}
+  .col{background:var(--soft);border-radius:10px;padding:8px;min-height:120px}
+  .col h3{display:flex;justify-content:space-between;margin:2px 4px 8px}
+  .col.need{background:#fff4e6;outline:2px solid #f7670755}
+  :root[data-theme="dark"] .col.need{background:#2e2014}
+  @media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .col.need{background:#2e2014}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:13px;will-change:transform}
+  .card .id{font:600 13px var(--mono)} .card .t{color:var(--muted);font-size:12px;line-height:1.35;margin:2px 0 6px}
+  .card .why{font-size:12px;border-top:1px dashed var(--line);padding-top:6px;margin-top:6px}
+  .card.flash{animation:flash 1.6s ease-out}
+  @keyframes flash{0%{box-shadow:0 0 0 3px var(--accent)}100%{box-shadow:0 0 0 0 transparent}}
+  .st{font:11px var(--mono);padding:0 6px;border-radius:4px;border:1px solid var(--line);background:var(--soft);white-space:nowrap}
+  .st.running{border-color:var(--ink)} .st.done{color:var(--muted)}
+  .spin{display:inline-block;width:9px;height:9px;border:2px solid var(--ink);border-right-color:transparent;border-radius:50%;animation:spin 1s linear infinite;vertical-align:-1px}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .feed{font-size:12.5px} .feed .e{display:grid;grid-template-columns:44px 92px 1fr;gap:8px;padding:4px 0;border-bottom:1px solid var(--line)}
+  .feed .e.new{animation:fade 2s} @keyframes fade{from{background:var(--hover)}to{background:transparent}}
+  .feed .who{font:11px var(--mono);color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .two{display:grid;grid-template-columns:1fr 340px;gap:14px} @media(max-width:1100px){.two{grid-template-columns:1fr}}
+  .bannerA{display:flex;gap:10px;align-items:center;padding:10px 14px;border-radius:10px;margin-bottom:12px;font-size:14px}
+  .bannerA.ok{background:#e6f4ea} .bannerA.wait{background:#fff0e6}
+  :root[data-theme="dark"] .bannerA.ok{background:#14301c} :root[data-theme="dark"] .bannerA.wait{background:#3a2414}
+  @media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .bannerA.ok{background:#14301c}:root:not([data-theme="light"]) .bannerA.wait{background:#3a2414}}
+  /* B: inbox */
+  .hero{font-size:34px;font-weight:700;letter-spacing:-.01em;margin:6px 0 2px}
+  .hero.ok{color:var(--ok)}
+  .ask{display:grid;grid-template-columns:6px 1fr auto;gap:14px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px 14px 0;margin:10px 0;overflow:hidden}
+  .ask .rail{border-radius:0 4px 4px 0}
+  .ask .q{font-size:17px;font-weight:600;margin-bottom:4px} .ask .how{font-size:14px;margin-top:6px}
+  .ask .age{font:600 26px var(--mono);text-align:right;line-height:1} .ask .age small{display:block;font:11px system-ui;color:var(--muted);font-weight:400}
+  .strip{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}
+  .pill{display:flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--panel);border-radius:99px;padding:3px 10px 3px 6px;font:12px var(--mono)}
+  .pill .b{width:10px;height:10px;border-radius:50%;border:2px solid var(--muted)}
+  .pill.running .b{border-color:var(--ink);border-right-color:transparent;animation:spin 1s linear infinite}
+  .pill.done .b{background:var(--muted)} .pill.need .b{border-color:#f76707;background:#f76707}
+  .away{background:var(--hover);border-radius:10px;padding:10px 14px;margin:10px 0}
+  /* C: timeline */
+  .tl{width:100%;overflow-x:auto} .tl svg{display:block}
+  .tl .lane{font:12px var(--mono)}
+  /* D: board.md */
+  .bmd td,.bmd th{font-family:var(--mono);font-size:12px}
+  .bmd td.chg{animation:cell 2.5s} @keyframes cell{from{background:#ffe066}to{background:transparent}}
+  pre.tail{max-height:46vh}
+  /* delivery */
+  .opt{border:1px solid var(--line);border-radius:10px;padding:12px 14px;background:var(--panel)}
+  .opt h2{display:flex;gap:8px;align-items:center}
+  .chat{background:var(--soft);border-radius:12px;padding:12px 14px;font-size:14px;max-width:760px}
+  .pc{display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;font-size:13px} .pc b{display:block;font-size:12px;color:var(--muted);font-weight:500}
+  code{font:12px var(--mono);background:var(--soft);padding:0 4px;border-radius:3px}
+  .toast{position:fixed;right:16px;top:58px;background:#111;color:#fff;padding:10px 14px;border-radius:10px;font-size:13px;max-width:340px;box-shadow:0 6px 24px rgba(0,0,0,.3);z-index:60;opacity:0;transition:opacity .3s;pointer-events:none}
+  .toast.on{opacity:1}
+</style>
+</head>
+<body>
+<header class="top">
+  <span class="proto">PROTOTYPE</span>
+  <span class="brand">Live run</span>
+  <span class="crumbs"><span id="crumb"></span></span>
+  <span class="live" id="live"><span class="dot"></span><span id="livetxt"></span></span>
+  <span class="grow"></span>
+  <span class="replay" title="Prototype only: replays the real spec-344 run as if it were live">
+    REPLAY <button id="play">⏸</button>
+    <select id="speed"><option value="10">10×</option><option value="60" selected>60×</option><option value="240">240×</option></select>
+    <input type="range" id="scrub" min="0" max="1000" value="0">
+    <button id="nextwait" title="Jump to the next time the run waits on you">next wait ⏭</button>
+    <span id="clock"></span>
+  </span>
+  <button id="theme" title="Light / dark">◐</button>
+</header>
+<div class="wrap" id="app"></div>
+<div class="toast" id="toast"></div>
+<div class="switcher"><button id="prev">←</button><span id="vlabel"></span><button id="next">→</button></div>
+<script src="replay-spec-344.js"></script>
+<script>
+// ---------- causes and states: same colours and meanings as the past-runs dashboard ----------
+const CAUSE = {
+  'by-design':{c:'#8a9099',l:'By design'}, 'human-choice':{c:'#4c6ef5',l:'Your choice'}, 'harness-limit':{c:'#f76707',l:'Harness limit'},
+  'permission-refusal':{c:'#e03131',l:'Permission refusal'}, 'missing-config':{c:'#e8b100',l:'Missing config'}, 'spec-gap':{c:'#0ca678',l:'Spec gap'},
+  'skill-bug':{c:'#ae3ec9',l:'Skill bug'}, 'tool-missing':{c:'#15aabf',l:'Tool missing'}, 'other':{c:'#5c5f66',l:'Other'} };
+const chip = c => `<span class="chip"><span class="sw" style="background:${CAUSE[c].c}"></span>${CAUSE[c].l}</span>`;
+const DONE = ['landed','ready to merge','merged','passed','analysed'];
+const esc = s => String(s ?? '').replace(/[&<>"]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
+const R = window.RUN, EV = R.events, T0 = Date.parse(EV[0].at), T1 = Date.parse(EV[EV.length-1].at);
+const hm = ms => new Date(ms).toISOString().slice(11,16) + 'Z';
+const dur = ms => { const m = Math.max(0, Math.round(ms/60000)); return m < 60 ? m + 'm' : Math.floor(m/60) + 'h ' + String(m%60).padStart(2,'0') + 'm'; };
+
+// ---------- the board's model: fold Run Events up to `now` ----------
+function fold(now){
+  const st = {}, since = {}, hist = {}, waits = {}, seen = [];
+  R.delegations.forEach(d => { st[d.id] = 'planned'; since[d.id] = T0; hist[d.id] = [{s:'planned', t:T0}]; });
+  for (const e of EV){ const t = Date.parse(e.at); if (t > now) break; seen.push(e);
+    if (e.del && e.state && st[e.del] !== e.state){ st[e.del] = e.state; since[e.del] = t; hist[e.del].push({s:e.state, t}); }
+    if (e.wait?.open) waits[e.wait.id] = { ...e.wait, del: e.del, t, end: null };
+    if (e.wait?.close && waits[e.wait.id]) waits[e.wait.id].end = t;
+  }
+  const W = Object.values(waits), open = W.filter(w => !w.end);
+  const closed = seen.length === EV.length && EV[EV.length-1].kind === 'run-closed';
+  return { now, st, since, hist, waits: W, open, seen, closed, last: seen[seen.length-1] };
+}
+const openFor = (m, d) => m.open.filter(w => w.del === d);
+const evText = e => {
+  const k = e.kind.replace(/-/g,' ');
+  if (e.wait?.open) return `<b>waits on you</b>: ${esc(e.wait.why)} ${chip(e.wait.cause)}`;
+  if (e.wait?.close && e.actor === 'human') return `<b>you answered</b>${e.note ? ': ' + esc(e.note) : ''}`;
+  return `${esc(k)}${e.state ? ` → <span class="st">${e.state}</span>` : ''}${e.note ? ` <span class="muted">· ${esc(e.note)}</span>` : ''}`;
+};
+
+// ---------- replay clock (prototype only) ----------
+let now = T0, playing = true, speed = 60, last = performance.now(), lastSeenCount = 0, awayFrom = null;
+const scrub = document.getElementById('scrub');
+function tick(t){ if (playing){ now = Math.min(T1 + 60000, now + (t - last) * speed); } last = t; scrub.value = (now - T0) / (T1 + 60000 - T0) * 1000; render(); requestAnimationFrame(tick); }
+document.getElementById('play').onclick = e => { playing = !playing; e.target.textContent = playing ? '⏸' : '▶'; };
+document.getElementById('speed').onchange = e => speed = +e.target.value;
+scrub.oninput = () => { now = T0 + scrub.value / 1000 * (T1 + 60000 - T0); };
+document.getElementById('nextwait').onclick = () => { const n = EV.find(e => e.wait?.open && Date.parse(e.at) > now + 1000); if (n) now = Date.parse(n.at) + 30000; };
+document.getElementById('theme').onclick = () => { const r = document.documentElement; r.dataset.theme = (r.dataset.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')) === 'dark' ? 'light' : 'dark'; };
+
+// ---------- variants ----------
+const VARIANTS = { A:'Kanban: cards move across states', B:'Needs you: an inbox first', C:'Timeline: lanes on one clock', D:'board.md, live, plus tail', delivery:'Delivery: how the link reaches you' };
+const KEYS = Object.keys(VARIANTS);
+let V = new URLSearchParams(location.search).get('variant') || 'A'; if (!VARIANTS[V]) V = 'A';
+function setV(k){ V = k; const u = new URL(location); u.searchParams.set('variant', k); history.replaceState(null, '', u); prevHTML = ''; render(true); }
+document.getElementById('prev').onclick = () => setV(KEYS[(KEYS.indexOf(V) + KEYS.length - 1) % KEYS.length]);
+document.getElementById('next').onclick = () => setV(KEYS[(KEYS.indexOf(V) + 1) % KEYS.length]);
+addEventListener('keydown', e => { if (e.target.closest('input,textarea,select,[contenteditable]')) return;
+  if (e.key === 'ArrowLeft') document.getElementById('prev').click(); if (e.key === 'ArrowRight') document.getElementById('next').click(); });
+
+const runline = m => `<div class="runline"><h1>${esc(R.id)}</h1>
+  <span class="small muted">Spec <b>#${R.spec}</b> · ${esc(R.repo)} · Decision authority <b>${R.authority}</b> · Landing <b>${R.landing}</b> · ${esc(R.harness)}</span>
+  <span class="small muted">Running for <b>${dur(m.now - T0)}</b> · ${R.delegations.filter(d => DONE.includes(m.st[d.id])).length} of ${R.delegations.length} Delegations done</span></div>`;
+function feed(m, n = 14){ const evs = m.seen.slice(-n).reverse();
+  return `<div class="feed">${evs.map((e, i) => `<div class="e ${Date.parse(e.at) > m.now - 90000*speed/60 ? 'new' : ''}"><span class="mono small">${hm(Date.parse(e.at))}</span><span class="who" title="${esc(e.actor)}">${e.actor === 'human' ? '<b style="color:var(--ink)">you</b>' : esc(e.actor)}${e.del && e.del !== e.actor ? ' · ' + esc(e.del) : ''}</span><span>${evText(e)}</span></div>`).join('') || '<div class="muted">No Run Events yet.</div>'}</div>`; }
+
+// A: kanban
+const COLS = [ ['Planned', s => s === 'planned' || s === 'parked'], ['Needs you', null], ['Running', s => s === 'running' || s === 'sent back' || s === 'waiting'],
+  ['Checking', s => s === 'reported' || s === 'verified'], ['Landed', s => s === 'landed' || s === 'ready to merge' || s === 'awaiting Ruling Review'], ['Merged', s => s === 'merged' || s === 'dropped'] ];
+function vA(m){
+  const col = d => openFor(m, d.id).length ? 1 : COLS.findIndex(([, f], i) => i !== 1 && f(m.st[d.id]));
+  const card = d => { const s = m.st[d.id], w = openFor(m, d.id);
+    return `<div class="card" data-id="${esc(d.id)}"><div style="display:flex;justify-content:space-between;gap:6px"><span class="id">${esc(d.id)}</span><span class="st ${s === 'running' ? 'running' : DONE.includes(s) ? 'done' : ''}">${s === 'running' ? '<span class="spin"></span> ' : ''}${s}</span></div>
+      <div class="t">#${d.issue} · ${esc(d.title)}</div><div class="small muted">wave ${esc(d.wave)} · ${s} for ${dur(m.now - m.since[d.id])}</div>
+      ${w.map(x => `<div class="why">${chip(x.cause)} <b>${esc(x.why)}</b><div class="muted">${esc(x.how)} · waiting ${dur(m.now - x.t)}</div></div>`).join('')}</div>`; };
+  const runWaits = m.open.filter(w => !w.del);
+  return runline(m) + banner(m) + `<div class="two"><div class="kan">${COLS.map(([name], i) => { const ds = R.delegations.filter(d => col(d) === i);
+      return `<div class="col ${i === 1 && ds.length + runWaits.length ? 'need' : ''}"><h3><span>${name}</span><span>${ds.length + (i === 1 ? runWaits.length : 0)}</span></h3>${ds.map(card).join('')}${i === 1 ? runWaits.map(w => `<div class="card"><span class="id">run</span><div class="why" style="border:0;padding:0">${chip(w.cause)} <b>${esc(w.why)}</b><div class="muted">${esc(w.how)} · waiting ${dur(m.now - w.t)}</div></div></div>`).join('') : ''}</div>`; }).join('')}</div>
+    <div class="panel"><h2>Recent Run Events</h2>${feed(m)}</div></div>`;
+}
+function banner(m){ if (m.closed) return `<div class="bannerA ok">✓ <b>Run closed.</b> <span class="muted">Its Run Record is written; open it in the past-runs dashboard.</span></div>`;
+  return m.open.length ? `<div class="bannerA wait"><b>${m.open.length} thing${m.open.length > 1 ? 's' : ''} wait${m.open.length > 1 ? '' : 's'} on you</b> ${[...new Set(m.open.map(w => w.cause))].map(chip).join(' ')} <span class="muted">oldest ${dur(m.now - Math.min(...m.open.map(w => w.t)))}</span></div>`
+    : `<div class="bannerA ok">Nothing waits on you. <span class="muted">${R.delegations.filter(d => m.st[d.id] === 'running').map(d => d.id).join(', ') || 'The Chief of Staff'} working.</span></div>`; }
+
+// B: inbox
+function vB(m){
+  const running = R.delegations.filter(d => ['running','sent back'].includes(m.st[d.id]));
+  const hero = m.closed ? `<div class="hero ok">Run closed. Nothing left for you.</div>` : m.open.length ? `<div class="hero">${m.open.length === 1 ? 'One thing needs you' : m.open.length + ' things need you'}</div>` : `<div class="hero ok">Nothing needs you right now</div>`;
+  const awayN = m.seen.length - lastSeenCount;
+  return `<div class="small muted">${esc(R.id)} · ${esc(R.repo)} · ${R.authority} · running ${dur(m.now - T0)}</div>${hero}
+    <div class="muted" style="font-size:15px">${running.length ? 'Working now: ' + running.map(d => `<b class="mono" style="color:var(--ink)">${esc(d.id)}</b> (${dur(m.now - m.since[d.id])})`).join(', ') : m.closed ? '' : 'No Delegation is running; the Chief of Staff is between steps.'}</div>
+    ${m.open.sort((a, b) => a.t - b.t).map(w => `<div class="ask"><div class="rail" style="background:${CAUSE[w.cause].c}"></div><div><div class="small muted">${w.del ? esc(w.del) : 'the run'} · ${chip(w.cause)} · asked ${hm(w.t)}</div><div class="q">${esc(w.why)}</div><div class="how">👉 ${esc(w.how)}</div></div><div class="age">${dur(m.now - w.t)}<small>waiting</small></div></div>`).join('')}
+    ${awayN > 0 ? `<div class="away"><b>${awayN} Run Event${awayN > 1 ? 's' : ''} since you last looked</b> <button class="btn" id="seen">Mark seen</button><div class="feed" style="margin-top:6px">${m.seen.slice(lastSeenCount).slice(-6).reverse().map(e => `<div class="e"><span class="mono small">${hm(Date.parse(e.at))}</span><span class="who">${e.actor === 'human' ? 'you' : esc(e.actor)}</span><span>${evText(e)}</span></div>`).join('')}</div></div>` : ''}
+    <h3 style="margin-top:22px">Delegations</h3><div class="strip">${R.delegations.map(d => { const s = m.st[d.id], need = openFor(m, d.id).length;
+      return `<span class="pill ${need ? 'need' : s === 'running' || s === 'sent back' ? 'running' : DONE.includes(s) ? 'done' : ''}" title="${esc(d.title)}"><span class="b"></span>${esc(d.id)} <span class="muted">${need ? 'needs you' : s}</span></span>`; }).join('')}</div>
+    <div class="grid2" style="margin-top:14px"><div class="panel"><h2>Waited on you this run</h2>${waitedSummary(m)}</div><div class="panel"><h2>Recent Run Events</h2>${feed(m, 8)}</div></div>`;
+}
+function waitedSummary(m){ const done = m.waits.filter(w => w.end); if (!done.length) return '<div class="muted">Nothing yet.</div>';
+  const by = {}; done.forEach(w => { (by[w.cause] ||= []).push(w.end - w.t); });
+  return Object.entries(by).sort((a, b) => b[1].length - a[1].length).map(([c, ws]) => `<div class="bar"><span class="lbl">${chip(c)}</span><div class="track"><span style="width:${Math.min(100, ws.reduce((a, b) => a + b, 0) / 60000 / 60 * 100)}%;background:${CAUSE[c].c}"></span></div><span class="val">${ws.length}×</span><span class="small mono muted">${dur(ws.reduce((a, b) => a + b, 0))}</span></div>`).join('') + '<div class="small muted">Bar = total minutes the run waited, out of 60.</div>'; }
+
+// C: timeline
+const SHADE = { planned:'transparent', parked:'transparent', running:'var(--ink)', 'sent back':'var(--ink)', waiting:'var(--muted)', reported:'var(--muted)', verified:'var(--muted)', landed:'var(--line)', 'ready to merge':'var(--line)', merged:'var(--soft)' };
+function vC(m){
+  const W = 1180, L = 130, span = Math.max(T1 - T0 + 60000, 1), x = t => L + (t - T0) / span * (W - L - 10), lh = 30;
+  const lanes = [...R.delegations.map(d => ({ id: d.id, d })), { id: 'you', you: true }];
+  const H = lanes.length * lh + 40;
+  let s = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`;
+  for (let t = T0 - T0 % 1800000 + 1800000; t < T0 + span; t += 1800000) s += `<line x1="${x(t)}" x2="${x(t)}" y1="0" y2="${H - 20}" stroke="var(--line)"/><text x="${x(t)}" y="${H - 6}" text-anchor="middle" class="mt">${hm(t)}</text>`;
+  lanes.forEach((ln, i) => { const y = i * lh + 6;
+    s += `<text x="0" y="${y + 15}" class="lane" ${ln.you ? 'font-weight="700"' : ''}>${esc(ln.you ? 'You' : ln.id)}</text><line x1="${L}" x2="${W - 10}" y1="${y + 22}" y2="${y + 22}" stroke="var(--line)" stroke-dasharray="2 3"/>`;
+    if (ln.d){ const h = m.hist[ln.id]; h.forEach((seg, j) => { const a = seg.t, b = j + 1 < h.length ? h[j + 1].t : m.now; if (SHADE[seg.s] === 'transparent') return;
+        s += `<rect x="${x(a)}" y="${y + 4}" width="${Math.max(1.5, x(b) - x(a))}" height="16" rx="3" fill="${SHADE[seg.s]}" ${seg.s === 'merged' ? 'stroke="var(--line)"' : ''}><title>${esc(ln.id)}: ${seg.s} ${hm(a)}–${hm(b)}</title></rect>`;
+        if (x(b) - x(a) > 54) s += `<text x="${x(a) + 4}" y="${y + 16}" style="font-size:10px;fill:${seg.s === 'running' || seg.s === 'sent back' ? 'var(--bg)' : 'var(--ink)'}">${seg.s}</text>`; }); }
+    m.waits.filter(w => ln.you || w.del === ln.id).forEach(w => { const b = w.end || m.now;
+      s += ln.you ? `<rect x="${x(w.t)}" y="${y + 3}" width="${Math.max(3, x(b) - x(w.t))}" height="18" rx="3" fill="${CAUSE[w.cause].c}" ${w.end ? '' : 'class="openw"'}><title>${esc(w.why)} · ${CAUSE[w.cause].l} · ${dur(b - w.t)}</title></rect>`
+        : `<rect x="${x(w.t)}" y="${y + 2}" width="${Math.max(3, x(b) - x(w.t))}" height="20" rx="3" fill="none" stroke="${CAUSE[w.cause].c}" stroke-width="2.5"/>`; }); });
+  s += `<line x1="${x(m.now)}" x2="${x(m.now)}" y1="0" y2="${H - 20}" stroke="var(--bad)" stroke-width="1.5"/><text x="${x(m.now) + 4}" y="10" style="fill:var(--bad);font-size:10px">now ${hm(m.now)}</text></svg>`;
+  return runline(m) + banner(m) + `<div class="panel"><h2>The run on one clock</h2><div class="small muted">One lane per Delegation, plus your own. Grey shades are states (dark = running); a coloured bar on <b>You</b> is a wait, coloured by its cause, and the same wait outlines the Delegation it holds up. The red line is now.</div><div class="tl">${s}</div>
+    <div class="legend">${Object.keys(CAUSE).filter(c => m.waits.some(w => w.cause === c)).map(chip).join('')}</div></div>
+    <div class="grid2"><div class="panel"><h2>Waiting on you</h2>${m.open.map(w => `<div class="todo"><span class="n" style="color:${CAUSE[w.cause].c}">${dur(m.now - w.t)}</span><div><b>${esc(w.why)}</b> ${chip(w.cause)}<div class="small muted">${esc(w.how)}</div></div></div>`).join('') || '<div class="muted">Nothing.</div>'}</div><div class="panel"><h2>Recent Run Events</h2>${feed(m, 8)}</div></div>`;
+}
+
+// D: board.md live + tail
+let prevCells = {};
+function vD(m){
+  const cells = {}; const rows = R.delegations.map(d => { const w = openFor(m, d.id);
+    const c = { st: m.st[d.id], dr: w.length ? w.map(x => `${x.cause}: ${x.why}`).join('; ') : 'none' }; cells[d.id] = c;
+    const chg = k => prevCells[d.id] && prevCells[d.id][k] !== c[k] ? 'chg' : '';
+    return `<tr><td>${esc(d.id)}</td><td>#${d.issue}</td><td>${esc(d.kind)}</td><td>${esc(d.wave)}</td><td class="${chg('st')}">${c.st === 'running' ? '<span class="spin"></span> ' : ''}${c.st}</td><td class="${chg('dr')}" style="${w.length ? 'color:#c2410c;font-weight:600' : ''}">${esc(c.dr)}</td><td class="muted">${dur(m.now - m.since[d.id])}</td></tr>`; });
+  pendingCells = cells;
+  const runW = m.open.filter(w => !w.del);
+  const tail = m.seen.slice(-40).map(e => { const t = hm(Date.parse(e.at)), a = (e.actor === 'human' ? 'YOU' : e.actor).padEnd(14).slice(0, 14), d = (e.del || '').padEnd(13).slice(0, 13);
+    const k = e.wait?.open ? `<span class="r">WAIT  ${esc(e.wait.cause)}: ${esc(e.wait.why)}</span>` : e.actor === 'human' ? `<span class="h">${esc(e.kind)}${e.note ? '  ' + esc(e.note) : ''}</span>` : `${esc(e.kind)}${e.state ? ` <span class="g">→ ${esc(e.state)}</span>` : ''}${e.note ? ` <span class="d">${esc(e.note)}</span>` : ''}`;
+    return `<span class="d">${t}</span>  <span class="b">${esc(a)}</span> ${esc(d)} ${k}`; }).join('\n');
+  return `<pre class="log" style="white-space:pre-wrap;margin-bottom:12px"><span class="h"># Run ${esc(R.id)}</span>
+Started 2026-11-19. Decision authority: ${R.authority}.  Spec #${R.spec}, Tickets. Landing: ${R.landing}.
+Heartbeat: fc215603, 8 min.   Last Run Event: ${m.last ? hm(Date.parse(m.last.at)) + ' (' + dur(m.now - Date.parse(m.last.at)) + ' ago)' : 'none'}
+${m.open.length ? `<span class="r">WAITING ON YOU: ${m.open.length}</span>` : m.closed ? '<span class="g">RUN CLOSED</span>' : '<span class="g">nothing waits on you</span>'}${runW.map(w => `\n  <span class="r">run: ${esc(w.cause)}: ${esc(w.why)}  →  ${esc(w.how)}</span>`).join('')}</pre>
+  <div class="panel scroll"><table class="bmd"><tr><th>Delegation</th><th>Issue</th><th>Kind</th><th>Wave</th><th>State</th><th>Waits on you / Decision Requests</th><th>In state</th></tr>${rows.join('')}</table>
+  <div class="small muted" style="margin-top:6px">The board.md table, same columns and states (Executor, Handle, Branch, Pull request hidden here). A cell that just changed flashes.</div></div>
+  <div class="panel"><h2>tail -f events.jsonl</h2><pre class="log tail" id="tail">${tail}</pre></div>`;
+}
+let pendingCells = null;
+
+// Delivery sketch
+function vDel(){
+  return `<h1>How the link reaches you, and what it points at</h1><p class="muted">The same board, three ways to deliver it. Nothing leaves the machine unless you pick the third.</p>
+  <h3>At "go": the Chief of Staff's reply</h3>
+  <div class="grid2"><div class="chat"><div class="small muted">you</div><b>go</b><hr style="border:0;border-top:1px solid var(--line)"><div class="small muted">Chief of Staff</div>
+    Plan approved; spawning d348. I'll relay each Decision Request here.<br>
+    <b>Watch the run:</b> <a href="#">tmp/orchestrate/2026-11-19-spec-344/board.html</a> <span class="small muted">(opens in your browser; refreshes itself)</span></div>
+  <div class="chat"><div class="small muted">you</div><b>go autonomous, 2</b><hr style="border:0;border-top:1px solid var(--line)"><div class="small muted">Chief of Staff</div>
+    Running autonomously; I'll rule on Decision Requests and log each Ruling. What still needs you (card starts, writes as you, the merge) shows at the top of the board.<br>
+    <b>Watch the run:</b> <a href="#">http://127.0.0.1:47213/</a> <span class="small muted">· if it stops answering: <code>…/board.html</code></span></div></div>
+  <div class="grid3" style="margin-top:14px">
+   <div class="opt"><h2>1 · A page in the run folder</h2><div class="small muted">Generated file, <code>board.html</code> next to <code>board.md</code></div>
+    <p>The Chief of Staff writes <code>board.html</code> each time it rewrites <code>board.md</code> (whole, beside it, then rename: the same rule). The page carries its data inline and reloads itself every 15 s, keeping the variant and scroll in its URL. A <code>file://</code> page cannot read other files, so Delegations' own Run Events show only when the Chief of Staff next writes.</p>
+    <div class="pc"><div><b>For</b>Works on every harness and tier, with no process to keep alive. It survives a crashed Chief of Staff and shows "stale since 14:02". It stays in the gitignored run folder.</div><div><b>Against</b>It updates only when the Chief of Staff wakes (heartbeat, or a Delegation's turn end), so it can lag by a heartbeat. No push to your phone.</div></div></div>
+   <div class="opt"><h2>2 · A local server</h2><div class="small muted"><code>node …/orchestrate/scripts/board-serve.mjs &lt;run&gt;</code>, started at go</div>
+    <p>It serves the run folder read-only on <code>127.0.0.1</code>, watches <code>events.jsonl</code> files (the Chief of Staff's and each Delegation's), and pushes each new Run Event to the page (SSE). It updates to the second, including Delegations' own steps between the Chief of Staff's wake-ups.</p>
+    <div class="pc"><div><b>For</b>Truly live. The page can ask the browser to notify you when something starts waiting on you. Nothing leaves the machine (loopback only).</div><div><b>Against</b>It's a background process: it dies when the machine sleeps or the session ends, and the port can clash. Not on cloud harnesses. Needs a fallback, which is option 1.</div></div></div>
+   <div class="opt"><h2>3 · Hosted</h2><div class="small muted">Run Events pushed to a sink, or the Team Run's Shared Board</div>
+    <p>It uploads only the redacted Run Event fields (ids, kinds, causes, states), never the prose, to the private Run Record sink as <code>live/&lt;run&gt;.jsonl</code>, and a hosted page reads it. In a Team Run, the Shared Board on the tracker already shows each teammate's rows, so the live board can link to it rather than copy it.</p>
+    <div class="pc"><div><b>For</b>Opens on your phone, and for teammates. It's the same data the Run Record will carry anyway.</div><div><b>Against</b>It leaves the machine, so it needs the disclosure and an opt-in (approved in the Dispatch Plan). It means a write on every event, with rate limits and lag.</div></div></div></div>
+  <div class="panel" style="margin-top:14px"><h2>What the prototype found</h2><ol>
+    <li><b>A card start has no state.</b> On the desktop harness a refused start leaves the row at <code>planned</code> while the run is stuck on your click (d350–d353, d344-fix1: up to 17 min). The board needs the wait as a Run Event (<code>wait-opened</code> with cause <code>harness-limit</code> and the card's id), or a state such as <code>waiting to start</code>.</li>
+    <li><b>Waits need an open and a close event</b> (<code>wait.id</code>), not one "human step" written after the fact, so the board can show <i>how long</i> something has waited while it's still waiting. The close is the touch the Run Record counts.</li>
+    <li><b>A wait often isn't tied to a Delegation</b> (plan approval, review label, posting replies, merge, close-out). The board needs a run-level row for them.</li>
+    <li><b>Each wait needs a <code>how</code></b>: where you answer it (the chat, a card id, GitHub). That's what makes "why it waits" useful from another window.</li>
+    <li><b>Staleness has to show.</b> In option 1 the page can't tell a quiet run from a dead Chief of Staff; it compares the last Run Event with the heartbeat interval.</li></ol></div>`;
+}
+
+// ---------- render loop ----------
+let prevHTML = '', lastRects = {};
+function render(force){
+  const m = fold(now);
+  document.getElementById('crumb').textContent = R.id;
+  document.getElementById('clock').textContent = hm(now) + (m.closed ? ' · closed' : '');
+  document.getElementById('livetxt').textContent = m.closed ? 'run closed' : 'updated ' + (m.last ? dur(now - Date.parse(m.last.at)) + ' ago' : '—');
+  document.querySelector('#live .dot').classList.toggle('off', m.closed);
+  document.getElementById('vlabel').textContent = `${V === 'delivery' ? '·' : V} (${VARIANTS[V]})`;
+  document.title = (m.open.length ? `(${m.open.length}) waiting · ` : '') + 'spec-344 live';
+  fav(m.open.length);
+  notify(m);
+  const html = V === 'A' ? vA(m) : V === 'B' ? vB(m) : V === 'C' ? vC(m) : V === 'D' ? vD(m) : vDel();
+  if (html === prevHTML && !force) return;
+  const app = document.getElementById('app');
+  const before = {}; app.querySelectorAll('.card[data-id]').forEach(c => before[c.dataset.id] = { r: c.getBoundingClientRect(), col: c.parentElement.querySelector('h3')?.textContent });
+  app.innerHTML = html; prevHTML = html;
+  if (V === 'D' && pendingCells){ setTimeout(() => { prevCells = pendingCells; }, 2500); }
+  // FLIP: a card that changed column slides from where it was
+  app.querySelectorAll('.card[data-id]').forEach(c => { const b = before[c.dataset.id]; if (!b) return; const a = c.getBoundingClientRect(); const dx = b.r.left - a.left, dy = b.r.top - a.top;
+    if (Math.abs(dx) > 30){ c.style.transform = `translate(${dx}px,${dy}px)`; c.style.transition = 'none'; requestAnimationFrame(() => { c.style.transition = 'transform .7s cubic-bezier(.2,.8,.2,1)'; c.style.transform = ''; c.classList.add('flash'); }); }
+    else if (Math.abs(dy) > 1){ c.style.transform = `translateY(${dy}px)`; requestAnimationFrame(() => { c.style.transition = 'transform .3s'; c.style.transform = ''; }); } });
+  const s = document.getElementById('seen'); if (s) s.onclick = () => { lastSeenCount = m.seen.length; prevHTML = ''; };
+  const tl = document.getElementById('tail'); if (tl) tl.scrollTop = tl.scrollHeight;
+}
+let favN = -1; function fav(n){ if (n === favN) return; favN = n; const c = document.createElement('canvas'); c.width = c.height = 32; const x = c.getContext('2d');
+  x.fillStyle = n ? '#f76707' : '#2b8a3e'; x.beginPath(); x.arc(16, 16, 14, 0, 7); x.fill(); if (n){ x.fillStyle = '#fff'; x.font = 'bold 20px system-ui'; x.textAlign = 'center'; x.fillText(n, 16, 23); } document.getElementById('fav').href = c.toDataURL(); }
+let notified = new Set(); function notify(m){ m.open.forEach(w => { if (notified.has(w.id)) return; notified.add(w.id); if (lastSeenCount === 0 && m.seen.length < 4) return;
+  const t = document.getElementById('toast'); t.innerHTML = `<b>Waiting on you</b> · ${esc(w.why)}<div style="opacity:.7;font-size:12px">${esc(w.how)}</div><div style="opacity:.5;font-size:11px;margin-top:4px">(a browser notification, in option 2)</div>`; t.classList.add('on'); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('on'), 4000); }); }
+document.addEventListener('visibilitychange', () => { if (document.hidden) lastSeenCount = fold(now).seen.length; });
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>
