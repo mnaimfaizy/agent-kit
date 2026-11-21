@@ -1,7 +1,8 @@
 // The relay and the probe of a Deep scan on Docker Engine (#404). This file
 // runs inside a launcher-owned container, never in the launcher: the
-// launcher stages a copy, checks it against its pinned SHA-256 (relay.mjs),
-// and mounts it read-only into the official node image. Node core only.
+// launcher checks its bytes against its pinned SHA-256 (relay.mjs) and
+// builds them into an image from the official node image, its build context
+// sent on stdin. Node core only.
 //
 //   forward <listen-port> <host> <port>
 //     Accept TCP on <listen-port>, the one port it listens on, and pipe each

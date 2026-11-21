@@ -55,7 +55,7 @@ import {
   RELAY_IMAGE,
   RELAY_SCRIPT_FILE,
   RELAY_SCRIPT_SHA256,
-  stageRelayScript,
+  relayBuildContext,
 } from "../cli/src/deep-scan/relay.mjs";
 import { StepFailed } from "../cli/src/deep-scan/steps.mjs";
 import { ENV_TEMPLATES } from "../cli/src/deep-scan/preflight.mjs";
@@ -1515,6 +1515,7 @@ describe("the sandbox lifecycle runs in order on the chosen runtime", () => {
       "network inspect",
       "network create",
       "network inspect",
+      "build",
       "run",
       "inspect",
       "run",
@@ -1544,6 +1545,7 @@ describe("the sandbox lifecycle runs in order on the chosen runtime", () => {
       "rm",
       "rm",
       "network rm",
+      "image",
       "network rm",
       "network rm",
       "image",
@@ -1556,7 +1558,7 @@ describe("the sandbox lifecycle runs in order on the chosen runtime", () => {
     assert.match(scripts[1], /\nnpm run start &$/);
     assert.equal(scripts[2], "curl --fail http://localhost:3000/health");
     assert.equal(scripts[3], "npm run seed");
-    assert.ok(isAgentStep(calls[27]));
+    assert.ok(isAgentStep(calls[28]));
   });
 
   it("writes the copied-out report to a private folder and says where", async () => {
@@ -1624,10 +1626,7 @@ describe("the repository is copied in, never mounted, and only the listed inputs
     assert.equal(res.code, 0, res.text);
     const banned = ["-v", "--volume", "--mount", "--privileged", "--env-file", "--volumes-from"];
     for (const args of lifecycle(res)) {
-      // A relay or a probe mounts the staged relay script alone (#404).
-      const launcherOwned = args[0] === "run" && !args.includes("--init");
       for (const a of args) {
-        if (launcherOwned && a === "--mount") continue;
         assert.ok(!banned.includes(a), `docker ${args.join(" ")} uses ${a}`);
         assert.doesNotMatch(a, /docker\.sock|\/home\/me|\.ssh|\.aws|gcloud|AWS_PROFILE/);
       }
@@ -1880,6 +1879,7 @@ describe("a failing setup, start or ready step ends the run before the agent ste
         "rm",
         "rm",
         "rm",
+        "image",
         "network rm",
         "network rm",
         "image",
@@ -1979,6 +1979,7 @@ describe("teardown runs on success, failure and interrupt", () => {
       ["rm", "--force", "--volumes", `${t.container}-probe-setup`],
       ["rm", "--force", "--volumes", `${t.container}-relay-setup`],
       ["network", "rm", t.modelNet],
+      ["image", "rm", "--force", `${t.container}-relay`],
       ["network", "rm", t.net],
       ["network", "rm", `${t.container}-host`],
       ["image", "rm", "--force", t.image],
@@ -1991,7 +1992,7 @@ describe("teardown runs on success, failure and interrupt", () => {
     const res = await run(recipeRepo(VALID), [], { host });
     assert.equal(res.code, 1, res.text);
     assert.match(res.err, /The agent step exited 2/);
-    assert.equal(teardownOf(res).calls.length, 9);
+    assert.equal(teardownOf(res).calls.length, 10);
   });
 
   it("removes the container even when starting it failed", async () => {
@@ -2003,6 +2004,7 @@ describe("teardown runs on success, failure and interrupt", () => {
       "rm",
       "rm",
       "rm",
+      "image",
       "network rm",
       "network rm",
       "image",
@@ -2036,6 +2038,7 @@ describe("teardown runs on success, failure and interrupt", () => {
         "rm",
         "rm",
         "network rm",
+        "image",
         "network rm",
         "network rm",
         "image",
@@ -2052,7 +2055,7 @@ describe("teardown runs on success, failure and interrupt", () => {
     assert.equal(res.code, 130, res.text);
     assert.doesNotMatch(res.err, /FAILED/);
     assert.ok(!lifecycle(res).some(isAgentStep));
-    assert.equal(removed(lifecycle(res)).length, 6);
+    assert.equal(removed(lifecycle(res)).length, 7);
   });
 
   it("tears down on an interrupt during setup, before the agent step", async () => {
@@ -2067,7 +2070,7 @@ describe("teardown runs on success, failure and interrupt", () => {
     });
     assert.equal(res.code, 130, res.text);
     assert.ok(!lifecycle(res).some(isAgentStep));
-    assert.equal(removed(lifecycle(res)).length, 6);
+    assert.equal(removed(lifecycle(res)).length, 7);
   });
 
   it("says what it could not remove, and exits 1", async () => {
@@ -2080,7 +2083,7 @@ describe("teardown runs on success, failure and interrupt", () => {
       res.err,
       /TEARDOWN {2}could not remove:\n {2}- network agent-kit-deep-[0-9a-f]+-model: Error: network has active endpoints\n {2}- network agent-kit-deep-[0-9a-f]+: Error/,
     );
-    assert.equal(removed(lifecycle(res)).length, 9, "it still tries every resource");
+    assert.equal(removed(lifecycle(res)).length, 10, "it still tries every resource");
   });
 });
 
@@ -2943,6 +2946,7 @@ describe("the agent step runs the real Claude Code, with only a placeholder key 
       "network inspect",
       "network create",
       "network inspect",
+      "build",
       "run",
       "inspect",
       "run",
@@ -2972,6 +2976,7 @@ describe("the agent step runs the real Claude Code, with only a placeholder key 
       "rm",
       "rm",
       "network rm",
+      "image",
       "network rm",
       "network rm",
       "image",
@@ -3506,6 +3511,7 @@ describe("a limit that fires stops the run, marks the report Stopped:, and still
       "rm",
       "rm",
       "network rm",
+      "image",
       "network rm",
       "network rm",
       "image",
@@ -3532,6 +3538,7 @@ describe("a limit that fires stops the run, marks the report Stopped:, and still
       "rm",
       "rm",
       "rm",
+      "image",
       "network rm",
       "network rm",
       "image",
@@ -3553,7 +3560,7 @@ describe("a limit that fires stops the run, marks the report Stopped:, and still
     assert.match(res.out, /Stopped: turns \(Claude Code's 7-turn limit\)\. Copying out/);
     assert.ok(reportOf(res).includes("- **Finding count:** 1\n- **Stopped:** turns\n"));
     assert.doesNotMatch(res.text, /The agent step exited/);
-    assert.equal(removed(lifecycle(res)).length, 9);
+    assert.equal(removed(lifecycle(res)).length, 10);
   });
 
   it("the agent script prints the turn signal only from Claude Code's error output", async () => {
@@ -3639,7 +3646,7 @@ describe("a limit that fires stops the run, marks the report Stopped:, and still
       assert.match(res.err, /Stopped: tokens \(the run's 10-token cap\)/);
       assert.match(res.out, /counted 16 of the 10-token cap, and refused 1 request\(s\) past it/);
       assert.ok(reportOf(res).includes("- **Finding count:** 1\n- **Stopped:** tokens\n"));
-      assert.equal(removed(lifecycle(res)).length, 9);
+      assert.equal(removed(lifecycle(res)).length, 10);
     } finally {
       await api.close();
     }
@@ -3665,7 +3672,7 @@ describe("a limit that fires stops the run, marks the report Stopped:, and still
     );
     assert.deepEqual(readdirSync(res.reportDir), []);
     assert.doesNotMatch(res.text, /FAILED|Report: /);
-    assert.equal(removed(lifecycle(res)).length, 9);
+    assert.equal(removed(lifecycle(res)).length, 10);
   });
 
   it("removes a Stopped: line the agent wrote itself, when no limit fired", async () => {
@@ -5627,7 +5634,7 @@ const ISOLATED_OPTS = [
   "com.docker.network.bridge.gateway_mode_ipv6=isolated",
 ];
 /** What a probe or relay runs: the staged script and its arguments, after the image. */
-const scriptArgs = (a) => a.slice(a.indexOf(RELAY_IMAGE) + 1);
+const scriptArgs = (a) => a.slice(a.indexOf("/agent-kit/relay.mjs"));
 /** The host-side proxy port a relay forwards to. */
 const relayPort = (a) => scriptArgs(a).at(-1);
 
@@ -5672,16 +5679,13 @@ describe("Docker Engine: the sandbox's only route to the host is a relay on an i
       assert.deepEqual(flagValues(relay, "--label"), [
         flagValues(calls.find(isSandboxRun), "--label")[0],
       ]);
-      assert.ok(relay.includes(RELAY_IMAGE), line);
+      // The relay image the launcher built: the pinned node image and the script.
+      assert.equal(relay[relay.indexOf("/agent-kit/relay.mjs") - 1], `${name}-relay`, line);
       assert.ok(
         !relay.some((a) => /^(-p|--publish|--privileged|-v|--volume|--env|-e|--cap-add)$/.test(a)),
         line,
       );
-      const [mount] = flagValues(relay, "--mount");
-      assert.match(
-        mount,
-        /^type=bind,source=.+relay\.mjs,target=\/agent-kit\/relay\.mjs,readonly$/,
-      );
+      assert.deepEqual(flagValues(relay, "--mount"), [], "no host path is mounted");
       // One TCP port, forwarded to the host-side proxy on the host network's gateway.
       const [script, mode, listen, host, port] = scriptArgs(relay);
       assert.deepEqual([script, mode, host], ["/agent-kit/relay.mjs", "forward", "127.0.0.1"]);
@@ -5729,6 +5733,47 @@ describe("Docker Engine: the sandbox's only route to the host is a relay on an i
       /FAILED {2}the relays' host network has no IPv4 gateway address to put a proxy on\./,
     );
     assert.ok(!lifecycle(res).some(isSandboxRun));
+  });
+
+  it("builds the relay image once, on stdin, from the pinned node image and the checked script", async () => {
+    const res = await run(recipeRepo(VALID));
+    assert.equal(res.code, 0, res.text);
+    const calls = lifecycle(res);
+    const name = containerOf(calls);
+    const isRelayBuild = (a) => a[0] === "build" && flagValues(a, "--tag")[0] === `${name}-relay`;
+    const builds = calls.filter(isRelayBuild);
+    assert.equal(builds.length, 1, calls.map((a) => a.join(" ")).join("\n"));
+    assert.equal(builds[0].at(-1), "-", "the context comes on stdin, not from a host folder");
+    assert.deepEqual(flagValues(builds[0], "--label"), [
+      flagValues(calls.find(isSandboxRun), "--label")[0],
+    ]);
+    const context = tarEntries(stdinOf(res, isRelayBuild));
+    assert.deepEqual(
+      context.map((e) => e.name),
+      ["Dockerfile", "relay.mjs"],
+    );
+    assert.equal(
+      context[0].data.toString("utf8"),
+      `FROM ${RELAY_IMAGE}\nCOPY relay.mjs /agent-kit/relay.mjs\n`,
+    );
+    assert.deepEqual(context[1].data, readFileSync(RELAY_SCRIPT_FILE));
+    // Built before the first relay, and every relay and probe runs it.
+    assert.ok(calls.findIndex(isRelayBuild) < calls.findIndex((a) => relayRuns([a]).length));
+    for (const a of [...relayRuns(calls), ...probeRuns(calls)]) {
+      assert.equal(a[a.indexOf("/agent-kit/relay.mjs") - 1], `${name}-relay`);
+    }
+  });
+
+  it("ends the run before the target starts when the relay image cannot be built", async () => {
+    const host = gvisorWith({
+      "~-relay -": { status: 1, stderr: "pull access denied\n" },
+    });
+    const res = await run(recipeRepo(VALID), [], { host });
+    assert.equal(res.code, 1, res.text);
+    assert.match(res.err, /FAILED {2}building the relay image: pull access denied/);
+    const calls = lifecycle(res);
+    assert.ok(!calls.some(isSandboxRun));
+    assert.equal(relayRuns(calls).length, 0);
   });
 
   it("never gives a relay or a probe the model credential", async () => {
@@ -5946,6 +5991,7 @@ describe("Docker Engine: the sandbox's only route to the host is a relay on an i
       ["rm", "--force", "--volumes", `${name}-probe-setup`],
       ["rm", "--force", "--volumes", `${name}-relay-setup`],
       ["network", "rm", `${name}-model`],
+      ["image", "rm", "--force", `${name}-relay`],
       ["network", "rm", name],
       ["network", "rm", `${name}-host`],
       ["image", "rm", "--force", build[build.indexOf("--tag") + 1]],
@@ -5962,7 +6008,7 @@ describe("Docker Engine: the sandbox's only route to the host is a relay on an i
     const name = flagValues(relayRuns(calls)[0], "--name")[0].replace(/-relay-setup$/, "");
     assert.deepEqual(
       removed(calls).map((a) => a.at(-1)),
-      [`${name}-relay-setup`, name, `${name}-host`, name],
+      [`${name}-relay-setup`, `${name}-relay`, name, `${name}-host`, name],
     );
   });
 
@@ -5983,7 +6029,7 @@ describe("Docker Engine: the sandbox's only route to the host is a relay on an i
     assert.ok(!calls.some(isSandboxRun));
     assert.deepEqual(
       removed(calls).map((a) => a.at(-1).replace(/^agent-kit-deep-[0-9a-f]+/, "")),
-      ["-probe-setup", "-relay-setup", "", "-host", ""],
+      ["-probe-setup", "-relay-setup", "-relay", "", "-host", ""],
     );
   });
 
@@ -6056,7 +6102,7 @@ describe("the docs say what is now true of the route to the host (#404)", () => 
   });
 });
 
-describe("the relay script: staged, digest-checked, Node core only (#404)", () => {
+describe("the relay script: digest-checked, built in, Node core only (#404)", () => {
   const source = () => readFileSync(RELAY_SCRIPT_FILE);
 
   it("is pinned by its SHA-256, and the image by its digest", () => {
@@ -6072,14 +6118,16 @@ describe("the relay script: staged, digest-checked, Node core only (#404)", () =
     assert.equal(text.match(/\.listen\(/g)?.length, 1);
   });
 
-  it("stages a private copy and checks its digest, and removes it", () => {
-    const staged = stageRelayScript();
-    try {
-      assert.deepEqual(readFileSync(staged.file), source());
-    } finally {
-      staged.remove();
-    }
-    assert.ok(!existsSync(staged.file));
+  it("puts the checked bytes in the relay image's build context", () => {
+    const context = tarEntries(relayBuildContext());
+    assert.deepEqual(
+      context.map((e) => [e.name, e.type]),
+      [
+        ["Dockerfile", "0"],
+        ["relay.mjs", "0"],
+      ],
+    );
+    assert.deepEqual(context[1].data, source());
   });
 
   it("refuses a script that does not match its pinned digest", () => {
@@ -6087,7 +6135,7 @@ describe("the relay script: staged, digest-checked, Node core only (#404)", () =
     const tampered = join(dir, "relay.mjs");
     writeFileSync(tampered, `${source().toString("utf8")}\n// changed\n`);
     assert.throws(
-      () => stageRelayScript({ source: tampered }),
+      () => relayBuildContext({ source: tampered }),
       (e) =>
         e instanceof StepFailed &&
         /FAILED {2}the relay script does not match its pinned SHA-256/.test(e.lines.join("\n")),

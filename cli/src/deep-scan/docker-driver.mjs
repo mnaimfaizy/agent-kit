@@ -32,10 +32,9 @@ import { startEgressProxy } from "./egress.mjs";
 import {
   OTHER_HOST_PORT,
   probeFailure,
-  RELAY_IMAGE,
   RELAY_SCRIPT_PATH,
   relayOptions,
-  stageRelayScript,
+  relayBuildContext,
 } from "./relay.mjs";
 import { failed, must, StepFailed, ENDS_HERE } from "./steps.mjs";
 import { singleFileOf } from "./tar.mjs";
@@ -73,8 +72,8 @@ export function dockerDriver({ runtime, id, call }) {
   /** The ordinary bridge network the relays reach the host on, and its gateway. */
   let hostNetwork = null;
   let hostGateway = null;
-  /** The staged relay script, once a relay or a probe needs it. */
-  let staged = null;
+  /** The relay image, once built. */
+  let relayImage = null;
 
   return {
     container: name,
@@ -234,12 +233,6 @@ export function dockerDriver({ runtime, id, call }) {
       }
     },
 
-    /** Remove the staged relay script. */
-    cleanup() {
-      staged?.remove();
-      staged = null;
-    },
-
     /**
      * The commands that remove every resource asked for: the sandbox first,
      * then the relays and probes (a network still in use cannot be removed),
@@ -372,10 +365,21 @@ export function dockerDriver({ runtime, id, call }) {
     }
   }
 
-  /** The staged relay script's path on the host, staged once. */
-  function relayScript() {
-    staged ??= stageRelayScript();
-    return staged.file;
+  /**
+   * The relay image, built once from the pinned node image and the
+   * digest-checked relay script, its context sent on stdin.
+   */
+  async function ensureRelayImage() {
+    if (relayImage) return relayImage;
+    const context = relayBuildContext();
+    relayImage = `${name}-relay`;
+    resources.push(["image", relayImage]);
+    must(
+      await docker(["build", "--label", label, "--tag", relayImage, "-"], { stdin: context }),
+      "building the relay image",
+      { showOutput: true },
+    );
+    return relayImage;
   }
 
   /**
@@ -385,7 +389,7 @@ export function dockerDriver({ runtime, id, call }) {
    */
   async function startRelay(phase, net, port) {
     const relay = `${name}-relay-${phase}`;
-    const options = relayOptions(relayScript());
+    const image = await ensureRelayImage();
     resources.push(["container", relay]);
     must(
       await docker([
@@ -400,8 +404,8 @@ export function dockerDriver({ runtime, id, call }) {
         `name=${hostNetwork},gw-priority=1`,
         "--network",
         net,
-        ...options,
-        RELAY_IMAGE,
+        ...relayOptions(),
+        image,
         RELAY_SCRIPT_PATH,
         "forward",
         String(port),
@@ -432,7 +436,7 @@ export function dockerDriver({ runtime, id, call }) {
    */
   async function probe(phase, net, relay, port, what) {
     const container = `${name}-probe-${phase}`;
-    const options = relayOptions(relayScript());
+    const image = await ensureRelayImage();
     const gateway = [
       [hostGateway, port],
       [hostGateway, OTHER_HOST_PORT],
@@ -448,8 +452,8 @@ export function dockerDriver({ runtime, id, call }) {
         label,
         "--network",
         net,
-        ...options,
-        RELAY_IMAGE,
+        ...relayOptions(),
+        image,
         RELAY_SCRIPT_PATH,
         "probe",
         relay,

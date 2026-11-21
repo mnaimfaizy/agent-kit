@@ -1,6 +1,7 @@
 // The relay and the probe on Docker Engine (#404), from the launcher's side:
-// the pinned image they run on, the relay script staged for them and checked
-// against its pinned SHA-256, and the reading of a probe's answer.
+// the pinned image their image is built from, the relay script built into
+// it and checked against its pinned SHA-256, and the reading of a probe's
+// answer.
 //
 // On Docker Engine the sandbox's networks are `--internal` with the
 // `isolated` gateway mode (Docker 28.0 and later), so the host has no
@@ -11,22 +12,21 @@
 // and the key is added in the host-side proxy.
 
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { ENDS_HERE, StepFailed } from "./steps.mjs";
+import { tarOf } from "./tar.mjs";
 
-/** The official node image the relay and the probe run on, pinned by digest. */
+/** The official node image the relay image is built from, pinned by digest. */
 export const RELAY_IMAGE =
   "node:24.22.3-alpine3.24@sha256:116b800c3754b440ee0aa3ed2f20f5bf3d99a554bfd9adeea09ea8017f6e85f5";
 
 /** The relay script as it ships, and its pinned SHA-256. */
 export const RELAY_SCRIPT_FILE = fileURLToPath(new URL("./relay-script.mjs", import.meta.url));
 export const RELAY_SCRIPT_SHA256 =
-  "dd9b2857a9d186d003faeaed9d22ad0f3cca6456d7b4e3f7d93d6d1df9be5eaf";
+  "3917f9338e7e37555e914056474a9dbfc725c85a1d1d280a0596667103666e3e";
 
-/** Where the relay and the probe find the staged script. */
+/** Where the relay and the probe find the script, in the relay image. */
 export const RELAY_SCRIPT_PATH = "/agent-kit/relay.mjs";
 
 /** The port the probe tries on the host besides the proxy's: sshd's, often on all interfaces. */
@@ -40,33 +40,33 @@ const mismatch = (what) =>
     ENDS_HERE,
   ]);
 
+/** The relay image's Dockerfile: the pinned node image, and the script copied in. */
+export const RELAY_DOCKERFILE = `FROM ${RELAY_IMAGE}\nCOPY relay.mjs ${RELAY_SCRIPT_PATH}\n`;
+
 /**
- * Copy the relay script to a private folder and check the copy against its
- * pinned SHA-256, so what the containers mount is what was checked.
+ * The relay image's build context, for `docker build -` on stdin: its
+ * Dockerfile and the relay script, whose bytes are checked against the
+ * pinned SHA-256 first, so what goes into the image is what was checked.
+ * No host path is mounted into a container: a daemon with its own private
+ * /tmp, such as snap Docker, could not see one.
  * @param {{ source?: string }} [opts]
- * @returns {{ file: string, remove: () => void }}
+ * @returns {Buffer}
  */
-export function stageRelayScript({ source = RELAY_SCRIPT_FILE } = {}) {
+export function relayBuildContext({ source = RELAY_SCRIPT_FILE } = {}) {
   const data = readFileSync(source);
   if (sha256(data) !== RELAY_SCRIPT_SHA256) throw mismatch(source);
-  const dir = mkdtempSync(join(tmpdir(), "agent-kit-relay-"));
-  const file = join(dir, "relay.mjs");
-  // Readable by the container's unprivileged user; the folder stays private.
-  writeFileSync(file, data, { mode: 0o444 });
-  if (sha256(readFileSync(file)) !== RELAY_SCRIPT_SHA256) {
-    rmSync(dir, { recursive: true, force: true });
-    throw mismatch("its staged copy");
-  }
-  return { file, remove: () => rmSync(dir, { recursive: true, force: true }) };
+  return tarOf([
+    { path: "Dockerfile", data: Buffer.from(RELAY_DOCKERFILE, "utf8") },
+    { path: "relay.mjs", data },
+  ]);
 }
 
 /**
  * The `docker run` options a relay or a probe container shares: no
  * capabilities, a read-only root filesystem, no new privileges, an
- * unprivileged user, small limits, and the staged script mounted read-only.
- * @param {string} staged the staged script's path on the host
+ * unprivileged user and small limits. The script is in the image.
  */
-export function relayOptions(staged) {
+export function relayOptions() {
   return [
     "--read-only",
     "--cap-drop",
@@ -79,8 +79,6 @@ export function relayOptions(staged) {
     "64",
     "--memory",
     "128m",
-    "--mount",
-    `type=bind,source=${staged},target=${RELAY_SCRIPT_PATH},readonly`,
     "--entrypoint",
     "node",
   ];
