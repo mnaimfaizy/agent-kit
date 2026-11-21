@@ -125,7 +125,7 @@ A `security-audit` run that also builds, runs and probes the repository's own co
 _Avoid_: pen test, dynamic audit, DAST
 
 **Verification run**:
-A confirm-only Deep scan, run locally on the maintainer's own branch or a reviewed branch of the advisory's private fork, that re-attempts the Reproduction of known findings to check whether a fix holds; its report never leaves the machine.
+A confirm-only Deep scan, run locally with `agent-kit deep-scan --verify <file> --ref <ref>` on the maintainer's own branch or a reviewed branch of the advisory's private fork, that re-attempts the Reproduction of known findings to check whether a fix holds. The finding file goes into the sandbox with the agent's brief, after the network cut; its report never leaves the machine.
 _Avoid_: retest, regression scan
 
 **Reproduction**:

@@ -23,7 +23,7 @@ Outcome shape: [OUTCOME-FORMAT.md](OUTCOME-FORMAT.md)
 ## Process
 
 1. Identify target finding (`concept-id` preferred).
-2. Verify the current code path still matches the claim.
+2. Verify the current code path still matches the claim. For a finding from a deep scan, read its `Reproduced` value and Observation as evidence. Triage stays static: never build, run or probe the code to re-check them. Re-attempting a Reproduction on a fix is a Verification run, which the maintainer starts with the `agent-kit deep-scan` launcher, not this skill.
 3. Decide outcome:
    - `confirmed`
    - `rejected`

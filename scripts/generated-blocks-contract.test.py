@@ -21,13 +21,18 @@ from gen_doc_blocks import DOC_PAGES, DOC_TREES, FIX_COMMAND  # noqa: E402 - nee
 GENERATOR = ROOT / "scripts" / "gen_doc_blocks.py"
 # Every Doc fact's source, copied with the docs so the copy can be regenerated.
 # cli/src/tags.mjs, imported by init.mjs, reads cli/package.json when it loads.
+# cli/src holds the deep-scan facts' sources too: limits.mjs and recipe.mjs.
 FACT_SOURCES = [".github/agent-review-response", "cli/src", "cli/package.json"]
 REVIEW_RESPONSE_SCRIPT = Path(".github/agent-review-response/review-response.mjs")
 INIT_SCRIPT = Path("cli/src/init.mjs")
+LIMITS_SCRIPT = Path("cli/src/deep-scan/limits.mjs")
+RECIPE_SCRIPT = Path("cli/src/deep-scan/recipe.mjs")
 PROTECTED_BLOCK = "review-response-protected-paths"
 LABELS_BLOCK = "trigger-labels"
 KILL_SWITCH_BLOCK = "stage-kill-switches"
 MODEL_BLOCK = "stage-model-and-effort"
+LIMITS_BLOCK = "deep-scan-limits"
+RECIPE_FIELDS_BLOCK = "deep-scan-recipe-fields"
 PIPELINE_CALLER = Path("examples/plan-implement-review-caller.yml")
 RESPONSE_CALLER = Path("examples/review-response-caller.yml")
 # Each fact this test names, and the pages that hold its block.
@@ -36,6 +41,8 @@ BLOCK_PAGES = {
     LABELS_BLOCK: ["docs/getting-started.md", "CONTRIBUTING.md"],
     KILL_SWITCH_BLOCK: ["docs/getting-started.md"],
     MODEL_BLOCK: ["docs/getting-started.md"],
+    LIMITS_BLOCK: ["docs/security-audit.md"],
+    RECIPE_FIELDS_BLOCK: ["docs/security-audit.md"],
 }
 
 
@@ -273,3 +280,47 @@ if __name__ == "__main__":
     test_an_empty_source_list_is_rendered_not_a_crash()
     test_a_marker_problem_stops_the_write_before_any_page_changes()
     print("generated-blocks-contract tests passed")
+
+
+def test_the_deep_scan_blocks_hold_the_code_defaults_and_fields() -> None:
+    limits = " ".join(block(LIMITS_BLOCK, "docs/security-audit.md").split())
+    assert "| Scan wall clock | 60 min | 15 min | `--scan-minutes <n>` |" in limits, limits
+    assert "| Tokens | 5,000,000 for the run | 5,000,000 for the run | `--max-tokens <n>` |" in limits, limits
+    fields = " ".join(block(RECIPE_FIELDS_BLOCK, "docs/security-audit.md").split())
+    assert "| `entry_points` | yes, at least one | Each one of `url` (http or https), `port`" in fields, fields
+
+
+def test_a_changed_deep_scan_limit_without_regenerating_fails() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = copy_repo(Path(tmp))
+        edit(root / LIMITS_SCRIPT, "  scanMinutes: 60,\n", "  scanMinutes: 90,\n")
+
+        result = check(root)
+
+    assert result.returncode == 1, f"--check passed after a deep-scan limit changed:\n{result.stdout}"
+    assert f"docs/security-audit.md: generated:{LIMITS_BLOCK} is stale" in result.stderr, result.stderr
+    assert RECIPE_FIELDS_BLOCK not in result.stderr, f"only the limits block should be named:\n{result.stderr}"
+
+
+def test_a_reordered_recipe_field_without_regenerating_fails() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = copy_repo(Path(tmp))
+        edit(root / RECIPE_SCRIPT, '  "start",\n  "ready",\n', '  "ready",\n  "start",\n')
+
+        result = check(root)
+
+    assert result.returncode == 1, f"--check passed after the recipe fields were reordered:\n{result.stdout}"
+    assert f"docs/security-audit.md: generated:{RECIPE_FIELDS_BLOCK} is stale" in result.stderr, result.stderr
+    assert LIMITS_BLOCK not in result.stderr, f"only the field block should be named:\n{result.stderr}"
+
+
+def test_a_new_recipe_field_with_no_description_fails_and_names_it() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = copy_repo(Path(tmp))
+        edit(root / RECIPE_SCRIPT, '  "notes",\n];', '  "notes",\n  "services",\n];')
+
+        result = check(root)
+
+    assert result.returncode == 1, f"--check passed with an undescribed recipe field:\n{result.stdout}"
+    assert "Traceback" not in result.stderr, result.stderr
+    assert "services" in result.stderr and "scripts/gen_doc_blocks.py" in result.stderr, result.stderr

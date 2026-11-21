@@ -144,7 +144,8 @@ def _stage(settings: dict, where: str) -> Stage:
                 " vars.NAME != 'true' or vars.NAME == 'false', joined by ||"
             )
         switch.append((match.group(1), match.group(2) == "!="))
-    model, effort = _fallback(settings, "model", where), _fallback(settings, "effort", where)
+    model = _fallback(settings, "model", where)
+    effort = _fallback(settings, "effort", where)
     token = OWN_MODEL.fullmatch(model.variables[0])
     if not token:
         raise SystemExit(f"{where}: model should read the Stage's own CLAUDE_<STAGE>_MODEL first")
@@ -196,7 +197,8 @@ def stage_model_and_effort(sources: Sources) -> str:
     stages = sources.stages
     # Every Stage reads its own variable, then the same shared ones, then the same default.
     for setting in ("model", "effort"):
-        tails = {(getattr(stage, setting).variables[1:], getattr(stage, setting).default) for stage in stages}
+        chains = [getattr(stage, setting) for stage in stages]
+        tails = {(chain.variables[1:], chain.default) for chain in chains}
         if len(tails) > 1:
             raise SystemExit(
                 f"The example Callers' {setting} settings fall back differently ({sorted(map(str, tails))});"
@@ -209,11 +211,14 @@ def stage_model_and_effort(sources: Sources) -> str:
     def default(fallback: Fallback) -> str:
         return f"`{fallback.default}`" if fallback.default else "none"
 
-    rows = [[stage.name, f"`{stage.model.variables[0]}`", f"`{stage.effort.variables[0]}`"] for stage in stages]
+    def own(fallback: Fallback) -> str:
+        return f"`{fallback.variables[0]}`"
+
+    rows = [[stage.name, own(stage.model), own(stage.effort)] for stage in stages]
     if stages:
-        first = stages[0]
-        rows.append(["any Stage above", shared(first.model), shared(first.effort)])
-        rows.append(["neither set", default(first.model), default(first.effort)])
+        model, effort = stages[0].model, stages[0].effort
+        rows.append(["any Stage above", shared(model), shared(effort)])
+        rows.append(["neither set", default(model), default(effort)])
     return _table(["Stage", "Model", "Effort"], rows)
 
 
@@ -233,12 +238,87 @@ def trigger_labels(sources: Sources) -> str:
     return "\n".join(["```bash", *lines, "```"])
 
 
+# How the Limits table names each limit in cli/src/deep-scan/limits.mjs, and what enforces it.
+DEEP_SCAN_LIMITS = {
+    "setupMinutes": ("Setup wall clock", "`deep-scan`, from the image step until the agent step starts"),
+    "scanMinutes": ("Scan wall clock", "`deep-scan`, over the agent step"),
+    "turns": ("Turns", "`deep-scan`'s own `--max-turns` on the Claude Code command line"),
+    "tokens": ("Tokens", "the model proxy on your machine, which counts the `usage` the model API returns"),
+}
+
+
+def _missing_prose(kind: str, have: list[str], described: dict) -> None:
+    """Stop when the code's list and this script's prose for it differ: new names need words."""
+    if sorted(have) != sorted(described):
+        raise SystemExit(
+            f"{kind} in the code are {sorted(have)}, but scripts/gen_doc_blocks.py describes {sorted(described)};"
+            " describe each new one there"
+        )
+
+
+def deep_scan_limits(sources: Sources) -> str:
+    fact = sources.js["deep-scan-limits"]
+    defaults, verify, flags = fact["DEFAULT_LIMITS"], fact["VERIFY_LIMITS"], fact["LIMIT_FLAGS"]
+    _missing_prose("The deep-scan limits", list(defaults), DEEP_SCAN_LIMITS)
+
+    def value(key: str, number: int | float) -> str:
+        if key.endswith("Minutes"):
+            return f"{number:g} min"
+        return f"{number:,} for the run" if key == "tokens" else f"{number:,}"
+
+    rows = [
+        [name, value(key, defaults[key]), value(key, verify[key]), f"`--{flags[key]['flag']} <n>`", enforced]
+        for key, (name, enforced) in DEEP_SCAN_LIMITS.items()
+    ]
+    return _table(["Limit", "Default", "Verification run", "Option", "Enforced by"], rows)
+
+
+# The Scan recipe field table: each field in cli/src/deep-scan/recipe.mjs, whether it is required, and what it holds.
+RECIPE_FIELD_ROWS = {
+    "image": ("one of `image` and `dockerfile`", "A base image. Agent-kit layers a pinned Claude Code on top."),
+    "dockerfile": ("one of `image` and `dockerfile`", "A Dockerfile's path in the repository. Not a compose file."),
+    "setup": (
+        "yes (`[]` for none)",
+        "Commands run before the agent enters, without the agent or the model credential.",
+    ),
+    "registries": ("yes (`[]` for none)", "Hosts the setup phase may reach. The network is cut after setup."),
+    "start": (
+        "with `ready`; optional when every entry point is a command",
+        "Commands that start the services as processes inside the one sandbox.",
+    ),
+    "ready": ("with `start`", "Commands that confirm the services are up."),
+    "seed": ("no", "Commands that load test data."),
+    "entry_points": ("yes, at least one", None),
+    "fixtures": ("yes (`[]` for none)", "Mappings of test users, roles and similar. Fake values only."),
+    "grounding": (
+        "no",
+        "URLs or repository paths `deep-scan` copies in before the agent enters, since it has no web access.",
+    ),
+    "notes": ("yes", "A line or a list of lines: what stays static-only."),
+}
+# How the entry_points row names each entry kind.
+ENTRY_KIND_WORDS = {"url": "`url` (http or https)", "port": "`port` (1 to 65535)", "command": "`command`"}
+
+
+def deep_scan_recipe_fields(sources: Sources) -> str:
+    fact = sources.js["deep-scan-recipe-fields"]
+    fields, kinds = fact["RECIPE_FIELDS"], fact["ENTRY_KINDS"]
+    _missing_prose("The Scan recipe fields", fields, RECIPE_FIELD_ROWS)
+    _missing_prose("The entry point kinds", kinds, ENTRY_KIND_WORDS)
+    words = [ENTRY_KIND_WORDS[kind] for kind in kinds]
+    entry = f"Each one of {', '.join(words[:-1])} or {words[-1]}, with a one-line `note`."
+    rows = [[f"`{field}`", RECIPE_FIELD_ROWS[field][0], RECIPE_FIELD_ROWS[field][1] or entry] for field in fields]
+    return _table(["Field", "Required", "Holds"], rows)
+
+
 # Each fact's name, as its markers spell it, and the function that writes its block.
 FACTS: dict[str, Callable[[Sources], str]] = {
     "review-response-protected-paths": review_response_protected_paths,
     "trigger-labels": trigger_labels,
     "stage-kill-switches": stage_kill_switches,
     "stage-model-and-effort": stage_model_and_effort,
+    "deep-scan-limits": deep_scan_limits,
+    "deep-scan-recipe-fields": deep_scan_recipe_fields,
 }
 
 

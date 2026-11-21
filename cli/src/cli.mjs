@@ -1,11 +1,15 @@
 // Argument parsing and dispatch. Exit codes: 0 ok, 1 a check failed (or a
-// warning under --strict, or the tag or the change was refused), 2 usage
-// error (including a missing answer when there is no terminal to ask on).
+// warning under --strict, the tag or the change was refused, or deep-scan
+// refused, or a sandbox step failed), 2 usage error (including a missing
+// answer when there is no terminal to ask on), 3 a deep-scan limit stopped
+// the run (after copying out any report and tearing the sandbox down), 130
+// or 143 deep-scan was interrupted by SIGINT or SIGTERM (likewise).
 
 import { parseArgs } from "node:util";
+import { runDeepScan } from "./deep-scan.mjs";
 import { formatReport, runDoctor } from "./doctor.mjs";
 import { REPO_PATTERN, sanitizeLine } from "./checks/result.mjs";
-import { systemRunner } from "./exec.mjs";
+import { runnerFor } from "./exec.mjs";
 import { askYesNo } from "./prompt.mjs";
 import { CLI_VERSION, isReleaseTag } from "./tags.mjs";
 import { runInit } from "./init.mjs";
@@ -25,6 +29,20 @@ Commands:
   upgrade    Move this repository to another Agent-kit tag: replace the
              Kit-owned paths, rewrite the uses: pins, print the examples/
              diff, then run doctor's file and pin checks. Local files only.
+  deep-scan  Run a Deep scan of this repository's own code in a sandbox.
+             Reads the Scan recipe as committed on the default branch and
+             validates it, refuses a GitHub token in its environment or a
+             committed .env, reads the deep procedure and the Threat pack
+             from the same branch and the API key (--credential-from),
+             chooses a sandbox runtime from the host or refuses (no
+             override), then runs the sandbox: image, copy-in of the
+             default branch's tip, setup with egress only to the recipe's
+             registries, network cut, the real Claude Code behind a
+             key-injecting model proxy on this machine (its only route
+             out), copy-out of the report only, and teardown. Every run
+             is bounded by wall clocks, a turn limit and a token cap.
+             With --verify <file> --ref <ref>, a local-only
+             Verification run: does a fix hold for known findings?
 
 Options for doctor:
   --ci            Check only Kit-owned paths and uses: pins (no gh needed).
@@ -49,6 +67,63 @@ Options for init (each one is asked for when missing, on a terminal):
   --yes                   Ask nothing; every answer comes from flags.
   --force                 Overwrite existing Callers, Threat pack files and
                           Kit-owned paths (use upgrade to change tags).
+
+Options for deep-scan:
+  --recipe <path>         The Scan recipe, relative to the repository root
+                          (default .security/scan-recipe.yml).
+  --default-branch <b>    The branch whose tip the recipe is read from
+                          (default: origin's HEAD, else main).
+  --credential <kind>     The model credential's kind: api-key (default),
+                          an Anthropic API key, or subscription, a Claude
+                          subscription token from claude setup-token, an
+                          opt-in at your own risk: it relies on
+                          undocumented Claude Code behaviour, has no
+                          refresh, and the token cap is its only spend
+                          lever (see docs/security-audit.md#credentials).
+  --credential-from <s>   Where the credential is read from: env:<NAME>
+                          (default env:ANTHROPIC_API_KEY, or
+                          env:CLAUDE_CODE_OAUTH_TOKEN with --credential
+                          subscription; op run can fill either) or an
+                          op:// reference, read with op read. Never the
+                          credential itself. It stays outside the
+                          sandbox, in the model proxy.
+  --setup-minutes <n>     The setup wall clock: image to agent step
+                          (default 20).
+  --scan-minutes <n>      The scan wall clock: the agent step (default 60).
+  --max-turns <n>         Claude Code's turn limit (default 200).
+  --max-tokens <n>        The model proxy's token cap for the run, counting
+                          input, output and cache tokens (default 5000000).
+                          A limit that fires stops the run, copies out its
+                          report with a Stopped: line, and exits 3.
+  --model <id>            The Claude model the agent runs on, a plain id
+                          such as claude-opus-5-5 (default: Claude Code's).
+  --effort <level>        The effort level Claude Code runs at: low,
+                          medium, high, xhigh or max (default: Claude
+                          Code's). The Agent step line names the model
+                          and effort asked for, and the Model proxy line
+                          the model the API answered with.
+  --report <path>         Write the report to this new file, in a folder
+                          that exists (default: report.md in a new private
+                          folder under your temporary folder). The CI
+                          workflow's delivery steps read it from there.
+  --verify <file>         A Verification run instead: re-attempt the
+                          Reproduction of the findings in <file> (each a
+                          ### section with Concept id, Location and
+                          Observation, as a deep report gives them) to
+                          check whether a fix holds. Confirm-only: no full
+                          walk, no exploration, no new findings. Local
+                          only (refused in CI), with no --report: the
+                          report goes to a new private folder, and nothing
+                          is filed or posted. Its defaults: scan 15 min,
+                          50 turns, the same token cap.
+  --ref <ref>             With --verify, and needed by it: the local
+                          branch, tag or commit to export and verify on,
+                          such as your fix branch. The recipe, the skill
+                          and the Threat pack still come from the default
+                          branch.
+In GitHub Actions (GITHUB_ACTIONS=true) deep-scan keeps the Public-log
+rule: it prints nothing the scan shaped (Claude Code's error output, the
+model proxy's refusals), since the Actions log is world-readable.
 
 Options for upgrade:
   --tag <vY>      The Agent-kit tag to move to (asked for when missing).
@@ -76,6 +151,21 @@ const COMMAND_OPTIONS = {
     "force",
   ],
   upgrade: ["tag", "from", "yes", "force"],
+  "deep-scan": [
+    "recipe",
+    "default-branch",
+    "credential",
+    "credential-from",
+    "setup-minutes",
+    "scan-minutes",
+    "max-turns",
+    "max-tokens",
+    "model",
+    "effort",
+    "report",
+    "verify",
+    "ref",
+  ],
 };
 
 /**
@@ -85,14 +175,28 @@ const COMMAND_OPTIONS = {
  *   stdout: (s: string) => void,
  *   stderr: (s: string) => void,
  *   runner?: import("./exec.mjs").Runner,
+ *   spawn?: Function,
+ *   spawnAsync?: Function,
+ *   platform?: string,
+ *   env?: Record<string, string | undefined>,
+ *   fetch?: typeof globalThis.fetch,
+ *   signals?: { on: Function, off: Function },
+ *   reportDir?: string,
+ *   modelApi?: string,
+ *   timers?: { setTimeout: Function, clearTimeout: Function },
  *   openTag?: Function,
  *   openRepo?: Function,
  *   prompt?: ((question: string) => Promise<string>) | null,
  * }} io  `prompt` is null (or absent) when there is no terminal to ask on.
+ *   Without `runner`, each command runs through its own allowlist
+ *   (`runnerFor`); `spawn` and `spawnAsync` replace only the process
+ *   boundary behind it. `platform`, `env`, `fetch`, `signals`, `reportDir`,
+ *   `modelApi` and `timers` (default the host's, the real model API and
+ *   the real clock) are for tests, never flags.
  * @returns {Promise<number>} exit code
  */
 export async function main(argv, io) {
-  const { cwd, runner = systemRunner, openTag, openRepo, prompt = null } = io;
+  const { cwd, openTag, openRepo, prompt = null } = io;
   // Anything printed can echo arguments or file contents: sanitize every line.
   const clean = (text) => String(text).split("\n").map(sanitizeLine).join("\n");
   const stdout = (text) => io.stdout(clean(text));
@@ -115,6 +219,17 @@ export async function main(argv, io) {
         verify: { type: "string" },
         preset: { type: "string" },
         "threat-pack-dir": { type: "string" },
+        recipe: { type: "string" },
+        credential: { type: "string" },
+        "credential-from": { type: "string" },
+        "setup-minutes": { type: "string" },
+        "scan-minutes": { type: "string" },
+        "max-turns": { type: "string" },
+        "max-tokens": { type: "string" },
+        model: { type: "string" },
+        effort: { type: "string" },
+        report: { type: "string" },
+        ref: { type: "string" },
         yes: { type: "boolean", short: "y" },
         force: { type: "boolean" },
         help: { type: "boolean", short: "h" },
@@ -135,7 +250,7 @@ export async function main(argv, io) {
     (command || values.help ? stdout : stderr)(USAGE);
     return values.help ? 0 : 2;
   }
-  if (!(command in COMMAND_OPTIONS)) {
+  if (!Object.hasOwn(COMMAND_OPTIONS, command)) {
     stderr(`Unknown command: ${command}\n\n${USAGE}`);
     return 2;
   }
@@ -150,6 +265,12 @@ export async function main(argv, io) {
     stderr(`${command} does not take ${foreign.map((k) => `--${k}`).join(", ")}\n\n${USAGE}`);
     return 2;
   }
+  const runner =
+    io.runner ??
+    runnerFor(command, {
+      ...(io.spawn ? { spawn: io.spawn } : {}),
+      ...(io.spawnAsync ? { spawnAsync: io.spawnAsync } : {}),
+    });
 
   if (command === "init") {
     stdout(`agent-kit init ${VERSION}`);
@@ -172,6 +293,37 @@ export async function main(argv, io) {
       out: stdout,
       err: stderr,
       ...(openTag ? { openTag } : {}),
+    });
+  }
+  if (command === "deep-scan") {
+    stdout(`agent-kit deep-scan ${VERSION}`);
+    return runDeepScan({
+      cwd,
+      runner,
+      recipePath: values.recipe,
+      defaultBranch: values["default-branch"],
+      credential: values.credential,
+      credentialFrom: values["credential-from"],
+      model: values.model,
+      effort: values.effort,
+      reportPath: values.report,
+      verifyPath: values.verify,
+      ref: values.ref,
+      limitFlags: {
+        "setup-minutes": values["setup-minutes"],
+        "scan-minutes": values["scan-minutes"],
+        "max-turns": values["max-turns"],
+        "max-tokens": values["max-tokens"],
+      },
+      ...(io.platform !== undefined ? { platform: io.platform } : {}),
+      ...(io.env !== undefined ? { env: io.env } : {}),
+      ...(io.fetch !== undefined ? { fetch: io.fetch } : {}),
+      ...(io.signals !== undefined ? { signals: io.signals } : {}),
+      ...(io.reportDir !== undefined ? { reportDir: io.reportDir } : {}),
+      ...(io.modelApi !== undefined ? { modelApi: io.modelApi } : {}),
+      ...(io.timers !== undefined ? { timers: io.timers } : {}),
+      out: stdout,
+      err: stderr,
     });
   }
   if (command === "upgrade") {

@@ -36,6 +36,7 @@ docs/patterns/instruction-layout.md
 docs/patterns/planning-chain.md
 
 .github/workflows/security-audit-reusable.yml
+.github/workflows/deep-scan-reusable.yml
 .github/workflows/agent-plan-reusable.yml
 .github/workflows/agent-implement-reusable.yml
 .github/workflows/agent-review-reusable.yml
@@ -59,6 +60,7 @@ docs/patterns/planning-chain.md
 .claude/skills/address-pr-review/
 
 examples/security-audit-caller.yml
+examples/deep-scan-caller.yml
 examples/plan-implement-review-caller.yml
 examples/review-response-caller.yml
 examples/explainer-config.md

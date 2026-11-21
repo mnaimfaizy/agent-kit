@@ -45,7 +45,7 @@ CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs three jobs on eve
 | `.github/CODEOWNERS`                         | Review owners for kit-critical paths.                                                                                                                   |
 | `.claude/skills/`                            | Portable skills Consumers copy; a skill may carry its own `*.test.mjs` suites, which CI runs.                                                           |
 | `kit-owned-paths.txt`                        | The Kit-owned paths Consumers replace whole on upgrade.                                                                                                 |
-| `cli/`                                       | The `@mnaimfaizy/agent-kit` npm CLI (`init`, `doctor`, `upgrade`).                                                                                      |
+| `cli/`                                       | The `@mnaimfaizy/agent-kit` npm CLI (`init`, `doctor`, `upgrade`, `deep-scan`).                                                                         |
 | `docs/patterns/`, `examples/patterns/`       | Pattern guides and their skeletons: docs Consumers adapt, not Kit-owned paths ([ADR 0012](docs/adr/0012-pattern-guides-are-docs-a-consumer-adapts.md)). |
 | `examples/`                                  | Caller templates, setup presets, Threat pack skeletons, QA config and Hazard pack templates, and an `orchestrate` config.                               |
 | `scripts/*.test.py`, `*.test.mjs`            | Contract tests.                                                                                                                                         |

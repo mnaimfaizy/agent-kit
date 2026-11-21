@@ -25,7 +25,7 @@ import { findKitPins, rewriteKitPins } from "../cli/src/callers.mjs";
 import { PassThrough } from "node:stream";
 import { sanitizeLine } from "../cli/src/checks/result.mjs";
 import { main } from "../cli/src/cli.mjs";
-import { systemRunner } from "../cli/src/exec.mjs";
+import { RUNTIME_CLIS, runnerFor, systemRunner } from "../cli/src/exec.mjs";
 import { ALLOWED_SHAPE, parseKitOwnedPaths } from "../cli/src/kit-owned-paths.mjs";
 import { openKitRepo, openKitTag } from "../cli/src/kit-tag.mjs";
 import { terminalPrompt } from "../cli/src/prompt.mjs";
@@ -884,5 +884,38 @@ describe("rewriteKitPins", () => {
 
   it("leaves a file with no pins untouched", () => {
     assert.deepEqual(rewriteKitPins("name: x\n", TO), { text: "name: x\n", count: 0 });
+  });
+});
+
+describe("the process allowlist (ADR 0019)", () => {
+  it("runs upgrade through git and gh only, never a sandbox runtime CLI", async () => {
+    const seen = [];
+    const spawn = (cmd) => {
+      seen.push(cmd);
+      return { status: 1, stdout: Buffer.alloc(0), stderr: Buffer.from("fatal: not a repository") };
+    };
+    const dir = mkdtempSync(join(tmpdir(), "agent-kit-allowlist-"));
+    try {
+      await main(["upgrade", "--tag", "v1.0.0", "--yes"], {
+        cwd: dir,
+        stdout: () => {},
+        stderr: () => {},
+        spawn,
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+    assert.ok(seen.length > 0, "upgrade ran a command through the spawn");
+    assert.deepEqual(
+      seen.filter((c) => c !== "git" && c !== "gh"),
+      [],
+    );
+    const runner = runnerFor("upgrade", { spawn });
+    for (const cli of [...RUNTIME_CLIS, "op"]) {
+      assert.throws(
+        () => runner(cli, []),
+        new RegExp(`refusing to run ${cli}: upgrade may run only git and gh`),
+      );
+    }
   });
 });

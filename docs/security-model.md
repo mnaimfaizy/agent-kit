@@ -10,11 +10,11 @@ Security finding bodies must never appear in:
 
 ## Private delivery
 
-The required sink for successful security-audit runs is a draft GitHub Security Advisory (GHSA). Optional email notifications are additive.
+The required sink for successful security-audit runs is a draft GitHub Security Advisory (GHSA). Optional email notifications are additive. A local Deep scan (`agent-kit deep-scan`) files nothing: its only sink is a report file in a new private folder on your machine ([security-audit.md](security-audit.md#what-goes-into-and-out-of-the-sandbox)).
 
 ## Consumer ownership
 
-Consumers own their threat pack paths, allowlists, kill switch controls, advisory token, and optional scanner wiring.
+Consumers own their threat pack paths, allowlists, kill switch controls, advisory token, optional scanner wiring, and the Scan recipe a Deep scan reads from their default branch.
 
 ## Agent pipeline gates
 
@@ -55,7 +55,7 @@ Runner seam is explicit and narrow:
 - The implementer's branch name can carry issue text: a Caller's `branch_name_template` may use `{{label}}` or `{{description}}`. The name reaches later steps only through `env:` and step outputs, after a `git check-ref-format` check, never spliced into a script. The branch naming inputs are checked before the agent runs, so a name never collides across issues.
 - `verify_commands` run code the implementer wrote, so they run in their own job with `contents: read` and no OIDC token, on the agent's pushed branch. Only the implement job holds write and OIDC credentials, and after the agent it runs only checks. The draft-PR fallback runs from the trusted commit in a job without `id-token`. The implementer is told to open a draft, and a separate job with no checkout closes a same-repository PR from its branch, with a comment, and fails the run if it was opened ready for review. It cannot convert the PR to draft: the job token is refused that on a PR the Claude GitHub App opened. It needs only the implement job, so it runs even when verify fails.
 - Third-party actions and container images are pinned by commit SHA or digest; `anthropics/claude-code-action` is bumped by hand.
-- The audit agent is denied Bash. Credentialed publish and email scripts are copied from a trusted commit to a directory outside the workspace and run only after a digest check. The advisory token is preflighted before the agent starts, with a create request whose empty body can never create an advisory, and is not in the agent step. If publishing fails after retries, the full report goes only to the configured notify mailbox; the routine email is counts-only. If the agent writes no report, its session transcript goes only to a private draft advisory marked as a failed run, and to the notify mailbox when email is on. Those steps run the same staged, digest-checked scripts, and the log records only whether the agent's final message matched a closed pattern. The email notifier verifies the SMTP server's certificate and hostname before it upgrades with STARTTLS and logs in.
+- The audit agent is denied Bash. A Deep scan's agent has Bash, but only inside its sandbox, with no credential; its only route out is the model proxy, and on Docker Engine and Docker Desktop that route also reaches other services listening on your machine, so the guarantee is complete only on Docker Sandboxes ([security-audit.md](security-audit.md#what-goes-into-and-out-of-the-sandbox)). Credentialed publish and email scripts are copied from a trusted commit to a directory outside the workspace and run only after a digest check. The advisory token is preflighted before the agent starts, with a create request whose empty body can never create an advisory, and is not in the agent step. If publishing fails after retries, the full report goes only to the configured notify mailbox; the routine email is counts-only. If the agent writes no report, its session transcript goes only to a private draft advisory marked as a failed run, and to the notify mailbox when email is on. Those steps run the same staged, digest-checked scripts, and the log records only whether the agent's final message matched a closed pattern. The email notifier verifies the SMTP server's certificate and hostname before it upgrades with STARTTLS and logs in.
 - `anthropics/claude-code-action` is pinned to a commit SHA.
 
 ## Review response

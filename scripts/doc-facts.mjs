@@ -60,6 +60,15 @@ const facts = {
     ".github/agent-review-response/review-response.mjs",
     ["PROTECTED_FILES", "PROTECTED_DIRS_ANY_DEPTH", "PROTECTED_ROOT_DIRS", "KIT_OWNED_PATHS"],
   ),
+  "deep-scan-limits": await constants("cli/src/deep-scan/limits.mjs", [
+    "DEFAULT_LIMITS",
+    "VERIFY_LIMITS",
+    "LIMIT_FLAGS",
+  ]),
+  "deep-scan-recipe-fields": await constants("cli/src/deep-scan/recipe.mjs", [
+    "RECIPE_FIELDS",
+    "ENTRY_KINDS",
+  ]),
   "trigger-labels": [...LABELS, RESPONSE_LABEL].map(([name, color, description]) => ({
     name,
     color,

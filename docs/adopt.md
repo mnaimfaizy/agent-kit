@@ -62,6 +62,16 @@ The copied paths and workflow references should always move together on upgrade.
 2. Pin the reusable workflow reference to a release tag for stable adoption.
 3. Supply Consumer-owned Threat pack paths and secrets.
 
+## Deep-scan reusable job (opt-in)
+
+1. Copy the Caller pattern from `examples/deep-scan-caller.yml`; your security-audit Caller stays as it is.
+2. Pin `uses: <owner>/agent-kit/.github/workflows/deep-scan-reusable.yml@<tag>` to the same tag as your other Callers.
+3. Commit a Scan recipe on the default branch, add the `anthropic_api_key` secret (an API key from a dedicated Console workspace with its own spend limit), and turn it on with the `CLAUDE_DEEP_SCAN_ENABLED` repository variable.
+
+The model credential is one of two Caller secrets, never both. `anthropic_api_key` is the supported path. `claude_code_oauth_token`, a Claude subscription token from `claude setup-token`, is an opt-in at your own risk (`deep-scan --credential subscription` locally): it relies on undocumented behaviour and may break with any Claude Code release, it has no refresh, so you rotate it by hand, it leaves the terms question to you, and the proxy's token cap is the only spend lever (`max_tokens`). See [the subscription path](security-audit.md#the-subscription-path-opt-in).
+
+It runs on the default branch only, from a schedule or `workflow_dispatch`, and delivers privately like the static audit. What it does and what stays out of the log: [Deep scan in CI](security-audit.md#deep-scan-in-ci).
+
 ## Consumer-owned contract surface
 
 - Caller workflow triggers and allowlist policy
@@ -120,6 +130,7 @@ updates:
 | ---------------------------- | ---------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `uses:` pins agree           | fail                         | yes            | Every Agent-kit `uses:` in `.github/workflows/` names the same repository and Release-line tag. Pins of a fork or a GitHub Enterprise mirror pass with a note: the other checks then compare against that repository.                                                                      |
 | Kit-owned paths match        | fail                         | yes            | Each path in the tag's `kit-owned-paths.txt` has the same git tree hash in your working copy (tracked and untracked files, minus ignored ones) as at the tag. Paths marked skip-worktree (a sparse checkout, say) are compared as committed at HEAD, and skipped only if HEAD has no copy. |
+| Scan recipe                  | warn                         | yes            | Whether `.security/scan-recipe.yml` is in your working copy and, if so, valid ([format](security-audit.md#scan-recipe)). Having none passes: only a Deep scan needs one.                                                                                                                   |
 | Secrets set                  | fail; warn if optional       | no             | Each `secrets.X` a Caller passes. Required or optional comes from the reusable workflow's `secrets:` block at the pinned tag.                                                                                                                                                              |
 | Variables set                | fail                         | no             | Each `vars.X` a Caller reads, unless every read falls back with `\|\|` (the model variables). The Kill switch variables are required: set them to `true` or `false`.                                                                                                                       |
 | Trigger labels exist         | fail                         | no             | Each Caller's `trigger_label`, or the reusable workflow's default at the tag when the Caller leaves it out.                                                                                                                                                                                |
@@ -143,7 +154,7 @@ Move the `uses:` pins and the copied files to the new tag in the same commit. Re
 - [Workflow reference](reference.md) — every input, secret, and permission
 - [Releases](releases.md) — SemVer, pre-releases, changelog policy
 - [Security model](security-model.md) — public-log rule, private delivery, gates
-- [Security audit](security-audit.md) — `full` / `pr` Caller
+- [Security audit](security-audit.md) — `full` / `pr` Caller, and the opt-in [deep-scan Caller](security-audit.md#deep-scan-in-ci)
 - [Plan → implement → review](plan-implement-review.md) — labels, Verified plan, draft PR
 - [Copilot restore](copilot-restore.md) — inert archive, choose-one generation
 - [Issuebridge reference Consumer](issuebridge.md) — target state + stand-up checklist (not an extract runbook)

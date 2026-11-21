@@ -49,7 +49,7 @@ import {
 } from "../cli/src/checks/secrets-and-variables.mjs";
 import { main } from "../cli/src/cli.mjs";
 import { formatReport, guarded, LOCAL_ONLY_CHECKS, runDoctor } from "../cli/src/doctor.mjs";
-import { firstLine, systemRunner } from "../cli/src/exec.mjs";
+import { firstLine, RUNTIME_CLIS, runnerFor, systemRunner } from "../cli/src/exec.mjs";
 import { parseKitOwnedPaths } from "../cli/src/kit-owned-paths.mjs";
 import { openKitRepo, openKitTag, PreManifestTagError } from "../cli/src/kit-tag.mjs";
 import { filterDrivers, localTreeHashes } from "../cli/src/local-tree.mjs";
@@ -744,11 +744,13 @@ describe("the CLI stays dependency-free and shell-free", () => {
         ...text.matchAll(/import\s*\{([^}]*)\}\s*from\s*"node:child_process"/g),
       ];
       if (f.endsWith(join("src", "exec.mjs"))) {
+        // spawnSync for the blocking runner, spawn for `runner.start`; both
+        // pass `shell: false`.
         assert.deepEqual(
           childProcess.map((m) => m[1].trim()),
-          ["spawnSync"],
+          ["spawn as spawnChild, spawnSync"],
         );
-        assert.match(text, /shell:\s*false/);
+        assert.equal(text.match(/shell:\s*false/g)?.length, 2, `${f}: shell: false on both calls`);
       } else {
         assert.equal(childProcess.length, 0, `${f}: run commands through the injected runner`);
       }
@@ -2333,6 +2335,96 @@ describe("doctor's rename map and the Deprecation register", () => {
         () => registerEntries(`- kind: variable\n${line}\n`),
         /docs\/deprecations\.yml:2: not in the register's shape/,
         line,
+      );
+    }
+  });
+});
+
+describe("Scan recipe", () => {
+  const RECIPE = `image: node:22
+setup:
+  - npm ci
+registries:
+  - registry.npmjs.org
+entry_points:
+  - command: node bin/cli.js
+    note: The CLI.
+fixtures: []
+notes: Workflows stay static-only.
+`;
+  const recipeCheck = (report) => report.results.find((r) => r.id === "scan-recipe");
+
+  it("reports no recipe at the default path as a pass that only a Deep scan needs one", () => {
+    const report = runDoctor({
+      cwd: makeConsumer("no-recipe"),
+      runner: systemRunner,
+      ci: true,
+      openTag,
+    });
+    const check = recipeCheck(report);
+    assert.equal(check.status, "pass", JSON.stringify(check));
+    assert.match(check.summary, /No Scan recipe at \.security\/scan-recipe\.yml/);
+    assert.match(check.summary, /only a Deep scan needs one/);
+    assert.equal(report.exitCode, 0);
+  });
+
+  it("reports a valid recipe at the default path as present", () => {
+    const dir = makeConsumer("recipe", { files: { ".security/scan-recipe.yml": RECIPE } });
+    const check = recipeCheck(runDoctor({ cwd: dir, runner: systemRunner, ci: true, openTag }));
+    assert.equal(check.status, "pass", JSON.stringify(check));
+    assert.match(check.summary, /\.security\/scan-recipe\.yml is present and valid/);
+  });
+
+  it("warns about an invalid recipe, naming each problem, and fails it under --strict", async () => {
+    const dir = makeConsumer("bad-recipe", {
+      files: { ".security/scan-recipe.yml": `${RECIPE}max_turns: 900\n` },
+    });
+    const check = recipeCheck(runDoctor({ cwd: dir, runner: systemRunner, ci: true, openTag }));
+    assert.equal(check.status, "warn", JSON.stringify(check));
+    assert.match(check.details.join("\n"), /max_turns: the recipe holds no limits/);
+    const out = [];
+    const code = await main(["doctor", "--ci", "--strict"], {
+      cwd: dir,
+      stdout: (s) => out.push(s),
+      stderr: (s) => out.push(s),
+      runner: systemRunner,
+      openTag,
+    });
+    assert.equal(code, 1);
+    assert.match(out.join("\n"), /FAIL {2}Scan recipe/);
+  });
+
+  it("warns about a recipe path that is not a regular file", () => {
+    const dir = makeConsumer("recipe-dir", { files: { ".security/scan-recipe.yml/x": "y\n" } });
+    const check = recipeCheck(runDoctor({ cwd: dir, runner: systemRunner, ci: true, openTag }));
+    assert.equal(check.status, "warn", JSON.stringify(check));
+    assert.match(check.summary, /not a regular file/);
+  });
+});
+
+describe("the process allowlist (ADR 0019)", () => {
+  it("runs doctor through git and gh only, never a sandbox runtime CLI", async () => {
+    const seen = [];
+    const spawn = (cmd) => {
+      seen.push(cmd);
+      return { status: 1, stdout: Buffer.alloc(0), stderr: Buffer.from("fatal: not a repository") };
+    };
+    const dir = mkdtempSync(join(tmpdir(), "agent-kit-allowlist-"));
+    try {
+      await main(["doctor"], { cwd: dir, stdout: () => {}, stderr: () => {}, spawn });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+    assert.ok(seen.length > 0, "doctor ran a command through the spawn");
+    assert.deepEqual(
+      seen.filter((c) => c !== "git" && c !== "gh"),
+      [],
+    );
+    const runner = runnerFor("doctor", { spawn });
+    for (const cli of [...RUNTIME_CLIS, "op"]) {
+      assert.throws(
+        () => runner(cli, []),
+        new RegExp(`refusing to run ${cli}: doctor may run only git and gh`),
       );
     }
   });
