@@ -1,0 +1,213 @@
+<title>QA Summary Variants</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<!-- PROTOTYPE, throwaway. Question: what should manual-qa post on a pull request? Today's QA Report for fastapi_rbac PR 432 vs three short variants, switchable with #Today, #A, #B, #C or the arrow keys. Never merged. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+<style>
+:root{--bg:#f6f8fa;--card:#fff;--fg:#1f2328;--muted:#59636e;--line:#d1d9e0;--code:#eff2f5;--bar:#1f2328;--barfg:#fff;--accent:#0969da}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0d1117;--card:#151b23;--fg:#f0f6fc;--muted:#9198a1;--line:#3d444d;--code:#262c36;--bar:#f0f6fc;--barfg:#0d1117;--accent:#4493f8;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0d1117;--card:#151b23;--fg:#f0f6fc;--muted:#9198a1;--line:#3d444d;--code:#262c36;--bar:#f0f6fc;--barfg:#0d1117;--accent:#4493f8;color-scheme:dark}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;padding-block:16px 96px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.wrap{max-width:900px;margin:0 auto}
+.meta{color:var(--muted);font-size:13px;margin:0 0 8px;display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+.meta b{color:var(--fg)}
+.comment{background:var(--card);border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.chead{padding:8px 16px;border-bottom:1px solid var(--line);color:var(--muted);font-size:13px;background:var(--bg)}
+.body{padding:16px;overflow-x:auto;overflow-wrap:anywhere}
+.body h1,.body h2{border-bottom:1px solid var(--line);padding-bottom:.3em}
+.body h1{font-size:1.6em}.body h2{font-size:1.3em}.body h3{font-size:1.1em}
+.body code{background:var(--code);padding:.1em .35em;border-radius:4px;font-size:85%}
+.body table{border-collapse:collapse;display:block;overflow-x:auto;margin:12px 0}
+.body th,.body td{border:1px solid var(--line);padding:6px 10px;vertical-align:top}
+.body details{border:1px solid var(--line);border-radius:6px;padding:6px 12px;margin:8px 0}
+.body summary{cursor:pointer;font-weight:600}
+pre.raw{white-space:pre-wrap;word-break:break-word;margin:0;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace}
+.bar{position:fixed;left:50%;bottom:calc(16px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--bar);color:var(--barfg);border-radius:999px;display:flex;align-items:center;gap:4px;padding:6px;box-shadow:0 4px 16px rgba(0,0,0,.3);max-width:calc(100vw - 32px)}
+.bar button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.bar button{background:transparent;color:inherit;border:0;font:inherit;padding:6px 12px;border-radius:999px;cursor:pointer}
+.bar button:hover{background:rgba(127,127,127,.25)}
+.bar .label{padding:0 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600}
+label.raw{cursor:pointer}
+</style><div class="wrap">
+<p class="meta"><span id="vname"></span><span id="size"></span><label class="raw"><input type="checkbox" id="rawbox"> show raw Markdown</label></p>
+<div class="comment"><div class="chead">mnaimfaizy commented on fastapi_rbac PR 432 (rendered here, not posted)</div><div class="body" id="out"></div></div>
+</div>
+<script type="text/markdown" id="Today" data-name="Today: the QA Report as posted">
+<!-- qa-report -->
+
+# QA Report: feat(ui): Web v1 app shell: sidebar, header user menu and mobile drawer
+
+**QA passed**
+
+- **Plan:** `tmp/qa/qa-plan-pr-432.md`, subject #413, pull request #432, head `51b50a0ac5dd9654ee755d3b9e1e9b718dc1380f`
+- **Build check:** verified by `gh`
+- **Run:** `stack`; `web` by the Claude desktop app's built-in browser (with `web.mjs` unavailable: no Playwright with Chromium in this repository), on 2026-11-20 between about 14:15 and 14:50 local time (AUSEDT). S8: A by the built-in browser, B by Claude in Chrome. S9: A by the built-in browser, B by Claude in Chrome
+- **Before:** `not run: no fix scenario`
+- **Accounts:** signed in as `admin`, `manager` and `user`. No restore was needed: the QA Stack started with a fresh database, the seed reported each QA Account created before S1, and no scenario changed one.
+- **Scenario accounts:** none
+- **Teardown:** `down` run for the head stack (exit 0); no processes were recorded in `stack-pids.txt`, so none were stopped; no Before worktree was made; no containers left running
+- **Run deviations:** S1 to S7 were compared at 1024 by 768 (and S7 at 390 by 844), not 1440 wide, because the built-in browser captures only the left 800px of a 1440 viewport; the artboards were opened at the same widths, and the shell is the same layout at both widths; the host OS is in dark mode, so the tab's colour scheme was emulated as light to compare with the artboards (drawn light), and the Setup's **System theme** followed that emulation; S6 switched the emulation to dark to check **System theme** follows the OS; S5's first pass was discarded and run again from step 2, because the app's tab had been left behind the artboard tab (which skews focus) and its outside click landed inside the open menu, so that pass proved nothing; S5's step 3 (compare with the artboard) was done after step 8; S8's `Capture: video` was replaced by screenshots before and after the key step (no driver here saves a recording); Claude in Chrome was used only as session B in S8 and S9, signed in by setting the fields through the page's input events rather than typing (the 1Password inline menu blocks typing there, as the earlier runs found); the artboards were viewed through the QA Stack's dev server at `http://localhost:3000/design/web-v1/`, as the plan allows
+
+## Results
+
+| Scenario | Result | Before | Evidence | Notes |
+| --- | --- | --- | --- | --- |
+| S1: Admin's sidebar and header match the expanded-sidebar artboard | PASS |  | `qa-report-pr-432/s1.jpg` `qa-report-pr-432/s1-sidebar.png` `qa-report-pr-432/s1-artboard.jpg` `qa-report-pr-432/s1-artboard-sidebar.png` | Logo and **FastAPI RBAC**; **Overview** (**Dashboard**), **Access** (**Users**, **Roles**, **Role groups**, **Permissions**, **Permission groups**), **You** (**Account settings**); **Roles** highlighted (`aria-current="page"`); no Logout, Settings, General or Security item; collapse button, breadcrumb **Access › Roles**, account button **QA**, **QA Admin**, **Admin**. Read from both pages' SVG, the **Permissions** key is the artboard's exact circle and two paths, and Dashboard, Roles, Role groups and Account settings are identical; Users and Permission groups differ only in Lucide-version path markup, and draw the same glyph side by side. `/favicon.svg` draws the same shield-and-key paths as the sidebar logo. Layout matches the artboard; the page body differs (listed red herring). |
+| S2: Manager sees the same sidebar as admin | PASS |  | `qa-report-pr-432/s2.jpg` `qa-report-pr-432/s2-permission-groups.jpg` | Same three groups, items, icons and order as S1. **Users**, **Roles**, **Role groups**, **Permissions** and **Permission groups** each opened inside the shell with breadcrumb **Access › <item>**, with no 404 and no unauthorized page. On Dashboard the breadcrumb was **Overview › Dashboard**; the account button showed **QM**, **QA Manager**, **Manager**. |
+| S3: A plain user sees only Home and Account settings | PASS |  | `qa-report-pr-432/s3.jpg` `qa-report-pr-432/s3-account-settings.jpg` | Logo and **FastAPI RBAC**, **Overview** with **Home**, **You** with **Account settings**; only two nav links, no Access group and no Dashboard, Users, Roles or Permissions item. Breadcrumb **Home** alone. Account button **QU**, **QA User**, **User**. **Account settings** opened Your Profile inside the shell (breadcrumb **You › Account settings**); **Home** returned with breadcrumb **Home**. |
+| S4: The sidebar collapses to icons with tooltips and remembers it | PASS |  | `qa-report-pr-432/s4.jpg` `qa-report-pr-432/s4-artboard.jpg` `qa-report-pr-432/s4-after-reload.jpg` `qa-report-pr-432/s4-expanded.jpg` | A column of icons with the logo on a filled tile and dividers in place of the group labels, the **Permissions** key included. Hovering showed each name in a tooltip to the icon's right: **Dashboard**, **Users**, **Roles**, **Role groups**, **Permissions**, **Permission groups**, **Account settings**. Matches `shell-sidebar-collapsed.dc.html`. Still collapsed after a reload of Dashboard; **Expand sidebar** restored the full sidebar. |
+| S5: The user menu matches the artboard and closes by click, Escape and outside click | PASS |  | `qa-report-pr-432/s5.jpg` `qa-report-pr-432/s5-escape-focus.jpg` `qa-report-pr-432/s5-enter-reopens.jpg` `qa-report-pr-432/s5-artboard.jpg` | Opened 8px under the button, right edges aligned, 300px wide: **QA**, **QA Admin**, **admin@fastapi-rbac.example**, **Account settings**, **Appearance** with sun, moon and monitor, **Sign out**, **Sign out everywhere** with **Ends your sessions on every device, including this one.** Matches the artboard (which shows Light selected and a hover; System was selected here). Escape closed it, with focus on the account button and a teal focus ring (`:focus-visible`). The outside click on empty page space closed it with focus on the button, and Enter reopened it. A second click on the trigger closed it. **Account settings** closed the menu and opened Your Profile inside the shell (breadcrumb **You › Account settings**). |
+| S6: The theme switch in the user menu changes the whole shell | PASS |  | `qa-report-pr-432/s6.jpg` `qa-report-pr-432/s6-after-reload.jpg` `qa-report-pr-432/s6-system-dark.jpg` | After **Dark theme** the menu stayed open with the moon selected, and the menu, sidebar and header were all dark; no element in the sidebar, header or menu had a light background. Still dark with the moon selected after a reload of Dashboard. **Light theme** turned the shell light. **System theme** followed the emulated OS setting: light, then dark when the emulation switched. |
+| S7: The mobile drawer matches the artboard | PASS |  | `qa-report-pr-432/s7.jpg` `qa-report-pr-432/s7-header.jpg` `qa-report-pr-432/s7-artboard.jpg` `qa-report-pr-432/s7-after-roles.jpg` | Resized to 390 wide on Users without a reload: no sidebar; header with **Open menu**, the logo and **FastAPI RBAC**, and only the **QA** avatar. A 300px drawer from the left with the logo, the same groups and icons (the **Permissions** key is the artboard's exact SVG), **Users** highlighted, and at its foot **QA**, **QA Admin**, **admin@fastapi-rbac.example** and **Admin**. The email is whole on two lines, **admin@fastapi-** / **rbac.example**, with no ellipsis and no overflow, as the artboard draws it. Choosing **Roles** closed the drawer and opened Roles. The close button's focus ring on open is a listed red herring. |
+| S8: Sign out everywhere confirms, ends every session and shows the notice | PASS |  | `qa-report-pr-432/s8-b.jpg` `qa-report-pr-432/s8-a.jpg` `qa-report-pr-432/s8-b-dialog.jpg` `qa-report-pr-432/s8-b-after-cancel.jpg` `qa-report-pr-432/s8-b-key-before.jpg` `qa-report-pr-432/s8-b-key-after.jpg` `qa-report-pr-432/s8-artboard.jpg` | B (`user`) saw **Sign out everywhere?** / **You’ll be signed out on this device too.** with **Cancel** and **Sign out everywhere**. **Cancel** closed it and B stayed on Home, signed in. After the confirm, B landed on the Web v1 **Sign in** split layout (**Use your work email to sign in to FastAPI RBAC.**) with **You’ve been signed out everywhere.** / **Sign in again on any device you still use.** between the heading and the **Email** field, as the artboard places it (B's Chrome follows a dark OS theme). The notice's icon is a check in a circle where the artboard draws an info icon: that is `AuthNotice.tsx`, from #433 on main, not this change (see Follow-ups). A (`user`), on Your Profile, clicked **Home** and landed on **Sign in** with no notice. |
+| S9: Sign out ends only this session | PASS |  | `qa-report-pr-432/s9-a.jpg` `qa-report-pr-432/s9-b.jpg` `qa-report-pr-432/s9-b-menu.jpg` `qa-report-pr-432/s9-a-users.jpg` | B (`manager`) chose **Sign out** and landed on **Sign in** with no signed-out-everywhere notice. A (`manager`) stayed signed in: **Users** (6 rows) and then **Roles** (3 rows) opened inside the shell with breadcrumbs **Access › Users** and **Access › Roles**, with no Sign in page. No reload was part of this scenario. |
+
+## Follow-ups
+
+- Review, for a person: `react-frontend/e2e/auth.spec.ts`, `react-frontend/e2e/utils/helpers.ts` and `react-frontend/e2e/dashboard.spec.ts` open the menu with `button[aria-label^="Account menu for"]` and choose the menu item named **Sign out** (and **Account settings** in `dashboard.spec.ts`). No CI job runs this suite, so the only check is reading it.
+- Review, for a person: `docs/frontend/react/auth.md` says both sign-out actions live only in the header user menu, as **Sign out** and **Sign out everywhere**, keeps #433's rows for the auth pages and the temporary-password page, and names `src/components/layout/UserMenu.tsx` as the control.
+- Review, for a person: `docs/frontend/react/ui.md` has an "App shell" section whose Sidebar bullet links `react-frontend/src/lib/navigation.ts` as the source of truth for the nav items.
+- The signed-out-everywhere notice on Sign in draws a check in a circle (`CircleCheck` for the `info` tone in `react-frontend/src/features/auth/components/AuthNotice.tsx`), where `auth-login-signed-out.dc.html` draws an info icon (circle, stem and dot). That component came with #433 (#414) and is on main, so it is not this pull request's; it is a visual difference for #414's owner to look at.
+- At 1024 wide the Dashboard page still scrolls sideways by a few pixels (an empty badge in its "Recent User Logins" card sticks out), and the whole layout moves with the scroll. That is the page body, which later tickets of #410 replace, not the shell; the earlier runs noted it too.
+- Claude in Chrome still cannot type into this app's sign-in fields while the 1Password extension's inline menu is attached to them.
+- The driver table lists the built-in browser as unable to save images. Each screenshot it took was saved to a file the run could copy, as the earlier runs also found.
+
+## Execution record
+
+Build `51b50a0ac5dd9654ee755d3b9e1e9b718dc1380f` on the local QA Stack, 2026-11-20.
+
+- S1: PASS
+- S2: PASS
+- S3: PASS
+- S4: PASS
+- S5: PASS
+- S6: PASS
+- S7: PASS
+- S8: PASS
+- S9: PASS
+
+</script>
+<script type="text/markdown" id="A" data-name="My Organiser shape">
+<!-- qa-report -->
+
+QA Report: result=passed; commit=51b50a0ac5dd9654ee755d3b9e1e9b718dc1380f; left-for-person=3; deferred=0
+
+## QA Report
+
+Run by an agent on `51b50a0` (local QA Stack, `web`, 2026-11-20). Result: **QA passed**
+
+| Scenario | Result | Notes |
+| -------- | ------ | ----- |
+| S1: Admin's sidebar and header match the expanded-sidebar artboard | PASS | |
+| S2: Manager sees the same sidebar as admin | PASS | |
+| S3: A plain user sees only Home and Account settings | PASS | |
+| S4: The sidebar collapses to icons with tooltips and remembers it | PASS | |
+| S5: The user menu matches the artboard and closes by click, Escape and outside click | PASS | First pass discarded and run again |
+| S6: The theme switch in the user menu changes the whole shell | PASS | |
+| S7: The mobile drawer matches the artboard | PASS | |
+| S8: Sign out everywhere confirms, ends every session and shows the notice | PASS | Screenshots, not video. The notice's icon differs from the artboard; it comes from #433 on main |
+| S9: Sign out ends only this session | PASS | |
+
+### Failures and how each was resolved
+
+None.
+
+### Left for a person
+
+- [local] Review: the e2e specs (`auth.spec.ts`, `utils/helpers.ts`, `dashboard.spec.ts`) open the menu with `button[aria-label^="Account menu for"]` and choose **Sign out**. No CI job runs this suite.
+- [local] Review: `docs/frontend/react/auth.md` says both sign-out actions live only in the header user menu, and names `UserMenu.tsx` as the control.
+- [local] Review: `docs/frontend/react/ui.md` has an "App shell" section whose Sidebar bullet links `navigation.ts` as the source of truth.
+</script>
+
+<script type="text/markdown" id="B" data-name="Verdict first, detail folded">
+<!-- qa-report -->
+
+QA Report: result=passed; commit=51b50a0ac5dd9654ee755d3b9e1e9b718dc1380f; left-for-person=3
+
+**QA passed** on `51b50a0`: 9 of 9 scenarios passed, 3 items left for a person. Local QA Stack, `web`, 2026-11-20.
+
+### Left for a person
+
+- [review] The e2e specs (`auth.spec.ts`, `utils/helpers.ts`, `dashboard.spec.ts`) open the menu with `button[aria-label^="Account menu for"]` and choose **Sign out**. No CI job runs this suite.
+- [review] `docs/frontend/react/auth.md` says both sign-out actions live only in the header user menu, and names `UserMenu.tsx` as the control. *(checked under R4)*
+- [review] `docs/frontend/react/ui.md` has an "App shell" section whose Sidebar bullet links `navigation.ts`. *(checked under R5)*
+
+<details><summary>Scenarios (9 PASS)</summary>
+
+| Scenario | Result |
+| -------- | ------ |
+| S1: Admin's sidebar and header match the expanded-sidebar artboard | PASS |
+| S2: Manager sees the same sidebar as admin | PASS |
+| S3: A plain user sees only Home and Account settings | PASS |
+| S4: The sidebar collapses to icons with tooltips and remembers it | PASS |
+| S5: The user menu matches the artboard and closes by click, Escape and outside click | PASS |
+| S6: The theme switch in the user menu changes the whole shell | PASS |
+| S7: The mobile drawer matches the artboard | PASS |
+| S8: Sign out everywhere confirms, ends every session and shows the notice | PASS |
+| S9: Sign out ends only this session | PASS |
+
+</details>
+
+<details><summary>Run deviations (4)</summary>
+
+- S1–S7 were compared at 1024 wide, not 1440: the built-in browser captures only 800px of a wider viewport.
+- The tab's colour scheme was emulated as light, to match the artboards. S6 switched it to dark.
+- S5's first pass was discarded and run again: its outside click landed inside the open menu.
+- S8 has screenshots, not video: no driver here records one.
+
+</details>
+
+<details><summary>Noticed, not this pull request's (3)</summary>
+
+- The signed-out-everywhere notice draws a check, where the artboard draws an info icon (`AuthNotice.tsx`, from #433).
+- At 1024 wide, Dashboard scrolls sideways a few pixels (the page body, replaced by later tickets of #410).
+- Claude in Chrome cannot type into the sign-in fields while 1Password's inline menu is attached.
+
+</details>
+
+The full QA Report, with evidence, stays local: `tmp/qa/qa-report-pr-432.md`.
+</script>
+
+<script type="text/markdown" id="C" data-name="Exceptions only">
+<!-- qa-report -->
+
+QA Report: result=passed; commit=51b50a0ac5dd9654ee755d3b9e1e9b718dc1380f; left-for-person=3
+
+## QA passed on `51b50a0`
+
+All 9 scenarios passed (S1–S9, as named in the plan). Nothing failed, nothing was not proven. Local QA Stack, `web`, 2026-11-20.
+
+**Left for a person**
+
+- [ ] The e2e specs (`auth.spec.ts`, `utils/helpers.ts`, `dashboard.spec.ts`) open the menu with `button[aria-label^="Account menu for"]` and choose **Sign out**. No CI job runs this suite.
+- [ ] `docs/frontend/react/auth.md` says both sign-out actions live only in the header user menu.
+- [ ] `docs/frontend/react/ui.md` has an "App shell" section linking `navigation.ts`.
+
+**How this run differed from the plan:** compared at 1024 wide, not 1440; light colour scheme emulated; S5 run twice; S8 screenshots, not video.
+
+**Noticed, not this pull request's:** the notice icon from #433; a few pixels of sideways scroll on Dashboard.
+</script>
+<div class="bar"><button id="prev" aria-label="Previous variant">&larr;</button><span class="label" id="blabel"></span><button id="next" aria-label="Next variant">&rarr;</button></div>
+<script>
+const keys=["Today","A","B","C"];
+const params=new URLSearchParams(location.search);
+let cur=keys.includes(location.hash.slice(1))?location.hash.slice(1):keys.includes(params.get("variant"))?params.get("variant"):"Today";
+const out=document.getElementById("out"),rawbox=document.getElementById("rawbox");
+function md(k){return document.getElementById(k).textContent.replace(/^\n/,"")}
+function render(){
+  const el=document.getElementById(cur),text=md(cur);
+  const name=el.dataset.name;
+  document.getElementById("vname").innerHTML="<b>"+cur+"</b> · "+name;
+  const base=md("Today").length;
+  document.getElementById("size").textContent=text.length.toLocaleString()+" characters, "+text.split("\n").length+" lines"+(cur==="Today"?"":" ("+Math.round(100*text.length/base)+"% of today's)");
+  document.getElementById("blabel").textContent=cur+" ("+name+")";
+  if(rawbox.checked||!window.marked){const p=document.createElement("pre");p.className="raw";p.textContent=text;out.replaceChildren(p)}
+  else{out.innerHTML=marked.parse(text)}
+  try{history.replaceState(null,"","#"+cur)}catch(e){}
+}
+function step(d){cur=keys[(keys.indexOf(cur)+d+keys.length)%keys.length];render()}
+document.getElementById("prev").onclick=()=>step(-1);
+document.getElementById("next").onclick=()=>step(1);
+rawbox.onchange=render;
+addEventListener("keydown",e=>{const t=e.target;if(t.closest&&t.closest("input,textarea,[contenteditable]"))return;if(e.key==="ArrowLeft")step(-1);if(e.key==="ArrowRight")step(1)});
+render();
+</script>
