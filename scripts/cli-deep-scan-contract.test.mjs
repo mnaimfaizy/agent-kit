@@ -5728,7 +5728,7 @@ const ISOLATED_OPTS = [
   "com.docker.network.bridge.gateway_mode_ipv4=isolated",
   "com.docker.network.bridge.gateway_mode_ipv6=isolated",
 ];
-/** What a probe or relay runs: the staged script and its arguments, after the image. */
+/** What a probe or relay runs: the relay script in the image, and its arguments. */
 const scriptArgs = (a) => a.slice(a.indexOf("/agent-kit/relay.mjs"));
 /** A relay's fixed address on the sandbox's network, from its `--network name=…,ip=…`. */
 const relayAddr = (a) => {

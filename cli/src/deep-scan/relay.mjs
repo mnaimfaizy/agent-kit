@@ -3,10 +3,10 @@
 // it and checked against its pinned SHA-256, and the reading of a probe's
 // answer.
 //
-// On Docker Engine the sandbox's networks are `--internal` with the
+// On Docker Engine the sandbox's network is `--internal` with the
 // `isolated` gateway mode (Docker 28.0 and later), so the host has no
-// address on them. The sandbox's one way to a host-side proxy is a relay
-// container on its network and on an ordinary bridge network: it forwards
+// address on it. The sandbox's one way to a host-side proxy is a relay
+// container on that network and on an ordinary bridge network: it forwards
 // one TCP port to the proxy, on that bridge's gateway, and listens on
 // nothing else. It never holds the model credential: the bytes pass through,
 // and the key is added in the host-side proxy.
