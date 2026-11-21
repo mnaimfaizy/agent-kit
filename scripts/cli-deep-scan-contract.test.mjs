@@ -251,6 +251,7 @@ function fakeChild(host, cmd, args, cwd) {
     if (reply.probe) {
       const env = args.find((a) => a.startsWith("HTTPS_PROXY="));
       const proxy = env ? new URL(env.slice("HTTPS_PROXY=".length)) : null;
+      if (proxy) proxy.hostname = "127.0.0.1";
       const status = proxy
         ? await new Promise((resolve) => {
             const req = httpRequest({
@@ -268,6 +269,12 @@ function fakeChild(host, cmd, args, cwd) {
           })
         : "no proxy";
       appendFileSync(join(host.dir, "probes.jsonl"), `${JSON.stringify([reply.probe, status])}\n`);
+    }
+    if (reply.selfIsTarget !== undefined) {
+      // The probe was handed a target at its own address: report that as
+      // its own, as a probe whose address Docker reused would.
+      const targets = args.slice(args.indexOf("probe") + 1);
+      reply.stdout = probeOut(reply.results, [targets[reply.selfIsTarget * 2]]);
     }
     if (reply.templates) reply.stdout = templateList(host);
     if (reply.model) await playAgent(host, args, reply.model);
@@ -360,6 +367,11 @@ const ISOLATED = {
   },
   IPAM: { Driver: "default", Config: [{ Subnet: "172.30.0.0/16" }] },
 };
+/**
+ * A probe's answer: its own addresses (an address no target has, unless a
+ * test says otherwise) and one result per target, in their order.
+ */
+const probeOut = (results, self = ["192.0.2.250"]) => `${JSON.stringify({ self, results })}\n`;
 /** The probe's answer, in its target order: the relay, the gateway on the proxy's port, on another. */
 const PROBE_PASS = ["connected", "unreachable", "unreachable"];
 /** The cut probe's: the removed setup relay, the gateway on its port and on another, none reached. */
@@ -371,11 +383,11 @@ const MODEL_PASS = ["connected", "unreachable", "unreachable", "unreachable"];
  * setup relay, so before the model relay only the gateway is tried.
  */
 const NO_REGISTRIES = {
-  "~-probe-setup --label": { status: 0, stdout: '["unreachable"]\n' },
-  "~-probe-cut --label": { status: 0, stdout: '["unreachable"]\n' },
+  "~-probe-setup --label": { status: 0, stdout: probeOut(["unreachable"]) },
+  "~-probe-cut --label": { status: 0, stdout: probeOut(["unreachable"]) },
   "~-probe-model --label": {
     status: 0,
-    stdout: '["connected","unreachable","unreachable"]\n',
+    stdout: probeOut(["connected", "unreachable", "unreachable"]),
   },
 };
 
@@ -408,13 +420,10 @@ function docker({
       stdout: `${JSON.stringify([{ Subnet: "172.18.0.0/16", Gateway: "127.0.0.1" }])}\n`,
     },
     "network inspect --format {{json .}}": { status: 0, stdout: `${JSON.stringify(ISOLATED)}\n` },
-    // The relay's address on a sandbox network: 127.0.0.1 here, so the fake
-    // sandbox reaches the real host-side proxy, on the relay's port.
-    "inspect --format {{(index": { status: 0, stdout: "127.0.0.1\n" },
-    "run --rm": { status: 0, stdout: `${JSON.stringify(PROBE_PASS)}\n` },
-    "~-probe-setup --label": { status: 0, stdout: `${JSON.stringify(PROBE_PASS)}\n` },
-    "~-probe-cut --label": { status: 0, stdout: `${JSON.stringify(CUT_PASS)}\n` },
-    "~-probe-model --label": { status: 0, stdout: `${JSON.stringify(MODEL_PASS)}\n` },
+    "run --rm": { status: 0, stdout: probeOut(PROBE_PASS) },
+    "~-probe-setup --label": { status: 0, stdout: probeOut(PROBE_PASS) },
+    "~-probe-cut --label": { status: 0, stdout: probeOut(CUT_PASS) },
+    "~-probe-model --label": { status: 0, stdout: probeOut(MODEL_PASS) },
     "inspect --format {{json .NetworkSettings.Networks}}": { status: 0, stdout: "{}\n" },
     // The check before the target starts asks the same with `container inspect`.
     "container inspect --format {{json .NetworkSettings.Networks}}": {
@@ -490,7 +499,9 @@ async function playAgent(host, args, turns) {
   const script = args.at(-1);
   const settings = JSON.parse(/--settings '([^']*)'/.exec(script)[1]);
   // The sandbox reaches the host as host.docker.internal; this test is on it.
-  const base = settings.env.ANTHROPIC_BASE_URL.replace("host.docker.internal", "127.0.0.1");
+  const baseUrl = new URL(settings.env.ANTHROPIC_BASE_URL);
+  baseUrl.hostname = "127.0.0.1";
+  const base = baseUrl.origin;
   const held = (name) => args.find((a) => a.startsWith(`${name}=`))?.split("=")[1];
   // On the subscription path Claude Code holds a token, and sends it as a
   // bearer value with its OAuth beta header; else it holds an API key.
@@ -1563,7 +1574,6 @@ describe("the sandbox lifecycle runs in order on the chosen runtime", () => {
       "network inspect",
       "build",
       "run",
-      "inspect",
       "run",
       "run",
       "container inspect",
@@ -1576,7 +1586,6 @@ describe("the sandbox lifecycle runs in order on the chosen runtime", () => {
       "rm",
       "run",
       "run",
-      "inspect",
       "network inspect",
       "run",
       "exec",
@@ -1601,7 +1610,7 @@ describe("the sandbox lifecycle runs in order on the chosen runtime", () => {
     assert.match(scripts[1], /\nnpm run start &$/);
     assert.equal(scripts[2], "curl --fail http://localhost:3000/health");
     assert.equal(scripts[3], "npm run seed");
-    assert.ok(isAgentStep(calls[25]));
+    assert.ok(isAgentStep(calls[23]));
   });
 
   it("writes the copied-out report to a private folder and says where", async () => {
@@ -1821,7 +1830,7 @@ describe("setup runs with the registry allowlist and no credential, and the netw
     assert.equal(runArgs[runArgs.indexOf("--network") + 1], net);
     for (const step of calls.filter(isSetupStep)) {
       assert.ok(
-        step.some((a) => /^HTTPS_PROXY=http:\/\/127\.0\.0\.1:\d+$/.test(a)),
+        step.some((a) => /^HTTPS_PROXY=http:\/\/198\.1[89]\.\d+\.10:\d+$/.test(a)),
         step.join(" "),
       );
     }
@@ -1905,7 +1914,10 @@ describe("setup runs with the registry allowlist and no credential, and the netw
 
   it("ends the run before the agent step when the cut probe reaches the host", async () => {
     const host = gvisorWith({
-      "~-probe-cut --label": { status: 0, stdout: '["unreachable","unreachable","refused"]\n' },
+      "~-probe-cut --label": {
+        status: 0,
+        stdout: probeOut(["unreachable", "unreachable", "refused"]),
+      },
     });
     const res = await run(recipeRepo(VALID), [], { host });
     assert.equal(res.code, 1, res.text);
@@ -3058,7 +3070,6 @@ describe("the agent step runs the real Claude Code, with only a placeholder key 
       "network inspect",
       "build",
       "run",
-      "inspect",
       "run",
       "run",
       "container inspect",
@@ -3071,7 +3082,6 @@ describe("the agent step runs the real Claude Code, with only a placeholder key 
       "rm",
       "run",
       "run",
-      "inspect",
       "network inspect",
       "run",
       "exec",
@@ -3093,7 +3103,7 @@ describe("the agent step runs the real Claude Code, with only a placeholder key 
     // The model relay joins the sandbox's own network: nothing is connected.
     const modelRelay = relayRuns(calls)[1];
     assert.equal(flagValues(modelRelay, "--name")[0], `${name}-relay-model`);
-    assert.equal(flagValues(modelRelay, "--network")[1], name);
+    assert.ok(flagValues(modelRelay, "--network")[1].startsWith(`name=${name},ip=`));
     assert.ok(!calls.some((a) => a[0] === "network" && a[1] === "connect"));
     assert.match(res.out, /Network: cut \(checked from the host\)/);
     assert.match(res.out, /Model route: only the model proxy/);
@@ -3117,7 +3127,7 @@ describe("the agent step runs the real Claude Code, with only a placeholder key 
     }
     assert.match(line, /< \/agent-kit\/in\/brief\.md /);
     const settings = settingsOf(agent);
-    assert.match(settings.env.ANTHROPIC_BASE_URL, /^http:\/\/127\.0\.0\.1:\d+$/);
+    assert.match(settings.env.ANTHROPIC_BASE_URL, /^http:\/\/198\.1[89]\.\d+\.13:\d+$/);
     assert.deepEqual(settings.permissions.deny, ["WebFetch", "WebSearch"]);
     assert.ok(!settings.permissions.allow.some((t) => /^Web/.test(t)));
     assert.ok(agent.includes(`ANTHROPIC_API_KEY=${PLACEHOLDER}`), agent.join(" "));
@@ -3141,7 +3151,7 @@ describe("the agent step runs the real Claude Code, with only a placeholder key 
     assert.equal(res.code, 0, res.text);
     const agent = agentCall(lifecycle(res));
     // The launcher's settings pin the proxy, and the project's are not loaded.
-    assert.match(settingsOf(agent).env.ANTHROPIC_BASE_URL, /^http:\/\/127\.0\.0\.1:\d+$/);
+    assert.match(settingsOf(agent).env.ANTHROPIC_BASE_URL, /^http:\/\/198\.1[89]\.\d+\.13:\d+$/);
     assert.match(claudeLine(agent), / --setting-sources user /);
     assert.ok(!JSON.stringify(agent).includes("evil.example"));
     assert.ok(!JSON.stringify(agent).includes("apiKeyHelper"));
@@ -3229,7 +3239,7 @@ describe("the agent step runs the real Claude Code, with only a placeholder key 
     const host = gvisorWith({
       "~-probe-model --label": {
         status: 0,
-        stdout: '["connected","connected","unreachable","unreachable"]\n',
+        stdout: probeOut(["connected", "connected", "unreachable", "unreachable"]),
       },
     });
     const res = await run(recipeRepo(VALID), [], { host });
@@ -4776,7 +4786,7 @@ describe("--credential subscription: a placeholder CLAUDE_CODE_OAUTH_TOKEN in th
       assert.ok(line.includes(` ${flag}`), `claude has ${flag}: ${line}`);
     }
     const settings = settingsOf(agent);
-    assert.match(settings.env.ANTHROPIC_BASE_URL, /^http:\/\/127\.0\.0\.1:\d+$/);
+    assert.match(settings.env.ANTHROPIC_BASE_URL, /^http:\/\/198\.1[89]\.\d+\.13:\d+$/);
     assert.deepEqual(settings.permissions.deny, ["WebFetch", "WebSearch"]);
     // No --bare skips hooks here, so the launcher's settings turn them off.
     assert.equal(settings.disableAllHooks, true);
@@ -4804,7 +4814,7 @@ describe("--credential subscription: a placeholder CLAUDE_CODE_OAUTH_TOKEN in th
     const res = await run(dir, SUBSCRIPTION, { env: oauthEnv() });
     assert.equal(res.code, 0, res.text);
     const agent = agentCall(lifecycle(res));
-    assert.match(settingsOf(agent).env.ANTHROPIC_BASE_URL, /^http:\/\/127\.0\.0\.1:\d+$/);
+    assert.match(settingsOf(agent).env.ANTHROPIC_BASE_URL, /^http:\/\/198\.1[89]\.\d+\.13:\d+$/);
     // Project and local settings are not loaded, and no project MCP server starts.
     assert.match(claudeLine(agent), / --setting-sources user /);
     assert.match(claudeLine(agent), / --strict-mcp-config /);
@@ -5720,6 +5730,13 @@ const ISOLATED_OPTS = [
 ];
 /** What a probe or relay runs: the staged script and its arguments, after the image. */
 const scriptArgs = (a) => a.slice(a.indexOf("/agent-kit/relay.mjs"));
+/** A relay's fixed address on the sandbox's network, from its `--network name=…,ip=…`. */
+const relayAddr = (a) => {
+  const net = flagValues(a, "--network").find(
+    (v) => /^name=[^,]+,ip=/.test(v) && !v.includes("gw-priority"),
+  );
+  return net?.slice(net.indexOf(",ip=") + 4);
+};
 /** The host-side proxy port a relay forwards to. */
 const relayPort = (a) => scriptArgs(a).at(-1);
 
@@ -5754,7 +5771,10 @@ describe("Docker Engine: the sandbox's only route to the host is a relay on an i
       const line = relay.join(" ");
       assert.equal(flagValues(relay, "--name")[0], `${name}-relay-${phase}`);
       // Its default route is the host network's; the sandbox network has none.
-      assert.deepEqual(flagValues(relay, "--network"), [`name=${name}-host,gw-priority=1`, net]);
+      assert.deepEqual(flagValues(relay, "--network"), [
+        `name=${name}-host,gw-priority=1`,
+        `name=${net},ip=${relayAddr(relay)}`,
+      ]);
       assert.ok(relay.includes("--read-only"), line);
       assert.deepEqual(flagValues(relay, "--cap-drop"), ["ALL"], line);
       assert.deepEqual(flagValues(relay, "--security-opt"), ["no-new-privileges"], line);
@@ -5868,19 +5888,21 @@ describe("Docker Engine: the sandbox's only route to the host is a relay on an i
   });
 
   it("sends setup and the model route to the relay's address, never the host's", async () => {
-    const host = gvisorWith({ "inspect --format {{(index": { status: 0, stdout: "10.89.0.2\n" } });
-    const res = await run(recipeRepo(VALID), [], { host });
+    const res = await run(recipeRepo(VALID));
     assert.equal(res.code, 0, res.text);
     const calls = lifecycle(res);
     const [setupRelay, modelRelay] = relayRuns(calls);
     for (const step of calls.filter(isSetupStep)) {
       assert.ok(
-        step.includes(`HTTPS_PROXY=http://10.89.0.2:${relayPort(setupRelay)}`),
+        step.includes(`HTTPS_PROXY=http://${relayAddr(setupRelay)}:${relayPort(setupRelay)}`),
         step.join(" "),
       );
     }
     const settings = settingsOf(agentCall(calls));
-    assert.equal(settings.env.ANTHROPIC_BASE_URL, `http://10.89.0.2:${relayPort(modelRelay)}`);
+    assert.equal(
+      settings.env.ANTHROPIC_BASE_URL,
+      `http://${relayAddr(modelRelay)}:${relayPort(modelRelay)}`,
+    );
     assert.match(res.out, /Setup: egress limited to registry\.npmjs\.org.*through a relay/);
     assert.match(
       res.out,
@@ -5912,7 +5934,8 @@ describe("Docker Engine: the sandbox's only route to the host is a relay on an i
     const model = at(probeNamed("model"), at(inspectNet, cut));
     assert.ok(model < at(isAgentStep), "checked before the agent step");
     for (const probe of probeRuns(calls)) {
-      assert.deepEqual(flagValues(probe, "--network"), [name]);
+      assert.equal(flagValues(probe, "--network").length, 1);
+      assert.ok(flagValues(probe, "--network")[0].startsWith(`name=${name},ip=`));
       assert.ok(probe.includes("--read-only"));
       assert.deepEqual(flagValues(probe, "--cap-drop"), ["ALL"]);
     }
@@ -5920,7 +5943,7 @@ describe("Docker Engine: the sandbox's only route to the host is a relay on an i
     assert.deepEqual(scriptArgs(calls[setupProbe]), [
       "/agent-kit/relay.mjs",
       "probe",
-      "127.0.0.1",
+      relayAddr(relayRuns(calls)[0]),
       port,
       "127.0.0.1",
       port,
@@ -5966,13 +5989,21 @@ describe("Docker Engine: the sandbox's only route to the host is a relay on an i
     [
       "a probe that reaches the host on the proxy's port",
       {
-        "~-probe-setup --label": { status: 0, stdout: '["connected","connected","unreachable"]\n' },
+        "~-probe-setup --label": {
+          status: 0,
+          stdout: probeOut(["connected", "connected", "unreachable"]),
+        },
       },
       /FAILED {2}the setup network is not isolated: a probe on it reached the host network's gateway at 127\.0\.0\.1:\d+ \(connected\)\./,
     ],
     [
       "a probe that reaches the host on another port",
-      { "~-probe-setup --label": { status: 0, stdout: '["connected","unreachable","refused"]\n' } },
+      {
+        "~-probe-setup --label": {
+          status: 0,
+          stdout: probeOut(["connected", "unreachable", "refused"]),
+        },
+      },
       /FAILED {2}the setup network is not isolated: a probe on it reached the host network's gateway at 127\.0\.0\.1:22 \(refused\)\./,
     ],
     [
@@ -5980,7 +6011,7 @@ describe("Docker Engine: the sandbox's only route to the host is a relay on an i
       {
         "~-probe-setup --label": {
           status: 0,
-          stdout: '["unreachable","unreachable","unreachable"]\n',
+          stdout: probeOut(["unreachable", "unreachable", "unreachable"]),
         },
       },
       /FAILED {2}the setup network is not isolated: a probe on it could not reach the relay at 127\.0\.0\.1:\d+ \(unreachable\)\./,
@@ -6029,7 +6060,7 @@ describe("Docker Engine: the sandbox's only route to the host is a relay on an i
     const host = gvisorWith({
       "~-probe-model --label": {
         status: 0,
-        stdout: '["connected","unreachable","connected","unreachable"]\n',
+        stdout: probeOut(["connected", "unreachable", "connected", "unreachable"]),
       },
     });
     const res = await run(recipeRepo(VALID), [], { host });
@@ -6061,7 +6092,7 @@ describe("Docker Engine: the sandbox's only route to the host is a relay on an i
         ["127.0.0.1", "22"],
         ["127.0.0.1", "22"],
         [
-          "127.0.0.1",
+          relayAddr(relayRuns(calls)[0]),
           relayPort(relayRuns(calls)[0]),
           "127.0.0.1",
           relayPort(relayRuns(calls)[0]),
@@ -6199,7 +6230,7 @@ describe("Docker Engine: the sandbox's only route to the host is a relay on an i
       assert.deepEqual(flagValues(sandbox, "--network"), [name]);
       // Both relays live on that one network, the sandbox's.
       for (const relay of relayRuns(calls)) {
-        assert.equal(flagValues(relay, "--network")[1], name);
+        assert.ok(flagValues(relay, "--network")[1].startsWith(`name=${name},ip=`));
       }
     });
   }
@@ -6221,7 +6252,7 @@ describe("Docker Engine: the sandbox's only route to the host is a relay on an i
     assert.deepEqual(scriptArgs(calls[cut]), [
       "/agent-kit/relay.mjs",
       "probe",
-      "127.0.0.1",
+      relayAddr(setupRelay),
       port,
       "127.0.0.1",
       port,
@@ -6235,7 +6266,7 @@ describe("Docker Engine: the sandbox's only route to the host is a relay on an i
     const host = gvisorWith({
       "~-probe-cut --label": {
         status: 0,
-        stdout: '["connected","unreachable","unreachable"]\n',
+        stdout: probeOut(["connected", "unreachable", "unreachable"]),
       },
     });
     const res = await run(recipeRepo(VALID), [], { host });
@@ -6260,9 +6291,9 @@ describe("Docker Engine: the sandbox's only route to the host is a relay on an i
     assert.deepEqual(scriptArgs(probe), [
       "/agent-kit/relay.mjs",
       "probe",
-      "127.0.0.1",
+      relayAddr(modelRelay),
       relayPort(modelRelay),
-      "127.0.0.1",
+      relayAddr(setupRelay),
       relayPort(setupRelay),
       "127.0.0.1",
       relayPort(modelRelay),
@@ -6295,11 +6326,128 @@ describe("Docker Engine: the sandbox's only route to the host is a relay on an i
     assert.equal(readdirSync(res.reportDir).length, 0);
   });
 
+  it("creates the sandbox's network on a per-run subnet, Docker's own addresses in its upper half", async () => {
+    const res = await run(recipeRepo(VALID));
+    assert.equal(res.code, 0, res.text);
+    const calls = lifecycle(res);
+    const create = calls.find(
+      (a) => a[0] === "network" && a[1] === "create" && a.includes("--internal"),
+    );
+    const [subnet] = flagValues(create, "--subnet");
+    assert.match(subnet, /^198\.1[89]\.\d{1,3}\.0\/24$/, create.join(" "));
+    const prefix = subnet.replace(/\.0\/24$/, "");
+    assert.deepEqual(flagValues(create, "--ip-range"), [`${prefix}.128/25`]);
+  });
+
+  it("gives each relay and probe its own fixed address below the dynamic range, never reused in a run", async () => {
+    const res = await run(recipeRepo(VALID));
+    assert.equal(res.code, 0, res.text);
+    const calls = lifecycle(res);
+    const name = containerOf(calls);
+    const create = calls.find(
+      (a) => a[0] === "network" && a[1] === "create" && a.includes("--internal"),
+    );
+    const prefix = flagValues(create, "--subnet")[0].replace(/\.0\/24$/, "");
+    const owned = calls.filter((a) => relayRuns([a]).length || probeRuns([a]).length);
+    const ips = owned.map((a) => {
+      const net = flagValues(a, "--network").find((v) => v.startsWith(`name=${name},`));
+      assert.ok(net, a.join(" "));
+      return [flagValues(a, "--name")[0].slice(name.length), net.slice(`name=${name},ip=`.length)];
+    });
+    assert.deepEqual(ips, [
+      ["-relay-setup", `${prefix}.10`],
+      ["-probe-setup", `${prefix}.11`],
+      ["-probe-cut", `${prefix}.12`],
+      ["-relay-model", `${prefix}.13`],
+      ["-probe-model", `${prefix}.14`],
+    ]);
+    // The sandbox takes Docker's own pick, from the upper half.
+    assert.deepEqual(flagValues(calls.find(isSandboxRun), "--network"), [name]);
+    // Each probe's targets are those fixed addresses, and the gateway.
+    const cut = owned.find((a) => flagValues(a, "--name")[0].endsWith("-probe-cut"));
+    assert.equal(scriptArgs(cut)[2], `${prefix}.10`);
+  });
+
+  it("tries another subnet when one overlaps, and fails cleanly when none is free", async () => {
+    const host = gvisorWith({
+      "network create --internal": {
+        status: 1,
+        stderr:
+          "Error response from daemon: invalid pool request: Pool overlaps with other one on this address space\n",
+      },
+    });
+    const res = await run(recipeRepo(VALID), [], { host });
+    assert.equal(res.code, 1, res.text);
+    const creates = lifecycle(res).filter(
+      (a) => a[0] === "network" && a[1] === "create" && a.includes("--internal"),
+    );
+    const subnets = creates.map((a) => flagValues(a, "--subnet")[0]);
+    assert.equal(subnets.length, 5);
+    assert.equal(new Set(subnets).size, 5, subnets.join(", "));
+    assert.match(
+      res.err,
+      new RegExp(
+        `FAILED {2}no free subnet for the sandbox's network: tried ${subnets.map((x) => x.replaceAll(".", "\\.")).join(", ")}, and each overlaps a network on this host\\.`,
+      ),
+    );
+    assert.ok(!lifecycle(res).some(isSandboxRun));
+  });
+
+  it("does not retry another subnet on any other network-create error", async () => {
+    const host = gvisorWith({ "network create --internal": { status: 1, stderr: "boom\n" } });
+    const res = await run(recipeRepo(VALID), [], { host });
+    assert.equal(res.code, 1, res.text);
+    assert.match(res.err, /FAILED {2}creating the setup network: boom/);
+    const creates = lifecycle(res).filter(
+      (a) => a[0] === "network" && a[1] === "create" && a.includes("--internal"),
+    );
+    assert.equal(creates.length, 1);
+  });
+
+  it("fails closed, never 'reached', when the cut probe's own address is the removed relay's", async () => {
+    const host = gvisorWith({
+      "~-probe-cut --label": { status: 0, selfIsTarget: 0, results: CUT_PASS },
+    });
+    const res = await run(recipeRepo(VALID), [], { host });
+    assert.equal(res.code, 1, res.text);
+    assert.match(
+      res.err,
+      /FAILED {2}the network is not cut: the probe's own address 198\.1[89]\.\d+\.10 is one of its targets, so it cannot tell a route from itself\./,
+    );
+    assert.doesNotMatch(res.err, /reached/);
+    assert.ok(!lifecycle(res).some(isAgentStep));
+  });
+
+  it("fails closed when the model probe's own address is one of its targets", async () => {
+    const host = gvisorWith({
+      "~-probe-model --label": { status: 0, selfIsTarget: 1, results: MODEL_PASS },
+    });
+    const res = await run(recipeRepo(VALID), [], { host });
+    assert.equal(res.code, 1, res.text);
+    assert.match(
+      res.err,
+      /FAILED {2}more than the model route is open: the probe's own address 198\.1[89]\.\d+\.10 is one of its targets, so it cannot tell a route from itself\./,
+    );
+    assert.ok(!lifecycle(res).some(isAgentStep));
+  });
+
+  it("fails closed when a probe does not say its own addresses", async () => {
+    const host = gvisorWith({
+      "~-probe-setup --label": { status: 0, stdout: `${JSON.stringify(PROBE_PASS)}\n` },
+    });
+    const res = await run(recipeRepo(VALID), [], { host });
+    assert.equal(res.code, 1, res.text);
+    assert.match(
+      res.err,
+      /FAILED {2}the setup network is not isolated: the probe's answer is not its own addresses and one result per target\./,
+    );
+  });
+
   it("says nothing of isolation when a check fails", async () => {
     const host = gvisorWith({
       "~-probe-setup --label": {
         status: 0,
-        stdout: '["connected","connected","unreachable"]\n',
+        stdout: probeOut(["connected", "connected", "unreachable"]),
       },
     });
     const res = await run(recipeRepo(VALID), [], { host });
@@ -6495,7 +6643,9 @@ describe("the relay script: digest-checked, built in, Node core only (#404)", ()
       "9",
     ]);
     try {
-      assert.deepEqual(JSON.parse(await probe.first), ["connected", "refused", "unreachable"]);
+      const answer = JSON.parse(await probe.first);
+      assert.deepEqual(answer.results, ["connected", "refused", "unreachable"]);
+      assert.ok(Array.isArray(answer.self), "it names its own addresses");
     } finally {
       open.close();
     }

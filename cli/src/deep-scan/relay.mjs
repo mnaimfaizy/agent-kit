@@ -24,7 +24,7 @@ export const RELAY_IMAGE =
 /** The relay script as it ships, and its pinned SHA-256. */
 export const RELAY_SCRIPT_FILE = fileURLToPath(new URL("./relay-script.mjs", import.meta.url));
 export const RELAY_SCRIPT_SHA256 =
-  "3917f9338e7e37555e914056474a9dbfc725c85a1d1d280a0596667103666e3e";
+  "4240ef10d2e702c08bdc04f16ebec8e17318655109d66c52ba33dd11d72ac5d5";
 
 /** Where the relay and the probe find the script, in the relay image. */
 export const RELAY_SCRIPT_PATH = "/agent-kit/relay.mjs";
@@ -90,27 +90,36 @@ export function relayOptions() {
  */
 
 /**
- * Why a probe's answer fails the check, or null when it passes: every
- * target gave what it must.
+ * Why a probe's answer fails the check, or null when it passes: the probe
+ * named its own addresses, none of them is a target (a probe dialling
+ * itself, at an address Docker reused, would read as a route or as none),
+ * and every target gave what it must.
  * @param {string} stdout the probe's output
  * @param {ProbeTarget[]} targets
  */
 export function probeFailure(stdout, targets) {
-  let results;
+  let answer;
   try {
-    results = JSON.parse(stdout.trim());
+    answer = JSON.parse(stdout.trim());
   } catch {
-    results = null;
+    answer = null;
   }
+  const strings = (v) => Array.isArray(v) && v.every((x) => typeof x === "string");
   if (
-    !Array.isArray(results) ||
-    results.length !== targets.length ||
-    !results.every((r) => typeof r === "string")
+    !answer ||
+    typeof answer !== "object" ||
+    !strings(answer.self) ||
+    !strings(answer.results) ||
+    answer.results.length !== targets.length
   ) {
-    return "the probe's answer is not one result per target";
+    return "the probe's answer is not its own addresses and one result per target";
+  }
+  const own = targets.find((t) => answer.self.includes(t.host));
+  if (own) {
+    return `the probe's own address ${own.host} is one of its targets, so it cannot tell a route from itself`;
   }
   for (const [i, t] of targets.entries()) {
-    const r = results[i];
+    const r = answer.results[i];
     if (r === t.want) continue;
     const at = `${t.host.includes(":") ? `[${t.host}]` : t.host}:${t.port}`;
     return t.want === "connected"

@@ -12,12 +12,14 @@
 //   probe [--timeout-ms <ms>] <host> <port> [<host> <port> ...]
 //     Try a TCP connection to each target, again and again until one
 //     connects or the time is up (a relay just started may not listen yet),
-//     and print one JSON array: for each target, in order, the outcome that
-//     reached furthest: "connected", "refused" (a host answered, so a route
-//     exists), "error <code>", or "unreachable" (no route, or no answer in
-//     time).
+//     and print one JSON object: `self`, the probe's own addresses (a
+//     target at one of them would answer from the probe itself), and
+//     `results`, for each target, in order, the outcome that reached
+//     furthest: "connected", "refused" (a host answered, so a route exists),
+//     "error <code>", or "unreachable" (no route, or no answer in time).
 
 import { connect, createServer } from "node:net";
+import { networkInterfaces } from "node:os";
 
 const [mode, ...rest] = process.argv.slice(2);
 
@@ -85,7 +87,11 @@ if (mode === "forward") {
     }
   };
   const results = await Promise.all(targets.map(reach));
-  process.stdout.write(`${JSON.stringify(results)}\n`);
+  const self = Object.values(networkInterfaces())
+    .flat()
+    .filter((i) => i && !i.internal)
+    .map((i) => i.address);
+  process.stdout.write(`${JSON.stringify({ self, results })}\n`);
 } else {
   process.stderr.write("usage: relay.mjs forward <listen-port> <host> <port> | probe ...\n");
   process.exit(2);

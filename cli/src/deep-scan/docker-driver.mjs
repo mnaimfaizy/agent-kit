@@ -74,6 +74,14 @@ export function dockerDriver({ runtime, id, call }) {
   let proxy = null;
   let proxyEnv = [];
   let modelProxy = null;
+  /**
+   * The sandbox network's subnet prefix ("198.18.N"), once created. The
+   * relays and probes take fixed addresses in its lower half, each its own
+   * and none reused in a run, while Docker hands out the upper half: on an
+   * isolated network nothing reserves `.1`, so an address a removed
+   * container freed would otherwise go to the next one (#404).
+   */
+  let prefix = null;
   /** The relays on the sandbox's network: { address, port }, once started. */
   let setupRelay = null;
   let modelRelay = null;
@@ -423,24 +431,41 @@ export function dockerDriver({ runtime, id, call }) {
   }
 
   /**
-   * Create an `--internal` network in the `isolated` gateway mode, and check
-   * from the host that `docker network inspect` shows it so, with no
-   * gateway address.
+   * Create an `--internal` network in the `isolated` gateway mode, on a
+   * per-run subnet (another candidate when one overlaps a network on this
+   * host), and check from the host that `docker network inspect` shows it
+   * so, with no gateway address.
    */
   async function isolatedNetwork(net, what) {
     resources.push(["network", net]);
-    must(
-      await docker([
+    const tried = [];
+    for (const candidate of subnetCandidates(id)) {
+      const r = await docker([
         "network",
         "create",
         "--internal",
         ...ISOLATED_OPTIONS.flatMap((o) => ["--opt", o]),
+        "--subnet",
+        `${candidate}.0/24`,
+        "--ip-range",
+        `${candidate}.128/25`,
         "--label",
         label,
         net,
-      ]),
-      `creating ${what}`,
-    );
+      ]);
+      if (r.status === 0) {
+        prefix = candidate;
+        break;
+      }
+      if (!/overlap/i.test(r.stderr)) must(r, `creating ${what}`);
+      tried.push(`${candidate}.0/24`);
+    }
+    if (prefix === null) {
+      throw new StepFailed([
+        `FAILED  no free subnet for the sandbox's network: tried ${tried.join(", ")}, and each overlaps a network on this host.`,
+        ENDS_HERE,
+      ]);
+    }
     const r = must(
       await docker(["network", "inspect", "--format", "{{json .}}", net]),
       `checking ${what}`,
@@ -452,6 +477,11 @@ export function dockerDriver({ runtime, id, call }) {
         ENDS_HERE,
       ]);
     }
+  }
+
+  /** The fixed address of a relay or a probe on the sandbox's network. */
+  function fixedAddress(container) {
+    return `${prefix}.${FIXED_HOSTS[container]}`;
   }
 
   /**
@@ -472,13 +502,14 @@ export function dockerDriver({ runtime, id, call }) {
   }
 
   /**
-   * Start the relay on the sandbox's network and the host network,
-   * forwarding `port` to the host-side proxy on the host network's gateway;
-   * return its address on the sandbox's network and its port. It listens on
-   * that one port, the proxy's own number.
+   * Start the relay on the sandbox's network, at its fixed address, and on
+   * the host network, forwarding `port` to the host-side proxy on the host
+   * network's gateway; return its address and port. It listens on that one
+   * port, the proxy's own number.
    */
   async function startRelay(phase, port) {
     const relay = `${name}-relay-${phase}`;
+    const address = fixedAddress(`relay-${phase}`);
     const image = await ensureRelayImage();
     resources.push(["container", relay]);
     must(
@@ -493,7 +524,7 @@ export function dockerDriver({ runtime, id, call }) {
         "--network",
         `name=${hostNetwork},gw-priority=1`,
         "--network",
-        network,
+        `name=${network},ip=${address}`,
         ...relayOptions(),
         image,
         RELAY_SCRIPT_PATH,
@@ -504,27 +535,15 @@ export function dockerDriver({ runtime, id, call }) {
       ]),
       `starting the ${phase} relay`,
     );
-    const r = must(
-      await docker([
-        "inspect",
-        "--format",
-        `{{(index .NetworkSettings.Networks "${network}").IPAddress}}`,
-        relay,
-      ]),
-      `reading the ${phase} relay's address`,
-    );
-    const address = r.stdout.toString("utf8").trim();
-    if (!/^[0-9a-f.:]+$/i.test(address)) {
-      throw new StepFailed([`FAILED  the ${phase} relay has no address on ${network}.`, ENDS_HERE]);
-    }
     return { address, port };
   }
 
   /**
-   * Run a launcher-owned probe on the sandbox's network, under the
-   * sandbox's own runtime (so a runtime that sees the network otherwise
-   * than Docker says fails here), and return why its answer fails, or null.
-   * It runs the relay image alone: no code of the target's.
+   * Run a launcher-owned probe on the sandbox's network, at its own fixed
+   * address, under the sandbox's own runtime (so a runtime that sees the
+   * network otherwise than Docker says fails here), and return why its
+   * answer fails, or null. It runs the relay image alone: no code of the
+   * target's.
    * @param {string} phase
    * @param {import("./relay.mjs").ProbeTarget[]} targets
    */
@@ -542,7 +561,7 @@ export function dockerDriver({ runtime, id, call }) {
         label,
         ...(runtime.dockerRuntime ? ["--runtime", runtime.dockerRuntime] : []),
         "--network",
-        network,
+        `name=${network},ip=${fixedAddress(`probe-${phase}`)}`,
         ...relayOptions(),
         image,
         RELAY_SCRIPT_PATH,
@@ -573,6 +592,35 @@ export function dockerDriver({ runtime, id, call }) {
       "no_proxy=localhost,127.0.0.1",
     ];
   }
+}
+
+/**
+ * Each relay's and probe's host number on the sandbox's /24: its own, below
+ * Docker's dynamic range (.128 and up), and never given to another.
+ */
+const FIXED_HOSTS = Object.freeze({
+  "relay-setup": 10,
+  "probe-setup": 11,
+  "probe-cut": 12,
+  "relay-model": 13,
+  "probe-model": 14,
+});
+
+/** How many subnets a run tries for the sandbox's network. */
+const SUBNET_TRIES = 5;
+
+/**
+ * The /24 prefixes a run tries for the sandbox's network, in order, chosen
+ * from its id inside 198.18.0.0/15: a range set aside for testing, which
+ * Docker's default pools never hand out and few LANs or VPNs use.
+ * @param {string} id the run's hex id
+ */
+export function subnetCandidates(id) {
+  const start = Number.parseInt(id.slice(0, 4), 16) % 512;
+  return Array.from({ length: SUBNET_TRIES }, (_, i) => {
+    const k = (start + i * 131) % 512;
+    return `198.${18 + (k >> 8)}.${k & 255}`;
+  });
 }
 
 /** Room for a tar's headers, padding and end blocks around one file. */
