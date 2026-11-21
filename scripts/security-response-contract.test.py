@@ -201,8 +201,10 @@ def test_status_format_is_retired() -> None:
     linking = []
     for name in tracked.splitlines():
         path = ROOT / name
+        # History may name it, as the Deprecation register's HISTORY does:
+        # a release's notes must name the old path in their rename table.
         history = name in ("CHANGELOG.md", "docs/deprecations.yml") or name.startswith(
-            "scripts/security-response-contract"
+            ("scripts/security-response-contract", "release-notes/")
         )
         if history or not path.is_file():
             continue
