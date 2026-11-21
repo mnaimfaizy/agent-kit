@@ -3246,7 +3246,7 @@ describe("the agent step runs the real Claude Code, with only a placeholder key 
     assert.equal(res.code, 1, res.text);
     assert.match(
       res.err,
-      /FAILED {2}more than the model route is open: a probe on it reached the removed setup relay at 127\.0\.0\.1:\d+ \(connected\)\./,
+      /FAILED {2}more than the model route is open: a probe on it reached the removed setup relay at 198\.1[89]\.\d{1,3}\.10:\d+ \(connected\)\./,
     );
     assert.ok(!lifecycle(res).some(isAgentStep));
   });
@@ -6014,12 +6014,12 @@ describe("Docker Engine: the sandbox's only route to the host is a relay on an i
           stdout: probeOut(["unreachable", "unreachable", "unreachable"]),
         },
       },
-      /FAILED {2}the setup network is not isolated: a probe on it could not reach the relay at 127\.0\.0\.1:\d+ \(unreachable\)\./,
+      /FAILED {2}the setup network is not isolated: a probe on it could not reach the relay at 198\.1[89]\.\d{1,3}\.10:\d+ \(unreachable\)\./,
     ],
     [
-      "a probe whose answer is not one result per target",
+      "a probe whose answer is not its own addresses and one result per target",
       { "~-probe-setup --label": { status: 0, stdout: "hello\n" } },
-      /FAILED {2}the setup network is not isolated: the probe's answer is not one result per target\./,
+      /FAILED {2}the setup network is not isolated: the probe's answer is not its own addresses and one result per target\./,
     ],
     [
       "a probe that fails",
@@ -6273,7 +6273,7 @@ describe("Docker Engine: the sandbox's only route to the host is a relay on an i
     assert.equal(res.code, 1, res.text);
     assert.match(
       res.err,
-      /FAILED {2}the network is not cut: a probe on it reached the removed setup relay at 127\.0\.0\.1:\d+ \(connected\)\./,
+      /FAILED {2}the network is not cut: a probe on it reached the removed setup relay at 198\.1[89]\.\d{1,3}\.10:\d+ \(connected\)\./,
     );
     const calls = lifecycle(res);
     assert.ok(!calls.some(isAgentStep), "the agent step never ran");
