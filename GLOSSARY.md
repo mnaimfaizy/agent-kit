@@ -287,6 +287,18 @@ _Avoid_: poll loop, busy wait, sleep loop
 The account of a finished run, offered after the human merges, for the issue that groups the run's work.
 _Avoid_: wrap-up, final report
 
+**Run Record**:
+The structured, machine-readable account of one run, written at close-out and holding only fields that are safe to publish (counts, ids, durations, outcomes, and each human intervention with its kind), never quoted issue text or command output; what a Consumer may keep or upload once the raw run folder is gone.
+_Avoid_: run metadata, telemetry, run log
+
+**Run Event**:
+One timestamped, structured entry for a single step of a run (a spawn, a human step, a land, a review, a CI result), written as it happens by whoever did it; the Run Record is derived from a run's Run Events.
+_Avoid_: log line, trace span
+
+**Sink**:
+A store off the machine that a Consumer has configured to receive Run Records, or opted-in raw run folders; one Sink may serve many repositories, each writing only into its own namespace.
+_Avoid_: backend, destination, remote
+
 **Ready to Merge**:
 A Delegation whose CI is green, whose review is settled, whose QA requirement is met on its current head, whose Rulings are upheld, and whose branch merges cleanly into the default branch as it now is, and is not behind it where the repository requires branches to be up to date, unless the human chose to merge it as it is; the only Delegations the closing list names.
 _Avoid_: done, mergeable, green
