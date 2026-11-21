@@ -1603,7 +1603,10 @@ describe("the image layers a pinned Claude Code with the auto-updater off", () =
     });
     const res = await run(dir);
     assert.equal(res.code, 0, res.text);
-    const builds = lifecycle(res).filter((a) => a[0] === "build");
+    // The recipe's build and the layer, not the relay image's (#404).
+    const builds = lifecycle(res).filter(
+      (a) => a[0] === "build" && !a[a.indexOf("--tag") + 1].endsWith("-relay"),
+    );
     assert.equal(builds.length, 2);
     assert.deepEqual(builds[0].slice(0, 3), ["build", "--file", "docker/scan.Dockerfile"]);
     const base = builds[0][builds[0].indexOf("--tag") + 1];
