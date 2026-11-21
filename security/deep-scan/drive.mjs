@@ -598,8 +598,9 @@ async function notifyEmail(ctx) {
     configured: true,
     expect: ({ r, commands }) => [
       [r.status !== 0, "a non-zero exit (TLS is required)"],
-      [/^EHLO /.test(commands[0] ?? ""), "EHLO first"],
-      [commands.includes("STARTTLS"), "a STARTTLS attempt"],
+      // SMTP verbs are case-insensitive; smtplib sends them in lower case.
+      [/^EHLO /i.test(commands[0] ?? ""), "EHLO first"],
+      [commands.some((c) => /^STARTTLS$/i.test(c)), "a STARTTLS attempt"],
       [!commands.some((c) => /^(AUTH|MAIL|RCPT|DATA)\b/i.test(c)), "no AUTH, MAIL, RCPT or DATA"],
       [!(r.stdout + r.stderr).includes("fixture-password-not-real"), "no password in the output"],
     ],
