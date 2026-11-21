@@ -1,23 +1,41 @@
 // The sandbox driver for the runtimes Docker Engine runs (#369): gVisor,
-// Kata Containers and Firecracker registered as a Docker runtime on Linux, and
-// Docker Desktop on macOS. It turns each lifecycle operation into `docker`
-// commands; the order, the output and the report belong to lifecycle.mjs.
+// Kata Containers and Firecracker registered as a Docker runtime on Linux,
+// with Docker Engine 28.0 or later. It turns each lifecycle operation into
+// `docker` commands; the order, the output and the report belong to
+// lifecycle.mjs.
 //
-// Setup egress: the sandbox sits on an `--internal` Docker network (no route
-// out), and its only way to the recipe's registries is a proxy the launcher
-// runs on the host (egress.mjs). The cut disconnects that network and stops
-// the proxy; `docker inspect`, run on the host, confirms no network is left.
+// The route to the host (#404): each network the sandbox joins is
+// `--internal` with the `isolated` gateway mode, so it has no route out and
+// the host has no address on it. The sandbox's one way to a host-side proxy
+// is a relay container on its network and on an ordinary bridge network
+// (the host network), which forwards one TCP port to the proxy on that
+// bridge's gateway (relay.mjs). The relay only forwards bytes: the model
+// credential stays in the host-side proxy. Before the target starts, and
+// again before the agent step, the host checks the network: `docker network
+// inspect` shows it isolated with no gateway address, `docker inspect` shows
+// the sandbox on it alone, and a launcher-owned probe on it reaches the
+// relay's port and not the host network's gateway, on the proxy's port or
+// another. Any failure ends the run before the agent step.
+//
+// Setup egress: the setup network's relay forwards to the egress proxy the
+// launcher runs on the host (egress.mjs), the recipe's registries its only
+// destinations. The cut disconnects that network and stops the proxy;
+// `docker inspect`, run on the host, confirms no network is left.
 //
 // The model route (#370): for the agent step, the sandbox joins a second
-// `--internal` network, and the key-injecting model proxy listens on its
-// gateway (on 127.0.0.1, reached as host.docker.internal, on Docker Desktop
-// for macOS), so the proxy is the scan's only route to the internet. That
-// route reaches the host itself, so other host services listening there are
-// reachable too, which the run's `Note:` says. `docker inspect` then
-// confirms the sandbox is on that network alone.
+// isolated network, whose relay forwards to the key-injecting model proxy,
+// so the proxy is the scan's only route to the internet.
 
 import { layerDockerfile } from "./claude-code.mjs";
 import { startEgressProxy } from "./egress.mjs";
+import {
+  OTHER_HOST_PORT,
+  probeFailure,
+  RELAY_IMAGE,
+  RELAY_SCRIPT_PATH,
+  relayOptions,
+  stageRelayScript,
+} from "./relay.mjs";
 import { failed, must, StepFailed, ENDS_HERE } from "./steps.mjs";
 import { singleFileOf } from "./tar.mjs";
 
@@ -30,11 +48,17 @@ export const LABEL = "agent-kit.deep-scan";
  *   Runs a command without blocking; throws Interrupted when the run is.
  */
 
+/** The `docker network create` options that leave the host no address on a sandbox network. */
+export const ISOLATED_OPTIONS = Object.freeze([
+  "com.docker.network.bridge.gateway_mode_ipv4=isolated",
+  "com.docker.network.bridge.gateway_mode_ipv6=isolated",
+]);
+
 /**
- * @param {{ runtime: import("./runtime.mjs").Runtime, platform: string, id: string, call: Call }} opts
+ * @param {{ runtime: import("./runtime.mjs").Runtime, id: string, call: Call }} opts
  * @returns {import("./lifecycle.mjs").Driver}
  */
-export function dockerDriver({ runtime, platform, id, call }) {
+export function dockerDriver({ runtime, id, call }) {
   const name = `agent-kit-deep-${id}`;
   const label = `${LABEL}=${id}`;
   const docker = (args, opts) => call("docker", args, opts);
@@ -45,9 +69,11 @@ export function dockerDriver({ runtime, platform, id, call }) {
   let proxyEnv = [];
   let modelNetwork = null;
   let modelProxy = null;
-  // Docker Desktop on macOS runs the engine in a VM: the host is
-  // host.docker.internal there, not the network's gateway.
-  const desktop = platform === "darwin";
+  /** The ordinary bridge network the relays reach the host on, and its gateway. */
+  let hostNetwork = null;
+  let hostGateway = null;
+  /** The staged relay script, once a relay or a probe needs it. */
+  let staged = null;
 
   return {
     container: name,
@@ -110,6 +136,7 @@ export function dockerDriver({ runtime, platform, id, call }) {
         ]),
         "starting the sandbox",
       );
+      if (network) await onAlone(network, "the setup network");
     },
 
     /** Unpack `tar` at the sandbox's root. */
@@ -125,7 +152,7 @@ export function dockerDriver({ runtime, platform, id, call }) {
       return registries.length
         ? {
             env: proxyEnv,
-            note: `egress limited to ${registries.join(", ")}, through the host-side proxy`,
+            note: `egress limited to ${registries.join(", ")}, through a relay to the host-side proxy; checked from the host: the sandbox reaches the relay's port alone`,
           }
         : { env: [], note: "no registries, so no network" };
     },
@@ -153,27 +180,10 @@ export function dockerDriver({ runtime, platform, id, call }) {
       }
     },
 
-    /** Null when the host sees no network on the sandbox, else what it sees. */
-    async egressLeft() {
-      const r = must(
-        await docker(["inspect", "--format", "{{json .NetworkSettings.Networks}}", name]),
-        "checking that the network is cut",
-      );
-      let attached = null;
-      try {
-        const parsed = JSON.parse(r.stdout.toString("utf8").trim() || "null");
-        if (parsed && typeof parsed === "object") {
-          attached = Object.keys(parsed).filter((n) => n !== "none");
-        }
-      } catch {
-        attached = null;
-      }
-      if (attached === null) return "docker inspect shows an unknown network state";
-      const extra = attached.filter((n) => n !== modelNetwork);
-      return extra.length ? `docker inspect shows the sandbox on ${extra.join(", ")}` : null;
-    },
+    /** Null when the host sees the sandbox on no network but the model network, else what it sees. */
+    egressLeft: () => networksLeft(modelNetwork),
 
-    /** Join the model network, with the model proxy on its gateway. */
+    /** Join the model network, whose relay forwards to the model proxy. */
     async openModelRoute(startProxy) {
       if (!network) {
         // Setup had no network: the sandbox is on `none`, which no other
@@ -183,8 +193,9 @@ export function dockerDriver({ runtime, platform, id, call }) {
           "taking the sandbox off the none network",
         );
       }
+      const bind = await ensureHostNetwork();
       modelNetwork = `${name}-model`;
-      const bind = await internalNetwork(modelNetwork, "the model network");
+      await isolatedNetwork(modelNetwork, "the model network");
       try {
         modelProxy = await startProxy(bind);
       } catch (e) {
@@ -194,16 +205,15 @@ export function dockerDriver({ runtime, platform, id, call }) {
           stderr: e.message,
         });
       }
+      const relay = await startRelay("model", modelNetwork, modelProxy.port);
+      await probe("model", modelNetwork, relay, modelProxy.port, "the model network");
       must(
         await docker(["network", "connect", modelNetwork, name]),
         "connecting the sandbox to the model network",
       );
       return {
-        url: `http://${hostOf(bind)}:${modelProxy.port}`,
-        note: `on the internal network ${modelNetwork}`,
-        // The route to the proxy is a route to the host: Docker cannot narrow
-        // it to one port, so say what else it reaches.
-        caveat: `on ${desktop ? "Docker Desktop" : "Docker Engine"} the sandbox can also reach any other service on your machine that listens on ${desktop ? "localhost (as host.docker.internal)" : `${bind} or on all interfaces`}, during the agent step and during setup when it has a network; stop any you do not want it to reach before a scan.`,
+        url: `http://${hostOf(relay)}:${modelProxy.port}`,
+        note: `through a relay on the isolated network ${modelNetwork}`,
       };
     },
 
@@ -223,16 +233,24 @@ export function dockerDriver({ runtime, platform, id, call }) {
       }
     },
 
+    /** Remove the staged relay script. */
+    cleanup() {
+      staged?.remove();
+      staged = null;
+    },
+
     /**
-     * The commands that remove every resource asked for: the container
-     * first (a network still in use cannot be removed), then the rest,
-     * newest first.
+     * The commands that remove every resource asked for: the sandbox first,
+     * then the relays and probes (a network still in use cannot be removed),
+     * then the rest, newest first.
      */
     teardown() {
       const newest = [...resources].reverse();
+      const container = ([kind]) => kind === "container";
       const ordered = [
-        ...newest.filter(([kind]) => kind === "container"),
-        ...newest.filter(([kind]) => kind !== "container"),
+        ...newest.filter((r) => container(r) && r[1] === name),
+        ...newest.filter((r) => container(r) && r[1] !== name),
+        ...newest.filter((r) => !container(r)),
       ];
       return ordered.map(([kind, n]) => ({
         what: `${kind} ${n}`,
@@ -255,21 +273,54 @@ export function dockerDriver({ runtime, platform, id, call }) {
     }
   }
 
-  /** The host name the sandbox reaches a proxy bound on `bind` by. */
-  function hostOf(bind) {
-    if (desktop) return "host.docker.internal";
-    return bind.includes(":") ? `[${bind}]` : bind;
+  /** An address as a URL host. */
+  function hostOf(address) {
+    return address.includes(":") ? `[${address}]` : address;
   }
 
   /**
-   * Create an `--internal` network, and return the host address to put a
-   * proxy on: its gateway (127.0.0.1 on Docker Desktop for macOS).
+   * Null when the host sees the sandbox on no network but `allowed`, else
+   * what it sees. `verb` is `inspect`, or `container inspect` for the check
+   * before the target starts.
    */
-  async function internalNetwork(net, what) {
-    resources.push(["network", net]);
+  async function networksLeft(allowed, verb = ["inspect"]) {
+    const r = must(
+      await docker([...verb, "--format", "{{json .NetworkSettings.Networks}}", name]),
+      "checking the sandbox's networks",
+    );
+    let attached = null;
+    try {
+      const parsed = JSON.parse(r.stdout.toString("utf8").trim() || "null");
+      if (parsed && typeof parsed === "object") {
+        attached = Object.keys(parsed).filter((n) => n !== "none");
+      }
+    } catch {
+      attached = null;
+    }
+    if (attached === null) return "docker inspect shows an unknown network state";
+    const extra = attached.filter((n) => n !== allowed);
+    return extra.length ? `docker inspect shows the sandbox on ${extra.join(", ")}` : null;
+  }
+
+  /** Check from the host that the sandbox is on `net` alone. */
+  async function onAlone(net, what) {
+    const left = await networksLeft(net, ["container", "inspect"]);
+    if (left !== null) {
+      throw new StepFailed([`FAILED  the sandbox is not on ${what} alone: ${left}.`, ENDS_HERE]);
+    }
+  }
+
+  /**
+   * The ordinary bridge network the relays reach the host on, created once,
+   * and its gateway: the host address the host-side proxies listen on.
+   */
+  async function ensureHostNetwork() {
+    if (hostNetwork) return hostGateway;
+    hostNetwork = `${name}-host`;
+    resources.push(["network", hostNetwork]);
     must(
-      await docker(["network", "create", "--internal", "--label", label, net]),
-      `creating ${what}`,
+      await docker(["network", "create", "--label", label, hostNetwork]),
+      "creating the relays' host network",
     );
     const inspect = must(
       await docker([
@@ -277,24 +328,149 @@ export function dockerDriver({ runtime, platform, id, call }) {
         "inspect",
         "--format",
         "{{range .IPAM.Config}}{{.Gateway}}{{end}}",
-        net,
+        hostNetwork,
       ]),
-      `reading ${what}'s gateway`,
+      "reading the relays' host network's gateway",
     );
     const gateway = inspect.stdout.toString("utf8").trim();
-    const bind = desktop ? "127.0.0.1" : gateway;
-    if (!/^[0-9a-f.:]+$/i.test(bind)) {
+    if (!/^[0-9a-f.:]+$/i.test(gateway)) {
       throw new StepFailed([
-        `FAILED  ${what} has no gateway address to put a proxy on.`,
+        "FAILED  the relays' host network has no gateway address to put a proxy on.",
         ENDS_HERE,
       ]);
     }
-    return bind;
+    hostGateway = gateway;
+    return gateway;
+  }
+
+  /**
+   * Create an `--internal` network in the `isolated` gateway mode, and check
+   * from the host that `docker network inspect` shows it so, with no
+   * gateway address.
+   */
+  async function isolatedNetwork(net, what) {
+    resources.push(["network", net]);
+    must(
+      await docker([
+        "network",
+        "create",
+        "--internal",
+        ...ISOLATED_OPTIONS.flatMap((o) => ["--opt", o]),
+        "--label",
+        label,
+        net,
+      ]),
+      `creating ${what}`,
+    );
+    const r = must(
+      await docker(["network", "inspect", "--format", "{{json .}}", net]),
+      `checking ${what}`,
+    );
+    const why = isolationFailure(r.stdout.toString("utf8"));
+    if (why !== null) {
+      throw new StepFailed([
+        `FAILED  ${what} is not isolated: docker network inspect shows ${why}.`,
+        ENDS_HERE,
+      ]);
+    }
+  }
+
+  /** The staged relay script's path on the host, staged once. */
+  function relayScript() {
+    staged ??= stageRelayScript();
+    return staged.file;
+  }
+
+  /**
+   * Start the relay on `net` and the host network, forwarding `port` to the
+   * host-side proxy on the host network's gateway; return its address on
+   * `net`. It listens on that one port, the proxy's own number.
+   */
+  async function startRelay(phase, net, port) {
+    const relay = `${name}-relay-${phase}`;
+    const options = relayOptions(relayScript());
+    resources.push(["container", relay]);
+    must(
+      await docker([
+        "run",
+        "--detach",
+        "--name",
+        relay,
+        "--label",
+        label,
+        // The host network is its default route; the sandbox's has none.
+        "--network",
+        `name=${hostNetwork},gw-priority=1`,
+        "--network",
+        net,
+        ...options,
+        RELAY_IMAGE,
+        RELAY_SCRIPT_PATH,
+        "forward",
+        String(port),
+        hostGateway,
+        String(port),
+      ]),
+      `starting the ${phase} relay`,
+    );
+    const r = must(
+      await docker([
+        "inspect",
+        "--format",
+        `{{(index .NetworkSettings.Networks "${net}").IPAddress}}`,
+        relay,
+      ]),
+      `reading the ${phase} relay's address`,
+    );
+    const address = r.stdout.toString("utf8").trim();
+    if (!/^[0-9a-f.:]+$/i.test(address)) {
+      throw new StepFailed([`FAILED  the ${phase} relay has no address on ${net}.`, ENDS_HERE]);
+    }
+    return address;
+  }
+
+  /**
+   * From a launcher-owned probe on `net`: the relay's port is reached, and
+   * the host network's gateway is not, on the proxy's port or another.
+   */
+  async function probe(phase, net, relay, port, what) {
+    const container = `${name}-probe-${phase}`;
+    const options = relayOptions(relayScript());
+    const gateway = [
+      [hostGateway, port],
+      [hostGateway, OTHER_HOST_PORT],
+    ];
+    resources.push(["container", container]);
+    const r = must(
+      await docker([
+        "run",
+        "--rm",
+        "--name",
+        container,
+        "--label",
+        label,
+        "--network",
+        net,
+        ...options,
+        RELAY_IMAGE,
+        RELAY_SCRIPT_PATH,
+        "probe",
+        relay,
+        String(port),
+        ...gateway.flatMap(([h, p]) => [h, String(p)]),
+      ]),
+      `probing ${what}`,
+    );
+    const why = probeFailure(r.stdout.toString("utf8"), { relay: [relay, port], gateway });
+    if (why !== null) {
+      throw new StepFailed([`FAILED  ${what} is not isolated: ${why}.`, ENDS_HERE]);
+    }
   }
 
   async function setupNetwork(registries) {
+    const bind = await ensureHostNetwork();
     network = name;
-    const bind = await internalNetwork(network, "the setup network");
+    await isolatedNetwork(network, "the setup network");
     try {
       proxy = await startEgressProxy({ registries, bind });
     } catch (e) {
@@ -304,11 +480,43 @@ export function dockerDriver({ runtime, platform, id, call }) {
         stderr: e.message,
       });
     }
-    const url = `http://${hostOf(bind)}:${proxy.port}`;
+    const relay = await startRelay("setup", network, proxy.port);
+    await probe("setup", network, relay, proxy.port, "the setup network");
+    const url = `http://${hostOf(relay)}:${proxy.port}`;
     proxyEnv = [
       ...["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"].map((v) => `${v}=${url}`),
       "NO_PROXY=localhost,127.0.0.1",
       "no_proxy=localhost,127.0.0.1",
     ];
   }
+}
+
+/**
+ * Why `docker network inspect --format {{json .}}` does not show an
+ * internal network in the isolated gateway mode with no gateway address,
+ * or null when it does.
+ * @param {string} text
+ */
+export function isolationFailure(text) {
+  let net;
+  try {
+    net = JSON.parse(text.trim());
+  } catch {
+    return "output that is not JSON";
+  }
+  if (Array.isArray(net) && net.length === 1) net = net[0];
+  if (!net || typeof net !== "object") return "no network";
+  if (net.Internal !== true) return "it is not internal";
+  const options = net.Options && typeof net.Options === "object" ? net.Options : {};
+  for (const o of ISOLATED_OPTIONS) {
+    const [key] = o.split("=");
+    const value = typeof options[key] === "string" ? options[key] : "";
+    if (value !== "isolated") return `${key} as ${JSON.stringify(value)}, not isolated`;
+  }
+  const configs = Array.isArray(net.IPAM?.Config) ? net.IPAM.Config : [];
+  const gateway = configs
+    .map((c) => (typeof c?.Gateway === "string" ? c.Gateway : ""))
+    .find(Boolean);
+  if (gateway) return `the gateway address ${gateway}`;
+  return null;
 }

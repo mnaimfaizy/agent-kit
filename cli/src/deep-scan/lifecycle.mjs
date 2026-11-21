@@ -21,7 +21,7 @@
 // is torn down as on every exit path.
 //
 // The runtime's own commands live in a driver: docker-driver.mjs (gVisor,
-// Kata, Firecracker, Docker Desktop on macOS) and sbx-driver.mjs (Docker
+// Kata, Firecracker on Docker Engine) and sbx-driver.mjs (Docker
 // Sandboxes). This module owns the order, the output and every refusal.
 
 import { randomBytes } from "node:crypto";
@@ -105,7 +105,7 @@ const SETUP_ORDER = ["setup", "start", "ready", "seed"];
  *   exec: (script: string, opts?: { env?: string[], workdir?: string | null }) => Promise<import("../exec.mjs").StartResult>,
  *   cutEgress: () => Promise<void>,
  *   egressLeft: () => Promise<string | null>,
- *   openModelRoute: (startProxy: (bind: string) => Promise<{ port: number, close: () => Promise<void> }>) => Promise<{ url: string, note: string, caveat?: string }>,
+ *   openModelRoute: (startProxy: (bind: string) => Promise<{ port: number, close: () => Promise<void> }>) => Promise<{ url: string, note: string }>,
  *   copyOut: (path: string, opts: { maxBytes: number }) => Promise<{ name: string, data: Buffer } | { error: string } | { missing: import("../exec.mjs").StartResult }>,
  *   close: () => Promise<void>,
  *   teardown: () => Array<{ what: string, cmd: string, args: string[] }>,
@@ -136,7 +136,6 @@ const SETUP_ORDER = ["setup", "start", "ready", "seed"];
  *   effort?: string,
  *   timers: { setTimeout: Function, clearTimeout: Function },
  *   modelApi?: string,
- *   platform: string,
  *   fetch: typeof globalThis.fetch,
  *   signals: { on: Function, off: Function },
  *   reportDir?: string,
@@ -159,7 +158,7 @@ const SETUP_ORDER = ["setup", "start", "ready", "seed"];
  * }} Verification
  */
 export async function runLifecycle(opts) {
-  const { runner, runtime, platform, out, err, signals } = opts;
+  const { runner, runtime, out, err, signals } = opts;
   const controller = new AbortController();
   const { signal } = controller;
   const handlers = Object.fromEntries(
@@ -224,7 +223,7 @@ export async function runLifecycle(opts) {
   };
   const id = randomBytes(6).toString("hex");
   const driver =
-    runtime.id === "sbx" ? sbxDriver({ id, call }) : dockerDriver({ runtime, platform, id, call });
+    runtime.id === "sbx" ? sbxDriver({ id, call }) : dockerDriver({ runtime, id, call });
 
   let code;
   let thrown = null;
@@ -437,7 +436,6 @@ async function lifecycle({
   out(
     `Model route: only the model proxy on your machine (${route.note}), which forwards to the model API alone, with your ${credentialKind === "subscription" ? "token as its bearer value" : "key"}; checked from the host.`,
   );
-  if (route.caveat) out(`Note: ${route.caveat}`);
 
   // 7. The agent step: Claude Code with a placeholder key, handed its brief.
   // A Verification run's finding file goes in with it, after the setup phase

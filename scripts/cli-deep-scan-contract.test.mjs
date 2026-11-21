@@ -32,6 +32,7 @@ import {
 import { connect as connectNet, createServer as createNetServer } from "node:net";
 import { tmpdir } from "node:os";
 import { gzipSync } from "node:zlib";
+import { createHash } from "node:crypto";
 import { dirname, join } from "node:path";
 import { after, before, describe, it } from "node:test";
 import { main } from "../cli/src/cli.mjs";
@@ -48,6 +49,15 @@ import {
 } from "../cli/src/deep-scan/limits.mjs";
 import { MAX_EXPORT_BYTES, MAX_GROUNDING_BYTES } from "../cli/src/deep-scan/lifecycle.mjs";
 import { startModelProxy } from "../cli/src/deep-scan/model-proxy.mjs";
+import { MIN_DOCKER_ENGINE } from "../cli/src/deep-scan/runtime.mjs";
+import {
+  OTHER_HOST_PORT,
+  RELAY_IMAGE,
+  RELAY_SCRIPT_FILE,
+  RELAY_SCRIPT_SHA256,
+  stageRelayScript,
+} from "../cli/src/deep-scan/relay.mjs";
+import { StepFailed } from "../cli/src/deep-scan/steps.mjs";
 import { ENV_TEMPLATES } from "../cli/src/deep-scan/preflight.mjs";
 import { tarOf } from "../cli/src/deep-scan/tar.mjs";
 
@@ -325,23 +335,55 @@ const REPORT_TEXT = "# Deep scan report\n\nFrom the sandbox.\n";
 const reportTar = (text = REPORT_TEXT) =>
   tarOf([{ path: "report.md", data: Buffer.from(text) }]).toString("base64");
 
+/** `docker network inspect --format {{json .}}` for an isolated sandbox network. */
+const ISOLATED = {
+  Name: "agent-kit-deep-net",
+  Driver: "bridge",
+  Internal: true,
+  Options: {
+    "com.docker.network.bridge.gateway_mode_ipv4": "isolated",
+    "com.docker.network.bridge.gateway_mode_ipv6": "isolated",
+  },
+  IPAM: { Driver: "default", Config: [{ Subnet: "172.30.0.0/16" }] },
+};
+/** The probe's answer, in its target order: the relay, the gateway on the proxy's port, on another. */
+const PROBE_PASS = ["connected", "unreachable", "unreachable"];
+
 /**
  * A Docker Engine on `os`: `docker info --format {{json .}}` as it answers
  * it, and the lifecycle's commands answered as a working engine would (the
- * setup network's gateway, a sandbox with no network left, the report).
- * `extra` adds or overrides answers.
+ * host network's gateway, an isolated sandbox network, the relay's address,
+ * a probe that reaches the relay alone, a sandbox with no network left, the
+ * report). `extra` adds or overrides answers.
  */
 function docker({
   os = "Ubuntu 24.04 LTS",
   kernel = "6.8.0-45-generic",
+  version = "28.5.1",
   runtimes = { runc: { path: "runc" } },
   extra = {},
 } = {}) {
-  const info = { OperatingSystem: os, KernelVersion: kernel, Runtimes: runtimes };
+  const info = {
+    OperatingSystem: os,
+    KernelVersion: kernel,
+    ServerVersion: version,
+    Runtimes: runtimes,
+  };
   return {
     "info --format {{json .}}": { status: 0, stdout: `${JSON.stringify(info)}\n` },
+    // The host network's gateway, where the host-side proxies listen.
     "network inspect": { status: 0, stdout: "127.0.0.1\n" },
+    "network inspect --format {{json .}}": { status: 0, stdout: `${JSON.stringify(ISOLATED)}\n` },
+    // The relay's address on a sandbox network: 127.0.0.1 here, so the fake
+    // sandbox reaches the real host-side proxy, on the relay's port.
+    "inspect --format {{(index": { status: 0, stdout: "127.0.0.1\n" },
+    "run --rm": { status: 0, stdout: `${JSON.stringify(PROBE_PASS)}\n` },
     "inspect --format {{json .NetworkSettings.Networks}}": { status: 0, stdout: "{}\n" },
+    // The check before the target starts asks the same with `container inspect`.
+    "container inspect --format {{json .NetworkSettings.Networks}}": {
+      status: 0,
+      stdout: "{}\n",
+    },
     "cp agent-kit-deep-": { status: 0, base64: reportTar() },
     ...extra,
   };
@@ -1041,7 +1083,7 @@ describe("the docs", () => {
 // --- Sandbox runtime selection (#368) -----------------------------------
 
 const ACCEPTED_LIST =
-  /Docker Sandboxes \(sbx\).*Kata Containers or Firecracker on Linux.*gVisor \(runsc\) on Linux.*Docker Desktop on macOS/s;
+  /Accepted runtimes: Docker Sandboxes \(sbx\); Kata Containers or Firecracker on Linux; gVisor \(runsc\) on Linux; the last two on Docker Engine 28\.0 or later\./;
 const CI_PATH = /CI path: the deep-scan reusable workflow/;
 const NO_OVERRIDE = /There is no override/;
 const RUNTIME_DOCS = /docs\/security-audit\.md#sandbox-runtimes/;
@@ -1102,21 +1144,6 @@ describe("the sandbox runtime is chosen from the host in preference order", () =
       "darwin",
       { sbx: ALL_RUNTIMES.sbx, docker: desktop("6.10.14-linuxkit") },
       /Docker Sandboxes \(sbx\)/,
-    ],
-    [
-      "macOS with Docker Desktop only: Docker Desktop",
-      "darwin",
-      { docker: desktop("6.10.14-linuxkit") },
-      /Docker Desktop on macOS/,
-    ],
-    [
-      "macOS whose Docker Desktop VM has gVisor: Docker Desktop, gVisor being Linux-only",
-      "darwin",
-      {
-        docker: docker({ os: "Docker Desktop", runtimes: { ...RUNC, ...RUNSC } }),
-        runsc: ALL_RUNTIMES.runsc,
-      },
-      /Docker Desktop on macOS/,
     ],
     [
       "Windows with sbx beside Docker Desktop on WSL 2: Docker Sandboxes",
@@ -1453,14 +1480,15 @@ function tarEntries(buf) {
   return entries;
 }
 
-const verb = (args) => args.slice(0, args[0] === "network" ? 2 : 1).join(" ");
+const verb = (args) =>
+  args.slice(0, args[0] === "network" || args[0] === "container" ? 2 : 1).join(" ");
 const isAgentStep = (a) => a[0] === "exec" && Boolean(a.at(-1)?.startsWith("set -eu"));
 const isSetupStep = (a) =>
   a[0] === "exec" && !isAgentStep(a) && a.includes("-c") && !a.at(-1).startsWith("cat ");
 const removed = (calls) =>
   calls.filter((a) => a[0] === "rm" || (a[0] === "network" && a[1] === "rm") || a[0] === "image");
 const containerOf = (calls) => {
-  const r = calls.find((a) => a[0] === "run");
+  const r = calls.find((a) => a[0] === "run" && a.includes("--init"));
   return r ? r[r.indexOf("--name") + 1] : undefined;
 };
 
@@ -1481,7 +1509,13 @@ describe("the sandbox lifecycle runs in order on the chosen runtime", () => {
       "build",
       "network create",
       "network inspect",
+      "network create",
+      "network inspect",
       "run",
+      "inspect",
+      "run",
+      "run",
+      "container inspect",
       "cp",
       "cp",
       "exec",
@@ -1492,12 +1526,20 @@ describe("the sandbox lifecycle runs in order on the chosen runtime", () => {
       "inspect",
       "network create",
       "network inspect",
+      "run",
+      "inspect",
+      "run",
       "network connect",
       "inspect",
       "cp",
       "exec",
       "cp",
       "rm",
+      "rm",
+      "rm",
+      "rm",
+      "rm",
+      "network rm",
       "network rm",
       "network rm",
       "image",
@@ -1510,7 +1552,7 @@ describe("the sandbox lifecycle runs in order on the chosen runtime", () => {
     assert.match(scripts[1], /\nnpm run start &$/);
     assert.equal(scripts[2], "curl --fail http://localhost:3000/health");
     assert.equal(scripts[3], "npm run seed");
-    assert.ok(isAgentStep(calls[18]));
+    assert.ok(isAgentStep(calls[27]));
   });
 
   it("writes the copied-out report to a private folder and says where", async () => {
@@ -1523,18 +1565,8 @@ describe("the sandbox lifecycle runs in order on the chosen runtime", () => {
 
   it("runs the sandbox under the chosen Docker runtime", async () => {
     const res = await run(recipeRepo(VALID));
-    const runArgs = lifecycle(res).find((a) => a[0] === "run");
+    const runArgs = lifecycle(res).find(isSandboxRun);
     assert.equal(runArgs[runArgs.indexOf("--runtime") + 1], "runsc");
-  });
-
-  it("runs Docker Desktop on macOS with no --runtime, its registry proxy at host.docker.internal", async () => {
-    const host = makeHost("darwin", { docker: docker({ os: "Docker Desktop" }) });
-    const res = await run(recipeRepo(VALID), [], { host });
-    assert.equal(res.code, 0, res.text);
-    const calls = lifecycle(res);
-    assert.ok(!calls.find((a) => a[0] === "run").includes("--runtime"));
-    const setup = calls.find(isSetupStep);
-    assert.ok(setup.some((a) => /^HTTPS_PROXY=http:\/\/host\.docker\.internal:\d+$/.test(a)));
   });
 });
 
@@ -1588,7 +1620,10 @@ describe("the repository is copied in, never mounted, and only the listed inputs
     assert.equal(res.code, 0, res.text);
     const banned = ["-v", "--volume", "--mount", "--privileged", "--env-file", "--volumes-from"];
     for (const args of lifecycle(res)) {
+      // A relay or a probe mounts the staged relay script alone (#404).
+      const launcherOwned = args[0] === "run" && !args.includes("--init");
       for (const a of args) {
+        if (launcherOwned && a === "--mount") continue;
         assert.ok(!banned.includes(a), `docker ${args.join(" ")} uses ${a}`);
         assert.doesNotMatch(a, /docker\.sock|\/home\/me|\.ssh|\.aws|gcloud|AWS_PROFILE/);
       }
@@ -1715,10 +1750,11 @@ describe("setup runs with the registry allowlist and no credential, and the netw
     const res = await run(recipeRepo(VALID));
     assert.equal(res.code, 0, res.text);
     const calls = lifecycle(res);
-    const create = calls.find((a) => a[0] === "network" && a[1] === "create");
-    assert.ok(create.includes("--internal"), create.join(" "));
+    const create = calls.find(
+      (a) => a[0] === "network" && a[1] === "create" && a.includes("--internal"),
+    );
     const net = create.at(-1);
-    const runArgs = calls.find((a) => a[0] === "run");
+    const runArgs = calls.find(isSandboxRun);
     assert.equal(runArgs[runArgs.indexOf("--network") + 1], net);
     for (const step of calls.filter(isSetupStep)) {
       assert.ok(
@@ -1781,7 +1817,7 @@ describe("setup runs with the registry allowlist and no credential, and the netw
       all.findIndex((a) => a[0] === "inspect"),
     );
     assert.ok(!calls.some((a) => a[0] === "network"), "no network is created for setup");
-    const runArgs = calls.find((a) => a[0] === "run");
+    const runArgs = calls.find(isSandboxRun);
     assert.equal(runArgs[runArgs.indexOf("--network") + 1], "none");
     assert.ok(!JSON.stringify(calls).includes("PROXY"));
   });
@@ -1790,7 +1826,7 @@ describe("setup runs with the registry allowlist and no credential, and the netw
     const res = await run(recipeRepo(VALID));
     const calls = lifecycle(res);
     const cut = calls.findIndex((a) => a[0] === "network" && a[1] === "disconnect");
-    const check = calls.findIndex((a) => a[0] === "inspect");
+    const check = calls.findIndex((a, i) => i > cut && a[0] === "inspect");
     const agent = calls.findIndex(isAgentStep);
     const lastSetup = calls.findLastIndex(isSetupStep);
     assert.ok(lastSetup < cut && cut < check && check < agent, calls.map(verb).join(", "));
@@ -1836,7 +1872,14 @@ describe("a failing setup, start or ready step ends the run before the agent ste
       assert.ok(!calls.some(isAgentStep), "the agent step never ran");
       assert.ok(!calls.some((a) => a[0] === "cp" && a[1] !== "-"), "nothing was copied out");
       assert.equal(readdirSync(res.reportDir).length, 0);
-      assert.deepEqual(removed(calls).map(verb), ["rm", "network rm", "image"]);
+      assert.deepEqual(removed(calls).map(verb), [
+        "rm",
+        "rm",
+        "rm",
+        "network rm",
+        "network rm",
+        "image",
+      ]);
     });
   }
 
@@ -1914,7 +1957,7 @@ describe("teardown runs on success, failure and interrupt", () => {
   const teardownOf = (res) => {
     const calls = lifecycle(res);
     const [net, modelNet] = calls
-      .filter((a) => a[0] === "network" && a[1] === "create")
+      .filter((a) => a[0] === "network" && a[1] === "create" && a.includes("--internal"))
       .map((a) => a.at(-1));
     const build = calls.find((a) => a[0] === "build");
     const image = build?.[build.indexOf("--tag") + 1];
@@ -1927,8 +1970,13 @@ describe("teardown runs on success, failure and interrupt", () => {
     const t = teardownOf(res);
     assert.deepEqual(t.calls, [
       ["rm", "--force", "--volumes", t.container],
+      ["rm", "--force", "--volumes", `${t.container}-probe-model`],
+      ["rm", "--force", "--volumes", `${t.container}-relay-model`],
+      ["rm", "--force", "--volumes", `${t.container}-probe-setup`],
+      ["rm", "--force", "--volumes", `${t.container}-relay-setup`],
       ["network", "rm", t.modelNet],
       ["network", "rm", t.net],
+      ["network", "rm", `${t.container}-host`],
       ["image", "rm", "--force", t.image],
     ]);
     assert.match(res.out, /Teardown: removed /);
@@ -1939,15 +1987,22 @@ describe("teardown runs on success, failure and interrupt", () => {
     const res = await run(recipeRepo(VALID), [], { host });
     assert.equal(res.code, 1, res.text);
     assert.match(res.err, /The agent step exited 2/);
-    assert.equal(teardownOf(res).calls.length, 4);
+    assert.equal(teardownOf(res).calls.length, 9);
   });
 
   it("removes the container even when starting it failed", async () => {
-    const host = gvisorWith({ "run --detach": { status: 125, stderr: "runsc: boom\n" } });
+    const host = gvisorWith({ "run --detach --init": { status: 125, stderr: "runsc: boom\n" } });
     const res = await run(recipeRepo(VALID), [], { host });
     assert.equal(res.code, 1, res.text);
     assert.match(res.err, /FAILED {2}starting the sandbox: runsc: boom/);
-    assert.deepEqual(teardownOf(res).calls.map(verb), ["rm", "network rm", "image"]);
+    assert.deepEqual(teardownOf(res).calls.map(verb), [
+      "rm",
+      "rm",
+      "rm",
+      "network rm",
+      "network rm",
+      "image",
+    ]);
   });
 
   for (const [signal, code] of [
@@ -1970,7 +2025,17 @@ describe("teardown runs on success, failure and interrupt", () => {
       assert.match(res.err, new RegExp(`Interrupted \\(${signal}\\)`));
       const calls = lifecycle(res);
       assert.ok(!calls.some((a) => a[0] === "cp" && a[1] !== "-"), "nothing copied out");
-      assert.deepEqual(removed(calls).map(verb), ["rm", "network rm", "network rm", "image"]);
+      assert.deepEqual(removed(calls).map(verb), [
+        "rm",
+        "rm",
+        "rm",
+        "rm",
+        "rm",
+        "network rm",
+        "network rm",
+        "network rm",
+        "image",
+      ]);
       assert.equal(signals.listenerCount(signal), 0, "the handlers are removed");
     });
   }
@@ -1983,7 +2048,7 @@ describe("teardown runs on success, failure and interrupt", () => {
     assert.equal(res.code, 130, res.text);
     assert.doesNotMatch(res.err, /FAILED/);
     assert.ok(!lifecycle(res).some(isAgentStep));
-    assert.equal(removed(lifecycle(res)).length, 3);
+    assert.equal(removed(lifecycle(res)).length, 6);
   });
 
   it("tears down on an interrupt during setup, before the agent step", async () => {
@@ -1998,7 +2063,7 @@ describe("teardown runs on success, failure and interrupt", () => {
     });
     assert.equal(res.code, 130, res.text);
     assert.ok(!lifecycle(res).some(isAgentStep));
-    assert.equal(removed(lifecycle(res)).length, 3);
+    assert.equal(removed(lifecycle(res)).length, 6);
   });
 
   it("says what it could not remove, and exits 1", async () => {
@@ -2011,7 +2076,7 @@ describe("teardown runs on success, failure and interrupt", () => {
       res.err,
       /TEARDOWN {2}could not remove:\n {2}- network agent-kit-deep-[0-9a-f]+-model: Error: network has active endpoints\n {2}- network agent-kit-deep-[0-9a-f]+: Error/,
     );
-    assert.equal(removed(lifecycle(res)).length, 4, "it still tries every resource");
+    assert.equal(removed(lifecycle(res)).length, 9, "it still tries every resource");
   });
 });
 
@@ -2872,7 +2937,13 @@ describe("the agent step runs the real Claude Code, with only a placeholder key 
       "build",
       "network create",
       "network inspect",
+      "network create",
+      "network inspect",
       "run",
+      "inspect",
+      "run",
+      "run",
+      "container inspect",
       "cp",
       "cp",
       "exec",
@@ -2883,18 +2954,26 @@ describe("the agent step runs the real Claude Code, with only a placeholder key 
       "inspect",
       "network create",
       "network inspect",
+      "run",
+      "inspect",
+      "run",
       "network connect",
       "inspect",
       "cp",
       "exec",
       "cp",
       "rm",
+      "rm",
+      "rm",
+      "rm",
+      "rm",
+      "network rm",
       "network rm",
       "network rm",
       "image",
     ]);
     const calls = lifecycle(res);
-    const model = calls.filter((a) => a[0] === "network" && a[1] === "create")[1];
+    const model = calls.filter((a) => a[0] === "network" && a[1] === "create")[2];
     assert.ok(model.includes("--internal"), model.join(" "));
     const name = containerOf(calls);
     assert.deepEqual(
@@ -2928,14 +3007,6 @@ describe("the agent step runs the real Claude Code, with only a placeholder key 
     assert.ok(!settings.permissions.allow.some((t) => /^Web/.test(t)));
     assert.ok(agent.includes(`ANTHROPIC_API_KEY=${PLACEHOLDER}`), agent.join(" "));
     assert.ok(!agent.some((a) => /PROXY/.test(a)), "the agent step has no setup proxy");
-  });
-
-  it("puts the model proxy at host.docker.internal on Docker Desktop for macOS", async () => {
-    const host = makeHost("darwin", { docker: docker({ os: "Docker Desktop" }) });
-    const res = await run(recipeRepo(VALID), [], { host });
-    assert.equal(res.code, 0, res.text);
-    const settings = settingsOf(agentCall(lifecycle(res)));
-    assert.match(settings.env.ANTHROPIC_BASE_URL, /^http:\/\/host\.docker\.internal:\d+$/);
   });
 
   it("lets no project setting in the scanned repository move the model API base URL", async () => {
@@ -3044,14 +3115,23 @@ describe("the agent step runs the real Claude Code, with only a placeholder key 
     const res = await run(recipeRepo(text));
     assert.equal(res.code, 0, res.text);
     const calls = lifecycle(res).filter((a) => a[0] === "network");
-    const model = calls.find((a) => a[1] === "create").at(-1);
+    const model = calls.find((a) => a[1] === "create" && a.includes("--internal")).at(-1);
     assert.deepEqual(
       calls.map((a) => `${a[0]} ${a[1]}`),
-      ["network disconnect", "network create", "network inspect", "network connect", "network rm"],
+      [
+        "network disconnect",
+        "network create",
+        "network inspect",
+        "network create",
+        "network inspect",
+        "network connect",
+        "network rm",
+        "network rm",
+      ],
     );
     assert.deepEqual(calls[0].slice(2, 4), ["none", containerOf(lifecycle(res))]);
-    assert.equal(calls[3][2], model);
-    assert.equal(calls[4][2], model);
+    assert.equal(calls[5][2], model);
+    assert.equal(calls[6][2], model);
   });
 
   it("ends the run before the agent step when the host sees more than the model route", async () => {
@@ -3417,6 +3497,11 @@ describe("a limit that fires stops the run, marks the report Stopped:, and still
     assert.doesNotMatch(res.text, /FAILED|The agent step exited/);
     assert.deepEqual(removed(lifecycle(res)).map(verb), [
       "rm",
+      "rm",
+      "rm",
+      "rm",
+      "rm",
+      "network rm",
       "network rm",
       "network rm",
       "image",
@@ -3439,7 +3524,14 @@ describe("a limit that fires stops the run, marks the report Stopped:, and still
     assert.ok(!lifecycle(res).some(isAgentStep), "no agent step");
     assert.deepEqual(readdirSync(res.reportDir), [], "no report file");
     assert.doesNotMatch(res.text, /FAILED/);
-    assert.deepEqual(removed(lifecycle(res)).map(verb), ["rm", "network rm", "image"]);
+    assert.deepEqual(removed(lifecycle(res)).map(verb), [
+      "rm",
+      "rm",
+      "rm",
+      "network rm",
+      "network rm",
+      "image",
+    ]);
     assert.deepEqual(timers.pending(), []);
   });
 
@@ -3457,7 +3549,7 @@ describe("a limit that fires stops the run, marks the report Stopped:, and still
     assert.match(res.out, /Stopped: turns \(Claude Code's 7-turn limit\)\. Copying out/);
     assert.ok(reportOf(res).includes("- **Finding count:** 1\n- **Stopped:** turns\n"));
     assert.doesNotMatch(res.text, /The agent step exited/);
-    assert.equal(removed(lifecycle(res)).length, 4);
+    assert.equal(removed(lifecycle(res)).length, 9);
   });
 
   it("the agent script prints the turn signal only from Claude Code's error output", async () => {
@@ -3543,7 +3635,7 @@ describe("a limit that fires stops the run, marks the report Stopped:, and still
       assert.match(res.err, /Stopped: tokens \(the run's 10-token cap\)/);
       assert.match(res.out, /counted 16 of the 10-token cap, and refused 1 request\(s\) past it/);
       assert.ok(reportOf(res).includes("- **Finding count:** 1\n- **Stopped:** tokens\n"));
-      assert.equal(removed(lifecycle(res)).length, 4);
+      assert.equal(removed(lifecycle(res)).length, 9);
     } finally {
       await api.close();
     }
@@ -3569,7 +3661,7 @@ describe("a limit that fires stops the run, marks the report Stopped:, and still
     );
     assert.deepEqual(readdirSync(res.reportDir), []);
     assert.doesNotMatch(res.text, /FAILED|Report: /);
-    assert.equal(removed(lifecycle(res)).length, 4);
+    assert.equal(removed(lifecycle(res)).length, 9);
   });
 
   it("removes a Stopped: line the agent wrote itself, when no limit fired", async () => {
@@ -5518,20 +5610,602 @@ describe("review fixes: the model proxy checks the decoded path", () => {
   });
 });
 
-describe("review fixes: Docker Engine's route to the host is named as reaching more than the proxy", () => {
-  it("says the sandbox can reach the host's other services on the model network's gateway", async () => {
+// --- Docker Engine: an isolated network and a relay (#404) -----------------
+
+const isSandboxRun = (a) => a[0] === "run" && a.includes("--init");
+const relayRuns = (calls) =>
+  calls.filter((a) => a[0] === "run" && a[1] === "--detach" && !a.includes("--init"));
+const probeRuns = (calls) => calls.filter((a) => a[0] === "run" && a[1] === "--rm");
+/** Every value `flag` takes in `args`, in order. */
+const flagValues = (args, flag) => args.flatMap((a, i) => (a === flag ? [args[i + 1]] : []));
+const ISOLATED_OPTS = [
+  "com.docker.network.bridge.gateway_mode_ipv4=isolated",
+  "com.docker.network.bridge.gateway_mode_ipv6=isolated",
+];
+/** What a probe or relay runs: the staged script and its arguments, after the image. */
+const scriptArgs = (a) => a.slice(a.indexOf(RELAY_IMAGE) + 1);
+/** The host-side proxy port a relay forwards to. */
+const relayPort = (a) => scriptArgs(a).at(-1);
+
+describe("Docker Engine: the sandbox's only route to the host is a relay on an isolated network (#404)", () => {
+  it("creates the setup and model networks internal and isolated, and the relays' host network ordinary", async () => {
     const res = await run(recipeRepo(VALID));
     assert.equal(res.code, 0, res.text);
+    const calls = lifecycle(res);
+    const creates = calls.filter((a) => a[0] === "network" && a[1] === "create");
+    assert.equal(creates.length, 3, creates.map((a) => a.join(" ")).join("\n"));
+    const [hostNet, setup, model] = creates.map((a) => a.at(-1));
+    const name = containerOf(calls);
+    assert.equal(hostNet, `${name}-host`);
+    assert.equal(setup, name);
+    assert.equal(model, `${name}-model`);
+    assert.ok(!creates[0].includes("--internal"), creates[0].join(" "));
+    assert.deepEqual(flagValues(creates[0], "--opt"), []);
+    for (const c of creates.slice(1)) {
+      assert.ok(c.includes("--internal"), c.join(" "));
+      assert.deepEqual(flagValues(c, "--opt").sort(), ISOLATED_OPTS, c.join(" "));
+    }
+  });
+
+  it("starts a relay per proxy, on the sandbox's network and the host network, with nothing the target can use", async () => {
+    const res = await run(recipeRepo(VALID));
+    assert.equal(res.code, 0, res.text);
+    const calls = lifecycle(res);
+    const name = containerOf(calls);
+    const relays = relayRuns(calls);
+    assert.equal(relays.length, 2, relays.map((a) => a.join(" ")).join("\n"));
+    for (const [relay, net, phase] of [
+      [relays[0], name, "setup"],
+      [relays[1], `${name}-model`, "model"],
+    ]) {
+      const line = relay.join(" ");
+      assert.equal(flagValues(relay, "--name")[0], `${name}-relay-${phase}`);
+      // Its default route is the host network's; the sandbox network has none.
+      assert.deepEqual(flagValues(relay, "--network"), [`name=${name}-host,gw-priority=1`, net]);
+      assert.ok(relay.includes("--read-only"), line);
+      assert.deepEqual(flagValues(relay, "--cap-drop"), ["ALL"], line);
+      assert.deepEqual(flagValues(relay, "--security-opt"), ["no-new-privileges"], line);
+      assert.deepEqual(flagValues(relay, "--label"), [
+        flagValues(calls.find(isSandboxRun), "--label")[0],
+      ]);
+      assert.ok(relay.includes(RELAY_IMAGE), line);
+      assert.ok(
+        !relay.some((a) => /^(-p|--publish|--privileged|-v|--volume|--env|-e|--cap-add)$/.test(a)),
+        line,
+      );
+      const [mount] = flagValues(relay, "--mount");
+      assert.match(
+        mount,
+        /^type=bind,source=.+relay\.mjs,target=\/agent-kit\/relay\.mjs,readonly$/,
+      );
+      // One TCP port, forwarded to the host-side proxy on the host network's gateway.
+      const [script, mode, listen, host, port] = scriptArgs(relay);
+      assert.deepEqual([script, mode, host], ["/agent-kit/relay.mjs", "forward", "127.0.0.1"]);
+      assert.match(port, /^\d+$/);
+      assert.equal(listen, port);
+      assert.equal(scriptArgs(relay).length, 5);
+    }
+  });
+
+  it("never gives a relay or a probe the model credential", async () => {
+    const res = await run(recipeRepo(VALID));
+    assert.equal(res.code, 0, res.text);
+    const calls = lifecycle(res);
+    const text = JSON.stringify([...relayRuns(calls), ...probeRuns(calls)]);
+    assert.ok(!text.includes(REAL_KEY));
+    assert.doesNotMatch(text, /ANTHROPIC|CLAUDE_CODE|--env/);
+  });
+
+  it("sends setup and the model route to the relay's address, never the host's", async () => {
+    const host = gvisorWith({ "inspect --format {{(index": { status: 0, stdout: "10.89.0.2\n" } });
+    const res = await run(recipeRepo(VALID), [], { host });
+    assert.equal(res.code, 0, res.text);
+    const calls = lifecycle(res);
+    const [setupRelay, modelRelay] = relayRuns(calls);
+    for (const step of calls.filter(isSetupStep)) {
+      assert.ok(
+        step.includes(`HTTPS_PROXY=http://10.89.0.2:${relayPort(setupRelay)}`),
+        step.join(" "),
+      );
+    }
+    const settings = settingsOf(agentCall(calls));
+    assert.equal(settings.env.ANTHROPIC_BASE_URL, `http://10.89.0.2:${relayPort(modelRelay)}`);
+    assert.match(res.out, /Setup: egress limited to registry\.npmjs\.org.*through a relay/);
     assert.match(
       res.out,
-      /Note: on Docker Engine the sandbox can also reach any other service on your machine that listens on .*; stop any you do not want it to reach/,
+      /Model route: only the model proxy on your machine \(through a relay on the isolated network agent-kit-deep-[0-9a-f]+-model/,
     );
   });
 
-  it("says nothing of the kind on Docker Sandboxes, whose policy allows the proxy's port alone", async () => {
-    const res = await run(recipeRepo(VALID), [], { host: sbxHost() });
+  it("checks from the host before the target starts, and again before the agent step", async () => {
+    const res = await run(recipeRepo(VALID));
     assert.equal(res.code, 0, res.text);
-    assert.doesNotMatch(res.out, /can also reach any other service/);
+    const calls = lifecycle(res);
+    const name = containerOf(calls);
+    const at = (pred, from = 0) => {
+      const i = calls.findIndex((a, j) => j >= from && pred(a));
+      assert.ok(i >= 0, `${pred} after ${from}: ${calls.map(verb).join(", ")}`);
+      return i;
+    };
+    const inspectNet = (net) => (a) =>
+      a[0] === "network" && a[1] === "inspect" && a.includes("{{json .}}") && a.at(-1) === net;
+    const probeOn = (net) => (a) =>
+      a[0] === "run" && a[1] === "--rm" && flagValues(a, "--network")[0] === net;
+    const isRelay = (a) => relayRuns([a]).length === 1;
+    const onAlone = (a) =>
+      (a[0] === "inspect" || (a[0] === "container" && a[1] === "inspect")) && a.at(-1) === name;
+    // Setup: the network, the relay, the probe, then the sandbox, then where it is.
+    const setupNet = at(inspectNet(name));
+    const setupProbe = at(probeOn(name), at(isRelay, setupNet));
+    const sandbox = at(isSandboxRun, setupProbe);
+    const alone = at(onAlone, sandbox);
+    assert.ok(alone < at(isSetupStep), "checked before the first setup step");
+    // The model route: the same, before the agent step.
+    const modelNet = at(inspectNet(`${name}-model`), alone + 1);
+    const modelProbe = at(probeOn(`${name}-model`), at(isRelay, modelNet));
+    const connect = at((a) => a[0] === "network" && a[1] === "connect", modelProbe);
+    assert.ok(at(onAlone, connect) < at(isAgentStep), "checked before the agent step");
+    // Each probe tries the relay's port, and the host network's gateway on
+    // the proxy's port and on another port.
+    for (const [i, relay] of relayRuns(calls).entries()) {
+      const probe = probeRuns(calls)[i];
+      const port = relayPort(relay);
+      assert.deepEqual(scriptArgs(probe), [
+        "/agent-kit/relay.mjs",
+        "probe",
+        "127.0.0.1",
+        port,
+        "127.0.0.1",
+        port,
+        "127.0.0.1",
+        "22",
+      ]);
+      assert.equal(flagValues(probe, "--network").length, 1);
+      assert.ok(probe.includes("--read-only"));
+      assert.deepEqual(flagValues(probe, "--cap-drop"), ["ALL"]);
+    }
+  });
+
+  const failCases = [
+    [
+      "a setup network that has a gateway address",
+      {
+        "network inspect --format {{json .}}": {
+          status: 0,
+          stdout: JSON.stringify({
+            ...ISOLATED,
+            IPAM: { Config: [{ Subnet: "172.30.0.0/16", Gateway: "172.30.0.1" }] },
+          }),
+        },
+      },
+      /FAILED {2}the setup network is not isolated: docker network inspect shows the gateway address 172\.30\.0\.1\./,
+    ],
+    [
+      "a setup network not in isolated mode",
+      {
+        "network inspect --format {{json .}}": {
+          status: 0,
+          stdout: JSON.stringify({ ...ISOLATED, Options: {} }),
+        },
+      },
+      /FAILED {2}the setup network is not isolated: docker network inspect shows com\.docker\.network\.bridge\.gateway_mode_ipv4 as "", not isolated\./,
+    ],
+    [
+      "a setup network that is not internal",
+      {
+        "network inspect --format {{json .}}": {
+          status: 0,
+          stdout: JSON.stringify({ ...ISOLATED, Internal: false }),
+        },
+      },
+      /FAILED {2}the setup network is not isolated: docker network inspect shows it is not internal\./,
+    ],
+    [
+      "a probe that reaches the host on the proxy's port",
+      { "run --rm": { status: 0, stdout: '["connected","connected","unreachable"]\n' } },
+      /FAILED {2}the setup network is not isolated: a probe on it reached the host network's gateway at 127\.0\.0\.1:\d+ \(connected\)\./,
+    ],
+    [
+      "a probe that reaches the host on another port",
+      { "run --rm": { status: 0, stdout: '["connected","unreachable","refused"]\n' } },
+      /FAILED {2}the setup network is not isolated: a probe on it reached the host network's gateway at 127\.0\.0\.1:22 \(refused\)\./,
+    ],
+    [
+      "a probe that cannot reach the relay",
+      { "run --rm": { status: 0, stdout: '["unreachable","unreachable","unreachable"]\n' } },
+      /FAILED {2}the setup network is not isolated: a probe on it could not reach the relay at 127\.0\.0\.1:\d+ \(unreachable\)\./,
+    ],
+    [
+      "a probe whose answer is not one result per target",
+      { "run --rm": { status: 0, stdout: "hello\n" } },
+      /FAILED {2}the setup network is not isolated: the probe's answer is not one result per target\./,
+    ],
+    [
+      "a probe that fails",
+      { "run --rm": { status: 125, stderr: "probe: boom\n" } },
+      /FAILED {2}probing the setup network: probe: boom/,
+    ],
+  ];
+  for (const [name, extra, message] of failCases) {
+    it(`ends the run before the target starts on ${name}, and tears down`, async () => {
+      const res = await run(recipeRepo(VALID), [], { host: gvisorWith(extra) });
+      assert.equal(res.code, 1, res.text);
+      assert.match(res.err, message);
+      assert.match(res.err, /The run ends here, before the agent step\./);
+      const calls = lifecycle(res);
+      assert.ok(!calls.some(isSandboxRun), "the sandbox never started");
+      assert.ok(!calls.some(isAgentStep));
+      assert.ok(removed(calls).some((a) => a[0] === "network" && a[2].endsWith("-host")));
+    });
+  }
+
+  it("ends the run before the target starts when the sandbox is on another network too", async () => {
+    const host = gvisorWith({
+      "container inspect --format {{json .NetworkSettings.Networks}}": {
+        status: 0,
+        stdout: '{"bridge":{}}\n',
+      },
+    });
+    const res = await run(recipeRepo(VALID), [], { host });
+    assert.equal(res.code, 1, res.text);
+    assert.match(
+      res.err,
+      /FAILED {2}the sandbox is not on the setup network alone: docker inspect shows the sandbox on bridge\./,
+    );
+    assert.ok(!lifecycle(res).some(isSetupStep), "no setup step ran");
+  });
+
+  it("ends the run before the agent step when the model network's probe reaches the host", async () => {
+    const host = gvisorWith({
+      "~-probe-model --label": { status: 0, stdout: '["connected","connected","unreachable"]\n' },
+    });
+    const res = await run(recipeRepo(VALID), [], { host });
+    assert.equal(res.code, 1, res.text);
+    assert.match(
+      res.err,
+      /FAILED {2}the model network is not isolated: a probe on it reached the host network's gateway at 127\.0\.0\.1:\d+ \(connected\)\./,
+    );
+    const calls = lifecycle(res);
+    assert.ok(calls.some(isSetupStep), "setup ran");
+    assert.ok(!calls.some(isAgentStep), "the agent step never ran");
+    assert.ok(
+      !calls.some((a) => a[0] === "network" && a[1] === "connect"),
+      "the sandbox never joined",
+    );
+  });
+
+  it("checks the model network when setup had no network, creating the host network then", async () => {
+    const text = recipe({ drop: ["registries"], add: "registries: []" });
+    const res = await run(recipeRepo(text));
+    assert.equal(res.code, 0, res.text);
+    const calls = lifecycle(res);
+    const creates = calls
+      .filter((a) => a[0] === "network" && a[1] === "create")
+      .map((a) => a.at(-1));
+    const name = containerOf(calls);
+    assert.deepEqual(creates, [`${name}-host`, `${name}-model`]);
+    assert.equal(relayRuns(calls).length, 1);
+    assert.equal(probeRuns(calls).length, 1);
+    assert.equal(flagValues(calls.find(isSandboxRun), "--network")[0], "none");
+  });
+
+  it("removes the relays, the probes and the host network on success, the sandbox first", async () => {
+    const res = await run(recipeRepo(VALID));
+    assert.equal(res.code, 0, res.text);
+    const calls = lifecycle(res);
+    const name = containerOf(calls);
+    const build = calls.find((a) => a[0] === "build");
+    assert.deepEqual(removed(calls), [
+      ["rm", "--force", "--volumes", name],
+      ["rm", "--force", "--volumes", `${name}-probe-model`],
+      ["rm", "--force", "--volumes", `${name}-relay-model`],
+      ["rm", "--force", "--volumes", `${name}-probe-setup`],
+      ["rm", "--force", "--volumes", `${name}-relay-setup`],
+      ["network", "rm", `${name}-model`],
+      ["network", "rm", name],
+      ["network", "rm", `${name}-host`],
+      ["image", "rm", "--force", build[build.indexOf("--tag") + 1]],
+    ]);
+  });
+
+  it("removes what was created when the setup relay cannot start", async () => {
+    const host = gvisorWith({ "~-relay-setup --label": { status: 125, stderr: "relay: boom\n" } });
+    const res = await run(recipeRepo(VALID), [], { host });
+    assert.equal(res.code, 1, res.text);
+    assert.match(res.err, /FAILED {2}starting the setup relay: relay: boom/);
+    const calls = lifecycle(res);
+    assert.ok(!calls.some(isSandboxRun));
+    const name = flagValues(relayRuns(calls)[0], "--name")[0].replace(/-relay-setup$/, "");
+    assert.deepEqual(
+      removed(calls).map((a) => a.at(-1)),
+      [`${name}-relay-setup`, name, `${name}-host`, name],
+    );
+  });
+
+  it("removes the probe and the relay on an interrupt during the probe", async () => {
+    const host = gvisorWith({ "run --rm": { hang: true } });
+    const signals = new EventEmitter();
+    const res = await run(recipeRepo(VALID), [], {
+      host,
+      signals,
+      onSpawn: (cmd, args, child) => {
+        if (args[0] === "run" && args[1] === "--rm") {
+          child.stdout.once("data", () => signals.emit("SIGINT"));
+        }
+      },
+    });
+    assert.equal(res.code, 130, res.text);
+    const calls = lifecycle(res);
+    assert.ok(!calls.some(isSandboxRun));
+    assert.deepEqual(
+      removed(calls).map((a) => a.at(-1).replace(/^agent-kit-deep-[0-9a-f]+/, "")),
+      ["-probe-setup", "-relay-setup", "", "-host", ""],
+    );
+  });
+
+  it("removes the model relay and probe when the agent step fails", async () => {
+    const host = gvisorWith({ "~set -eu": { status: 2 } });
+    const res = await run(recipeRepo(VALID), [], { host });
+    assert.equal(res.code, 1, res.text);
+    const gone = removed(lifecycle(res)).map((a) => a.at(-1));
+    assert.ok(
+      gone.some((n) => n.endsWith("-relay-model")),
+      gone.join(", "),
+    );
+    assert.ok(
+      gone.some((n) => n.endsWith("-probe-model")),
+      gone.join(", "),
+    );
+  });
+
+  it("prints no Note: about other host services: the route reaches the relay alone", async () => {
+    const res = await run(recipeRepo(VALID));
+    assert.equal(res.code, 0, res.text);
+    assert.doesNotMatch(res.text, /^Note:/m);
+    assert.doesNotMatch(res.text, /can also reach any other service/);
+  });
+});
+
+describe("the docs say what is now true of the route to the host (#404)", () => {
+  const root = join(import.meta.dirname, "..");
+  const read = (path) => readFileSync(join(root, path), "utf8");
+  const files = [
+    "docs/security-audit.md",
+    "docs/security-model.md",
+    "cli/README.md",
+    "security/threat-model.md",
+    ".github/workflows/deep-scan-reusable.yml",
+  ];
+
+  it("no longer say the sandbox can reach other services on the host", () => {
+    for (const path of files) {
+      const text = read(path);
+      assert.doesNotMatch(text, /A limit of Docker Engine and Docker Desktop/, path);
+      assert.doesNotMatch(text, /also reach(es)? (any )?other service/, path);
+      assert.doesNotMatch(text, /prints a `Note:`/, path);
+    }
+  });
+
+  it("describe the isolated network, the relay and the checks", () => {
+    const audit = read("docs/security-audit.md");
+    for (const fact of [
+      "Docker Engine 28.0 or later",
+      "`isolated` gateway mode",
+      "com.docker.network.bridge.gateway_mode_ipv4=isolated",
+      "`gw-priority`",
+      "pinned by digest",
+      "pinned SHA-256",
+      "no capabilities, a read-only root filesystem",
+      "your key never enters it",
+      "`docker network inspect`",
+      "a probe container",
+      "On macOS, use Docker Sandboxes",
+    ]) {
+      assert.ok(audit.includes(fact), `docs/security-audit.md says ${fact}`);
+    }
+    // The constants the page copies by hand.
+    assert.ok(audit.includes(`on port ${OTHER_HOST_PORT}`), "the probe's other port");
+    const min = `Docker Engine ${MIN_DOCKER_ENGINE.major}.${MIN_DOCKER_ENGINE.minor} or later`;
+    for (const path of ["docs/security-audit.md", "cli/README.md", "security/threat-model.md"]) {
+      assert.ok(read(path).includes(min), `${path} names ${min}`);
+    }
+  });
+});
+
+describe("the relay script: staged, digest-checked, Node core only (#404)", () => {
+  const source = () => readFileSync(RELAY_SCRIPT_FILE);
+
+  it("is pinned by its SHA-256, and the image by its digest", () => {
+    assert.equal(createHash("sha256").update(source()).digest("hex"), RELAY_SCRIPT_SHA256);
+    assert.match(RELAY_IMAGE, /^node:\d+\.\d+\.\d+-alpine[\d.]+@sha256:[0-9a-f]{64}$/);
+  });
+
+  it("imports Node core alone, and listens on one port", () => {
+    const text = source().toString("utf8");
+    const imports = [...text.matchAll(/from "([^"]+)"/g)].map((m) => m[1]);
+    assert.ok(imports.length > 0);
+    for (const i of imports) assert.match(i, /^node:/);
+    assert.equal(text.match(/\.listen\(/g)?.length, 1);
+  });
+
+  it("stages a private copy and checks its digest, and removes it", () => {
+    const staged = stageRelayScript();
+    try {
+      assert.deepEqual(readFileSync(staged.file), source());
+    } finally {
+      staged.remove();
+    }
+    assert.ok(!existsSync(staged.file));
+  });
+
+  it("refuses a script that does not match its pinned digest", () => {
+    const dir = mkdtempSync(join(tmp, "relay-"));
+    const tampered = join(dir, "relay.mjs");
+    writeFileSync(tampered, `${source().toString("utf8")}\n// changed\n`);
+    assert.throws(
+      () => stageRelayScript({ source: tampered }),
+      (e) =>
+        e instanceof StepFailed &&
+        /FAILED {2}the relay script does not match its pinned SHA-256/.test(e.lines.join("\n")),
+    );
+  });
+
+  /** Run the relay script with node, as its container does; resolve on its first line. */
+  const node = (args) => {
+    const child = spawnChild(process.execPath, [RELAY_SCRIPT_FILE, ...args]);
+    const first = new Promise((resolve, reject) => {
+      let text = "";
+      child.stdout.on("data", (d) => {
+        text += d;
+        if (text.includes("\n")) resolve(text.split("\n")[0]);
+      });
+      child.on("error", reject);
+      child.on("close", (code) => resolve(text.split("\n")[0] || `exit ${code}`));
+    });
+    return { child, first };
+  };
+  const freePort = async () => {
+    const s = createNetServer();
+    await new Promise((r) => s.listen(0, "127.0.0.1", r));
+    const { port } = s.address();
+    await new Promise((r) => s.close(r));
+    return port;
+  };
+
+  it("forwards its one port to the target, both ways", async () => {
+    const target = createNetServer((socket) => socket.on("data", (d) => socket.end(`echo ${d}`)));
+    await new Promise((r) => target.listen(0, "127.0.0.1", r));
+    const listen = await freePort();
+    const relay = node(["forward", String(listen), "127.0.0.1", String(target.address().port)]);
+    try {
+      assert.equal(await relay.first, `relay: listening on ${listen}`);
+      const answer = await new Promise((resolve, reject) => {
+        const socket = connectNet(listen, "127.0.0.1", () => socket.write("hi"));
+        let text = "";
+        socket.on("data", (d) => (text += d));
+        socket.on("end", () => resolve(text));
+        socket.on("error", reject);
+      });
+      assert.equal(answer, "echo hi");
+    } finally {
+      relay.child.kill();
+      target.close();
+    }
+  });
+
+  it("probes each target: connected, refused or unreachable", async () => {
+    const open = createNetServer((socket) => socket.destroy());
+    await new Promise((r) => open.listen(0, "127.0.0.1", r));
+    const closed = await freePort();
+    // 192.0.2.1 is TEST-NET-1: never routed, so it times out or is unreachable.
+    const probe = node([
+      "probe",
+      "--timeout-ms",
+      "300",
+      "127.0.0.1",
+      String(open.address().port),
+      "127.0.0.1",
+      String(closed),
+      "192.0.2.1",
+      "9",
+    ]);
+    try {
+      assert.deepEqual(JSON.parse(await probe.first), ["connected", "refused", "unreachable"]);
+    } finally {
+      open.close();
+    }
+  });
+});
+
+describe("Docker Engine 28.0 or later is required for Kata, Firecracker and gVisor (#404)", () => {
+  for (const [label, cli, runtimes] of [
+    ["gVisor", { runsc: ok("runsc version release-20251110.0\n") }, RUNSC],
+    ["Kata", { "kata-runtime": ok("kata-runtime  : 3.10.1\n") }, KATA],
+    ["Firecracker", { firecracker: ok("Firecracker v1.10.1\n") }, FC],
+  ]) {
+    it(`refuses ${label} on Docker Engine 27.5.1, naming the found and the minimum versions`, async () => {
+      const host = makeHost("linux", {
+        ...cli,
+        docker: docker({ version: "27.5.1", runtimes: { ...RUNC, ...runtimes } }),
+      });
+      const res = await run(recipeRepo(VALID), [], { host });
+      assert.equal(res.code, 1, res.text);
+      assert.match(
+        res.err,
+        /REFUSED {2}Docker Engine 27\.5\.1 is older than 28\.0, the oldest deep-scan runs .+ on: from 28\.0 a sandbox network can leave the host no address on it\./,
+      );
+      assert.match(
+        res.err,
+        /Upgrade Docker Engine to 28\.0 or later, or use Docker Sandboxes \(sbx\)\./,
+      );
+      assert.match(res.err, ACCEPTED_LIST);
+      assertNothingStarted(res);
+    });
+  }
+
+  it("refuses a Docker Engine whose version it cannot read", async () => {
+    const host = makeHost("linux", {
+      docker: docker({ version: "", runtimes: { ...RUNC, ...RUNSC } }),
+      runsc: ok("runsc version release-20251110.0\n"),
+    });
+    const res = await run(recipeRepo(VALID), [], { host });
+    assert.equal(res.code, 1, res.text);
+    assert.match(res.err, /REFUSED {2}Docker Engine's version is unknown \(docker info shows ""\)/);
+    assertNothingStarted(res);
+  });
+
+  for (const version of ["28.0.0", "29.1.2", "28.0.0-rc.1"]) {
+    it(`accepts Docker Engine ${version}`, async () => {
+      const host = makeHost("linux", {
+        docker: docker({ version, runtimes: { ...RUNC, ...RUNSC } }),
+        runsc: ok("runsc version release-20251110.0\n"),
+      });
+      const res = await run(recipeRepo(VALID), [], { host });
+      assert.equal(res.code, 0, res.text);
+    });
+  }
+
+  it("needs no Docker Engine version for Docker Sandboxes", async () => {
+    const res = await run(recipeRepo(VALID), [], {
+      host: makeHost("linux", { sbx: sbxAnswers(), docker: docker({ version: "20.10.0" }) }),
+    });
+    assert.equal(res.code, 0, res.text);
+  });
+});
+
+describe("Docker Desktop on macOS is not a runtime deep-scan picks: a Mac uses Docker Sandboxes (#404)", () => {
+  for (const [name, clis] of [
+    [
+      "Docker Desktop alone",
+      { docker: docker({ os: "Docker Desktop", kernel: "6.10.14-linuxkit" }) },
+    ],
+    [
+      "Docker Desktop whose VM has gVisor",
+      {
+        docker: docker({ os: "Docker Desktop", runtimes: { ...RUNC, ...RUNSC } }),
+        runsc: ok("runsc version\n"),
+      },
+    ],
+    ["nothing installed", {}],
+  ]) {
+    it(`refuses a Mac with ${name}, naming Docker Sandboxes`, async () => {
+      const res = await run(recipeRepo(VALID), [], { host: makeHost("darwin", clis) });
+      assert.equal(res.code, 1, res.text);
+      assert.match(res.err, /On macOS, deep-scan runs on Docker Sandboxes \(sbx\)/);
+      assert.match(res.err, ACCEPTED_LIST);
+      assertNothingStarted(res);
+    });
+  }
+
+  it("runs a Mac with Docker Sandboxes on it", async () => {
+    const res = await run(recipeRepo(VALID), [], {
+      host: makeHost("darwin", {
+        sbx: sbxAnswers(),
+        docker: docker({ os: "Docker Desktop", kernel: "6.10.14-linuxkit" }),
+      }),
+    });
+    assert.equal(res.code, 0, res.text);
+    assert.match(res.out, /Sandbox runtime: Docker Sandboxes \(sbx\)/);
   });
 });
 

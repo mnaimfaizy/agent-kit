@@ -440,7 +440,6 @@ export async function runDeepScan({
     handIn,
     recipePath: path,
     recipeText: recipe.text,
-    platform,
     fetch,
     signals,
     ...(reportDir !== undefined ? { reportDir } : {}),
