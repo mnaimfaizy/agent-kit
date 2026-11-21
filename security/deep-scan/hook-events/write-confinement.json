@@ -1,0 +1,86 @@
+{
+  "entry_point": ".github/agent-runtime/confine-writes-to-worktree.mjs",
+  "about": "PreToolUse events. {workspace} becomes the workspace the driver builds: src/app.js, .git/config, .claude/, and the links escape -> a folder outside it holding secret.txt and dangling -> a path that does not exist (cases marked symlink are skipped where links cannot be made). deny means a deny decision on stdout; allow means no output and exit 0.",
+  "cases": [
+    {
+      "name": "a new file in the tree",
+      "expect": "allow",
+      "event": { "tool_name": "Write", "tool_input": { "file_path": "src/new.js", "content": "x" } }
+    },
+    {
+      "name": "an edit in the tree, absolute",
+      "expect": "allow",
+      "event": { "tool_name": "Edit", "tool_input": { "file_path": "{workspace}/src/app.js" } }
+    },
+    {
+      "name": "the git config",
+      "expect": "deny",
+      "event": { "tool_name": "Edit", "tool_input": { "file_path": ".git/config" } }
+    },
+    {
+      "name": "a git hook",
+      "expect": "deny",
+      "event": {
+        "tool_name": "Write",
+        "tool_input": { "file_path": ".git/hooks/pre-commit", "content": "x" }
+      }
+    },
+    {
+      "name": "a global git config",
+      "expect": "deny",
+      "event": {
+        "tool_name": "Write",
+        "tool_input": { "file_path": "/home/runner/.gitconfig", "content": "x" }
+      }
+    },
+    {
+      "name": "climbing out with ..",
+      "expect": "deny",
+      "event": {
+        "tool_name": "Write",
+        "tool_input": { "file_path": "../outside.txt", "content": "x" }
+      }
+    },
+    {
+      "name": "Claude Code project settings",
+      "expect": "deny",
+      "event": {
+        "tool_name": "Write",
+        "tool_input": { "file_path": ".claude/settings.json", "content": "{}" }
+      }
+    },
+    {
+      "name": "the project MCP config",
+      "expect": "deny",
+      "event": { "tool_name": "Write", "tool_input": { "file_path": ".mcp.json", "content": "{}" } }
+    },
+    {
+      "name": "a notebook outside the tree",
+      "expect": "deny",
+      "event": {
+        "tool_name": "NotebookEdit",
+        "tool_input": { "notebook_path": "/tmp/outside.ipynb" }
+      }
+    },
+    {
+      "name": "a write through a link out",
+      "expect": "deny",
+      "symlink": true,
+      "event": {
+        "tool_name": "Write",
+        "tool_input": { "file_path": "escape/planted", "content": "x" }
+      }
+    },
+    {
+      "name": "a write through a dangling link",
+      "expect": "deny",
+      "symlink": true,
+      "event": { "tool_name": "Write", "tool_input": { "file_path": "dangling", "content": "x" } }
+    },
+    {
+      "name": "a tool it does not judge",
+      "expect": "allow",
+      "event": { "tool_name": "Read", "tool_input": { "file_path": ".git/config" } }
+    }
+  ]
+}

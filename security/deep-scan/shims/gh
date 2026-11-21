@@ -1,0 +1,48 @@
+#!/usr/bin/env node
+// TEST-ONLY. A recording stand-in for the GitHub CLI, for Agent-kit's own Deep
+// scan fixtures (security/deep-scan/README.md). It never reaches GitHub or any
+// network, and never reads a credential: it appends one JSON line per call to
+// $DEEP_SCAN_SHIM_LOG (argv, stdin, and the names, never the values, of any
+// token variables set), then prints a canned answer for the two calls the
+// security-audit delivery scripts make. Anything else exits 1.
+//
+// DEEP_SCAN_GH_FAIL=1 makes every call fail after recording it, to drive a
+// script's failure path.
+import { appendFileSync, readFileSync } from "node:fs";
+
+const argv = process.argv.slice(2);
+// Read stdin only when something is piped in; a terminal would block.
+let stdin = "";
+if (!process.stdin.isTTY) {
+  try {
+    stdin = readFileSync(0, "utf8");
+  } catch {
+    stdin = "";
+  }
+}
+const tokenVariables = Object.keys(process.env)
+  .filter((name) => /TOKEN|^GH_|^GITHUB_PAT/i.test(name) && process.env[name])
+  .sort();
+
+const log = process.env.DEEP_SCAN_SHIM_LOG;
+if (log) {
+  appendFileSync(log, `${JSON.stringify({ shim: "gh", argv, stdin, tokenVariables })}\n`);
+}
+
+const endpoint = argv.find((a) => a.startsWith("/repos/")) ?? "";
+let answer = null;
+if (argv[0] === "api" && /^\/repos\/[^/]+\/[^/]+\/security-advisories$/.test(endpoint)) {
+  answer = { ghsa_id: "GHSA-fake-fake-fake" };
+} else if (argv[0] === "api" && /^\/repos\/[^/]+\/[^/]+\/issues\/\d+\/comments$/.test(endpoint)) {
+  answer = { id: 1 };
+}
+
+if (process.env.DEEP_SCAN_GH_FAIL === "1") {
+  process.stderr.write("recording gh shim: failing on purpose (DEEP_SCAN_GH_FAIL=1)\n");
+  process.exit(1);
+}
+if (!answer) {
+  process.stderr.write(`recording gh shim: no canned answer for: gh ${argv.join(" ")}\n`);
+  process.exit(1);
+}
+process.stdout.write(`${JSON.stringify(answer)}\n`);

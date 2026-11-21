@@ -1,0 +1,68 @@
+{
+  "entry_point": ".github/agent-runtime/confine-reads-to-workspace.mjs",
+  "about": "PreToolUse events. {workspace} becomes the workspace the driver builds: src/app.js, .git/config, and the links escape -> a folder outside it holding secret.txt and inner -> src (cases marked symlink are skipped where links cannot be made). deny means a deny decision on stdout; allow means no output and exit 0.",
+  "cases": [
+    {
+      "name": "a workspace file, relative",
+      "expect": "allow",
+      "event": { "tool_name": "Read", "tool_input": { "file_path": "src/app.js" } }
+    },
+    {
+      "name": "a workspace file, absolute",
+      "expect": "allow",
+      "event": { "tool_name": "Read", "tool_input": { "file_path": "{workspace}/src/app.js" } }
+    },
+    {
+      "name": "a runner file",
+      "expect": "deny",
+      "event": { "tool_name": "Read", "tool_input": { "file_path": "/etc/passwd" } }
+    },
+    {
+      "name": "the process environment",
+      "expect": "deny",
+      "event": { "tool_name": "Read", "tool_input": { "file_path": "/proc/self/environ" } }
+    },
+    {
+      "name": "climbing out with ..",
+      "expect": "deny",
+      "event": { "tool_name": "Read", "tool_input": { "file_path": "src/../../outside.txt" } }
+    },
+    {
+      "name": "the git config",
+      "expect": "deny",
+      "event": { "tool_name": "Read", "tool_input": { "file_path": ".git/config" } }
+    },
+    {
+      "name": "Grep inside .git",
+      "expect": "deny",
+      "event": { "tool_name": "Grep", "tool_input": { "pattern": "url", "path": ".git" } }
+    },
+    {
+      "name": "Glob with an absolute pattern",
+      "expect": "deny",
+      "event": { "tool_name": "Glob", "tool_input": { "pattern": "/etc/*" } }
+    },
+    {
+      "name": "Glob with a brace that climbs out",
+      "expect": "deny",
+      "event": { "tool_name": "Glob", "tool_input": { "pattern": "{src,../..}/*" } }
+    },
+    {
+      "name": "a link out of the workspace",
+      "expect": "deny",
+      "symlink": true,
+      "event": { "tool_name": "Read", "tool_input": { "file_path": "escape/secret.txt" } }
+    },
+    {
+      "name": "a link that stays inside",
+      "expect": "allow",
+      "symlink": true,
+      "event": { "tool_name": "Read", "tool_input": { "file_path": "inner/app.js" } }
+    },
+    {
+      "name": "a tool it does not judge",
+      "expect": "allow",
+      "event": { "tool_name": "Bash", "tool_input": { "command": "true" } }
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+# Fixture Scan recipe, invalid on purpose: a recipe never sets a limit, so
+# doctor warns about max_turns.
+image: node:22-bookworm
+setup: []
+registries: []
+entry_points:
+  - command: node index.js
+    note: The fixture's CLI.
+fixtures: []
+notes: Everything stays static-only.
+max_turns: 500

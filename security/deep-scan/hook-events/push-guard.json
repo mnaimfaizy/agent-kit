@@ -1,0 +1,76 @@
+{
+  "entry_point": ".github/agent-runtime/guard-implementer-push.mjs",
+  "about": "PreToolUse Bash events. The driver builds a git workspace on main with two branches, docs-only (changes docs/) and workflow-change (changes .github/workflows/), and stages push-guard-base (main) under RUNNER_TEMP. A case with git_config adds those keys to the workspace's .git/config for that case only. deny means a deny decision on stdout; allow means no output and exit 0.",
+  "cases": [
+    {
+      "name": "a standalone push of a docs branch",
+      "expect": "allow",
+      "event": { "tool_name": "Bash", "tool_input": { "command": "git-push.sh origin docs-only" } }
+    },
+    {
+      "name": "a push that changes a workflow",
+      "expect": "deny",
+      "event": {
+        "tool_name": "Bash",
+        "tool_input": { "command": "git-push.sh origin workflow-change" }
+      }
+    },
+    {
+      "name": "a push chained after a commit",
+      "expect": "deny",
+      "event": {
+        "tool_name": "Bash",
+        "tool_input": { "command": "git commit -m 'x' && git-push.sh origin docs-only" }
+      }
+    },
+    {
+      "name": "a push from a checkout whose git config names a command",
+      "expect": "deny",
+      "git_config": { "core.fsmonitor": "./not-a-real-command" },
+      "event": { "tool_name": "Bash", "tool_input": { "command": "git-push.sh origin docs-only" } }
+    },
+    {
+      "name": "a commit message read from a file",
+      "expect": "deny",
+      "event": { "tool_name": "Bash", "tool_input": { "command": "git commit -F /etc/hostname" } }
+    },
+    {
+      "name": "a prefix of a file-reading option",
+      "expect": "deny",
+      "event": { "tool_name": "Bash", "tool_input": { "command": "git commit --fi=/etc/hostname" } }
+    },
+    {
+      "name": "a git global option",
+      "expect": "deny",
+      "event": { "tool_name": "Bash", "tool_input": { "command": "git -c core.pager=cat log" } }
+    },
+    {
+      "name": "an environment assignment before git",
+      "expect": "deny",
+      "event": { "tool_name": "Bash", "tool_input": { "command": "GIT_DIR=/tmp git status" } }
+    },
+    {
+      "name": "a variable expansion",
+      "expect": "deny",
+      "event": { "tool_name": "Bash", "tool_input": { "command": "echo $GITHUB_TOKEN" } }
+    },
+    {
+      "name": "input redirection",
+      "expect": "deny",
+      "event": { "tool_name": "Bash", "tool_input": { "command": "cat < /etc/hostname" } }
+    },
+    {
+      "name": "a plain git status",
+      "expect": "allow",
+      "event": { "tool_name": "Bash", "tool_input": { "command": "git status" } }
+    },
+    {
+      "name": "a commit with a single-quoted message",
+      "expect": "allow",
+      "event": {
+        "tool_name": "Bash",
+        "tool_input": { "command": "git commit -m 'docs: fixture $HOME stays literal'" }
+      }
+    }
+  ]
+}

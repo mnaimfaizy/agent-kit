@@ -52,6 +52,7 @@ CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs three jobs on eve
 | `scripts/gen_workflow_reference.py`          | Generates `docs/reference.md` from the workflows.                                                                                                       |
 | `scripts/gen_doc_blocks.py`, `doc-facts.mjs` | Write the Generated blocks in the docs from their Doc facts ([how](#docs-that-are-generated-and-how-to-add-one)).                                       |
 | `security/`                                  | This repository's own Threat pack (dogfood audit).                                                                                                      |
+| `.security/`, `security/deep-scan/`          | This repository's own Scan recipe, and the test-only shims and fixtures it names (dogfood Deep scan).                                                   |
 
 ## Contract tests
 
@@ -162,6 +163,8 @@ gh variable set CLAUDE_REVIEW_RESPONSE_MODE --body auto
 ```
 
 Also: install the [Claude GitHub App](https://github.com/apps/claude) on the repository (implementer) (see [getting-started §7](docs/getting-started.md#7-prepare-the-security-audit) for the audit). Review [security/threat-model.md](security/threat-model.md) before the first audit; it is a draft.
+
+A dogfood Deep scan runs on your machine, not in CI: `npx @mnaimfaizy/agent-kit deep-scan` from a checkout of `main` reads [.security/scan-recipe.yml](.security/scan-recipe.yml) and the Threat pack in `security/` (see [Running a deep scan](docs/security-audit.md#running-a-deep-scan)). Its entry points use the test-only shims and fixtures in [security/deep-scan/](security/deep-scan/README.md); run one with `node security/deep-scan/drive.mjs <fixture>`. When you change a guard, a delivery script or the CLI, update its fixture cases.
 
 The Allowlist in every dogfood Caller is `mnaimfaizy`; edit it to add maintainers. For Review response, also edit `response_allowlist_actors` in `dogfood-agent-pipeline.yml`'s review job, so it stays equal to `dogfood-review-response.yml`'s `allowlist_actors`.
 

@@ -1,0 +1,5 @@
+# A shell alias is a command git runs.
+[core]
+	repositoryformatversion = 0
+[alias]
+	st = !echo not-run
