@@ -373,6 +373,10 @@ function docker({
     "info --format {{json .}}": { status: 0, stdout: `${JSON.stringify(info)}\n` },
     // The host network's gateway, where the host-side proxies listen.
     "network inspect": { status: 0, stdout: "127.0.0.1\n" },
+    "network inspect --format {{json .IPAM.Config}}": {
+      status: 0,
+      stdout: `${JSON.stringify([{ Subnet: "172.18.0.0/16", Gateway: "127.0.0.1" }])}\n`,
+    },
     "network inspect --format {{json .}}": { status: 0, stdout: `${JSON.stringify(ISOLATED)}\n` },
     // The relay's address on a sandbox network: 127.0.0.1 here, so the fake
     // sandbox reaches the real host-side proxy, on the relay's port.
@@ -5685,6 +5689,46 @@ describe("Docker Engine: the sandbox's only route to the host is a relay on an i
       assert.equal(listen, port);
       assert.equal(scriptArgs(relay).length, 5);
     }
+  });
+
+  it("reads the host network's IPAM configs as JSON and puts the proxies on its IPv4 gateway", async () => {
+    // A dual-stack bridge: the IPv6 config first, as Docker may list it.
+    const host = gvisorWith({
+      "network inspect --format {{json .IPAM.Config}}": {
+        status: 0,
+        stdout: JSON.stringify([
+          { Subnet: "fd00:db8::/64", Gateway: "fd00:db8::1" },
+          { Subnet: "172.18.0.0/16", Gateway: "127.0.0.1" },
+        ]),
+      },
+    });
+    const res = await run(recipeRepo(VALID), [], { host });
+    assert.equal(res.code, 0, res.text);
+    const calls = lifecycle(res);
+    const name = containerOf(calls);
+    assert.ok(
+      calls.some(
+        (a) => a.join(" ") === `network inspect --format {{json .IPAM.Config}} ${name}-host`,
+      ),
+      calls.map((a) => a.join(" ")).join("\n"),
+    );
+    for (const relay of relayRuns(calls)) assert.equal(scriptArgs(relay).at(-2), "127.0.0.1");
+  });
+
+  it("ends the run before the target starts when the host network has no IPv4 gateway", async () => {
+    const host = gvisorWith({
+      "network inspect --format {{json .IPAM.Config}}": {
+        status: 0,
+        stdout: JSON.stringify([{ Subnet: "fd00:db8::/64", Gateway: "fd00:db8::1" }]),
+      },
+    });
+    const res = await run(recipeRepo(VALID), [], { host });
+    assert.equal(res.code, 1, res.text);
+    assert.match(
+      res.err,
+      /FAILED {2}the relays' host network has no IPv4 gateway address to put a proxy on\./,
+    );
+    assert.ok(!lifecycle(res).some(isSandboxRun));
   });
 
   it("never gives a relay or a probe the model credential", async () => {

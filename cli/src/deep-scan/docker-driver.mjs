@@ -26,6 +26,7 @@
 // isolated network, whose relay forwards to the key-injecting model proxy,
 // so the proxy is the scan's only route to the internet.
 
+import { isIPv4 } from "node:net";
 import { layerDockerfile } from "./claude-code.mjs";
 import { startEgressProxy } from "./egress.mjs";
 import {
@@ -323,19 +324,15 @@ export function dockerDriver({ runtime, id, call }) {
       "creating the relays' host network",
     );
     const inspect = must(
-      await docker([
-        "network",
-        "inspect",
-        "--format",
-        "{{range .IPAM.Config}}{{.Gateway}}{{end}}",
-        hostNetwork,
-      ]),
+      await docker(["network", "inspect", "--format", "{{json .IPAM.Config}}", hostNetwork]),
       "reading the relays' host network's gateway",
     );
-    const gateway = inspect.stdout.toString("utf8").trim();
-    if (!/^[0-9a-f.:]+$/i.test(gateway)) {
+    // A dual-stack bridge lists an IPv6 config too: the proxies go on the
+    // IPv4 gateway, the address the relay forwards to.
+    const gateway = ipv4GatewayOf(inspect.stdout.toString("utf8"));
+    if (gateway === null) {
       throw new StepFailed([
-        "FAILED  the relays' host network has no gateway address to put a proxy on.",
+        "FAILED  the relays' host network has no IPv4 gateway address to put a proxy on.",
         ENDS_HERE,
       ]);
     }
@@ -489,6 +486,26 @@ export function dockerDriver({ runtime, id, call }) {
       "no_proxy=localhost,127.0.0.1",
     ];
   }
+}
+
+/**
+ * The first IPv4 gateway in `docker network inspect --format {{json
+ * .IPAM.Config}}`, or null.
+ * @param {string} text
+ */
+export function ipv4GatewayOf(text) {
+  let configs;
+  try {
+    configs = JSON.parse(text.trim());
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(configs)) return null;
+  for (const c of configs) {
+    const g = typeof c?.Gateway === "string" ? c.Gateway : "";
+    if (isIPv4(g)) return g;
+  }
+  return null;
 }
 
 /**
