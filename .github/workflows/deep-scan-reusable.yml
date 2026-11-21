@@ -3,9 +3,12 @@ name: deep-scan-reusable
 # The opt-in CI path for a Deep scan (ADR 0018): the same `agent-kit
 # deep-scan` launcher a maintainer runs locally, on an ephemeral GitHub-hosted
 # runner with gVisor (runsc). The agent and the target run together in the
-# gVisor container; the runner holds only the launcher's model proxy and the
-# delivery steps. It runs on the default branch only, from a schedule or
-# workflow_dispatch, never on a pull request head.
+# gVisor container; the runner holds the launcher's proxies and the delivery
+# steps. The runner's Docker also runs the relay and probe containers and
+# their -host bridge network under its default runtime (runc), not gVisor:
+# they run launcher code only (the pinned node image and the digest-checked
+# relay script), never target code. It runs on the default branch only,
+# from a schedule or workflow_dispatch, never on a pull request head.
 #
 # The model credential is its own Caller secret, in the launcher step's
 # environment alone, where the launcher keeps it in its proxy process: an
