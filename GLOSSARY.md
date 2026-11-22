@@ -37,8 +37,12 @@ The First-class flow plan → implement → review, behind one master Kill switc
 _Avoid_: pipeline, agent pipeline
 
 **Stage**:
-One agent run of a First-class flow with its own model, effort and Kill switch: plan, implement, review, review response, or security audit.
+One agent run of a First-class flow with its own harness, model, effort and Kill switch: plan, implement, review, review response, or security audit.
 _Avoid_: step, phase, pipeline
+
+**Launcher**:
+What starts a Stage on its harness, hands the agent its brief, and collects the result; one Launcher serves every harness, in CI and on a maintainer's machine alike.
+_Avoid_: runner, wrapper, action
 
 **Portable skill**:
 An agent skill vendored in Agent-kit that a Consumer copies into `.claude/skills/` unchanged, and that a Skill installer may install on its own.
@@ -193,7 +197,7 @@ _Avoid_: platform, channel
 
 **Driver**:
 The tool a run uses to drive a Surface. It can observe some things and not others.
-_Avoid_: runner, harness
+_Avoid_: runner, harness (the agent product the run happens in)
 
 **QA Stack**:
 A local copy of the application a tester starts and stops with the repository's `up`, `migrate`, `seed` and `down` commands; teardown touches only what `up` started.
@@ -236,11 +240,11 @@ What carries out a Delegation: a Live Session, a headless run, or a sub-agent in
 _Avoid_: worker, runner
 
 **Harness**:
-The agent product a session runs in (Claude Code desktop, Claude Code CLI, Cursor, Codex CLI and the like), which decides how one session can start, message and wait for another; two versions of one product that behave differently are two harnesses.
+The agent product an agent run happens in (Claude Code desktop, Claude Code CLI, Cursor, Codex CLI, Gemini CLI and the like), which decides how a run starts without a human, what it may touch, and how one session can start, message and wait for another; two versions of one product that behave differently are two harnesses.
 _Avoid_: tool, IDE, client, platform
 
 **Support Level**:
-How far `orchestrate` has been proven on a harness or a tracker: verified (a full run passed), tried (a run happened, with known gaps) or documented (built from its documentation alone).
+How far `orchestrate`, or a Stage, has been proven on a harness or a tracker: verified (a full run passed), tried (a run happened, with known gaps) or documented (built from its documentation alone).
 _Avoid_: compatibility, maturity, tier (a tier is what the harness can do)
 
 **Live Session**:
