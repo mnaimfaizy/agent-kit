@@ -44,6 +44,14 @@ _Avoid_: step, phase, pipeline
 What starts a Stage on its harness, hands the agent its brief, and collects the result; one Launcher serves every harness, in CI and on a maintainer's machine alike.
 _Avoid_: runner, wrapper, action
 
+**Harness adapter**:
+What tells the Launcher how to install, start and stop one harness, and which model credential and model API that harness uses; the kit ships one for each harness it supports.
+_Avoid_: provider (a provider is the model API), driver (a driver is the sandbox runtime), plugin
+
+**Custom harness**:
+A harness the kit ships no Harness adapter for, which a Consumer describes in a file of their own and selects for a Stage by name; it starts at the documented Support Level.
+_Avoid_: third-party harness, plugin harness
+
 **Guard**:
 An outcome a Stage requires of whatever runs it, stated without naming how it is reached, such as "reads stay in the workspace" or "the agent holds no GitHub write credential"; a harness that cannot reach every Guard a Stage requires is refused for that Stage.
 _Avoid_: hook, confinement hook, restriction (a hook, a sandbox or a policy is a way to reach a Guard)
