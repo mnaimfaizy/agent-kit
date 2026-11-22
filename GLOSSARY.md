@@ -48,6 +48,10 @@ _Avoid_: runner, wrapper, action
 An outcome a Stage requires of whatever runs it, stated without naming how it is reached, such as "reads stay in the workspace" or "the agent holds no GitHub write credential"; a harness that cannot reach every Guard a Stage requires is refused for that Stage.
 _Avoid_: hook, confinement hook, restriction (a hook, a sandbox or a policy is a way to reach a Guard)
 
+**Stage result**:
+What leaves a Stage's sandbox for trusted code to read as data: the one file the agent writes where its brief says and, on a Stage that changes code, its commits; nothing the agent says in its own text is part of it.
+_Avoid_: output, final message, response
+
 **Portable skill**:
 An agent skill vendored in Agent-kit that a Consumer copies into `.claude/skills/` unchanged, and that a Skill installer may install on its own.
 _Avoid_: kit skill, core skill
