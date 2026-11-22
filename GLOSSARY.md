@@ -336,7 +336,7 @@ One unresolved review thread a configured reviewer started. Written alone, **Fin
 _Avoid_: comment, issue (for a review point), review finding
 
 **Review report**:
-The reviewer's tracking comment on a pull request: an index of its Findings, one entry per thread, under the three axes. It holds no finding of its own.
+The one comment on a pull request that indexes the reviewer's Findings, one entry per thread, under the three axes. It holds no finding of its own. Where the reviewer hands back a Stage result, the report is written from it, not by the reviewer.
 _Avoid_: review summary, summary findings
 
 **Work list**:
