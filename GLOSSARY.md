@@ -260,8 +260,12 @@ The agent product an agent run happens in (Claude Code desktop, Claude Code CLI,
 _Avoid_: tool, IDE, client, platform
 
 **Support Level**:
-How far `orchestrate`, or a Stage, has been proven on a harness or a tracker: verified (a full run passed), tried (a run happened, with known gaps) or documented (built from its documentation alone).
+How far `orchestrate` has been proven on a harness or a tracker, or one Stage on one harness: verified (a full run passed), tried (a run happened, with known gaps) or documented (built from its documentation alone). A Stage's level belongs to the harness and Stage pair, so one harness holds a different level for each Stage.
 _Avoid_: compatibility, maturity, tier (a tier is what the harness can do)
+
+**Proving run**:
+A run of a Stage on a harness whose Support Level is below what the Stage requires, made on purpose to record the evidence that raises the level.
+_Avoid_: trial run, test run, override
 
 **Live Session**:
 A separate agent session the human can open, read and talk to while it works; always written in full, because a Session is a signed-in identity in a QA scenario.
