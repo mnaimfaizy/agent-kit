@@ -44,6 +44,10 @@ _Avoid_: step, phase, pipeline
 What starts a Stage on its harness, hands the agent its brief, and collects the result; one Launcher serves every harness, in CI and on a maintainer's machine alike.
 _Avoid_: runner, wrapper, action
 
+**Guard**:
+An outcome a Stage requires of whatever runs it, stated without naming how it is reached, such as "reads stay in the workspace" or "the agent holds no GitHub write credential"; a harness that cannot reach every Guard a Stage requires is refused for that Stage.
+_Avoid_: hook, confinement hook, restriction (a hook, a sandbox or a policy is a way to reach a Guard)
+
 **Portable skill**:
 An agent skill vendored in Agent-kit that a Consumer copies into `.claude/skills/` unchanged, and that a Skill installer may install on its own.
 _Avoid_: kit skill, core skill
