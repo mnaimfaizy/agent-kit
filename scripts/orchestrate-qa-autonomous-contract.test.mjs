@@ -758,6 +758,9 @@ describe("orchestrate reads the QA summary (#420)", () => {
   it("says plainly that only check --for plan reads a run-only Places change", () => {
     assert.match(places, /adapter\.mjs plan/);
     assert.match(places, /commit it to the config/);
+    assert.match(places, /composing the QA Plan only/);
+    assert.match(places, /source of truth/);
+    assert.match(QA_BRIEF, /composing the plan only/);
   });
 
   it("the QA brief carries the run's Places", () => {
