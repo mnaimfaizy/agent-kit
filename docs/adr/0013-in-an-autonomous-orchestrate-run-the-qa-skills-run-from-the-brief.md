@@ -1,8 +1,10 @@
 ---
-status: accepted
+status: superseded by ADR-0032
 ---
 
 # In an autonomous orchestrate run, the QA skills run from the brief
+
+> **Superseded by [ADR 0032](0032-autonomous-qa-handover-nothing-asked-mid-run.md).** It keeps what survives here and replaces the rest, including "Hosted targets stay with a person".
 
 `qa-plan` and `manual-qa` are user-invoked (`disable-model-invocation: true`), and they stay so. Their rules wait on a person: "the person has seen the draft", "post only on a yes", "ask which issue is the subject". Until now an orchestrate QA Delegation's session was sent `/qa-plan <n>` and later `/manual-qa <plan file>` as messages. On the Claude Code desktop harness a message does not run as the human's invocation, so the human typed both commands in every QA session, `go autonomous` or not. With no QA config, every QA session also asked the readiness question: in the spec #253 run the human answered it six times, once also relayed as a Decision Request. A run meant to go on without the human still needed them at every QA step.
 
