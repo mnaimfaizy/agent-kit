@@ -18,7 +18,7 @@ The posted QA Report becomes a short summary, in the shape of the My Organiser p
 - the failures and how each was resolved;
 - a list of what is left for a person.
 
-**The header is read strictly,** by a parser, and orchestrate reads it to check a QA claim against its commit and counts. A header that does not match, a short or uppercase commit, counts that disagree with the list, or a list item in any other form means no report: a malformed post can never pass as QA.
+**The header is read strictly,** by a parser, and orchestrate reads it to check a QA claim against its commit and counts. A header that does not match, or counts that disagree with the list, means no report: a malformed post can never pass as QA.
 
 **Places are configurable.** Each item left for a person carries a Place. The default is the My Organiser one: a local Place holds a merge and counts as left for a person; staging and production are counted as deferred and never hold. A repository can rename Places, add its own, or turn them off, in which case items are untagged and all count as held. The Dispatch Plan shows the run's Places and lets the human change them for the run or save them; `qa-plan` picks each item's Place from that list when it writes the plan. A Review box the Chief of Staff ruled on keeps a note saying which Ruling checked it.
 

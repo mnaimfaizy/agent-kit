@@ -52,6 +52,6 @@ A Maintainer approves a `go autonomous` run so it can go on without them, but QA
 
 ## Consequences
 
-- Each QA skill's "Run from an autonomous brief" section and its contract test gain a row for every wait this decision moves; a step that waits on the person with no row still fails the test.
-- The `manual-qa` hosted-target rule widens from "typed in this chat" to "typed in this chat, or in this run's Dispatch Plan as the brief records".
-- A QA Delegation is still never a sub-agent. The first approved-QA run records what could not be settled beforehand: whether a session accepts a relayed host, how long an idle parked session stays usable, and whether a voided one can be re-pinned.
+- Each QA skill's run mapping and its contract test gain a row for every wait this decision moves; a step that waits on the person with no row still fails the test.
+- The hosted-target rule in `manual-qa` widens to accept a host the human typed in the Dispatch Plan, as the brief records.
+- A QA Delegation is still never a sub-agent.
