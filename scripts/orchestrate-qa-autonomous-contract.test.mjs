@@ -571,6 +571,107 @@ describe("DESIGN.md, HARNESSES.md, docs and the glossary say it (#419)", () => {
   });
 });
 
+describe("parked QA sessions on the desktop harness (#422)", () => {
+  const DESKTOP = read(`${SKILL_DIR}/harnesses/claude-code-desktop.md`);
+  const parked = bullet(DESKTOP, "- Parked QA sessions:");
+  const reQa = bullet(DESKTOP, "- Re-QA in a parked session:");
+  const unusable = bullet(DESKTOP, "- An unusable parked session:");
+
+  it("with QA approved, starts one Live Session per QA row on the go turn, which the human's words authorize", () => {
+    assert.match(parked, /approved/);
+    assert.match(parked, /`go` turn/);
+    assert.match(parked, /human's words/);
+    assert.match(parked, /one Live Session per QA row/);
+    assert.match(parked, /own worktree/);
+    assert.match(parked, /without `<head>`/);
+    assert.match(parked, /idle/);
+    assert.match(parked, /messag\w* the head/);
+  });
+
+  it("the Executors line says a QA Live Session is parked at go", () => {
+    const line = DESKTOP.split("\n").find((l) => l.startsWith("- **Executors:**"));
+    assert.match(line, /QA, a Live Session, parked/);
+  });
+
+  it("re-QA is a new QA Delegation that runs in the same session, which throws away its old state and re-pins", () => {
+    assert.match(reQa, /`d<issue>-qa2`/);
+    assert.match(reQa, /same session/);
+    assert.match(reQa, /throws away its old state/);
+    assert.match(reQa, /re-pins/);
+    assert.match(reQa, /QA Plan and QA Report/);
+    assert.match(reQa, /copied to the run folder/);
+  });
+
+  it("an archived, crashed or dropped parked session holds its row for close-out, and no card is started mid-run", () => {
+    assert.match(unusable, /archived, crashed or dropped/);
+    assert.match(unusable, /holds its row for close-out/);
+    assert.match(unusable, /no card is ever started mid-run/);
+  });
+
+  it("the QA Stack stays held by one session at a time", () => {
+    assert.match(parked, /QA Stack/);
+    assert.match(parked, /one session at a time/);
+  });
+
+  it("check before use adds how long an idle parked session stays usable, and re-pinning a voided session", () => {
+    const check = section(DESKTOP, "## Check before use");
+    assert.match(check, /how long an idle parked QA session stays usable/i);
+    assert.match(check, /re-pin\w* a voided/i);
+  });
+
+  it("the QA brief works without <head> until the head is messaged: phase 1 waits for the message, then pins", () => {
+    assert.match(QA_BRIEF, /parked/i);
+    assert.match(QA_BRIEF, /without `<head>`/);
+    assert.match(QA_BRIEF, /waits for the head message|wait for the head message/i);
+    assert.match(QA_BRIEF, /then pins/i);
+  });
+
+  it("the QA brief's re-QA message re-pins a session that has run before", () => {
+    assert.match(QA_BRIEF, /throws? away its old state/i);
+  });
+
+  it("step 4 names the headless opt-in with its three costs", () => {
+    const optIn = bullet(STEP4, "- **The headless opt-in.**");
+    assert.match(optIn, /`executors\.qa: claude-code-cli`/);
+    assert.match(optIn, /cannot watch/);
+    assert.match(optIn, /no built-in browser/);
+    assert.match(optIn, /`--permission-mode auto`/);
+  });
+
+  it("step 5 starts parked QA sessions at go, and step 9 messages the head to a parked session", () => {
+    const step5 = section(SKILL, "### 5. Dispatch a wave");
+    assert.match(step5, /parked QA/i);
+    assert.match(step5, /`go` turn/);
+    assert.match(STEP9, /parked/i);
+    assert.match(STEP9, /message\w* it the head/i);
+  });
+
+  it("step 9: a re-QA on a parked session is a message, never a card", () => {
+    assert.match(STEP9, /same session/);
+    assert.match(STEP9, /never a card/);
+  });
+
+  it("RUN.md's `parked` state covers a started QA session waiting for its head", () => {
+    assert.match(RUN, /started QA session[^|]*waiting for its head/i);
+  });
+
+  it("HARNESSES.md says a parked start is a desktop-harness fact", () => {
+    assert.match(HARNESSES, /parked/i);
+  });
+
+  it("DESIGN.md gives the reason: the go turn is the human's words, a card needs a click", () => {
+    const qa = section(DESIGN, "## QA asks nothing mid-run");
+    assert.match(qa, /parked/i);
+    assert.match(qa, /card/);
+  });
+
+  it("docs/orchestrate.md says QA sessions start parked on Claude Code desktop", () => {
+    const docs = read("docs/orchestrate.md");
+    assert.match(docs, /parked/i);
+    assert.match(docs, /`executors\.qa: claude-code-cli`/);
+  });
+});
+
 describe("the ADR and the changelog", () => {
   const adrs = readdirSync(join(root, "docs/adr"));
   const old = adrs.filter((f) => f.startsWith("0013-"));
