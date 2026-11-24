@@ -158,7 +158,8 @@ test("each scenario carries its fields, in order, numbered from S1", () => {
     "A failure means:",
     "If this fails, first rule out:",
   ];
-  const positions = labels.map((label) => scenarios.indexOf(`**${label}**`));
+  // Each field's own bullet, not a mention of it in another's prose.
+  const positions = labels.map((label) => scenarios.indexOf(`\n- **${label}**`));
   for (const [n, at] of positions.entries())
     assert.ok(at !== -1, `Scenarios lacks **${labels[n]}**`);
   assert.deepEqual(
@@ -196,16 +197,17 @@ test("the execution record is empty after compose", () => {
 });
 
 test("the marker line names the format, the subject and the pull request", () => {
-  assert.match(anatomy, /<!-- qa-plan format=3 subject=#\d+ pr=#\d+ -->/);
-  assert.doesNotMatch(anatomy, /<!-- qa-plan format=[12] subject=/);
+  assert.match(anatomy, /<!-- qa-plan format=4 subject=#\d+ pr=#\d+ -->/);
+  assert.doesNotMatch(anatomy, /<!-- qa-plan format=[123] subject=/);
 });
 
 test("ANATOMY.md says which formats a copy reads, and which fields each format carries", () => {
   const shape = section("Shape");
-  assert.match(shape, /The composer writes `format=3`/);
-  assert.match(shape, /reads `format=1`, `format=2` and `format=3`/);
+  assert.match(shape, /The composer writes `format=4`/);
+  assert.match(shape, /reads `format=1`, `format=2`, `format=3` and `format=4`/);
   assert.match(shape, /A `format=1` plan carries no per-scenario field/);
   assert.match(shape, /A `format=2` plan carries no \*\*Capture:\*\* or \*\*Expected before:\*\*/);
+  assert.match(shape, /A `format=3` plan carries no \*\*Story:\*\*: it is `format=4` or later/);
   assert.match(shape, /naming the field and the format it needs/);
   assert.match(shape, /refuses any other `format`/);
 });
@@ -230,13 +232,13 @@ test("a scenario may carry its own Surface, after its sign-in fields and before 
 test("SKILL.md writes plans in this format and delivers by the same marker", () => {
   assert.match(skill, /\[ANATOMY\.md\]\(ANATOMY\.md\)/);
   assert.match(skill, /`_Not run yet\._`/);
-  assert.match(skill, /the marker on line 1 with `format=3`/);
+  assert.match(skill, /the marker on line 1 with `format=4`/);
   // A revision still finds the plan it replaces when that plan was written in an older format.
   assert.match(
     skill,
-    /`<!-- qa-plan format=1 subject=#<n> `, `<!-- qa-plan format=2 subject=#<n> ` or `<!-- qa-plan format=3 subject=#<n> `/,
+    /`<!-- qa-plan format=1 subject=#<n> `, `<!-- qa-plan format=2 subject=#<n> `, `<!-- qa-plan format=3 subject=#<n> ` or `<!-- qa-plan format=4 subject=#<n> `/,
   );
-  assert.match(skill, /the same marker with `format=1` or `format=2`/);
+  assert.match(skill, /the same marker with `format=1`, `format=2` or `format=3`/);
 });
 
 test("SKILL.md step 6 picks each scenario's surface from what its expected result observes", () => {
@@ -451,6 +453,36 @@ test("a scenario may say what its run captures, after Observes and before Steps 
   assert.match(capture, /once at most/);
   assert.match(capture, /`format=3` or later/);
   assert.match(section("Shape"), /\*\*Capture:\*\* and \*\*Signs in as:\*\*/);
+});
+
+test("a scenario tells its story, one sentence per Scene, right after Capture and before Steps (format=4)", () => {
+  const scenarios = section("Scenarios");
+  const labels = [...scenarios.matchAll(/^- \*\*([^*]+):\*\*/gm)].map((m) => m[1]);
+  assert.equal(labels[labels.indexOf("Capture") + 1], "Story", labels.join(" · "));
+  assert.ok(labels.indexOf("Story") < labels.indexOf("Steps"), labels.join(" · "));
+  const story = scenarios.split("\n").find((line) => line.startsWith("- **Story:**"));
+  assert.match(story, /a numbered list with one sentence per \[Scene\]\(#sessions\), in order/);
+  assert.match(story, /under the same public-text rules as \*\*Expected result:\*\*/);
+  assert.match(story, /A single-session scenario is one Scene/);
+  assert.match(
+    story,
+    /each step whose `In session <name>,` differs from the previous step's is a Cut and starts a new Scene/,
+  );
+  assert.match(
+    story,
+    /A Scene that opens a Session signed in as a \[Scenario account\]\(#scenario-accounts\) says the person is already signed in/,
+  );
+  assert.match(story, /wherever \*\*Capture:\*\* would sit when it has none/);
+  assert.match(story, /once at most/);
+  assert.match(
+    story,
+    /refuses a Story whose sentence count differs from the Scenes its steps make, naming the scenario and both counts, and a `Capture: video` scenario without one/,
+  );
+  assert.match(story, /`format=4` or later/);
+  assert.match(
+    story,
+    /a `format=3` or older plan's `Capture: video` scenario carries no Story, and still reads/,
+  );
 });
 
 test("a fix scenario carries Expected before, right after Expected result (format=3)", () => {

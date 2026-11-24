@@ -1281,10 +1281,16 @@ export const CAPTURES = /** @type {const} */ (["screenshot", "video", "transcrip
  */
 export const SCENARIO_EXPECTED_BEFORE = "Expected before";
 /**
- * The plan formats this copy reads. A format=1 plan carries no per-scenario field; a
- * format=2 plan no **Capture:** or **Expected before:**.
+ * The field (format=4) telling a scenario's story: a numbered list with one sentence per
+ * Scene, in order, right after its **Capture:**, or wherever **Capture:** would sit when it
+ * has none, before **Steps:**. A `Capture: video` scenario in a format=4 plan carries one.
  */
-export const FORMATS = /** @type {const} */ ([1, 2, 3]);
+export const SCENARIO_STORY = "Story";
+/**
+ * The plan formats this copy reads. A format=1 plan carries no per-scenario field; a
+ * format=2 plan no **Capture:** or **Expected before:**; a format=3 plan no **Story:**.
+ */
+export const FORMATS = /** @type {const} */ ([1, 2, 3, 4]);
 /** The format the composer writes. */
 export const FORMAT = FORMATS.at(-1);
 const RULE_OUT = "If this fails, first rule out";
@@ -1478,7 +1484,8 @@ export function credentialProblems(lines) {
  * (format=2) lists, as `observes` (`[]` with none), what its run keeps as `capture`
  * (format=3: its **Capture:**, else `transcript` on `api` and `screenshot` elsewhere),
  * with `captureGiven` saying whether the plan wrote it, and its **Expected before:**
- * (format=3) as `expectedBefore` (`null` with none). Each `Review:` box in the
+ * (format=3) as `expectedBefore` (`null` with none), and the sentences of its **Story:**
+ * (format=4), one per Scene, as `story` (`[]` with none). Each `Review:` box in the
  * Sign-off checklist is in `reviews`, as `{text, ticked}`: never a scenario's box,
  * and a plan whose Scenarios says `None.` reads when it has one.
  * `manual-qa` runs nothing from a plan with a problem.
@@ -1643,28 +1650,37 @@ export function validatePlan(text) {
     }
   };
   /**
-   * In a multi-session scenario, each top-level numbered step in lines `from`–`to` starts
-   * `In session X,` or `In X,`, naming one of `names` (ANATOMY.md, "Sessions").
+   * The top-level numbered items in lines `from`–`to`, each with its line, number and
+   * text. An item is top-level when it starts left of the first item's text; a list nested
+   * under one starts at or past it (CommonMark lets siblings shift up to 3 spaces).
    */
-  const stepSessions = (from, to, names, id) => {
+  const topItems = (from, to) => {
     const numbered = [];
     for (let n = from; n < to; n += 1) {
-      const step = !fenced[n] && /^(\s*)(\d+)\.\s+(.*)$/.exec(lines[n]);
-      if (step)
+      const item = !fenced[n] && /^(\s*)(\d+)\.\s+(.*)$/.exec(lines[n]);
+      if (item)
         numbered.push({
           n,
-          indent: step[1].length,
-          column: lines[n].length - step[3].length,
-          number: step[2],
-          text: step[3],
+          indent: item[1].length,
+          column: lines[n].length - item[3].length,
+          number: item[2],
+          text: item[3],
         });
     }
-    // A step is top-level when it starts left of the first step's text; a list nested
-    // under a step starts at or past it (CommonMark lets siblings shift up to 3 spaces).
     const column = numbered[0]?.column ?? 0;
-    for (const step of numbered) {
-      if (step.indent >= column) continue;
+    return numbered.filter((item) => item.indent < column);
+  };
+  /**
+   * In a multi-session scenario, each top-level numbered step in lines `from`–`to` starts
+   * `In session X,` or `In X,`, naming one of `names` (ANATOMY.md, "Sessions"). Returns
+   * each step's session name in order, `null` for a step that names none.
+   */
+  const stepSessions = (from, to, names, id) => {
+    /** @type {(string | null)[]} */
+    const order = [];
+    for (const step of topItems(from, to)) {
       const session = /^In (?:session )?[`*_]*([A-Za-z])[`*_]*,/.exec(step.text)?.[1];
+      order.push(session ?? null);
       if (session === undefined)
         at(
           step.n,
@@ -1676,6 +1692,7 @@ export function validatePlan(text) {
           `${id}: step ${step.number} is in session ${session}, which **${SESSIONS}:** does not declare`,
         );
     }
+    return order;
   };
 
   /**
@@ -2037,6 +2054,62 @@ export function validatePlan(text) {
           );
         else capture = word;
       }
+      // The story, one sentence per Scene (#382): right after Capture, or where it would sit.
+      /** @type {string[]} */
+      let story = [];
+      /** The **Story:** line, when its list read; its count is checked against the Scenes below. */
+      let storyLine = null;
+      const stories = found.filter((entry) => entry.label === SCENARIO_STORY);
+      for (const extra of stories.slice(1))
+        at(extra.n, `${id}: a second **${SCENARIO_STORY}:**: a scenario has at most one`);
+      const ownStory = stories[0];
+      if (ownStory) {
+        const k = found.indexOf(ownStory);
+        const misplaced =
+          found
+            .slice(k + 1)
+            .some((entry) =>
+              [...before, SCENARIO_SURFACE, SCENARIO_OBSERVES, SCENARIO_CAPTURE].includes(
+                entry.label,
+              ),
+            ) || found.slice(0, k).some((entry) => after.includes(entry.label));
+        const what = `${id}: **${SCENARIO_STORY}:**`;
+        const end = found[k + 1]?.n ?? heads[i + 1]?.n ?? to;
+        const items = topItems(ownStory.n + 1, end);
+        if (plan.format < 4)
+          at(
+            ownStory.n,
+            `${what} is a format=4 field: mark the plan \`format=4\`, or leave it out`,
+          );
+        else if (misplaced)
+          at(
+            ownStory.n,
+            `${what} is out of position: it goes right after the scenario's **${SCENARIO_CAPTURE}:**, or wherever **${SCENARIO_CAPTURE}:** would sit when it has none, before **Steps:**`,
+          );
+        else if (ownStory.inline !== "" || !items.length)
+          at(ownStory.n, `${what} expected a numbered list, one sentence per Scene, in order`);
+        else {
+          // A sentence runs on over its wrapped lines, up to a blank line or a nested list.
+          story = items.map((item) => {
+            const parts = [item.text.trim()];
+            for (let n = item.n + 1; n < end; n += 1) {
+              if (fenced[n] || lines[n].trim() === "" || /^\s*(?:[-*+]|\d+[.)])\s/.test(lines[n]))
+                break;
+              parts.push(lines[n].trim());
+            }
+            return parts.join(" ").trim();
+          });
+          const empty = story.findIndex((sentence) => sentence === "");
+          if (empty !== -1) {
+            at(items[empty].n, `${what} sentence ${items[empty].number} is empty`);
+            story = [];
+          } else storyLine = ownStory.n;
+        }
+      } else if (plan.format >= 4 && capture === "video" && ownCapture)
+        at(
+          ownCapture.n,
+          `${id}: **${SCENARIO_CAPTURE}:** \`video\` needs a **${SCENARIO_STORY}:**, one sentence per Scene, in order, so each Scene of the video opens on its Title card`,
+        );
       // What the merge-base shows (#233): right after Expected result. Its text is the
       // scenario's, so it is read in full, as Expected result is.
       /** @type {string | null} */
@@ -2074,6 +2147,8 @@ export function validatePlan(text) {
       const who = signs ? plainWord(signs.inline) : null;
       /** @type {{name: string | null, id: string}[]} */
       const sessions = [];
+      /** The Scenes the steps make: one for a single-session scenario; `null` when unknown. */
+      let scenes = steps && steps.text !== "" ? 1 : null;
       if (named && named.text === "") at(named.n, `${id}: **${SESSIONS}:** is empty`);
       else if (named) {
         const listed = sessionList(named.inline);
@@ -2102,14 +2177,25 @@ export function validatePlan(text) {
             named.n,
             `${id}: **${SESSIONS}:** names one session: a scenario with one session uses **Signs in as:**`,
           );
-        if (steps && steps.text !== "")
-          stepSessions(
+        scenes = null;
+        if (steps && steps.text !== "") {
+          const order = stepSessions(
             steps.n + 1,
             found[position("Steps") + 1]?.n ?? heads[i + 1]?.n ?? to,
             new Set(listed.map((session) => session.name)),
             id,
           );
+          // A Cut is a step whose Session is not the previous step's; each starts a Scene.
+          // A step that names no session is reported above, and leaves the count unknown.
+          if (order.length && !order.includes(null))
+            scenes = order.filter((name, k) => k === 0 || name !== order[k - 1]).length;
+        }
       } else if (who) sessions.push({ name: null, id: who });
+      if (storyLine !== null && scenes !== null && story.length !== scenes)
+        at(
+          storyLine,
+          `${id}: **${SCENARIO_STORY}:** has ${story.length} sentence${story.length === 1 ? "" : "s"}, and its steps make ${scenes} Scene${scenes === 1 ? "" : "s"}: write one sentence per Scene, in order`,
+        );
       const creates = position(CREATES) === -1 ? null : get(CREATES);
       const made = creates ? idList(creates.inline) : [];
       if (creates && !made.length)
@@ -2125,6 +2211,7 @@ export function validatePlan(text) {
         capture,
         captureGiven: Boolean(ownCapture),
         expectedBefore,
+        story,
       });
       accountLines.push({ signs: (named ?? signs)?.n, creates: creates?.n, made });
     });
