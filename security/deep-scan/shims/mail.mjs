@@ -3,7 +3,7 @@
 // server notify-email.sh sends to (the "sendmail" role in Agent-kit's own Deep
 // scan fixtures, security/deep-scan/README.md). It relays nothing and accepts
 // no message: it records each SMTP command as one JSON line in the log, with
-// any AUTH payload redacted, offers STARTTLS and AUTH so a client that would
+// any AUTH payload, AUTH continuation line and oversized line kept out, offers STARTTLS and AUTH so a client that would
 // skip TLS shows up as an AUTH line, answers STARTTLS with 454 (no TLS here),
 // and refuses MAIL, RCPT and DATA.
 //
@@ -14,9 +14,25 @@ import { createServer } from "node:net";
 import { pathToFileURL } from "node:url";
 
 const MAX_LINE = 4096;
+const VERBS = new Set([
+  "EHLO",
+  "HELO",
+  "STARTTLS",
+  "AUTH",
+  "MAIL",
+  "RCPT",
+  "DATA",
+  "QUIT",
+  "NOOP",
+  "RSET",
+  "VRFY",
+  "EXPN",
+  "HELP",
+]);
 
-function reply(command) {
-  const verb = command.split(" ")[0].toUpperCase();
+const verbOf = (line) => (line.trim().split(/\s+/)[0] ?? "").toUpperCase();
+
+function reply(verb) {
   switch (verb) {
     case "EHLO":
       return "250-recording-mail-shim\r\n250-STARTTLS\r\n250 AUTH PLAIN LOGIN\r\n";
@@ -32,15 +48,10 @@ function reply(command) {
     case "RSET":
       return "250 ok\r\n";
     default:
-      return "554 recording shim: no mail is accepted\r\n";
+      return VERBS.has(verb)
+        ? "554 recording shim: no mail is accepted\r\n"
+        : "500 recording shim: command not recognized\r\n";
   }
-}
-
-/** What the log keeps of a command: AUTH's payload never. */
-function recorded(command) {
-  const [verb, mechanism] = command.split(" ");
-  if (verb.toUpperCase() === "AUTH") return `AUTH ${mechanism ?? ""} [redacted]`.replace("  ", " ");
-  return command.slice(0, MAX_LINE);
 }
 
 /**
@@ -48,6 +59,7 @@ function recorded(command) {
  * @returns {Promise<{ port: number, close: () => Promise<void> }>}
  */
 export function startMailShim({ log }) {
+  const record = (command) => appendFileSync(log, `${JSON.stringify({ shim: "mail", command })}\n`);
   const sockets = new Set();
   const server = createServer((socket) => {
     sockets.add(socket);
@@ -56,16 +68,49 @@ export function startMailShim({ log }) {
     socket.setEncoding("utf8");
     socket.write("220 recording-mail-shim ESMTP (test-only, relays nothing)\r\n");
     let buffer = "";
+    // After AUTH, every line that is not an SMTP verb is a credential (an
+    // AUTH LOGIN user or password sent ahead of the reply): never logged.
+    let inAuth = false;
+    // Inside a line too long to keep: drop input up to its newline.
+    let dropping = false;
+    const handle = (line) => {
+      const verb = verbOf(line);
+      if (verb === "AUTH") {
+        inAuth = true;
+        const mechanism = line.trim().split(/\s+/)[1] ?? "";
+        record(`AUTH ${/^[A-Za-z0-9_-]{1,20}$/.test(mechanism) ? `${mechanism} ` : ""}[redacted]`);
+      } else if (inAuth && !VERBS.has(verb)) {
+        record("[redacted: an AUTH continuation line]");
+      } else {
+        inAuth = false;
+        record(line);
+      }
+      socket.write(reply(verb));
+      if (verb === "QUIT") socket.end();
+    };
     socket.on("data", (chunk) => {
       buffer += chunk;
-      if (buffer.length > MAX_LINE * 4) buffer = buffer.slice(-MAX_LINE);
-      let end;
-      while ((end = buffer.indexOf("\n")) >= 0) {
-        const command = buffer.slice(0, end).replace(/\r$/, "");
+      for (;;) {
+        const end = buffer.indexOf("\n");
+        if (dropping) {
+          if (end < 0) {
+            buffer = "";
+            return;
+          }
+          buffer = buffer.slice(end + 1);
+          dropping = false;
+          continue;
+        }
+        if (end < 0 ? buffer.length > MAX_LINE : end > MAX_LINE) {
+          record(`[an oversized line was dropped${inAuth ? ", inside AUTH" : ""}]`);
+          socket.write(reply(""));
+          dropping = true;
+          continue;
+        }
+        if (end < 0) return;
+        const line = buffer.slice(0, end).replace(/\r$/, "");
         buffer = buffer.slice(end + 1);
-        appendFileSync(log, `${JSON.stringify({ shim: "mail", command: recorded(command) })}\n`);
-        socket.write(reply(command));
-        if (/^QUIT\b/i.test(command)) socket.end();
+        handle(line);
       }
     });
   });

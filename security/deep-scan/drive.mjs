@@ -33,7 +33,7 @@ import {
 } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { delimiter, dirname, join, sep } from "node:path";
+import { delimiter, dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { startMailShim } from "./shims/mail.mjs";
 
@@ -62,6 +62,9 @@ function cleanEnv(ctx, extra = {}) {
     GIT_CONFIG_NOSYSTEM: "1",
     GIT_CONFIG_GLOBAL: ctx.emptyGitConfig,
     GIT_TERMINAL_PROMPT: "0",
+    // git never looks above the scratch folder for a repository, so a
+    // not-a-repository case holds wherever the scratch folder sits.
+    GIT_CEILING_DIRECTORIES: ctx.work,
     GH_PROMPT_DISABLED: "1",
     NO_PROXY: "*",
     no_proxy: "*",
@@ -872,8 +875,10 @@ if (!Object.hasOwn(FIXTURES, name ?? "")) {
   console.error(`usage: drive.mjs <fixture>\nfixtures: ${Object.keys(FIXTURES).join(", ")}`);
   process.exit(2);
 }
-const base =
-  process.env.DEEP_SCAN_FIXTURE_DIR || mkdtempSync(join(tmpdir(), "agent-kit-fixtures-"));
+// Absolute: every child resolves these paths against its own cwd.
+const base = resolve(
+  process.env.DEEP_SCAN_FIXTURE_DIR || mkdtempSync(join(tmpdir(), "agent-kit-fixtures-")),
+);
 const work = mkdtempSync(join(base, `${name}-`));
 const ctx = { work, home: join(work, "home"), tmp: join(work, "tmp") };
 mkdirSync(ctx.home, { recursive: true });

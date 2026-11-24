@@ -62,14 +62,28 @@ describe("Agent-kit's own Scan recipe", () => {
     }
   });
 
-  it("has every fixture in the fixtures README's table, with the entry point it drives", () => {
-    const readme = readFileSync(join(root, DEEP, "README.md"), "utf8");
-    for (const { fixture, drives } of recipe().fixtures.filter((f) => f.fixture)) {
-      assert.match(
-        readme,
-        new RegExp(`^\\| \`${fixture}\` +\\| \`${drives.replaceAll(".", "\\.")}\` +\\|`, "m"),
-        `${fixture} is not in ${DEEP}/README.md with ${drives}`,
-      );
+  it("has every fixture in the fixtures README's table, with its entry point and inputs", () => {
+    const rows = readFileSync(join(root, DEEP, "README.md"), "utf8")
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith("| `"))
+      .map((line) => line.split("|").map((cell) => cell.trim()));
+    const SHIMS = {
+      [`${DEEP}/shims/gh`]: "the gh shim",
+      [`${DEEP}/shims/mail.mjs`]: "the mail shim",
+    };
+    for (const f of recipe().fixtures.filter((x) => x.fixture)) {
+      const row = rows.find((cells) => cells[1] === `\`${f.fixture}\``);
+      assert.ok(row, `${f.fixture} has no row in ${DEEP}/README.md`);
+      const [, , entry, inputs] = row;
+      assert.equal(entry, `\`${f.drives}\``, `${f.fixture}'s entry point`);
+      const expected = [
+        ...(f.cases ? [`\`${f.cases.slice(DEEP.length + 1)}\``] : []),
+        ...(f.shim ? [SHIMS[f.shim]] : []),
+        ...(f.consumer ? ["`consumer/`"] : []),
+      ];
+      for (const input of expected) {
+        assert.ok(inputs.includes(input), `${f.fixture}'s inputs should name ${input}: ${inputs}`);
+      }
     }
   });
 
@@ -201,6 +215,53 @@ describe("the recording mail shim", () => {
     const { calls } = await converse(["EHLO fixture", "AUTH PLAIN AGZha2UAZmFrZS1wYXNz"]);
     assert.equal(calls[1].command, "AUTH PLAIN [redacted]");
     assert.doesNotMatch(JSON.stringify(calls), /AGZha2UAZmFrZS1wYXNz/);
+  });
+
+  /** Send `text` in one write, then QUIT, and wait for the shim to hang up. */
+  async function pipelined(text) {
+    const log = join(freshDir(), "shim.jsonl");
+    const { startMailShim } = await import(`../${DEEP}/shims/mail.mjs`);
+    const shim = await startMailShim({ log });
+    try {
+      const socket = createConnection({ host: "127.0.0.1", port: shim.port });
+      socket.resume();
+      const closed = new Promise((resolve) => socket.once("close", resolve));
+      socket.write(`${text}QUIT\r\n`);
+      await closed;
+    } finally {
+      await shim.close();
+    }
+    return records(log);
+  }
+
+  it("never logs an AUTH LOGIN user or password sent ahead of the reply", async () => {
+    const calls = await pipelined("EHLO fixture\r\nAUTH LOGIN\r\nZmFrZS11c2Vy\r\nZmFrZS1wYXNz\r\n");
+    assert.deepEqual(
+      calls.map((c) => c.command),
+      [
+        "EHLO fixture",
+        "AUTH LOGIN [redacted]",
+        "[redacted: an AUTH continuation line]",
+        "[redacted: an AUTH continuation line]",
+        "QUIT",
+      ],
+    );
+  });
+
+  it("redacts AUTH whatever whitespace follows it", async () => {
+    const calls = await pipelined("AUTH\tPLAIN AGZha2UAZmFrZS1wYXNz\r\n");
+    assert.equal(calls[0].command, "AUTH PLAIN [redacted]");
+    assert.doesNotMatch(JSON.stringify(calls), /AGZha2UAZmFrZS1wYXNz/);
+  });
+
+  it("drops an oversized line whole, never its tail", async () => {
+    const secret = "c2VjcmV0".repeat(3000);
+    const calls = await pipelined(`AUTH PLAIN ${secret}\r\n`);
+    assert.deepEqual(
+      calls.map((c) => c.command),
+      ["[an oversized line was dropped]", "QUIT"],
+    );
+    assert.doesNotMatch(JSON.stringify(calls), /c2VjcmV0/);
   });
 });
 
