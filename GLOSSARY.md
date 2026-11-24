@@ -37,8 +37,40 @@ The First-class flow plan → implement → review, behind one master Kill switc
 _Avoid_: pipeline, agent pipeline
 
 **Stage**:
-One agent run of a First-class flow with its own model, effort and Kill switch: plan, implement, review, review response, or security audit.
+One agent run of a First-class flow with its own harness, model, effort and Kill switch: plan, implement, review, review response, or security audit.
 _Avoid_: step, phase, pipeline
+
+**Launcher**:
+What starts a Stage on its harness, hands the agent its brief, and collects the result; one Launcher serves every harness, in CI and on a maintainer's machine alike.
+_Avoid_: runner, wrapper, action
+
+**Harness adapter**:
+What tells the Launcher how to install, start and stop one harness, and which model credential and model API that harness uses; the kit ships one for each harness it supports.
+_Avoid_: provider (a provider is the model API), driver (a driver is the sandbox runtime), plugin
+
+**Custom harness**:
+A harness the kit ships no Harness adapter for, which a Consumer describes in a file of their own and selects for a Stage by name; it starts at the documented Support Level.
+_Avoid_: third-party harness, plugin harness
+
+**Harness image**:
+The image the kit publishes for one harness, holding that harness at its pinned version; what the contract tests ran against is what a Stage runs.
+_Avoid_: agent image, CLI image, toolbox image
+
+**Sandbox image**:
+The image a Stage's sandbox starts from: the kit's own by default, or one a Consumer names to bring their project's toolchain.
+_Avoid_: base image, runner image, container image
+
+**Guard**:
+An outcome a Stage requires of whatever runs it, stated without naming how it is reached, such as "reads stay in the workspace" or "the agent holds no GitHub write credential"; a harness that cannot reach every Guard a Stage requires is refused for that Stage.
+_Avoid_: hook, confinement hook, restriction (a hook, a sandbox or a policy is a way to reach a Guard)
+
+**Stage result**:
+What leaves a Stage's sandbox for trusted code to read as data: the one file the agent writes where its brief says and, on a Stage that changes code, its commits; nothing the agent says in its own text is part of it.
+_Avoid_: output, final message, response
+
+**Proving run**:
+A run of a Stage on a harness whose Support Level is below what the Stage requires, made on purpose to record the evidence that raises the level.
+_Avoid_: trial run, test run, override
 
 **Portable skill**:
 An agent skill vendored in Agent-kit that a Consumer copies into `.claude/skills/` unchanged, and that a Skill installer may install on its own.
@@ -193,7 +225,7 @@ _Avoid_: platform, channel
 
 **Driver**:
 The tool a run uses to drive a Surface. It can observe some things and not others.
-_Avoid_: runner, harness
+_Avoid_: runner, harness (the agent product the run happens in)
 
 **QA Stack**:
 A local copy of the application a tester starts and stops with the repository's `up`, `migrate`, `seed` and `down` commands; teardown touches only what `up` started.
@@ -236,11 +268,11 @@ What carries out a Delegation: a Live Session, a headless run, or a sub-agent in
 _Avoid_: worker, runner
 
 **Harness**:
-The agent product a session runs in (Claude Code desktop, Claude Code CLI, Cursor, Codex CLI and the like), which decides how one session can start, message and wait for another; two versions of one product that behave differently are two harnesses.
+The agent product an agent run happens in (Claude Code desktop, Claude Code CLI, Cursor, Codex CLI, Gemini CLI and the like), which decides how a run starts without a human, what it may touch, and how one session can start, message and wait for another; two versions of one product that behave differently are two harnesses.
 _Avoid_: tool, IDE, client, platform
 
 **Support Level**:
-How far `orchestrate` has been proven on a harness or a tracker: verified (a full run passed), tried (a run happened, with known gaps) or documented (built from its documentation alone).
+How far `orchestrate` has been proven on a harness or a tracker: verified (a full run passed), tried (a run happened, with known gaps) or documented (built from its documentation alone). A Stage's level belongs to the harness and Stage pair, so one harness holds a different level for each Stage.
 _Avoid_: compatibility, maturity, tier (a tier is what the harness can do)
 
 **Live Session**:
@@ -324,7 +356,7 @@ One unresolved review thread a configured reviewer started. Written alone, **Fin
 _Avoid_: comment, issue (for a review point), review finding
 
 **Review report**:
-The reviewer's tracking comment on a pull request: an index of its Findings, one entry per thread, under the three axes. It holds no finding of its own.
+The one comment on a pull request that indexes the reviewer's Findings, one entry per thread, under the three axes. It holds no finding of its own. Where the reviewer hands back a Stage result, the report is written from it, not by the reviewer.
 _Avoid_: review summary, summary findings
 
 **Work list**:

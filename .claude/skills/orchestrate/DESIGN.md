@@ -12,9 +12,9 @@ These are word for word the definitions in Agent-kit's root glossary, where a co
 
 **Executor**: What carries out a Delegation: a Live Session, a headless run, or a sub-agent in the Chief of Staff's own session.
 
-**Harness**: The agent product a session runs in (Claude Code desktop, Claude Code CLI, Cursor, Codex CLI and the like), which decides how one session can start, message and wait for another; two versions of one product that behave differently are two harnesses.
+**Harness**: The agent product an agent run happens in (Claude Code desktop, Claude Code CLI, Cursor, Codex CLI, Gemini CLI and the like), which decides how a run starts without a human, what it may touch, and how one session can start, message and wait for another; two versions of one product that behave differently are two harnesses.
 
-**Support Level**: How far `orchestrate` has been proven on a harness or a tracker: verified (a full run passed), tried (a run happened, with known gaps) or documented (built from its documentation alone).
+**Support Level**: How far `orchestrate` has been proven on a harness or a tracker: verified (a full run passed), tried (a run happened, with known gaps) or documented (built from its documentation alone). A Stage's level belongs to the harness and Stage pair, so one harness holds a different level for each Stage.
 
 **Live Session**: A separate agent session the human can open, read and talk to while it works; always written in full, because a Session is a signed-in identity in a QA scenario.
 
