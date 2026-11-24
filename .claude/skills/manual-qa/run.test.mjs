@@ -23,6 +23,7 @@ import {
   onPath,
   parseConfig,
   readQaConfig,
+  resolveHosts,
   runReadiness,
   validatePlan,
 } from "./adapter.mjs";
@@ -1286,4 +1287,16 @@ test("`run.hosts` is read only for a `url` target", () => {
   const { out } = checkHosts(GOOD_PLAN, [], config);
   assert.equal(out.readiness.hosts, undefined);
   assert.ok(out.readiness.notes.some((n) => /`run.hosts` is read only for target `url`/.test(n)));
+});
+
+test("a scenario with no surface never binds to a surface-less named service", () => {
+  const { held } = resolveHosts(
+    [{ name: "billing", url: "https://billing.staging.example.com" }],
+    [{ id: "S1", surface: null, service: null }],
+    { billing: "billing.staging.example.com" },
+  );
+  assert.deepEqual(
+    held.map((h) => h.id),
+    ["S1"],
+  );
 });

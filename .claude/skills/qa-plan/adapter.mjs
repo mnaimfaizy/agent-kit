@@ -2692,7 +2692,9 @@ export function resolveHosts(entries, scenarios, typed = {}) {
   for (const scenario of scenarios) {
     const entry = scenario.service
       ? hosts.find((candidate) => candidate.name === scenario.service)
-      : hosts.find((candidate) => candidate.surface === scenario.surface);
+      : scenario.surface
+        ? hosts.find((candidate) => candidate.surface === scenario.surface)
+        : undefined;
     if (!entry) {
       // One URL for every surface (no list) serves a scenario with no **Service:**.
       if (!scenario.service && !hosts.length) continue;
