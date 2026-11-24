@@ -316,7 +316,7 @@ The Before pass tears its own stack down in step 5. When the run ended inside it
 
 ### 8. Write the QA Report
 
-Write `<working_dir>/qa-report-pr-<n>.md` in the shape below, and read it back: the headline the rows imply, one row per scenario, no sign-in value anywhere in it or in the evidence folder. When the run departed from the plan as written or from the Rules above in any way the person reading the report must know about to trust its results (one of the plan's commands run before you noticed the rule against running it; a step carried out of order), add the **Run deviations:** line: each departure, and what was done about it, on one line, separated by semicolons. With none, leave the line out. Each open `Review:` box (`plan.reviews` with `ticked: false`) goes under **Follow-ups**, for a person to read, as `- Review, for a person: <its text>`, its text as the plan gives it; `report.mjs read` refuses a Results of `None.` without such a line. Write `None.` in place of the Results table when the plan has no scenarios. When the plan file is in `working_dir`, replace its Execution record with the report's short record. Show the person the results and the report's path. Nothing is posted in this step.
+Write `<working_dir>/qa-report-pr-<n>.md` in the shape below, and read it back: the headline the rows imply, one row per scenario, no sign-in value anywhere in it or in the evidence folder. When the run departed from the plan as written or from the Rules above in any way the person reading the report must know about to trust its results (one of the plan's commands run before you noticed the rule against running it; a step carried out of order), add the **Run deviations:** line: each departure, and what was done about it, on one line, separated by semicolons. With none, leave the line out. Each open `Review:` box (`plan.reviews` with `ticked: false`) goes under **Follow-ups**, for a person to read, as `- Review, for a person: <its text>`, its text as the plan gives it (with its `[<place>]`, when the plan carries one); `report.mjs read` refuses a Results of `None.` without such a line. Write `None.` in place of the Results table when the plan has no scenarios. When a deviation changes how far one scenario's result can be trusted (screenshots in place of the video its plan asked for; a viewport other than the plan's), end that row's note with `Limits trust: <a few words>` (at most 160 characters): the posted summary shows those words in that scenario's Notes cell, and the rest of the deviation stays in this file. A Review box that a Ruling checked gets `(checked under R<n>)` on its own indented line directly under its Review line, which `report.mjs read` reads; the box stays open, and the summary shows the Ruling beside it. When the plan file is in `working_dir`, replace its Execution record with the report's short record. Show the person the results and the report's path. Nothing is posted in this step.
 
 ```bash
 node "<skill>/report.mjs" read "<report file>" --plan "<plan file>"
@@ -371,15 +371,15 @@ With `gh-release:<tag>`:
 
 ### 11. Post the report
 
-With `working-copy`, skip this step. Otherwise pass `--link <file>=<url>` for each file uploaded in step 10, so the posted text links it: it shows an uploaded Storyboard as an image and links an MP4 and every other file. A command below that exits 1 names what it refused: show it, and post nothing.
+With `working-copy`, skip this step. Otherwise pass `--link <file>=<url>` for each file uploaded in step 10, so the posted summary links it in its scenario's Notes cell, as `Storyboard`, `MP4`, or the file's name; a file never uploaded adds nothing. A command below that exits 1 names what it refused: show it, and post nothing.
 
-- **`pr-comment`:** one comment, whose first line is exactly `<!-- qa-report -->`.
+- **`pr-comment`:** one comment, whose first line is exactly `<!-- qa-report -->`. It is a short summary, not the report (ADR 0033): a strict header line (`QA Report: result=passed|failed; commit=<sha>; left-for-person=<n>; deferred=<n>`, which a program reads), one line saying an agent ran it, a Scenario, Result and Notes table, **Failures and how each was resolved**, and **Left for a person**, each item as `- [<place>] <text>` with a Place from the config's `report.places` (`local` holds a merge; `staging` and `production` are deferred; with `report.places: none`, items carry no Place and all hold). Each scenario's Notes cell holds only a `Limits trust:` note and the links to its uploaded files. Run facts, evidence paths, the **Run deviations:** line, the Execution record and side notes stay in the local report.
 
   ```bash
   node "<skill>/report.mjs" comment "<report file>" --link <file>=<url> … > "<tmp>/comment.md"
   ```
 
-  With `report: update`, edit that comment: `gh api -X PATCH "repos/{owner}/{repo}/issues/comments/<id>" -F body=@<tmp>/comment.md`. With `create`: `gh pr comment <pr> --body-file "<tmp>/comment.md"`. A re-run edits the comment it finds; it never posts a second. When the edit fails, say why and post nothing new. Name each `duplicates` id for a person to delete; delete none.
+  The command reads the Places from the config, and refuses a Review line whose Place is not in it. `report.mjs summary "<tmp>/comment.md"` reads a comment back as strictly as a program does. With `report: update`, edit that comment: `gh api -X PATCH "repos/{owner}/{repo}/issues/comments/<id>" -F body=@<tmp>/comment.md`. With `create`: `gh pr comment <pr> --body-file "<tmp>/comment.md"`. A re-run edits the comment it finds; it never posts a second. When the edit fails, say why and post nothing new. Name each `duplicates` id for a person to delete; delete none.
 
 - **`tracker-issue`:** the plan's issue gets the ticks and the record, not the whole report.
 
@@ -437,7 +437,7 @@ A run with any FAIL, of either kind, is still a failed run for step 10: its medi
 
 ## Follow-ups
 
-Each open `Review:` box, one line each (`- Review, for a person: <its text>`). Scenarios automation should own, steps that did not match the product, anything else a person should look at. `None.` when there are none.
+Each open `Review:` box, one line each (`- Review, for a person: [<place>] <its text>`; no Place with Places off), with `  (checked under R<n>)` on its own line right under it when a Ruling checked it. Scenarios automation should own, steps that did not match the product, anything else a person should look at. `None.` when there are none.
 
 ## Execution record
 

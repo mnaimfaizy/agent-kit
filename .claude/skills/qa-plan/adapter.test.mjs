@@ -1391,6 +1391,16 @@ test("`report.holds` alone picks among the default Places", () => {
   );
 });
 
+test("ADAPTER.md's Places example reads, and names the defaults", async () => {
+  const { readFileSync } = await import("node:fs");
+  const doc = readFileSync(new URL("./ADAPTER.md", import.meta.url), "utf8");
+  const example = /```yml\n(report:[\s\S]*?)```/.exec(doc)?.[1];
+  assert.ok(example, "ADAPTER.md shows a `report:` example");
+  const read = parseConfig("qa.config.yml", example);
+  assert.deepEqual(read.problems, []);
+  assert.deepEqual(effectivePlaces(read.config), effectivePlaces({}));
+});
+
 test("each `report` problem is named with its key", () => {
   const problems = (...lines) => yaml(...lines).problems.join("\n");
   assert.match(problems("report: yes"), /`report`: expected a mapping/);
@@ -1419,14 +1429,14 @@ test("each `report` problem is named with its key", () => {
     problems("report:", "  places: none", "  holds: [local]"),
     /`report\.holds`: Places are off/,
   );
-  assert.match(problems("report:", "  places: [  ]"), /`report\.places`: expected a list of Places/);
+  assert.match(
+    problems("report:", "  places: [  ]"),
+    /`report\.places`: expected a list of Places/,
+  );
 });
 
 test("`report` is read by the run check too, and a config with it has no run problems", () => {
   const read = yaml("report:", "  places: [local, prod]", "  holds: [local]");
   assert.deepEqual(read.runProblems, []);
-  assert.match(
-    yaml("report:", "  nope: 1").runProblems.join("\n"),
-    /`report\.nope`: unknown key/,
-  );
+  assert.match(yaml("report:", "  nope: 1").runProblems.join("\n"), /`report\.nope`: unknown key/);
 });

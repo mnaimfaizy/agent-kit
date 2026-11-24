@@ -2041,11 +2041,14 @@ test("a `Review:` box may lead with a Place, which the parsed plan keeps beside 
   ]);
 });
 
-test("with the configured Places, each `Review:` box names one of them", () => {
+test("with the configured Places, a `Review:` box that names a Place names one of them", () => {
   assert.equal(placeProblems("- [ ] Review: [staging] docs/x.html says 30 days", PLACES), "");
-  assert.match(
-    placeProblems("- [ ] Review: docs/x.html says 30 days", PLACES),
-    /no Place: write `Review: \[<place>\] <text>`, a Place of: local, staging, production/,
+  // A box with no Place, from a plan made before Places, still runs: it is read as the first Place that holds.
+  assert.equal(placeProblems("- [ ] Review: docs/x.html says 30 days", PLACES), "");
+  assert.equal(
+    validatePlan(withReview("- [ ] Review: docs/x.html says 30 days"), { places: PLACES }).plan
+      .reviews[0].place,
+    null,
   );
   assert.match(
     placeProblems("- [ ] Review: [prod] docs/x.html says 30 days", PLACES),

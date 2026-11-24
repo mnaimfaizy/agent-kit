@@ -1407,8 +1407,8 @@ function placeProblem(place, text, places) {
   if (places === null)
     return place === null ? null : "Places are off: write the box with no Place, `Review: <text>`";
   const names = places.map((p) => p.name);
-  if (place === null)
-    return `a \`Review:\` box with no Place: write \`Review: [<place>] <text>\`, a Place of: ${names.join(", ")}`;
+  // A box with no Place is read as the first Place that holds a merge: a plan made before Places still runs.
+  if (place === null) return null;
   if (text === `[${place}]`)
     return "a `Review:` box with nothing after its Place: say what to read, and what it must say";
   if (!names.includes(place))

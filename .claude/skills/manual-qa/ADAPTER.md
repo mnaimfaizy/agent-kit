@@ -432,6 +432,32 @@ The QA Report file in `working_dir` is always written, and is the whole result u
 
 - **`working-copy`:** nothing is posted; the person hands on the file.
 - **`pr-comment`:** one comment on the pull request, whose first line is exactly `<!-- qa-report -->`, written by the person posting. A re-run edits it; a second is never posted. A marker comment anyone else wrote is never edited: they could change it after the run.
+
+  The comment is a short summary, not the report (ADR 0033), in this shape:
+
+  ```md
+  <!-- qa-report -->
+
+  QA Report: result=passed; commit=<40-hex sha>; left-for-person=<holding n>; deferred=<other places n>
+
+  ## QA Report
+
+  Run by an agent on `<short sha>` (<target>, <surface>, <date>). Result: **QA passed**
+
+  | Scenario | Result | Notes |
+  | -------- | ------ | ----- |
+
+  ### Failures and how each was resolved
+
+  ### Left for a person
+
+  - [<place>] <what a person must check> (checked under R<n>)
+  ```
+
+  The header is read strictly by `report.mjs`'s pure `parseHeader` and `parseSummary` (`report.mjs summary <comment>` on the command line): one of two fixed forms, `QA Report: result=passed|failed; commit=<sha>; left-for-person=<n>; deferred=<n>` or `QA Report: no manual QA needed; commit=<sha>`, with the full lowercase SHA and counts equal to the listed items per Place. A short SHA, an extra field, counts that differ from the items, or a top-level list item in any other form makes the comment unreadable. Each item is `- [<place>] <text>`, its Place one of the config's `report.places` (`local` holds a merge; `staging` and `production` are deferred; see `qa-plan`'s ADAPTER.md, _Places_), or `- <text>` with Places turned off, all of them holding. A Review box a Ruling checked ends `(checked under R<n>)`. A scenario left for a person is also an item, in the first Place that holds.
+
+  Only a few things leave the local report: a deviation that limits how far a result can be trusted goes, in a few words (`Limits trust:` in the row's note), into that scenario's Notes cell, and each uploaded file is linked there. Run facts, evidence paths, the **Run deviations:** line, the Execution record and side notes stay local. A row that did not pass keeps its first sentence in Notes, and a FAIL is listed under **Failures** as unresolved at that head.
+
 - **`tracker-issue`:** the plan's issue, found by the pull request's `<!-- qa-plan-link -->` comment. Each scenario's Sign-off box is ticked when it passed and cleared otherwise, and its Execution record becomes the report's, with links to the uploaded evidence.
 
 Capture is the default and needs no question: every scenario that runs (any of the five results but _left for a person_) gets a screenshot at its expected result in `<working_dir>/qa-report-pr-<n>/`, by the file names in SKILL.md step 6, and a fix scenario's Before gets its own, named `s<n>-before…`, beside them. A row that ran with no file says why in its Evidence cell, as `none: <reason>`, and `report.mjs read` refuses one that does not; a row left for a person may say a bare `none`. Only upload asks.
@@ -443,7 +469,7 @@ Capture is the default and needs no question: every scenario that runs (any of t
 
 **An MP4 that plays a sign-in** draws its own warning, given beside that one and never instead of it. The first Scene of every Session signed in as a role plays from its recording's start, so its sign-in is on camera (ADR 0020, _A QA video shows the sign-in_). For each MP4 it accepts, `report.mjs evidence` reads the scenario file beside it, `s<n>-storyboard.json`, and warns, in `warnings`, naming each role id whose Session's `kind` is `role`: `` `qa-report-pr-57/s1.mp4` plays the sign-in of roles `user` and `admin` on camera (ADR 0020): masking is best-effort, and any value the page itself shows, such as an email in a header, is visible; whether it goes is still your call ``. A Scenario account's Session, a signed-out one (`nobody`) and one with no `kind` open on their first step, so their ids are never named, and an MP4 with no role signed in draws no warning. Only ids are printed, never a sign-in value: a role Session whose `account` is not a plain id (letters, digits, `_` and `-`), or has none, is counted (`and of 1 more role whose id is not shown`) but its id is not printed. A scenario file it cannot read draws the warning too, naming no role. It never refuses an upload for this: whether the MP4 goes is the person's call. A Storyboard, a still or a plain-text file draws no such warning.
 
-`report.mjs` builds what is posted and checks what is uploaded, and refuses any text that looks like it carries a sign-in value: a posted body, or a picked text file such as a log or HAR. In the posted text, an uploaded Storyboard shows as an image that links to its asset (on a private repository the image may not load, and the link still opens it), and an uploaded MP4, like every other file, is a link.
+`report.mjs` builds what is posted and checks what is uploaded, and refuses any text that looks like it carries a sign-in value: a posted body, or a picked text file such as a log or HAR. In the posted summary, each uploaded file is a link in its scenario's Notes cell (`Storyboard`, `MP4`, or the file's name), and a scenario with nothing uploaded gets none.
 
 ## Capture rules
 

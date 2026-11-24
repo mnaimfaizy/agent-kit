@@ -406,7 +406,10 @@ test("step 10 offers only finished files: a Storyboard, an MP4, a log, or stills
     /Never offer a Before still \(`s<n>-before…`\), a still a Storyboard was built from \(or any other still in that row\), or a raw recording/,
   );
   // Step 11 posts what step 10 uploaded: a Storyboard inline, an MP4 linked.
-  assert.match(skill, /shows an uploaded Storyboard as an image and links an MP4/);
+  assert.match(
+    skill,
+    /links it in its scenario's Notes cell, as `Storyboard`, `MP4`, or the file's name/,
+  );
 });
 
 test("evidence is captured locally by default, without a question; only upload asks", () => {
@@ -765,4 +768,27 @@ test("SKILL.md and ADAPTER.md say how `--answers` and `run.stack.address` are us
   assert.match(step5(), /`run\.stack\.address`/);
   assert.match(adapter, /\| `run\.stack\.address`/);
   assert.match(adapter, /`check --for run \[--plan <file>\] --answers <file>`/);
+});
+
+test("step 11 posts the short summary, with its header, Places and local-only facts (#416)", () => {
+  const skill = readFileSync(join(HERE, "SKILL.md"), "utf8").replace(/\s+/g, " ");
+  assert.match(skill, /It is a short summary, not the report \(ADR 0033\)/);
+  assert.match(
+    skill,
+    /`QA Report: result=passed\|failed; commit=<sha>; left-for-person=<n>; deferred=<n>`/,
+  );
+  assert.match(skill, /`- \[<place>\] <text>` with a Place from the config's `report\.places`/);
+  assert.match(
+    skill,
+    /Run facts, evidence paths, the \*\*Run deviations:\*\* line, the Execution record and side notes stay in the local report/,
+  );
+  assert.match(skill, /end that row's note with `Limits trust: <a few words>`/);
+  assert.match(
+    skill,
+    /`\(checked under R<n>\)` on its own indented line directly under its Review line/,
+  );
+  assert.match(
+    skill,
+    /`report\.mjs summary "<tmp>\/comment\.md"` reads a comment back as strictly as a program does/,
+  );
 });
