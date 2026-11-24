@@ -29,16 +29,16 @@ One file at the repository root, with one section per skill. `qa-plan` reads `wo
 
 - **Lookup:** `qa.config.yml`, then `qa.config.yaml`, then `qa.config.json`; the first one present is the config, and a key it does not carry takes its default, never another file's value.
 - **YAML subset:** block mappings and lists indented with spaces, quoted or plain scalars, one-line flow lists and mappings, and `#` comments. Every scalar is a string. Tabs, anchors, multi-line values, a flow collection spanning lines, duplicate keys, unknown keys and values of the wrong shape are _problems_, named with their line. A formatter can wrap a long flow mapping across lines and out of the subset, so write long entries in block style. JSON is the dialect for anything the subset cannot say.
-- **No hosted address and no sign-in value** belong in it: no key holds either.
+- **No sign-in value** belongs in it, and no key confirms a hosted address. `run.hosts` may list hosted addresses as candidates (below); you still type each host, per host, per run.
 
 The keys, in short:
 
-| Section   | Keys                                                                                                                                                                                             |
-| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| both      | `working_dir` (default `tmp/qa`; keep it gitignored)                                                                                                                                             |
-| `plan:`   | `base_ref`; `suites` (`name`, `command`, `junit`, `surfaces`, `services`); `publish` rules (`when_label` or `default: true`, `to`, `label`); `tracker`                                           |
-| `hazards` | a list of `{ pack: <path> }`                                                                                                                                                                     |
-| `run:`    | `target`; `surface`; `stack` (`up`, `migrate`, `seed`, `down`, and the optional `address`); `accounts` (`print`, `restore`, `roles` of `{ id, purpose }`); `version_endpoint`; `evidence.upload` |
+| Section   | Keys                                                                                                                                                                                                                                                              |
+| --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| both      | `working_dir` (default `tmp/qa`; keep it gitignored)                                                                                                                                                                                                              |
+| `plan:`   | `base_ref`; `suites` (`name`, `command`, `junit`, `surfaces`, `services`); `publish` rules (`when_label` or `default: true`, `to`, `label`); `tracker`                                                                                                            |
+| `hazards` | a list of `{ pack: <path> }`                                                                                                                                                                                                                                      |
+| `run:`    | `target`; `surface`; `stack` (`up`, `migrate`, `seed`, `down`, and the optional `address`); `accounts` (`print`, `restore`, `roles` of `{ id, purpose }`); `hosts` (`{ name, url, surface }` candidates for `target: url`); `version_endpoint`; `evidence.upload` |
 
 Suite commands run in the platform's default shell: `cmd.exe` on Windows, `/bin/sh` on Linux and macOS. For one config across both, keep each `command` to a program and its arguments chained with `&&`, and put anything more in a script in the repository ([which shell runs `command`](../.claude/skills/qa-plan/ADAPTER.md#which-shell-runs-command)).
 
@@ -69,7 +69,7 @@ The answers can also come in up front, as a file: `/qa-plan <n> --answers <file>
 A run has one of two targets:
 
 - **`stack`**: a local **QA Stack** this run starts. `manual-qa` runs `up`, `migrate` and `seed` from the config, records the processes it starts, reads role values from `accounts.print`, and at the end runs `down` and stops only the processes it recorded. A run that never ran `up` stops nothing. The checkout must be at the plan's head, since the stack runs it.
-- **`url`**: a hosted test environment someone else deployed. Nothing is started, migrated or seeded, and `accounts.restore` is never run: it acts on the local database. A scenario that needs a role restored is left for a person. The address is never read from the plan or the config: the QA person gives it in chat, and the skill never saves it. A URL the QA person gives for the run makes it a `url` run, whatever the plan or config says.
+- **`url`**: a hosted test environment someone else deployed. Nothing is started, migrated or seeded, and `accounts.restore` is never run: it acts on the local database. A scenario that needs a role restored is left for a person. No address is confirmed by the plan or the config: the QA person types each host in chat, and the skill never saves it. A `url` target may name several addresses: `run.hosts` lists `{ name, url, surface }` candidates, one per surface plus named services, and a scenario picks a service with **Service:** (else its surface's entry). Each entry is checked on its own, and one that stops or is not typed leaves only its scenarios for a person; a scenario needing an entry the run lacks is left for a person too. The seeder question is asked per environment. A URL the QA person gives for the run makes it a `url` run, whatever the plan or config says.
 
 _The host rule_ is enforced before any sign-in, by the skill's own check:
 
