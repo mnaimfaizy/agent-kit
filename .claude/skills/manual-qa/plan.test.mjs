@@ -1841,7 +1841,7 @@ const linesOf4 = (text, start) =>
 /** The first of them: S2's line, for a field S2 and S4 both carry. */
 const firstLineOf4 = (text, start) => linesOf4(text, start)[0];
 /** The last of them: S4's line. */
-const lineOf4 = (text, start) => linesOf4(text, start).at(-1);
+const lastLineOf4 = (text, start) => linesOf4(text, start).at(-1);
 const S2_STORY =
   "- **Story:**\n  1. A signed-out visitor opens the members page and is sent to sign in.\n";
 const S4_LAST = "  3. The member reloads **Members** and lands on the sign-in page.\n";
@@ -1891,16 +1891,16 @@ test("each change of `In session <name>,` starts a Scene; a Story of another cou
   // S4's steps run A, B, B, A, A: three Scenes.
   const short = broken4(S4_LAST, "");
   assert.deepEqual(problems4(short), [
-    `line ${lineOf4(short, "- **Story:**")}: S4: **Story:** has 2 sentences, and its steps make 3 Scenes: write one sentence per Scene, in order`,
+    `line ${lastLineOf4(short, "- **Story:**")}: S4: **Story:** has 2 sentences, and its steps make 3 Scenes: write one sentence per Scene, in order`,
   ]);
   const long = broken4(S4_LAST, `${S4_LAST}  4. The admin sees the member gone.\n`);
   assert.deepEqual(problems4(long), [
-    `line ${lineOf4(long, "- **Story:**")}: S4: **Story:** has 4 sentences, and its steps make 3 Scenes: write one sentence per Scene, in order`,
+    `line ${lastLineOf4(long, "- **Story:**")}: S4: **Story:** has 4 sentences, and its steps make 3 Scenes: write one sentence per Scene, in order`,
   ]);
   // The same steps with one Cut fewer make two Scenes.
   const merged = broken4("  1. In session A, open **Members**.\n", "");
   assert.deepEqual(problems4(merged), [
-    `line ${lineOf4(merged, "- **Story:**")}: S4: **Story:** has 3 sentences, and its steps make 2 Scenes: write one sentence per Scene, in order`,
+    `line ${lastLineOf4(merged, "- **Story:**")}: S4: **Story:** has 3 sentences, and its steps make 2 Scenes: write one sentence per Scene, in order`,
   ]);
   // A sentence's own nested list is prose, not another sentence.
   const nested = broken4(S4_LAST, `${S4_LAST}     - the page reads **Sign in to continue**\n`);
