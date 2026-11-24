@@ -989,12 +989,15 @@ test("usage errors exit 2", async () => {
     assert.equal((await main(argv, { env: ENV })).code, 2, argv.join(" "));
 });
 
-test("the build command is the one ADAPTER.md documents, with both pacing constants", () => {
+test("the build command is the one ADAPTER.md documents, with its pacing constants and the Title card's", () => {
   assert.ok(
     adapterDoc.includes('node "<skill>/mp4.mjs" build <s<n>-storyboard.json> [--out <file.mp4>]'),
   );
   assert.match(adapterDoc, new RegExp(`\`HOLD_SECONDS\`[^.]*${HOLD_SECONDS} s`));
   assert.match(adapterDoc, new RegExp(`\`BETWEEN_SPEED\`[^.]*${BETWEEN_SPEED}`));
+  // The Title card's length, pinned here and in the docs (#385).
+  assert.equal(TITLE_SECONDS, 2);
+  assert.match(adapterDoc, new RegExp(`\`TITLE_SECONDS\`[^.]*${TITLE_SECONDS} s`));
   assert.ok(adapterDoc.includes("AGENT_KIT_REQUIRE_FFMPEG=1"));
 });
 

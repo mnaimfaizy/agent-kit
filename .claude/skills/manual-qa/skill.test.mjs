@@ -661,6 +661,21 @@ test("step 6 writes each Session's id and how it signs in to the scenario file, 
   assert.match(adapterFlat, /`kind`/);
 });
 
+test("step 6 copies the plan's Story into the scenario file, and both builders tell it (#385)", () => {
+  const flat = skill.replace(/\s+/g, " ");
+  assert.match(
+    flat,
+    /the scenario's \*\*Story:\*\* sentences as `story`, copied word for word and in order \(`\[\]` when the plan has none\)/,
+  );
+  assert.match(flat, /each Scene's Story sentence as a heading row above its steps/);
+  assert.match(flat, /each Scene opening on a Title card with its Story sentence/);
+  const adapterFlat = adapter.replace(/\s+/g, " ");
+  assert.match(adapterFlat, /\| `story` +\|/);
+  assert.match(adapterFlat, /\*\*Scene headings:\*\*/);
+  assert.match(adapterFlat, /\*\*Title cards:\*\*/);
+  assert.match(adapterFlat, /each Story sentence/);
+});
+
 test("finding a driver notes whether it can save images and record", () => {
   const flat = skill.replace(/\s+/g, " ");
   assert.match(flat, /whether it can \*\*save images\*\*.*and whether it can \*\*record\*\*/);
