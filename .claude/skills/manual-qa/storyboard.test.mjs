@@ -701,7 +701,7 @@ test("each Scene's Story sentence is a heading row above that Scene's steps, in 
     order,
   );
   assert.equal(html.match(/class="scene"/g).length, 3);
-  assert.match(html, /<div class="scene"><small>Scene 2 of 3 · Session B<\/small>The admin ends/);
+  assert.match(html, /<div class="scene"><small>Scene 2 of 3, Session B<\/small>The admin ends/);
 });
 
 test("a still withheld for privacy keeps its row, caption and labelled frame under its Scene's heading", () => {

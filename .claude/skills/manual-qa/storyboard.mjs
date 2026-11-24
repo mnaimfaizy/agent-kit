@@ -263,8 +263,20 @@ export function scenesOf(afterSteps) {
  * The scenario's Story sentences, one per Scene in order, as the scenario file
  * carries them (`[]` when it has none: a plan with no Story, or a file written
  * before #385).
+ * @param {any} meta the scenario file
+ * @returns {string[]}
  */
 export const storyOf = (meta) => (Array.isArray(meta?.story) ? meta.story : []);
+
+/**
+ * A Scene by its place and Session, `Scene 2 of 3, Session B`: the label over
+ * its Storyboard heading, and its Title card's text when there is no Story.
+ * Exported so the two say the same words.
+ * @param {{number: number, session: string}} scene
+ * @param {number} count how many Scenes the scenario has
+ */
+export const sceneName = (scene, count) =>
+  `Scene ${scene.number} of ${count}, Session ${scene.session}`;
 
 // ── Layout ──────────────────────────────────────────────────────────────────
 
@@ -593,7 +605,7 @@ export function storyboardHtml(laid, stillOf) {
       if (scene?.sentence && !headed.has(scene.number)) {
         headed.add(scene.number);
         heading =
-          `<div class="scene"><small>Scene ${scene.number} of ${laid.scenes.length} · Session ${escapeHtml(scene.session)}</small>` +
+          `<div class="scene"><small>${escapeHtml(sceneName(scene, laid.scenes.length))}</small>` +
           `${escapeHtml(scene.sentence)}</div>`;
       }
       const cells = [
@@ -804,7 +816,7 @@ export function checkScenario(meta) {
     )
   )
     problems.push('proves is not {"session", "index"}');
-  // Optional, so an older scenario file still loads; a video without it gets no card sentence.
+  // Optional, so an older scenario file still loads; without it, each card names its Scene.
   if (
     m.story !== undefined &&
     !(
@@ -859,8 +871,8 @@ export function loadScenario(metaPath) {
   // A sentence for every Scene After's steps make; more is a run that stopped before its last Scene.
   const story = storyOf(meta);
   const steps = Array.isArray(after.raw?.steps) ? after.raw.steps : [];
-  if (story.length && !problems.length && scenesOf(steps).length > story.length) {
-    const scenes = scenesOf(steps).length;
+  const scenes = scenesOf(steps).length;
+  if (story.length && !problems.length && scenes > story.length) {
     problems.push(
       `story has ${story.length} sentence${story.length === 1 ? "" : "s"}, and After's steps make ` +
         `${scenes} Scenes: copy the plan's Story:, one sentence per Scene`,

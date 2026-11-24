@@ -66,6 +66,7 @@ import {
   pageHtml,
   privacyCheck,
   renderPages,
+  sceneName,
   scenesOf,
   shownFields,
   storyOf,
@@ -141,6 +142,11 @@ export function timingLine({ side, startedAt, atMs, beforeAtMs = null }) {
 }
 
 // ── The timeline ────────────────────────────────────────────────────────────
+
+/** Whether a piece is a Scene's Title card, which spans both sides. */
+const isCard = (piece) => piece.kind === "title";
+/** The pieces that play a step, in order: each side has one caption per piece. */
+const stepPiecesOf = (pieces) => pieces.filter((piece) => !isCard(piece));
 
 /** A side's recording of a Session, by the name `web.mjs` gives it, or null. */
 function videoOf(file, session) {
@@ -244,8 +250,7 @@ export function timeline(records, meta, raw, { recorded = () => true } = {}) {
   const scenes = scenesOf(afterSteps).map((scene, _, all) => ({
     ...scene,
     // The Scene's Story sentence; a scenario file with none names the Scene and its Session.
-    title:
-      story[scene.number - 1] ?? `Scene ${scene.number} of ${all.length}, Session ${scene.session}`,
+    title: story[scene.number - 1] ?? sceneName(scene, all.length),
     beforeNote:
       plays.two && plays.missing.has(scene.session)
         ? `Before: no recording of Session ${scene.session}`
@@ -366,53 +371,49 @@ export function timeline(records, meta, raw, { recorded = () => true } = {}) {
 
   const sides = sidesRaw.map(({ side: name, file, startedAt, videos, steps }) => {
     // A Title card spans both sides, so each side's overlays are its steps' pieces only.
-    const overlays = pieces
-      .filter((piece) => piece.kind !== "title")
-      .map((piece) => {
-        const k = afterSteps.findIndex(
-          (a) => a.index === piece.index && a.session === piece.session,
-        );
-        const s = steps[k];
-        const where = `${name} step ${s.index} (${s.session})`;
-        const heading = `${name} · ${piece.kind === "between" ? "on to " : ""}step ${s.index} of ${n}, Session ${s.session}`;
-        const unrecorded = `no recording of Session ${s.session} on ${name}`;
-        if (piece.kind === "between") {
-          const fromLabel = s.fromStart
-            ? `the start of Session ${s.session}'s recording (${tenths(startOf(file, s.session))} s)`
-            : s.prev
-              ? `step ${s.prev.index} (${tenths(s.prev.atMs)} s)`
-              : `step ${s.index}'s own time`;
-          return {
-            field: `${where}: MP4 lead-in`,
-            heading,
-            caption: s.caption,
-            timing: !s.recorded
-              ? unrecorded
-              : `played at ${BETWEEN_SPEED}× speed from ${fromLabel}` +
-                (s.atMs !== null
-                  ? ` to step ${s.index} (${tenths(s.atMs)} s since ${name} started)`
-                  : ""),
-            proves: false,
-          };
-        }
-        const paired = beforeBy.get(key(afterSteps[k]));
+    const overlays = stepPiecesOf(pieces).map((piece) => {
+      const k = afterSteps.findIndex((a) => a.index === piece.index && a.session === piece.session);
+      const s = steps[k];
+      const where = `${name} step ${s.index} (${s.session})`;
+      const heading = `${name} · ${piece.kind === "between" ? "on to " : ""}step ${s.index} of ${n}, Session ${s.session}`;
+      const unrecorded = `no recording of Session ${s.session} on ${name}`;
+      if (piece.kind === "between") {
+        const fromLabel = s.fromStart
+          ? `the start of Session ${s.session}'s recording (${tenths(startOf(file, s.session))} s)`
+          : s.prev
+            ? `step ${s.prev.index} (${tenths(s.prev.atMs)} s)`
+            : `step ${s.index}'s own time`;
         return {
-          field: `${where}: MP4 timing line`,
+          field: `${where}: MP4 lead-in`,
           heading,
           caption: s.caption,
           timing: !s.recorded
             ? unrecorded
-            : s.atMs === null
-              ? "not reached on this side"
-              : timingLine({
-                  side: name,
-                  startedAt,
-                  atMs: s.atMs,
-                  beforeAtMs: name === "After" && paired ? paired.atMs : null,
-                }),
-          proves: proving(afterSteps[k]),
+            : `played at ${BETWEEN_SPEED}× speed from ${fromLabel}` +
+              (s.atMs !== null
+                ? ` to step ${s.index} (${tenths(s.atMs)} s since ${name} started)`
+                : ""),
+          proves: false,
         };
-      });
+      }
+      const paired = beforeBy.get(key(afterSteps[k]));
+      return {
+        field: `${where}: MP4 timing line`,
+        heading,
+        caption: s.caption,
+        timing: !s.recorded
+          ? unrecorded
+          : s.atMs === null
+            ? "not reached on this side"
+            : timingLine({
+                side: name,
+                startedAt,
+                atMs: s.atMs,
+                beforeAtMs: name === "After" && paired ? paired.atMs : null,
+              }),
+        proves: proving(afterSteps[k]),
+      };
+    });
     return {
       side: name,
       startedAt,
@@ -572,11 +573,11 @@ export function ffmpegArgs(
   const sceneSeconds = (number, card = false) =>
     frames(
       laid.pieces
-        .filter((p) => p.scene === number && (card || p.kind !== "title"))
+        .filter((p) => p.scene === number && (card || !isCard(p)))
         .reduce((sum, p) => sum + p.seconds, 0),
     );
   /** The steps' pieces, in order: each side's captions are one per piece. */
-  const stepPieces = laid.pieces.filter((p) => p.kind !== "title");
+  const stepPieces = stepPiecesOf(laid.pieces);
 
   // The band: one image per Scene, each with that Scene's note on Before, over its card too.
   const bandParts = laid.scenes.map((scene, j) => {
@@ -593,7 +594,7 @@ export function ffmpegArgs(
   laid.scenes.forEach((scene, j) => {
     // The Title card: one image across both sides, centred in the sides' height.
     const card = /** @type {{seconds: number}} */ (
-      laid.pieces.find((p) => p.kind === "title" && p.scene === scene.number)
+      laid.pieces.find((p) => isCard(p) && p.scene === scene.number)
     ).seconds;
     const at = image(titles[j].file, card);
     filters.push(
@@ -860,7 +861,7 @@ export async function main(argv, io = {}) {
     const bands = files.filter((f) => f.page.kind === "band");
     const rest = files.filter((f) => f.page.kind === "caption");
     const titles = files.filter((f) => f.page.kind === "title");
-    const per = laid.pieces.filter((p) => p.kind !== "title").length;
+    const per = stepPiecesOf(laid.pieces).length;
     const captions = laid.sides.map((_, i) => rest.slice(i * per, (i + 1) * per));
     const frameFiles = Object.fromEntries(
       files.filter((f) => f.page.kind === "frame").map((f) => [f.page.scene, f]),
