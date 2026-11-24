@@ -74,6 +74,7 @@ describe("examples/qa.config.yml", () => {
       ...planAdapter.ACCOUNT_KEYS.map((k) => `run.accounts.${k}`),
       ...planAdapter.ROLE_KEYS.map((k) => `run.accounts.roles.${k}`),
       ...planAdapter.EVIDENCE_KEYS.map((k) => `run.evidence.${k}`),
+      ...planAdapter.REPORT_KEYS.map((k) => `report.${k}`),
     ];
     assert.deepEqual(
       accepted.filter((key) => !shown.has(key)),

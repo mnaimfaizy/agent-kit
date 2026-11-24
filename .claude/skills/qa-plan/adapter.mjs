@@ -482,7 +482,8 @@ function reportProblems(sink, report) {
     }
   }
   if (off) {
-    if (present(holds)) sink.add("report.holds", "Places are off, so none holds a merge: remove it");
+    if (present(holds))
+      sink.add("report.holds", "Places are off, so none holds a merge: remove it");
     return;
   }
   if (!present(holds)) {
@@ -1395,6 +1396,25 @@ const RULE_OUT = "If this fails, first rule out";
 /** A Sign-off box for a promise only reading can check: `- [ ] Review: <what to read, and what it must say>`, a space after the colon. */
 const REVIEW_BOX = /^\s*[-*]\s+\[(?<tick>[ xX])\]\s+Review:(?<text>(?:\s.*)?)$/;
 /** A box that looks meant as a `Review:` box but is not written as one: `review:`, `**Review:**`, `Review :`, `Review:docs`. */
+/** A Place leading a `Review:` box's text: `[<place>] <text>`. */
+const REVIEW_PLACE = /^\[([^\]\s]*)\](?:\s|$)/;
+/**
+ * What is wrong with a `Review:` box's Place, given the configured Places
+ * (`effectivePlaces`; `undefined` checks none, `null` is Places turned off).
+ */
+function placeProblem(place, text, places) {
+  if (places === undefined) return null;
+  if (places === null)
+    return place === null ? null : "Places are off: write the box with no Place, `Review: <text>`";
+  const names = places.map((p) => p.name);
+  if (place === null)
+    return `a \`Review:\` box with no Place: write \`Review: [<place>] <text>\`, a Place of: ${names.join(", ")}`;
+  if (text === `[${place}]`)
+    return "a `Review:` box with nothing after its Place: say what to read, and what it must say";
+  if (!names.includes(place))
+    return `the box's Place \`${place}\` is not configured (${names.join(", ")}): pick one of them, or add it to \`report.places\``;
+  return null;
+}
 const NEAR_REVIEW_BOX = /^\s*[-*]\s+\[[ xX]\]\s+[*_]*review[*_]*\s*[*_]*:/i;
 /** A role id, and a Scenario account id: letters, digits, `_` and `-`. */
 const ACCOUNT_ID = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
@@ -1591,7 +1611,7 @@ export function credentialProblems(lines) {
  * @param {string} text
  * @returns {{plan: Record<string, any>, problems: string[]}}
  */
-export function validatePlan(text) {
+export function validatePlan(text, { places } = {}) {
   const problems = [];
   const lines = String(text).replace(/^﻿/, "").split(/\r?\n/);
   const at = (n, message) => problems.push(`line ${n + 1}: ${message}`);
@@ -1985,7 +2005,12 @@ export function validatePlan(text) {
       const { tick, text } = /** @type {Record<string, string>} */ (box.groups);
       if (text.trim() === "")
         at(n, "a `Review:` box with nothing after it: say what to read, and what it must say");
-      else plan.reviews.push({ text: text.trim(), ticked: tick !== " " });
+      else {
+        const place = REVIEW_PLACE.exec(text.trim())?.[1] ?? null;
+        plan.reviews.push({ text: text.trim(), ticked: tick !== " ", place });
+        const why = placeProblem(place, text.trim(), places);
+        if (why) at(n, why);
+      }
     }
   }
 
@@ -3041,7 +3066,8 @@ export function main(argv, io = {}) {
   const readPlan = (path) => {
     const text = path === undefined ? stdin() : readFile(path);
     if (text === null) return { plan: null, problems: [`${path}: no such file`] };
-    return validatePlan(text);
+    // Each `Review:` box's Place is checked against the configured ones (ADR 0033).
+    return validatePlan(text, { places: effectivePlaces(loaded.config) });
   };
 
   if (command === "where") return whichCopyCommand(argv, io) ?? usage;

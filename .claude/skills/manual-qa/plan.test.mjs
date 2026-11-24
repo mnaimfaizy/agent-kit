@@ -1737,11 +1737,13 @@ test("a `Review:` box reads, and is in the parsed plan's review list", () => {
   const { plan, problems } = validatePlan(withReview());
   assert.deepEqual(problems, []);
   assert.deepEqual(plan.reviews, [
-    { text: "docs/x.html says the token lasts 30 days", ticked: false },
+    { text: "docs/x.html says the token lasts 30 days", ticked: false, place: null },
   ]);
   assert.deepEqual(validatePlan(GOOD).plan.reviews, []);
   const ticked = validatePlan(withReview("* [x] Review: README.md names the new flag")).plan;
-  assert.deepEqual(ticked.reviews, [{ text: "README.md names the new flag", ticked: true }]);
+  assert.deepEqual(ticked.reviews, [
+    { text: "README.md names the new flag", ticked: true, place: null },
+  ]);
 });
 
 test("a `Review:` box says what to read, and what it must say", () => {
@@ -1775,6 +1777,7 @@ test("a `Review:` box is no scenario's box, so a scenario without its own is sti
     {
       text: "S2 docs/members.md says signed-out visitors are sent to sign in",
       ticked: false,
+      place: null,
     },
   ]);
 });
@@ -2016,4 +2019,66 @@ test("a Story sits right after Capture, before Steps, once, as a numbered list",
       story,
     );
   }
+});
+
+// --- Places on a `Review:` box (#416, ADR 0033) ---
+
+const PLACES = [
+  { name: "local", holds: true },
+  { name: "staging", holds: false },
+  { name: "production", holds: false },
+];
+const placeProblems = (box, places) =>
+  validatePlan(withReview(box), { places }).problems.join("\n");
+
+test("a `Review:` box may lead with a Place, which the parsed plan keeps beside the whole text", () => {
+  const { plan, problems } = validatePlan(
+    withReview("- [ ] Review: [local] docs/x.html says 30 days"),
+  );
+  assert.deepEqual(problems, []);
+  assert.deepEqual(plan.reviews, [
+    { text: "[local] docs/x.html says 30 days", ticked: false, place: "local" },
+  ]);
+});
+
+test("with the configured Places, each `Review:` box names one of them", () => {
+  assert.equal(placeProblems("- [ ] Review: [staging] docs/x.html says 30 days", PLACES), "");
+  assert.match(
+    placeProblems("- [ ] Review: docs/x.html says 30 days", PLACES),
+    /no Place: write `Review: \[<place>\] <text>`, a Place of: local, staging, production/,
+  );
+  assert.match(
+    placeProblems("- [ ] Review: [prod] docs/x.html says 30 days", PLACES),
+    /Place `prod` is not configured \(local, staging, production\)/,
+  );
+  assert.match(
+    placeProblems("- [ ] Review: [Local] docs/x.html says 30 days", PLACES),
+    /Place `Local` is not configured/,
+  );
+  assert.match(placeProblems("- [ ] Review: [local]", PLACES), /nothing after it/);
+});
+
+test("with Places turned off, a `Review:` box carries no Place", () => {
+  assert.equal(placeProblems("- [ ] Review: docs/x.html says 30 days", null), "");
+  assert.match(
+    placeProblems("- [ ] Review: [local] docs/x.html says 30 days", null),
+    /Places are off: write the box with no Place/,
+  );
+});
+
+test("a plan checked with no Places given reads any tag as a Place and demands none", () => {
+  assert.deepEqual(problemsOf(withReview("- [ ] Review: docs/x.html says 30 days")), []);
+  assert.deepEqual(problemsOf(withReview("- [ ] Review: [anywhere] docs/x.html says 30 days")), []);
+});
+
+test("`adapter.mjs plan` checks a box's Place against the repository's config", () => {
+  const plan = withReview("- [ ] Review: [prod] docs/x.html says 30 days");
+  const run = (config) =>
+    main(["plan"], {
+      stdin: () => plan,
+      read: (path) => (path === "qa.config.yml" ? config : null),
+    });
+  assert.equal(run("report:\n  places: [local, prod]\n  holds: [local]\n").code, 0);
+  assert.match(run("report:\n  places: none\n").out, /Places are off/);
+  assert.match(run(null).out, /Place `prod` is not configured \(local, staging, production\)/);
 });
