@@ -753,3 +753,16 @@ test("SKILL.md checks which copy runs before its first step", () => {
   assert.ok(check < skill.indexOf("## Workflow"), "before the workflow");
   for (const dir of PROJECT_SKILL_DIRS) assert.ok(skill.includes(dir), `SKILL.md names ${dir}`);
 });
+
+// ── Run needs up front ──────────────────────────────────────────────────────
+
+test("SKILL.md and ADAPTER.md say how `--answers` and `run.stack.address` are used", () => {
+  assert.match(skill, /argument-hint: "[^"\n]*--answers <file>/);
+  const step2 = /### 2\. Read the config\n([\s\S]*?)\n### 3\./.exec(skill)?.[1] ?? "";
+  assert.match(step2, /check --for run --plan "<plan file>" --answers <file>/);
+  assert.match(step2, /--answers-base <branch>/);
+  assert.match(step2, /Run answers reused from <file>: <values>/);
+  assert.match(step5(), /`run\.stack\.address`/);
+  assert.match(adapter, /\| `run\.stack\.address`/);
+  assert.match(adapter, /`check --for run \[--plan <file>\] --answers <file>`/);
+});

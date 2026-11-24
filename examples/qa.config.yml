@@ -54,6 +54,7 @@ run:
     migrate: "uv run alembic upgrade head"
     seed: "uv run python -m app.qa_accounts seed"
     down: "docker compose down"
+    # address: http://localhost:3000 # optional: the local address, for an `up` that prints none; `host` must call it local
   accounts: # the QA Account contract
     print: "uv run python -m app.qa_accounts print"
     restore: "uv run python -m app.qa_accounts restore --account {id}"

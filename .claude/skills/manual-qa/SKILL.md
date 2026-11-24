@@ -2,7 +2,7 @@
 name: manual-qa
 description: Run a QA Plan as written against a local QA Stack or a hosted test URL, as a tester would, and write a QA Report with one result per scenario.
 disable-model-invocation: true
-argument-hint: "[path to the QA Plan]"
+argument-hint: "[path to the QA Plan] [--answers <file>]"
 metadata:
   agent-kit-scope: user
 ---
@@ -78,6 +78,14 @@ Exit 1: show each problem, with its line, delete the temporary file, and stop. A
 ```bash
 node "<skill>/adapter.mjs" check --for run --plan "<plan file>"
 ```
+
+With `--answers <file>` after the plan (`/manual-qa <plan> --answers <file>`), the run needs were given up front, as an orchestrate run gives them once in its Dispatch Plan. Run `check` with them instead:
+
+```bash
+node "<skill>/adapter.mjs" check --for run --plan "<plan file>" --answers <file>
+```
+
+It merges the file over the config as `qa-plan`'s `check --for plan --answers` does: the same JSON object `render` takes (`run` key by key, so give a whole `stack` or `accounts` mapping), read only from inside the `working_dir` the merge gives, and nothing is written ([ADAPTER.md](ADAPTER.md#readiness-check)). Exit 2: the file is missing, is not a JSON object, or is outside `working_dir`; show the message and stop. Exit 1 also covers answers whose merged `run:` has problems. Otherwise read its output as below, except that you ask only for what its `readiness.needs` still lists, and never offer to save a config: whoever gave the answers was offered that already. The answers hold only for the base branch they were given for: when the caller names it, add `--answers-base <branch>` and `--base <the pull request's base branch>`; when they differ, the output says `answers.used` is `false` and the file is not used, so ask for every need as with no file. Keep `answers.reused`, the line `Run answers reused from <file>: <values>`, for the report (see [The QA Report](#the-qa-report)); with no `--answers`, or a file not used, the report has no such line. An address in the answers, `run.stack.address`, is used in step 5 when `up` prints none.
 
 A plan with no scenarios (`plan.scenarios` is empty) needs none of the run answers: no target, surface or roles, no stack commands or `accounts.print`, and no address for `url`, since it drives nothing and starts nothing (step 4). Its `readiness.needs` is empty, so nothing is asked; its notes are only the build check's and, with no config file, the one saying so.
 
@@ -177,7 +185,7 @@ Neither stops the run: the head stack starts as below. The head stack starts onl
 
 Start `<working_dir>/qa-report-pr-<n>/stack-pids.txt` empty, replacing any file an earlier run left: its ids may belong to other processes by now. Run `up`, `migrate` and `seed`, in that order, from the config. Start `up` in the background when it does not return. Record in `stack-pids.txt` only the ids of processes this run launched, and the ids `up` itself prints; never an id found by looking through the running processes, which may be the developer's own. A command that fails stops the run: show its output, run step 7, and write the report with every scenario left for a person.
 
-Find the address the stack serves (from `up`'s output, or ask the person), then check it before any sign-in:
+Find the address the stack serves: from `up`'s output, or, when `up` prints none, `run.stack.address` (from the config or the answers; the effective one is in `check`'s output), or else ask the person. Then check it before any sign-in:
 
 ```bash
 node "<skill>/adapter.mjs" host "<address>"
@@ -405,6 +413,7 @@ Give the person the comment or issue URL, and each uploaded file's URL.
 - **Scenario accounts:** each one this run created, by id and creating scenario (`temp-user`, by S1), or `none`. Ids only, never values: they are not cleaned up, so the owner of a hosted environment can remove them; on a `stack` run, `down` takes them with the stack.
 - **Teardown:** `down` run, for the Before stack and the head stack; processes stopped; the Before worktree removed
 - **Run deviations:** <each departure, and what was done about it> ← only when there was one (step 8)
+- Run answers reused from <file>: <values> ← only when step 2 took `--answers` and used the file; the line `answers.reused` printed
 
 ## Results
 
