@@ -149,6 +149,7 @@ describe("qa-plan: what replaces each wait", () => {
     assert.match(row(8), /skip/i);
     assert.match(row(8), /log/);
     assert.match(row(8), /replaces the comment/);
+    assert.match(row(8), /listed at close-out/);
     assert.doesNotMatch(row(8), /Decision Request/);
   });
 });
@@ -202,9 +203,17 @@ describe("manual-qa: what replaces each wait", () => {
     assert.match(text, /never `waiting` on the human/);
   });
 
-  it("uploads nothing: every QA Artifact stays local", () => {
-    assert.match(row(10), /uploads nothing/);
-    assert.match(row(10), /local/);
+  it("uploads nothing, unless the brief says uploads are approved: then no per-file question, never a failed run's media", () => {
+    assert.match(row(10), /uploads nothing unless the brief says/i);
+    assert.match(row(10), /stays? local/);
+    assert.match(row(10), /report\.mjs evidence/);
+    assert.match(row(10), /no per-file question/);
+    assert.match(row(10), /never a failed run's/);
+    assert.match(row(10), /refusals still apply/);
+  });
+
+  it("row 10 never offers an upload as a Decision Request", () => {
+    assert.doesNotMatch(row(10), /Decision Request/);
   });
 
   it("posts the QA Report only as a routine write the Dispatch Plan approved, else queues it", () => {

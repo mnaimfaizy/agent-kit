@@ -716,3 +716,92 @@ describe("the ADR and the changelog", () => {
     assert.match(read("CHANGELOG.md"), /^- .*\[#289\]/m);
   });
 });
+
+describe("orchestrate reads the QA summary (#420)", () => {
+  const verify = bullet(STEP9, "3. **Verify its report**");
+  const places = bullet(STEP4, "- **QA Places, shown and changeable.**");
+  const uploads = bullet(STEP4, "- **QA uploads, off unless approved.**");
+  const writes = bullet(STEP4, "- **The QA writes.**");
+  const DOCS = read("docs/orchestrate.md");
+
+  it("step 9 checks a QA claim by parsing the posted header with report.mjs summary", () => {
+    assert.match(verify, /report\.mjs" summary/);
+    assert.match(verify, /strict header/);
+    assert.match(verify, /result=passed\|failed/);
+    assert.match(verify, /no manual QA needed/);
+  });
+
+  it("a header whose commit is not the verified head, or that does not parse, counts as no report", () => {
+    assert.match(verify, /commit[^.]*is not `<head>`/);
+    assert.match(verify, /does not parse/);
+    assert.match(verify, /counts as no report/);
+  });
+
+  it("the header's counts must equal the report's items left for a person and deferred", () => {
+    assert.match(verify, /left-for-person/);
+    assert.match(verify, /deferred/);
+  });
+
+  it("a claim never rests on the QA session's own words: the Chief of Staff reads the posted comment", () => {
+    assert.match(verify, /reads the posted comment itself/);
+  });
+
+  it("the Dispatch Plan shows the Places the run will use, and the human changes them for the run or saves them", () => {
+    assert.match(places, /report\.places/);
+    assert.match(places, /report\.holds/);
+    assert.match(places, /this run only/);
+    assert.match(places, /save/);
+    assert.match(places, /`local`/);
+    assert.match(places, /`none`/);
+  });
+
+  it("the QA brief carries the run's Places", () => {
+    assert.match(QA_BRIEF, /\*\*The Places:\*\*/);
+    assert.match(QA_BRIEF, /report\.places/);
+  });
+
+  it("uploads stay off unless 'upload eligible QA Artifacts to <tag>' is approved once, with the public-repo warning shown", () => {
+    assert.match(uploads, /upload eligible QA Artifacts to `<tag>`/);
+    assert.match(uploads, /off/);
+    assert.match(uploads, /once/);
+    assert.match(uploads, /gh repo view --json visibility/);
+    assert.match(uploads, /anyone who can see this repository can download a release asset/);
+  });
+
+  it("with the yes, the QA session uploads what report.mjs evidence accepts, with no per-file question, never a failed run's media", () => {
+    assert.match(uploads, /report\.mjs" evidence/);
+    assert.match(uploads, /no per-file question/);
+    assert.match(uploads, /never a failed run's/);
+    assert.match(uploads, /eligibility refusals/);
+  });
+
+  it("The QA writes bullet no longer says a brief-route QA uploads nothing whatever is approved", () => {
+    assert.doesNotMatch(writes, /uploads nothing/);
+    assert.match(writes, /the one opt-in above, or nothing/);
+  });
+
+  it("the QA brief says whether uploads are approved, and uploads only then", () => {
+    assert.match(QA_BRIEF, /\*\*Uploads:\*\*/);
+    assert.match(QA_BRIEF, /upload eligible QA Artifacts to/);
+    assert.match(QA_BRIEF, /uploads nothing unless/);
+  });
+
+  it("the QA brief never makes or asks about the stale edit, and logs the skip", () => {
+    assert.match(QA_BRIEF, /stale edit/);
+    assert.match(QA_BRIEF, /logs that it was skipped/);
+  });
+
+  it("the close-out lists a stale comment that stayed because posting was not approved", () => {
+    assert.match(STEP10, /\*\*Stale QA comments\.\*\*/);
+    assert.match(STEP10, /posting was not approved/);
+    assert.match(STEP10, /older head/);
+  });
+
+  it("DESIGN.md and docs/orchestrate.md give the reasons", () => {
+    assert.match(DESIGN, /by its header/);
+    assert.match(DESIGN, /one opt-in/);
+    assert.match(DOCS, /header/);
+    assert.match(DOCS, /upload eligible QA Artifacts/);
+    assert.match(DOCS, /stale/);
+  });
+});
