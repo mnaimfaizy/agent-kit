@@ -335,6 +335,64 @@ describe("approving QA in the Dispatch Plan (#419)", () => {
   });
 });
 
+describe("the run's needs, asked up front (#419)", () => {
+  const needs = bullet(STEP4, "- **QA run needs, asked up front.**");
+
+  it("runs manual-qa's check --for run with no plan, beside the readiness check, in one message", () => {
+    assert.match(needs, /check --for run/);
+    assert.match(needs, /no plan/);
+    assert.match(needs, /same message/);
+    assert.match(needs, /`readiness\.needs`/);
+  });
+
+  it("writes the answers to qa-run.json, and checks them with --answers, --answers-base and --base", () => {
+    assert.match(needs, /`qa-run\.json`/);
+    assert.match(needs, /--answers/);
+    assert.match(needs, /--answers-base/);
+    assert.match(needs, /--base/);
+  });
+
+  it("one 'this run only, or save a config' choice covers both answers files", () => {
+    assert.match(needs, /one choice covers both/);
+    assert.match(needs, /this run only/);
+    assert.match(needs, /save a config/);
+  });
+
+  it("checks that working_dir is ignored, asking once", () => {
+    assert.match(needs, /`working_dir`/);
+    assert.match(needs, /git check-ignore/);
+    assert.match(needs, /once/);
+  });
+
+  it("asks the optional local address, run.stack.address, and checks it with host", () => {
+    assert.match(needs, /`run\.stack\.address`/);
+    assert.match(needs, /optional/);
+    assert.match(needs, /adapter\.mjs" host/);
+    assert.match(needs, /`local`/);
+  });
+
+  it("never asks it again in a QA brief, as a Decision Request or as a Ruling", () => {
+    assert.match(needs, /No QA brief asks it again/);
+    assert.match(needs, /never a mid-run Decision Request or a Ruling/);
+  });
+
+  it("RUN.md's Layout lists qa-run.json", () => {
+    assert.match(section(RUN, "## Layout"), /qa-run\.json/);
+  });
+
+  it("the QA brief names qa-run.json, copied with qa-readiness.json, and passes it to manual-qa by --answers", () => {
+    assert.match(QA_BRIEF, /`<working_dir>\/qa-run\.json`/);
+    assert.match(QA_BRIEF, /manual-qa/);
+    const phase3 = QA_BRIEF.split("\n").find((l) => l.trimStart().startsWith("3. **Run it**"));
+    assert.match(phase3, /--answers <working_dir>\/qa-run\.json/);
+  });
+
+  it("how each QA skill starts: from the brief only on approved QA, on a stack target", () => {
+    const starts = bullet(STEP4, "- **How each QA skill starts.**");
+    assert.match(starts, /QA is approved/);
+  });
+});
+
 describe("the ADR and the changelog", () => {
   const adrs = readdirSync(join(root, "docs/adr"));
   const old = adrs.filter((f) => f.startsWith("0013-"));
