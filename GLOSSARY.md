@@ -219,6 +219,10 @@ _Avoid_: segment, chapter, act
 The full-frame board, one centred sentence from the plan, that opens each Scene in a scenario's MP4 and heads its steps in the Storyboard.
 _Avoid_: intro board, slate, caption
 
+**Story**:
+A QA Plan scenario's field giving one sentence per Scene, in order and in the product's own words; each sentence opens its Scene on a Title card in the MP4 and heads that Scene's steps in the Storyboard.
+_Avoid_: narrative, script, synopsis
+
 **Surface**:
 What a scenario drives (`web`, `desktop`, `mobile` or `api`). The Run brief gives the plan's default; a scenario may override it.
 _Avoid_: platform, channel

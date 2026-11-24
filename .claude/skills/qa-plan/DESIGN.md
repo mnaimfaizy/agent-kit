@@ -26,6 +26,8 @@ These are word for word the definitions in Agent-kit's root glossary, where a co
 
 **Title card**: The full-frame board, one centred sentence from the plan, that opens each Scene in a scenario's MP4 and heads its steps in the Storyboard.
 
+**Story**: A QA Plan scenario's field giving one sentence per Scene, in order and in the product's own words; each sentence opens its Scene on a Title card in the MP4 and heads that Scene's steps in the Storyboard.
+
 **Surface**: What a scenario drives (`web`, `desktop`, `mobile` or `api`). The Run brief gives the plan's default; a scenario may override it.
 
 **Driver**: The tool a run uses to drive a Surface. It can observe some things and not others.
