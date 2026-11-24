@@ -89,7 +89,7 @@ With no rule matching, or no `publish` key, the plan stays in the working copy. 
 
 ## Places
 
-An item left for a person (a `Review:` box in the plan) carries a **Place**: where a person checks it. `qa-plan` writes each box as `Review: [<place>] <text>`, picking the Place from this list, and `adapter.mjs plan` refuses a box whose Place is not in it. `manual-qa` posts the items under their Places, and counts the ones in a Place that holds a merge as `left-for-person` in the posted header, and the rest as `deferred` ([ADR 0033](../../../docs/adr/0033-qa-report-summary-is-the-post-with-a-strict-header.md)).
+An item left for a person (a `Review:` box in the plan) carries a **Place**: where a person checks it. `qa-plan` writes each box as `Review: [<place>] <text>`, picking the Place from this list, and `adapter.mjs plan` refuses a box whose Place is not in it. `manual-qa` posts the items under their Places, and counts the ones in a Place that holds a merge as `left-for-person` in the posted header, and the rest as `deferred` (ADR 0033).
 
 ```yml
 report:
