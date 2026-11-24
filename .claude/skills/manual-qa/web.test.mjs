@@ -21,7 +21,16 @@ import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { WEB_NOTES, findPlaywright } from "./adapter.mjs";
-import { POINTER_ID, STEP_KEYS, checkSequence, main, runSequence } from "./web.mjs";
+import {
+  KEY_DELAY_MS,
+  POINTER_ID,
+  STEP_KEYS,
+  TYPING_BUDGET_MS,
+  checkSequence,
+  keyDelay,
+  main,
+  runSequence,
+} from "./web.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, "..", "..", "..");
@@ -1084,4 +1093,23 @@ test("ADAPTER.md documents the CLI, and words the readiness notes as readiness d
   for (const note of Object.values(WEB_NOTES)) assert.ok(flat.includes(note), note);
   assert.match(design, /## A driver for the web surface/);
   assert.match(skill.replace(/\s+/g, " "), /`web\.mjs`/);
+});
+
+test("ADAPTER.md says what --video adds: typing key by key and a pointer, never in a still", () => {
+  const flat = adapterDoc.replace(/\s+/g, " ");
+  assert.match(flat, /\*\*With `--video`, the run looks like a person working\.\*\*/);
+  assert.match(flat, /a literal value[^.]* is typed key by key/);
+  assert.ok(flat.includes(`about ${KEY_DELAY_MS} ms a key`));
+  assert.ok(flat.includes(`at most ${TYPING_BUDGET_MS / 1000} seconds`));
+  assert.match(flat, /A fill from a `\{\{env:QA_…\}\}` placeholder is never typed key by key/);
+  assert.match(flat, /moves to each `click` target before the click/);
+  assert.match(flat, /taken out of the page for every still/);
+  assert.match(flat, /Without `--video`, a fill is one fill and there is no pointer/);
+});
+
+test("a long literal types faster, so its pauses stay within the budget", () => {
+  assert.equal(keyDelay("Ada"), KEY_DELAY_MS);
+  assert.equal(keyDelay(""), KEY_DELAY_MS);
+  const long = "x".repeat(10_000);
+  assert.ok(keyDelay(long) * long.length <= TYPING_BUDGET_MS);
 });
