@@ -21,7 +21,7 @@ import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { WEB_NOTES, findPlaywright } from "./adapter.mjs";
-import { STEP_KEYS, checkSequence, main, runSequence } from "./web.mjs";
+import { POINTER_ID, STEP_KEYS, checkSequence, main, runSequence } from "./web.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, "..", "..", "..");
@@ -164,6 +164,42 @@ before(async () => {
             "<button>Send</button></form>",
         );
       if (url.pathname === "/away") return html(`<a href="http://localhost:${port}/who">Leave</a>`);
+      if (url.pathname === "/keys")
+        // Counts each field's key and input events, and whether the email field was
+        // masked when its value arrived, for the typing tests.
+        return html(
+          '<label>Note <input id="note" value="old text"></label><label>Email <input id="email"></label>' +
+            '<p role="status" id="r"></p><script>' +
+            "const seen = { note: { keys: 0, inputs: 0 }, email: { keys: 0, inputs: 0, masked: [] } };" +
+            "const show = () => { document.getElementById('r').textContent =" +
+            "  `note ${seen.note.keys} keys ${seen.note.inputs} inputs [${document.getElementById('note').value}]; ` +" +
+            "  `email ${seen.email.keys} keys ${seen.email.inputs} inputs ${seen.email.masked.join(',')}`; };" +
+            "for (const id of ['note', 'email']) { const field = document.getElementById(id);" +
+            "  field.addEventListener('keydown', () => { seen[id].keys += 1; show(); });" +
+            "  field.addEventListener('input', () => { seen[id].inputs += 1;" +
+            "    if (id === 'email') seen.email.masked.push(getComputedStyle(field).webkitTextSecurity);" +
+            "    show(); }); }</script>",
+        );
+      if (url.pathname === "/pointer")
+        // A button that says, when clicked, whether the pointer marker sits on it, and a
+        // line that says whether the marker is in the page now.
+        return html(
+          '<button id="aim" style="position: absolute; left: 900px; top: 500px">Aim</button>' +
+            '<p id="shot">no click</p><p id="drawn">pointer absent</p><script>' +
+            `const id = ${JSON.stringify(POINTER_ID)};` +
+            "const aim = document.getElementById('aim');" +
+            "aim.addEventListener('click', () => { const marker = document.getElementById(id);" +
+            "  let said = 'clicked with no pointer';" +
+            "  if (marker) { const m = marker.getBoundingClientRect(), b = aim.getBoundingClientRect();" +
+            "    const on = Math.abs(m.left + m.width / 2 - (b.left + b.width / 2)) <= 4 &&" +
+            "      Math.abs(m.top + m.height / 2 - (b.top + b.height / 2)) <= 4;" +
+            "    said = on ? 'clicked with the pointer on target' : 'clicked with the pointer elsewhere'; }" +
+            "  document.getElementById('shot').textContent = said; });" +
+            "const drawn = () => { document.getElementById('drawn').textContent =" +
+            "  document.getElementById(id) ? 'pointer shown' : 'pointer absent'; };" +
+            "new MutationObserver(drawn).observe(document.documentElement, { childList: true });" +
+            "</script>",
+        );
       html("<h1>Home</h1>");
     });
   });
@@ -889,6 +925,147 @@ test(
     assert.equal(plain.steps.sessions.B.video, null);
   },
 );
+
+// ── With --video, it looks like a person working ───────────────────────────
+
+const TYPED = "Ada Lovelace";
+const TYPING = [
+  { session: "A", goto: "/keys" },
+  { session: "A", fill: { label: "Note" }, value: TYPED },
+  { session: "A", fill: { label: "Email" }, value: "{{env:QA_A_EMAIL}}" },
+  { session: "A", step: "Both filled", subject: { role: "status" } },
+];
+/** What `/keys` saw: each field's key and input events, the note's value, and the email's mask. */
+const keysSeen = (text) => {
+  const found = /^note (\d+) keys (\d+) inputs \[(.*)\]; email (\d+) keys (\d+) inputs (.*)$/.exec(
+    text ?? "",
+  );
+  assert.ok(found, text);
+  const [, noteKeys, noteInputs, note, emailKeys, emailInputs, masked] = found;
+  return {
+    noteKeys: Number(noteKeys),
+    noteInputs: Number(noteInputs),
+    note,
+    emailKeys: Number(emailKeys),
+    emailInputs: Number(emailInputs),
+    masked,
+  };
+};
+
+test(
+  "with --video, a literal value is typed key by key, and a sign-in value arrives at once, masked",
+  { skip: NEEDS_CHROMIUM },
+  async () => {
+    const { code, steps, out, stdout } = await drive(TYPING, { video: true });
+    assert.equal(code, 0, stdout);
+    const [filled] = steps.steps;
+    const seen = keysSeen(filled.text);
+    assert.equal(seen.noteKeys, TYPED.length, "one key event per character");
+    assert.equal(seen.note, TYPED, "the typed value replaces the field's old text");
+    assert.equal(seen.emailKeys, 0, "a sign-in value is never typed key by key");
+    assert.equal(seen.emailInputs, 1, "it arrives in one go");
+    assert.equal(seen.masked, "disc", "and shows dots as it arrives");
+    assert.match(filled.withheld, /a field holds a sign-in value/);
+    assert.ok(!(allText(out) + stdout).includes(EMAIL));
+  },
+);
+
+test(
+  "without --video, a literal value is filled in one go, as before",
+  { skip: NEEDS_CHROMIUM },
+  async () => {
+    const { code, steps, stdout } = await drive(TYPING);
+    assert.equal(code, 0, stdout);
+    const seen = keysSeen(steps.steps[0].text);
+    assert.equal(seen.noteKeys, 0, "no key events");
+    assert.equal(seen.noteInputs, 1);
+    assert.equal(seen.note, TYPED);
+    assert.equal(seen.emailKeys, 0);
+    assert.equal(seen.emailInputs, 1);
+    assert.equal(seen.masked, "disc");
+  },
+);
+
+/** Runs a sequence in-process, noting at each still whether the pointer marker is in the page. */
+async function aimed(actions, video) {
+  const out = mkdtempSync(join(tmpdir(), "web-pointer-"));
+  const atStills = [];
+  const screenshot = async (pageHandle, path) => {
+    atStills.push(
+      await pageHandle.evaluate((id) => document.getElementById(id) !== null, POINTER_ID),
+    );
+    await pageHandle.screenshot({ path });
+  };
+  try {
+    const result = await runSequence(
+      { actions },
+      { base, env: ENV, out, video, playwright: PLAYWRIGHT.module, screenshot },
+    );
+    assert.equal(result.completed, true, JSON.stringify(result.error));
+    for (const step of result.steps) assert.ok(step.still, step.caption);
+    return { steps: result.steps, atStills };
+  } finally {
+    rmSync(out, { recursive: true, force: true });
+  }
+}
+
+test(
+  "with --video, a pointer moves to each click target, and no still shows it",
+  { skip: NEEDS_CHROMIUM },
+  async () => {
+    const { steps, atStills } = await aimed(
+      [
+        { session: "A", goto: "/pointer" },
+        { session: "A", step: "Before the click" },
+        { session: "A", click: { role: "button", name: "Aim" } },
+        { session: "A", step: "Clicked", subject: { text: "clicked with" } },
+        // The still above removed the marker; it is back for the video before this step.
+        { session: "A", step: "Restored", subject: { text: "pointer shown" } },
+        { session: "B", goto: "/pointer" },
+        { session: "B", click: { role: "button", name: "Aim" } },
+        { session: "B", step: "B clicked", subject: { text: "clicked with" } },
+      ],
+      true,
+    );
+    assert.deepEqual(
+      steps.map((s) => s.text),
+      [
+        null,
+        "clicked with the pointer on target",
+        "pointer shown",
+        "clicked with the pointer on target",
+      ],
+    );
+    assert.deepEqual(atStills, [false, false, false, false], "no still has the pointer");
+    // The crop is the page's own: the subject's box is the same as without --video.
+    const plain = await aimed(
+      [
+        { session: "A", goto: "/pointer" },
+        { session: "A", click: { role: "button", name: "Aim" } },
+        { session: "A", step: "Clicked", subject: { text: "clicked with" } },
+      ],
+      false,
+    );
+    assert.deepEqual(plain.steps[0].subject, steps[1].subject);
+  },
+);
+
+test("without --video, there is no pointer", { skip: NEEDS_CHROMIUM }, async () => {
+  const { steps, atStills } = await aimed(
+    [
+      { session: "A", goto: "/pointer" },
+      { session: "A", click: { role: "button", name: "Aim" } },
+      { session: "A", step: "Clicked", subject: { text: "clicked with" } },
+      { session: "A", step: "Never drawn", subject: { text: "pointer absent" } },
+    ],
+    false,
+  );
+  assert.deepEqual(
+    steps.map((s) => s.text),
+    ["clicked with no pointer", "pointer absent"],
+  );
+  assert.deepEqual(atStills, [false, false]);
+});
 
 test("the driver adds no Chromium switch, so Playwright's own `--disable-features` list stands", () => {
   const source = readFileSync(join(HERE, "web.mjs"), "utf8");
