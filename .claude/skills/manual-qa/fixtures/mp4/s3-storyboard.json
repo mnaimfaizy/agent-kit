@@ -29,5 +29,10 @@
     ]
   },
   "proves": { "session": "A", "index": 3 },
+  "story": [
+    "The member is signed in and on their dashboard.",
+    "The admin ends the member's session.",
+    "The member reloads and lands on the sign-in page."
+  ],
   "variables": []
 }

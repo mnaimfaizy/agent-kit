@@ -29,6 +29,7 @@ import {
   NO_CHROMIUM_MP4,
   NO_FFMPEG,
   SIDE,
+  TITLE_SECONDS,
   ffmpegArgs,
   main,
   overlayFields,
@@ -38,7 +39,7 @@ import {
   wallClock,
 } from "./mp4.mjs";
 import { readReport } from "./report.mjs";
-import { loadScenario, main as storyboard } from "./storyboard.mjs";
+import { WITHHELD, loadScenario, main as storyboard } from "./storyboard.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, "..", "..", "..");
@@ -141,9 +142,17 @@ function plainPng(width, height) {
   }
   return plain.get(key);
 }
-/** Renders each page as a plain PNG at its width: a band 151 pixels high, a caption 61 or 75. */
+/**
+ * Renders each page as a plain PNG at its width: a band 151 pixels high, a caption 61 or 75,
+ * a frame or a Title card its page's height.
+ */
 const standIn = async (pages) =>
-  pages.map((page, i) => plainPng(page.width, i === 0 ? 151 : i % 2 ? 61 : 75));
+  pages.map((page, i) =>
+    plainPng(
+      page.width,
+      page.kind === "band" ? 151 : page.kind === "caption" ? (i % 2 ? 61 : 75) : page.height,
+    ),
+  );
 
 function probe(file) {
   const out = spawnSync("ffprobe", [
@@ -179,6 +188,16 @@ const bAs = (kind) => (m) => ({
 });
 /** Each piece as [kind, step, Session, Scene, seconds]. */
 const shape = (laid) => laid.pieces.map((p) => [p.kind, p.index, p.session, p.scene, p.seconds]);
+/** The pieces that play a step: every piece but the Title cards. */
+const stepPieces = (laid) => laid.pieces.filter((p) => p.kind !== "title");
+/** The files `ffmpegArgs` is given for the overlays, by name only. */
+const overlayFiles = (laid) => ({
+  bands: laid.scenes.map(() => ({ file: "band.png", height: 151 })),
+  captions: laid.sides.map(() =>
+    stepPieces(laid).map((_, j) => ({ file: `c${j}.png`, height: 61 })),
+  ),
+  titles: laid.scenes.map((scene) => ({ file: `title-${scene.number}.png` })),
+});
 
 // ── The timing line, without ffmpeg ──────────────────────────────────────────
 
@@ -247,9 +266,11 @@ test("a single-session fix scenario is one Scene on two sides, each step held an
     [1, 2.5, 2.7],
   );
   // Stretches: After 1.0 s then 0.7 s, Before 1.5 s then 0.2 s; the longer one sets each.
+  // An older scenario file, with no Story, still opens its one Scene with a card.
   assert.deepEqual(
     laid.pieces.map((p) => [p.kind, p.index, p.seconds]),
     [
+      ["title", 1, TITLE_SECONDS],
       ["hold", 1, HOLD_SECONDS],
       ["between", 2, 1.5 / BETWEEN_SPEED],
       ["hold", 2, HOLD_SECONDS],
@@ -257,7 +278,7 @@ test("a single-session fix scenario is one Scene on two sides, each step held an
       ["hold", 3, HOLD_SECONDS],
     ],
   );
-  assert.equal(laid.seconds, 3 * HOLD_SECONDS + (1.5 + 0.7) / BETWEEN_SPEED);
+  assert.equal(laid.seconds, TITLE_SECONDS + 3 * HOLD_SECONDS + (1.5 + 0.7) / BETWEEN_SPEED);
   // Each held step's caption and timing line, After's with its difference from Before.
   const held = laid.sides[1].overlays.filter((o) => /timing line/.test(o.field));
   assert.deepEqual(
@@ -281,8 +302,8 @@ test("a single-session fix scenario is one Scene on two sides, each step held an
     laid.sides[1].overlays[1].timing,
     "played at 0.5× speed from step 1 (1.5 s) to step 2 (2.5 s since After started)",
   );
-  // One overlay per piece on each side, in the pieces' order.
-  for (const side of laid.sides) assert.equal(side.overlays.length, laid.pieces.length);
+  // One overlay per step's piece on each side, in the pieces' order; a card spans both.
+  for (const side of laid.sides) assert.equal(side.overlays.length, stepPieces(laid).length);
 });
 
 test("a feature scenario plays After alone, and says why Before is not beside it", () => {
@@ -292,7 +313,7 @@ test("a feature scenario plays After alone, and says why Before is not beside it
     ["After"],
   );
   assert.equal(laid.beforeNote, "Before: not run, a feature scenario runs After only");
-  assert.equal(laid.seconds, 2 * HOLD_SECONDS + 1.5 / BETWEEN_SPEED);
+  assert.equal(laid.seconds, TITLE_SECONDS + 2 * HOLD_SECONDS + 1.5 / BETWEEN_SPEED);
   assert.equal(laid.sides[0].overlays[0].timing, "10:06:00 UTC · 0.8 s since After started");
 });
 
@@ -350,18 +371,164 @@ test("steps in Sessions A, B, A play as three Scenes in step order, Before and A
       ],
     );
   // Each piece belongs to one Scene and one Session, in step order.
+  // Card, Scene, card, Scene, card, Scene.
   assert.deepEqual(shape(laid), [
+    ["title", 1, "A", 1, TITLE_SECONDS],
     ["between", 1, "A", 1, 2 / BETWEEN_SPEED],
     ["hold", 1, "A", 1, HOLD_SECONDS],
+    ["title", 2, "B", 2, TITLE_SECONDS],
     ["between", 2, "B", 2, 4.5 / BETWEEN_SPEED],
     ["hold", 2, "B", 2, HOLD_SECONDS],
+    ["title", 3, "A", 3, TITLE_SECONDS],
     ["between", 3, "A", 3, 1.6 / BETWEEN_SPEED],
     ["hold", 3, "A", 3, HOLD_SECONDS],
   ]);
-  assert.equal(laid.seconds, 3 * HOLD_SECONDS + (2 + 4.5 + 1.6) / BETWEEN_SPEED);
+  // `seconds` includes the three cards.
+  assert.equal(
+    laid.seconds,
+    3 * TITLE_SECONDS + 3 * HOLD_SECONDS + (2 + 4.5 + 1.6) / BETWEEN_SPEED,
+  );
+  // Each card says its Scene's Story sentence.
+  assert.deepEqual(
+    laid.scenes.map((c) => c.title),
+    [
+      "The member is signed in and on their dashboard.",
+      "The admin ends the member's session.",
+      "The member reloads and lands on the sign-in page.",
+    ],
+  );
   // Every heading counts the scenario's steps, across Sessions.
   assert.equal(laid.sides[1].overlays.at(-1).heading, "After · step 3 of 3, Session A");
-  for (const side of laid.sides) assert.equal(side.overlays.length, laid.pieces.length);
+  for (const side of laid.sides) assert.equal(side.overlays.length, stepPieces(laid).length);
+});
+
+// ── Title cards (#385) ───────────────────────────────────────────────────────
+
+test("a single-session video scenario opens with one card, its Story's one sentence", () => {
+  const { laid } = loaded(runFolder({ scenario: "s2", videos: false }).metaPath);
+  assert.deepEqual(
+    laid.pieces.map((p) => p.kind),
+    ["title", "hold", "between", "hold"],
+  );
+  assert.deepEqual(
+    laid.scenes.map((c) => c.title),
+    ["A new member signs up and sees the welcome page."],
+  );
+});
+
+test("a scenario file with no Story still opens each Scene with a card, naming its Scene and Session", () => {
+  const laid = s3((m) => ({ ...m, story: undefined }));
+  assert.deepEqual(
+    laid.scenes.map((c) => c.title),
+    ["Scene 1 of 3, Session A", "Scene 2 of 3, Session B", "Scene 3 of 3, Session A"],
+  );
+  assert.equal(laid.pieces.filter((p) => p.kind === "title").length, 3);
+  // An empty Story is no Story.
+  assert.deepEqual(
+    s3((m) => ({ ...m, story: [] })).scenes.map((c) => c.title),
+    laid.scenes.map((c) => c.title),
+  );
+});
+
+test("each Scene has one Title card page: full frame across both sides, one centred bold sentence", () => {
+  const { meta, records } = loadScenario(runFolder({ scenario: "s3", videos: false }).metaPath);
+  const laid = s3();
+  const cards = overlayPages(laid, meta, records).filter((p) => p.kind === "title");
+  assert.deepEqual(
+    cards.map((p) => [p.scene, p.width, p.height]),
+    [1, 2, 3].map((n) => [n, 2 * SIDE.width, SIDE.height]),
+  );
+  for (const [i, card] of cards.entries()) {
+    const body = /<body>\s*([\s\S]*?)\s*<\/body>/.exec(card.html)[1];
+    // One block, its one sentence and nothing else: the same image spans Before and After.
+    assert.equal(
+      body,
+      `<div class="title-card" style="width:${2 * SIDE.width}px;height:${SIDE.height}px">` +
+        `${laid.scenes[i].title.replaceAll("'", "&#39;")}</div>`,
+    );
+    assert.match(
+      card.html,
+      /\.title-card\{display:flex;align-items:center;justify-content:center;[^}]*text-align:center;[^}]*font-weight:700/,
+    );
+    assert.doesNotMatch(card.html, /<script|src="http|url\(/);
+  }
+  // After alone: the card is After's width.
+  const one = loaded(runFolder({ scenario: "s2", videos: false }).metaPath);
+  const [card] = overlayPages(one.laid, one.meta, one.records).filter((p) => p.kind === "title");
+  assert.equal(card.width, SIDE.width);
+});
+
+test("each card's text is a field the privacy check reads", () => {
+  const laid = s3();
+  assert.deepEqual(
+    overlayFields(laid).filter((f) => /Title card/.test(f.field)),
+    laid.scenes.map((c) => ({ field: `MP4 Title card, Scene ${c.number}`, text: c.title })),
+  );
+});
+
+test("a Story sentence holding a sign-in value refuses the MP4 by its field, never its value, and is kept [withheld]", async () => {
+  const { dir, metaPath } = runFolder({
+    scenario: "s3",
+    videos: false,
+    edit: (m) => ({
+      ...m,
+      story: [m.story[0], `The admin, ${ENV.QA_A_EMAIL}, ends the session.`, m.story[2]],
+    }),
+  });
+  writeFileSync(join(dir, "s3.mp4"), "an older MP4");
+  const { code, out } = await main(["build", metaPath], { env: ENV, renderer: standIn });
+  assert.equal(code, 1, out);
+  assert.ok(!out.includes(ENV.QA_A_EMAIL));
+  assert.deepEqual(JSON.parse(out).refused, [
+    { field: "story[1]", why: "holds a sign-in value (QA_A_EMAIL)" },
+    { field: "MP4 Title card, Scene 2", why: "holds a sign-in value (QA_A_EMAIL)" },
+  ]);
+  assert.equal(existsSync(join(dir, "s3.mp4")), false);
+  const kept = JSON.parse(readFileSync(metaPath, "utf8"));
+  assert.equal(kept.story[1], WITHHELD);
+  assert.ok(!readFileSync(metaPath, "utf8").includes(ENV.QA_A_EMAIL));
+  // Built again, its card says [withheld].
+  assert.equal(loaded(metaPath).laid.scenes[1].title, WITHHELD);
+});
+
+test("ffmpeg holds each card for TITLE_SECONDS before its Scene, under the band, and draws no text", () => {
+  const laid = s3();
+  const args = ffmpegArgs(laid, {
+    videos: [
+      { A: "before-a.webm", B: "before-b.webm" },
+      { A: "after-a.webm", B: "after-b.webm" },
+    ],
+    durations: [
+      { A: 7, B: 7 },
+      { A: 7, B: 7 },
+    ],
+    ...overlayFiles(laid),
+    frames: {},
+    encoder: "libx264",
+    out: "s3.mp4",
+  });
+  for (const n of [1, 2, 3]) {
+    const at = args.indexOf(`title-${n}.png`);
+    assert.equal(args[at - 2], TITLE_SECONDS.toFixed(3), `card ${n}`);
+  }
+  // Each Scene's band lasts its card and its steps.
+  const sceneSeconds = laid.scenes.map((c) =>
+    laid.pieces.filter((p) => p.scene === c.number).reduce((sum, p) => sum + p.seconds, 0),
+  );
+  const bandAt = args.reduce((at, a, i) => (a === "band.png" ? [...at, i] : at), []);
+  assert.deepEqual(
+    bandAt.map((i) => Number(args[i - 2])),
+    sceneSeconds,
+  );
+  const graph = args[args.indexOf("-filter_complex") + 1];
+  // Card, Scene, card, Scene, card, Scene: each card full width, as tall as a side and its caption.
+  assert.match(graph, /\[t0\]\[x0\]\[t1\]\[x1\]\[t2\]\[x2\]concat=n=6:v=1:a=0\[sides\]/);
+  assert.match(
+    graph,
+    /scale=1920:602:force_original_aspect_ratio=decrease,pad=1920:602:\(ow-iw\)\/2:\(oh-ih\)\/2:white/,
+  );
+  assert.match(graph, /\[band\]\[sides\]vstack=inputs=2/);
+  assert.doesNotMatch(graph, /drawtext|subtitles/, "no text is drawn by ffmpeg");
 });
 
 test("a role's first Scene plays from its recording's start, and a later Scene from the previous step's time", () => {
@@ -417,7 +584,10 @@ test("a Scenario account's first Scene opens on its first step's hold, so none o
     }
     assert.deepEqual(
       shape(laid).filter(([, , session]) => session === "B"),
-      [["hold", 2, "B", 2, HOLD_SECONDS]],
+      [
+        ["title", 2, "B", 2, TITLE_SECONDS],
+        ["hold", 2, "B", 2, HOLD_SECONDS],
+      ],
     );
     // A, a role, still plays from its recording's start; its later Scene is unchanged.
     assert.deepEqual(
@@ -431,9 +601,6 @@ test("a Scenario account's first Scene opens on its first step's hold, so none o
 
 test("nothing of a Session plays before its first Scene, and each Scene reads only its own Session's recording", () => {
   const laid = s3();
-  const captions = laid.sides.map(() =>
-    laid.pieces.map((_, j) => ({ file: `c${j}.png`, height: 61 })),
-  );
   const args = ffmpegArgs(laid, {
     videos: [
       { A: "before-a.webm", B: "before-b.webm" },
@@ -443,8 +610,7 @@ test("nothing of a Session plays before its first Scene, and each Scene reads on
       { A: 7, B: 7 },
       { A: 7, B: 7 },
     ],
-    bands: laid.scenes.map(() => ({ file: "band.png", height: 151 })),
-    captions,
+    ...overlayFiles(laid),
     frames: {},
     encoder: "libx264",
     out: "s3.mp4",
@@ -453,14 +619,14 @@ test("nothing of a Session plays before its first Scene, and each Scene reads on
   args.forEach((a, i) => a === "-ss" && seeks.push([args[i + 5], args[i + 1], args[i + 3]]));
   assert.deepEqual(seeks, [
     ["before-a.webm", "0.000", "2.000"],
-    ["before-b.webm", "0.000", "4.500"],
-    ["before-a.webm", "4.700", "0.800"],
     ["after-a.webm", "0.000", "2.000"],
+    ["before-b.webm", "0.000", "4.500"],
     ["after-b.webm", "0.000", "4.000"],
+    ["before-a.webm", "4.700", "0.800"],
     ["after-a.webm", "4.200", "1.600"],
   ]);
   const graph = args[args.indexOf("-filter_complex") + 1];
-  assert.match(graph, /hstack=inputs=2\[sides\]/);
+  assert.match(graph, /hstack=inputs=2\[x0\]/, "Before beside After");
   assert.doesNotMatch(graph, /drawtext|subtitles/, "no text is drawn by ffmpeg");
 });
 
@@ -513,7 +679,7 @@ test("a Scene whose Session Before did not record shows the no-recording frame o
     [true, false, true],
   );
   // The Scene keeps its length from After alone; A's later Scene still starts at step 2's time on Before.
-  assert.deepEqual(shape(laid)[2], ["between", 2, "B", 2, 4 / BETWEEN_SPEED]);
+  assert.deepEqual(shape(laid)[4], ["between", 2, "B", 2, 4 / BETWEEN_SPEED]);
   assert.deepEqual(before.steps[2].from, 4.7);
   // Its pages: the Storyboard's empty frame on Before for that Scene, and the note in that Scene's band.
   const pages = overlayPages(laid, meta, records);
@@ -540,8 +706,7 @@ test("a Scene whose Session Before did not record shows the no-recording frame o
   const args = ffmpegArgs(laid, {
     videos: [{ A: "before-a.webm" }, { A: "after-a.webm", B: "after-b.webm" }],
     durations: [{ A: 7 }, { A: 7, B: 7 }],
-    bands: bands.map(() => ({ file: "band.png", height: 151 })),
-    captions: laid.sides.map(() => laid.pieces.map((_, j) => ({ file: `c${j}.png`, height: 61 }))),
+    ...overlayFiles(laid),
     frames: { 2: { file: "frame-2.png" } },
     encoder: "libx264",
     out: "s3.mp4",
@@ -591,20 +756,21 @@ test("a step Before lacks waits where Before was, and its line says so", () => {
 test("the band and every caption are pages in the Storyboard's style, one per piece and side", () => {
   const { meta, records, laid } = loaded(runFolder({ videos: false }).metaPath);
   const pages = overlayPages(laid, meta, records);
-  assert.equal(pages.length, laid.scenes.length + 2 * laid.pieces.length);
+  const each = stepPieces(laid).map(() => "caption");
+  assert.equal(pages.length, 2 * laid.scenes.length + 2 * each.length);
   assert.deepEqual(
     pages.map((p) => p.kind),
-    ["band", ...laid.pieces.map(() => "caption"), ...laid.pieces.map(() => "caption")],
+    ["band", ...each, ...each, "title"],
   );
   assert.equal(pages[0].width, 2 * SIDE.width);
   assert.match(
     pages[0].html,
     /<div class="band"><h1>S1: Saving a profile lists the new name once<\/h1>/,
   );
-  assert.ok(pages.slice(1).every((p) => p.width === SIDE.width));
+  assert.ok(pages.filter((p) => p.kind === "caption").every((p) => p.width === SIDE.width));
   assert.match(pages[1].html, /Before · step 1 of 3, Session A/);
   assert.match(
-    pages.at(-1).html,
+    pages.filter((p) => p.kind === "caption").at(-1).html,
     /10:04:15 UTC\+11:00 · 3\.2 s since After started · After \+0\.2 s/,
   );
   // Self-contained: no script and nothing fetched.
@@ -613,20 +779,19 @@ test("the band and every caption are pages in the Storyboard's style, one per pi
 
 test("ffmpeg only scales, pads, stacks and joins: two sides side by side under the band", () => {
   const { laid } = loaded(runFolder({ videos: false }).metaPath);
-  const captions = laid.sides.map(() =>
-    laid.pieces.map((_, j) => ({ file: `c${j}.png`, height: 61 })),
-  );
+  const { captions, titles } = overlayFiles(laid);
   const args = ffmpegArgs(laid, {
     videos: [{ A: "before.webm" }, { A: "after.webm" }],
     durations: [{ A: 4 }, { A: 4 }],
     bands: [{ file: "band.png", height: 151 }],
     captions,
+    titles,
     frames: {},
     encoder: "libx264",
     out: "s1.mp4",
   });
   const graph = args[args.indexOf("-filter_complex") + 1];
-  assert.match(graph, /hstack=inputs=2\[sides\]/);
+  assert.match(graph, /hstack=inputs=2\[x0\]/, "Before beside After");
   assert.match(graph, /\[band\]\[sides\]vstack=inputs=2/);
   assert.match(graph, new RegExp(`setpts=\\(PTS-STARTPTS\\)/${BETWEEN_SPEED}`));
   assert.match(graph, /pad=1920:152:0:0:white/, "the band padded to an even height");
@@ -651,6 +816,7 @@ test("ffmpeg only scales, pads, stacks and joins: two sides side by side under t
     durations: [{ A: 1.5 }, { A: 1.5 }],
     bands: [{ file: "band.png", height: 150 }],
     captions,
+    titles,
     frames: {},
     encoder: "mpeg4",
     out: "s1.mp4",
@@ -852,7 +1018,7 @@ test(
     const summary = JSON.parse(out);
     assert.deepEqual(summary.sides, ["Before", "After"]);
     assert.deepEqual(summary.session, ["A"]);
-    const expected = 3 * HOLD_SECONDS + (1.5 + 0.7) / BETWEEN_SPEED;
+    const expected = TITLE_SECONDS + 3 * HOLD_SECONDS + (1.5 + 0.7) / BETWEEN_SPEED;
     assert.equal(summary.seconds, expected);
     const video = probe(join(dir, "s1.mp4"));
     assert.ok(
@@ -878,7 +1044,7 @@ test(
     assert.deepEqual(summary.session, ["A", "B"]);
     assert.deepEqual(summary.sides, ["Before", "After"]);
     assert.equal(summary.steps, 3);
-    const expected = 3 * HOLD_SECONDS + (2 + 4.5 + 1.6) / BETWEEN_SPEED;
+    const expected = 3 * TITLE_SECONDS + 3 * HOLD_SECONDS + (2 + 4.5 + 1.6) / BETWEEN_SPEED;
     assert.equal(summary.seconds, expected);
     const video = probe(join(dir, "s3.mp4"));
     assert.ok(
@@ -906,7 +1072,7 @@ test("a feature scenario builds a one-sided MP4", { skip: NEEDS_FFMPEG }, async 
   assert.deepEqual(JSON.parse(out).sides, ["After"]);
   const video = probe(join(dir, "s2.mp4"));
   assert.equal(video.width, SIDE.width);
-  const expected = 2 * HOLD_SECONDS + 1.5 / BETWEEN_SPEED;
+  const expected = TITLE_SECONDS + 2 * HOLD_SECONDS + 1.5 / BETWEEN_SPEED;
   assert.ok(
     Math.abs(video.duration - expected) <= 0.15,
     `${video.duration} s, expected ${expected} s`,
