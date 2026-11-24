@@ -392,6 +392,21 @@ test("a role's first Scene plays from its recording's start, and a later Scene f
   ]);
 });
 
+test("a later Scene's line names the last step its side reached, with that step's own time (#383 review)", () => {
+  const { dir, metaPath } = runFolder({ scenario: "s3", videos: false });
+  const file = join(dir, "s3-before-web", "steps.json");
+  const steps = JSON.parse(readFileSync(file, "utf8"));
+  steps.steps.splice(1, 1); // Before lacks step 2, B's
+  writeFileSync(file, JSON.stringify(steps));
+  const before = loaded(metaPath).laid.sides[0];
+  // Scene 3 starts from step 1's time on Before, the last step it reached, and says so.
+  assert.equal(before.steps[2].from, 2);
+  assert.equal(
+    before.overlays.filter((o) => /lead-in/.test(o.field)).at(-1).timing,
+    "played at 0.5× speed from step 1 (2.1 s) to step 3 (5.6 s since Before started)",
+  );
+});
+
 test("a Scenario account's first Scene opens on its first step's hold, so none of its sign-in plays", () => {
   for (const kind of ["scenario account", undefined]) {
     const laid = s3(bAs(kind));
