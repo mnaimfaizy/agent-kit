@@ -360,7 +360,7 @@ test("steps in Sessions A, B, A play as three Scenes in step order, Before and A
     laid.sides.map((s) => s.side),
     ["Before", "After"],
   );
-  // Paired by index and Session: both sides switch Session at the same step, so they Cut together.
+  // Paired by index and Session: both sides cut to that Session at the same step, so they Cut together.
   for (const side of laid.sides)
     assert.deepEqual(
       side.steps.map((s) => [s.index, s.session, s.scene]),

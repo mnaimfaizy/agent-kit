@@ -9,8 +9,8 @@
 //   built again at any time from the same files.
 //
 //   - The steps play in order across Sessions, split into Scenes at each Cut,
-//     where the story moves to another Session; both sides switch Session
-//     there, full frame. A role's Session (or a signed-out one) first plays
+//     where the story moves to another Session; both sides cut to that
+//     Session there, full frame. A role's Session (or a signed-out one) first plays
 //     from its recording's start, so its sign-in is on camera (ADR 0020); a
 //     Scenario account's, or one whose `kind` is not given, from its first step. A later Scene plays from the previous step's time.
 //     `proves` only sets the highlight.
@@ -205,7 +205,7 @@ function opensAtStart(meta, session) {
  * without ffmpeg and is the same on every re-build.
  *
  * The steps play in After's order across Sessions, split into Scenes at each
- * Cut; each side switches to the Scene's Session there, so Before and After
+ * Cut; each side cuts to the Scene's Session there, so Before and After
  * Cut together, paired by index and Session. A step's time in its recording
  * is its `atMs` less its Session's `startedAtMs`. Each Scene plays its
  * Session's recording from a window's start to each of its steps in turn,
