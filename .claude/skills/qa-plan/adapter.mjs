@@ -64,7 +64,13 @@ export const CONFIG_FILES = /** @type {const} */ ([
   "qa.config.json",
 ]);
 
-export const TOP_KEYS = /** @type {const} */ (["working_dir", "plan", "hazards", "run"]);
+export const TOP_KEYS = /** @type {const} */ (["working_dir", "plan", "hazards", "run", "report"]);
+export const REPORT_KEYS = /** @type {const} */ (["places", "holds"]);
+/** The Places a repository starts with: `local` holds a merge, the others are deferred (ADR 0033). */
+export const DEFAULT_PLACES = Object.freeze(["local", "staging", "production"]);
+export const DEFAULT_HOLDS = Object.freeze(["local"]);
+/** A Place's name: one lowercase word, so `[<place>]` reads back. */
+export const PLACE_NAME = /^[a-z0-9][a-z0-9-]*$/;
 export const PLAN_KEYS = /** @type {const} */ (["base_ref", "suites", "publish", "tracker"]);
 export const SUITE_KEYS = /** @type {const} */ ([
   "name",
@@ -450,6 +456,62 @@ function sharedProblems(sink, config) {
   const workingDir = config.working_dir;
   if (present(workingDir) && !isRepoPath(workingDir))
     sink.add("working_dir", "expected a relative path inside the repository");
+  reportProblems(sink, config.report);
+}
+
+/** `report:`, the Places a posted QA Report tags its Left for a person items with (ADR 0033). */
+function reportProblems(sink, report) {
+  if (!present(report)) return;
+  if (!isMapping(report)) return sink.add("report", "expected a mapping");
+  unknownKeys(sink, report, "report", REPORT_KEYS);
+  const { places, holds } = report;
+  const off = places === "none";
+  let named = DEFAULT_PLACES;
+  if (present(places) && !off) {
+    if (!Array.isArray(places) || !places.length)
+      sink.add("report.places", "expected a list of Places, or `none` to turn them off");
+    else {
+      named = [];
+      places.forEach((place, n) => {
+        const path = `report.places[${n}]`;
+        if (typeof place !== "string" || !PLACE_NAME.test(place))
+          sink.add(path, "expected a lowercase word, such as `local`");
+        else if (named.includes(place)) sink.add(path, `\`${place}\` is listed twice`);
+        else named.push(place);
+      });
+    }
+  }
+  if (off) {
+    if (present(holds)) sink.add("report.holds", "Places are off, so none holds a merge: remove it");
+    return;
+  }
+  if (!present(holds)) {
+    if (present(places))
+      sink.add("report.holds", "name the Places that hold a merge, as a list of the Places above");
+    return;
+  }
+  if (!Array.isArray(holds)) return sink.add("report.holds", "expected a list of Places");
+  if (!holds.length) sink.add("report.holds", "name at least one Place that holds a merge");
+  holds.forEach((place, n) => {
+    if (!named.includes(place))
+      sink.add(`report.holds[${n}]`, `\`${place}\` is not in \`report.places\``);
+  });
+}
+
+/**
+ * The Places a posted QA Report may tag an item with: each `{name, holds}`, in
+ * order, or `null` when the config turns Places off (items untagged, all held).
+ * Read a config with no problems; a key with a problem is not defaulted.
+ *
+ * @param {Record<string, any>} config
+ * @returns {{name: string, holds: boolean}[] | null}
+ */
+export function effectivePlaces(config) {
+  const report = isMapping(config?.report) ? config.report : {};
+  if (report.places === "none") return null;
+  const names = Array.isArray(report.places) ? report.places : DEFAULT_PLACES;
+  const holds = Array.isArray(report.holds) ? report.holds : DEFAULT_HOLDS;
+  return names.map((name) => ({ name, holds: holds.includes(name) }));
 }
 
 function planProblems(sink, plan) {
@@ -712,6 +774,7 @@ export function effectiveConfig(config) {
     },
     hazards: Array.isArray(config.hazards) ? config.hazards : [],
     run: present(config.run) ? config.run : null,
+    places: effectivePlaces(config),
   };
 }
 

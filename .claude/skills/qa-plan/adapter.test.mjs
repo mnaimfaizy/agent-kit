@@ -27,6 +27,7 @@ import {
   FORMATS,
   PROJECT_SKILL_DIRS,
   effectiveConfig,
+  effectivePlaces,
   globToRegExp,
   main,
   matchHazards,
@@ -186,6 +187,11 @@ test("the defaults: tmp/qa, working copy, no tracker, nothing for base_ref or su
     },
     hazards: [],
     run: null,
+    places: [
+      { name: "local", holds: true },
+      { name: "staging", holds: false },
+      { name: "production", holds: false },
+    ],
   });
   assert.equal(DEFAULTS.tracker, "none");
   assert.throws(() => DEFAULTS.publish.push({}), TypeError);
@@ -258,7 +264,7 @@ test("unknown keys at every level are problems, with their line", () => {
     "run: { anything: goes }",
   );
   assert.deepEqual(problems, [
-    "line 2: `workdir`: unknown key (ADAPTER.md documents: working_dir, plan, hazards, run)",
+    "line 2: `workdir`: unknown key (ADAPTER.md documents: working_dir, plan, hazards, run, report)",
     "line 4: `plan.base`: unknown key (ADAPTER.md documents: base_ref, suites, publish, tracker)",
     "line 6: `plan.suites[0].junit_path`: unknown key (ADAPTER.md documents: name, command, junit, surfaces, services)",
     "line 8: `plan.publish[0].when`: unknown key (ADAPTER.md documents: when_label, default, to, label)",
@@ -326,7 +332,7 @@ test("JSON problems carry their key path", () => {
     JSON.stringify({ plan: { suites: [{ name: "a" }] }, extra: 1 }),
   );
   assert.deepEqual(problems, [
-    "`extra`: unknown key (ADAPTER.md documents: working_dir, plan, hazards, run)",
+    "`extra`: unknown key (ADAPTER.md documents: working_dir, plan, hazards, run, report)",
     "`plan.suites[0].command`: required: expected a string",
   ]);
 });
@@ -1342,4 +1348,85 @@ test("run.stack.address is a run key `host` must call local, and check --for run
   const bad = parseConfig("qa.config.yml", "run:\n  stack: { address: https://app.example.com }\n");
   assert.match(bad.runProblems[0], /`run\.stack\.address`: expected a local address/);
   assert.deepEqual(bad.problems, [], "a `run:` problem never stops qa-plan");
+});
+
+// ── Places (#416) ───────────────────────────────────────────────────────────
+
+test("the default Places: local holds a merge, staging and production are deferred", () => {
+  assert.deepEqual(effectivePlaces({}), [
+    { name: "local", holds: true },
+    { name: "staging", holds: false },
+    { name: "production", holds: false },
+  ]);
+  assert.deepEqual(effectiveConfig({}).places, effectivePlaces({}));
+});
+
+test("`report.places` renames Places and `report.holds` says which hold a merge", () => {
+  const read = yaml("report:", "  places: [dev, preprod, prod]", "  holds: [dev, preprod]");
+  assert.deepEqual(read.problems, []);
+  assert.deepEqual(effectivePlaces(read.config), [
+    { name: "dev", holds: true },
+    { name: "preprod", holds: true },
+    { name: "prod", holds: false },
+  ]);
+});
+
+test("`report.places: none` turns Places off: items are untagged and all hold", () => {
+  const read = yaml("report:", "  places: none");
+  assert.deepEqual(read.problems, []);
+  assert.equal(effectivePlaces(read.config), null);
+  assert.equal(effectiveConfig(read.config).places, null);
+});
+
+test("`report.holds` alone picks among the default Places", () => {
+  const read = yaml("report:", "  holds: [local, staging]");
+  assert.deepEqual(read.problems, []);
+  assert.deepEqual(
+    effectivePlaces(read.config).map((p) => [p.name, p.holds]),
+    [
+      ["local", true],
+      ["staging", true],
+      ["production", false],
+    ],
+  );
+});
+
+test("each `report` problem is named with its key", () => {
+  const problems = (...lines) => yaml(...lines).problems.join("\n");
+  assert.match(problems("report: yes"), /`report`: expected a mapping/);
+  assert.match(problems("report:", "  other: 1"), /`report\.other`: unknown key/);
+  assert.match(
+    problems("report:", "  places: [local, Local Box]"),
+    /`report\.places\[1\]`: expected a lowercase word/,
+  );
+  assert.match(
+    problems("report:", "  places: [local, local]"),
+    /`report\.places\[1\]`: `local` is listed twice/,
+  );
+  assert.match(
+    problems("report:", "  places: [a, b]"),
+    /`report\.holds`: name the Places that hold a merge/,
+  );
+  assert.match(
+    problems("report:", "  places: [a, b]", "  holds: [c]"),
+    /`report\.holds\[0\]`: `c` is not in `report\.places`/,
+  );
+  assert.match(
+    problems("report:", "  places: [a, b]", "  holds: []"),
+    /`report\.holds`: name at least one Place/,
+  );
+  assert.match(
+    problems("report:", "  places: none", "  holds: [local]"),
+    /`report\.holds`: Places are off/,
+  );
+  assert.match(problems("report:", "  places: [  ]"), /`report\.places`: expected a list of Places/);
+});
+
+test("`report` is read by the run check too, and a config with it has no run problems", () => {
+  const read = yaml("report:", "  places: [local, prod]", "  holds: [local]");
+  assert.deepEqual(read.runProblems, []);
+  assert.match(
+    yaml("report:", "  nope: 1").runProblems.join("\n"),
+    /`report\.nope`: unknown key/,
+  );
 });
