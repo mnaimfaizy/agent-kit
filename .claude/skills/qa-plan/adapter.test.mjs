@@ -1188,13 +1188,30 @@ test("a format=4 plan whose Stories match their Scenes reads, with each scenario
         "S4",
         "video",
         [
-          "The member signs in and opens **Members**.",
+          "The member signs in and opens Members.",
           "The admin signs in, removes the member, and sees the list without them.",
-          "The member reloads **Members** and lands on the sign-in page.",
+          "The member reloads Members and lands on the sign-in page.",
         ],
       ],
     ],
   );
+});
+
+test("a Story sentence reads as plain text: paired inline Markdown is stripped, snake_case and a lone * stay", () => {
+  const story = (sentence) =>
+    validatePlan(broken4(S2_STORY, `- **Story:**\n  1. ${sentence}\n`)).plan.scenarios[1].story;
+  assert.deepEqual(story("The member signs in and opens **Members**."), [
+    "The member signs in and opens Members.",
+  ]);
+  assert.deepEqual(
+    story(
+      "A __visitor__ opens *the* _members_ page at `/members` and reads [the guide](https://example.test/guide).",
+    ),
+    ["A visitor opens the members page at /members and reads the guide."],
+  );
+  assert.deepEqual(story("The member_id field shows 5 * 3 and a_b."), [
+    "The member_id field shows 5 * 3 and a_b.",
+  ]);
 });
 
 test("a single-session scenario is one Scene: a one-sentence Story reads, a second sentence is refused", () => {

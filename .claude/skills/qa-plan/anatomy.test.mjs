@@ -583,6 +583,7 @@ test("a scenario tells its story, one sentence per Scene, right after Capture an
     /a numbered list with one sentence per \[Scene\]\(#scenes-and-cuts\), in order/,
   );
   assert.match(story, /under the same public-text rules as \*\*Expected result:\*\*/);
+  assert.match(story, /read as plain text: the plan reader strips paired inline Markdown/);
   assert.match(story, /A single-session scenario is one Scene/);
   assert.match(
     story,

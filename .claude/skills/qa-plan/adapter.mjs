@@ -1286,6 +1286,22 @@ export const SCENARIO_EXPECTED_BEFORE = "Expected before";
  * has none, before **Steps:**. A `Capture: video` scenario in a format=4 plan carries one.
  */
 export const SCENARIO_STORY = "Story";
+
+/**
+ * A Story sentence as plain text, since a Title card and a Storyboard heading
+ * show it as written: paired inline Markdown is stripped (`**x**`, `__x__`,
+ * `*x*`, `_x_` and `` `x` `` to `x`, `[text](url)` to `text`). An underscore
+ * inside a word (`member_id`) and a lone `*` are kept.
+ */
+function plainStory(sentence) {
+  return sentence
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)\s]*\)/g, "$1")
+    .replace(/\*\*(?=\S)(.+?)(?<=\S)\*\*/g, "$1")
+    .replace(/(?<![\p{L}\p{N}_])__(?=\S)(.+?)(?<=\S)__(?![\p{L}\p{N}_])/gu, "$1")
+    .replace(/\*(?=\S)([^*]+?)(?<=\S)\*/g, "$1")
+    .replace(/(?<![\p{L}\p{N}_])_(?=\S)([^_]+?)(?<=\S)_(?![\p{L}\p{N}_])/gu, "$1");
+}
 /**
  * The plan formats this copy reads. A format=1 plan carries no per-scenario field; a
  * format=2 plan no **Capture:** or **Expected before:**; a format=3 plan no **Story:**.
@@ -2097,7 +2113,7 @@ export function validatePlan(text) {
                 break;
               parts.push(lines[n].trim());
             }
-            return parts.join(" ").trim();
+            return plainStory(parts.join(" ").trim());
           });
           const empty = story.findIndex((sentence) => sentence === "");
           if (empty !== -1) {
