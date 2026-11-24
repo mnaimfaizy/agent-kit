@@ -42,7 +42,9 @@ These are word for word the definitions in Agent-kit's root glossary, where a co
 
 **Storyboard**: The QA Artifact for a scenario with a screen: a band naming the scenario, the result, each side's expected and observed text and the commits, above numbered steps with Before beside After.
 
-**QA Report**: The self-contained Markdown file `manual-qa` writes for one run of one QA Plan: the build it checked, one row per scenario with one of five results (PASS, FAIL: regression, FAIL: pre-existing, Not proven, or left for a person), and the evidence.
+**QA Report**: The self-contained Markdown file `manual-qa` writes for one run of one QA Plan: the build it checked, one row per scenario with one of five results (PASS, FAIL: regression, FAIL: pre-existing, Not proven, or left for a person), and the evidence. The pull request gets a short summary of it, with a strict header; the full file stays local.
+
+**Place**: Where a person checks an item left for a person: `local`, `staging` and `production` by default, or the names a repository configures. A Place that holds a merge counts as left for a person in the posted summary; any other is deferred and never holds.
 
 ## Two skills, one format
 
@@ -141,6 +143,10 @@ It is built from the saved records and recordings, never by running anything aga
 ## Posting is a second step
 
 The report is a self-contained Markdown file in a gitignored folder, ready to post anywhere, and it is always written: a team on another tracker, or a person with no `gh` access, still has the whole result. Posting it to GitHub is outward-facing, so it waits until the person has seen the results and said yes. It goes where the plan went, so the people who read the plan find its results beside it. On a pull request it is one comment found by its `<!-- qa-report -->` marker and edited on each re-run: a second comment would leave readers to work out which run is current.
+
+## The post is a short summary, and the report stays local
+
+The QA Report file is complete: run facts, evidence paths, run deviations, an Execution record. Posted whole, it ran past 11,000 characters for nine passing scenarios, and reviewers skipped it. So the pull request gets a summary (ADR 0033): a strict header a program reads, a three-column table, the failures, and what is left for a person, each item under its Place. Everything else stays in the local file, and the one thing that crosses is a deviation that limits how far one result can be trusted, in a few words in its row's Notes cell. The header is read by a pure parser, so orchestrate can check a QA claim against its commit and counts; a comment that does not read is no report. The Places come from the config, because "local, staging, production" is one team's vocabulary: a repository renames them, adds its own, or turns them off, and the parser reads the same list the renderer wrote with.
 
 ## Capture is the default
 

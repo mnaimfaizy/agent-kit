@@ -252,8 +252,12 @@ The QA Artifact for a scenario with a screen: a band naming the scenario, the re
 _Avoid_: contact sheet, filmstrip, combined image
 
 **QA Report**:
-The self-contained Markdown file `manual-qa` writes for one run of one QA Plan: the build it checked, one row per scenario with one of five results (PASS, FAIL: regression, FAIL: pre-existing, Not proven, or left for a person), and the evidence.
+The self-contained Markdown file `manual-qa` writes for one run of one QA Plan: the build it checked, one row per scenario with one of five results (PASS, FAIL: regression, FAIL: pre-existing, Not proven, or left for a person), and the evidence. The pull request gets a short summary of it, with a strict header; the full file stays local.
 _Avoid_: test report, QA results
+
+**Place**:
+Where a person checks an item left for a person: `local`, `staging` and `production` by default, or the names a repository configures. A Place that holds a merge counts as left for a person in the posted summary; any other is deferred and never holds.
+_Avoid_: environment, stage
 
 ### Orchestration
 

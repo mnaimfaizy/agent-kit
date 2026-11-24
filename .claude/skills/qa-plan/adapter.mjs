@@ -64,7 +64,13 @@ export const CONFIG_FILES = /** @type {const} */ ([
   "qa.config.json",
 ]);
 
-export const TOP_KEYS = /** @type {const} */ (["working_dir", "plan", "hazards", "run"]);
+export const TOP_KEYS = /** @type {const} */ (["working_dir", "plan", "hazards", "run", "report"]);
+export const REPORT_KEYS = /** @type {const} */ (["places", "holds"]);
+/** The Places a repository starts with: `local` holds a merge, the others are deferred (ADR 0033). */
+export const DEFAULT_PLACES = Object.freeze(["local", "staging", "production"]);
+export const DEFAULT_HOLDS = Object.freeze(["local"]);
+/** A Place's name: one lowercase word, so `[<place>]` reads back. */
+export const PLACE_NAME = /^[a-z0-9][a-z0-9-]*$/;
 export const PLAN_KEYS = /** @type {const} */ (["base_ref", "suites", "publish", "tracker"]);
 export const SUITE_KEYS = /** @type {const} */ ([
   "name",
@@ -450,6 +456,63 @@ function sharedProblems(sink, config) {
   const workingDir = config.working_dir;
   if (present(workingDir) && !isRepoPath(workingDir))
     sink.add("working_dir", "expected a relative path inside the repository");
+  reportProblems(sink, config.report);
+}
+
+/** `report:`, the Places a posted QA Report tags its Left for a person items with (ADR 0033). */
+function reportProblems(sink, report) {
+  if (!present(report)) return;
+  if (!isMapping(report)) return sink.add("report", "expected a mapping");
+  unknownKeys(sink, report, "report", REPORT_KEYS);
+  const { places, holds } = report;
+  const off = places === "none";
+  let named = DEFAULT_PLACES;
+  if (present(places) && !off) {
+    if (!Array.isArray(places) || !places.length)
+      sink.add("report.places", "expected a list of Places, or `none` to turn them off");
+    else {
+      named = [];
+      places.forEach((place, n) => {
+        const path = `report.places[${n}]`;
+        if (typeof place !== "string" || !PLACE_NAME.test(place))
+          sink.add(path, "expected a lowercase word, such as `local`");
+        else if (named.includes(place)) sink.add(path, `\`${place}\` is listed twice`);
+        else named.push(place);
+      });
+    }
+  }
+  if (off) {
+    if (present(holds))
+      sink.add("report.holds", "Places are off, so none holds a merge: remove it");
+    return;
+  }
+  if (!present(holds)) {
+    if (present(places))
+      sink.add("report.holds", "name the Places that hold a merge, as a list of the Places above");
+    return;
+  }
+  if (!Array.isArray(holds)) return sink.add("report.holds", "expected a list of Places");
+  if (!holds.length) sink.add("report.holds", "name at least one Place that holds a merge");
+  holds.forEach((place, n) => {
+    if (!named.includes(place))
+      sink.add(`report.holds[${n}]`, `\`${place}\` is not in \`report.places\``);
+  });
+}
+
+/**
+ * The Places a posted QA Report may tag an item with: each `{name, holds}`, in
+ * order, or `null` when the config turns Places off (items untagged, all held).
+ * Read a config with no problems; a key with a problem is not defaulted.
+ *
+ * @param {Record<string, any>} config
+ * @returns {{name: string, holds: boolean}[] | null}
+ */
+export function effectivePlaces(config) {
+  const report = isMapping(config?.report) ? config.report : {};
+  if (report.places === "none") return null;
+  const names = Array.isArray(report.places) ? report.places : DEFAULT_PLACES;
+  const holds = Array.isArray(report.holds) ? report.holds : DEFAULT_HOLDS;
+  return names.map((name) => ({ name, holds: holds.includes(name) }));
 }
 
 function planProblems(sink, plan) {
@@ -712,6 +775,7 @@ export function effectiveConfig(config) {
     },
     hazards: Array.isArray(config.hazards) ? config.hazards : [],
     run: present(config.run) ? config.run : null,
+    places: effectivePlaces(config),
   };
 }
 
@@ -1331,6 +1395,25 @@ export const FORMAT = FORMATS.at(-1);
 const RULE_OUT = "If this fails, first rule out";
 /** A Sign-off box for a promise only reading can check: `- [ ] Review: <what to read, and what it must say>`, a space after the colon. */
 const REVIEW_BOX = /^\s*[-*]\s+\[(?<tick>[ xX])\]\s+Review:(?<text>(?:\s.*)?)$/;
+/** A Place leading a `Review:` box's text: `[<place>] <text>`. */
+const REVIEW_PLACE = /^\[([^\]\s]*)\](?:\s|$)/;
+/**
+ * What is wrong with a `Review:` box's Place, given the configured Places
+ * (`effectivePlaces`; `undefined` checks none, `null` is Places turned off).
+ */
+function placeProblem(place, text, places) {
+  if (places === undefined) return null;
+  if (places === null)
+    return place === null ? null : "Places are off: write the box with no Place, `Review: <text>`";
+  const names = places.map((p) => p.name);
+  // A box with no Place is read as the first Place that holds a merge: a plan made before Places still runs.
+  if (place === null) return null;
+  if (text === `[${place}]`)
+    return "a `Review:` box with nothing after its Place: say what to read, and what it must say";
+  if (!names.includes(place))
+    return `the box's Place \`${place}\` is not configured (${names.join(", ")}): pick one of them, or add it to \`report.places\``;
+  return null;
+}
 /** A box that looks meant as a `Review:` box but is not written as one: `review:`, `**Review:**`, `Review :`, `Review:docs`. */
 const NEAR_REVIEW_BOX = /^\s*[-*]\s+\[[ xX]\]\s+[*_]*review[*_]*\s*[*_]*:/i;
 /** A role id, and a Scenario account id: letters, digits, `_` and `-`. */
@@ -1528,7 +1611,7 @@ export function credentialProblems(lines) {
  * @param {string} text
  * @returns {{plan: Record<string, any>, problems: string[]}}
  */
-export function validatePlan(text) {
+export function validatePlan(text, { places } = {}) {
   const problems = [];
   const lines = String(text).replace(/^﻿/, "").split(/\r?\n/);
   const at = (n, message) => problems.push(`line ${n + 1}: ${message}`);
@@ -1922,7 +2005,12 @@ export function validatePlan(text) {
       const { tick, text } = /** @type {Record<string, string>} */ (box.groups);
       if (text.trim() === "")
         at(n, "a `Review:` box with nothing after it: say what to read, and what it must say");
-      else plan.reviews.push({ text: text.trim(), ticked: tick !== " " });
+      else {
+        const place = REVIEW_PLACE.exec(text.trim())?.[1] ?? null;
+        plan.reviews.push({ text: text.trim(), ticked: tick !== " ", place });
+        const why = placeProblem(place, text.trim(), places);
+        if (why) at(n, why);
+      }
     }
   }
 
@@ -2978,7 +3066,8 @@ export function main(argv, io = {}) {
   const readPlan = (path) => {
     const text = path === undefined ? stdin() : readFile(path);
     if (text === null) return { plan: null, problems: [`${path}: no such file`] };
-    return validatePlan(text);
+    // Each `Review:` box's Place is checked against the configured ones (ADR 0033).
+    return validatePlan(text, { places: effectivePlaces(loaded.config) });
   };
 
   if (command === "where") return whichCopyCommand(argv, io) ?? usage;

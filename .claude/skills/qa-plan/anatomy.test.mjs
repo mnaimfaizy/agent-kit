@@ -553,6 +553,16 @@ test("a promise only reading can check is a `Review:` box, never a scenario (#20
   assert.match(draft, /name each `Review:` box to the person/);
 });
 
+test("a `Review:` box names the Place where a person checks it, from the configured list (#416)", () => {
+  const signOff = section("Sign-off checklist").replace(/\s+/g, " ");
+  assert.match(signOff, /`- \[ \] Review: \[<place>\] <what to read, and what it must say>`/);
+  assert.match(signOff, /`- \[ \] Review: \[local\] docs\/x\.html says the token lasts 30 days`/);
+  assert.match(signOff, /`report\.places`/);
+  assert.match(signOff, /With Places turned off, the box carries no Place/);
+  const compose = skill.split(/^### /m).find((part) => part.startsWith("6. ")) ?? "";
+  assert.match(compose.replace(/\s+/g, " "), /`Review: \[<place>\] <text>`.*configured Places/);
+});
+
 test("a scenario may say what its run captures, after Observes and before Steps (format=3)", () => {
   const scenarios = section("Scenarios");
   const labels = [...scenarios.matchAll(/^- \*\*([^*]+):\*\*/gm)].map((m) => m[1]);

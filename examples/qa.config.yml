@@ -66,3 +66,7 @@ run:
   version_endpoint: /version # a path on the build's own host that names its commit
   evidence:
     upload: none # none | gh-release:<tag>, such as gh-release:qa-artifacts
+
+report: # the Places a posted QA Report tags each item left for a person with
+  places: [local, staging, production] # a list of lowercase words, or `none` to leave items untagged
+  holds: [local] # the Places that hold a merge; the others are deferred

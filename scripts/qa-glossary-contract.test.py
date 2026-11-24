@@ -32,6 +32,7 @@ TERMS = [
     "QA Artifact",
     "Storyboard",
     "QA Report",
+    "Place",
 ]
 
 
