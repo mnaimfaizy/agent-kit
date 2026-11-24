@@ -44,7 +44,9 @@
 //      PDF, a trace); media from a failed run is refused; of the media, only
 //      a Storyboard, an MP4 and the stills of a row with no Storyboard go,
 //      never a Before still, a still behind a Storyboard or a raw recording,
-//      each refusal naming its rule; a public repository gets a warning.
+//      each refusal naming its rule; a public repository gets a warning,
+//      and so does each MP4 that plays a sign-in, naming the roles its
+//      scenario file says sign in on camera (ADR 0020), never refused for it.
 //
 //   Every body it builds, and every picked text file (a log, a HAR), is
 //   checked for sign-in values with the plan's own credential scan, and
@@ -188,6 +190,55 @@ const NOT_CHECKABLE =
 const PUBLIC_WARNING =
   "this repository is public, so anyone can download a release asset: upload only files " +
   "that show QA Account data on a test system, and nothing of a real person or account";
+
+/** A role id, as the plan writes one: only such a word is ever printed in a warning. */
+const PLAIN_ID = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
+const SIGN_IN_CAVEAT =
+  "masking is best-effort, and any value the page itself shows, such as an email in a " +
+  "header, is visible; whether it goes is still your call";
+
+/**
+ * The warning an MP4 draws when it plays a sign-in (ADR 0020): the first Scene
+ * of every Session signed in as a role plays from its recording's start. A
+ * Scenario account's Session, a signed-out one and one with no `kind` open on
+ * their first step, so their ids are never named. Never a refusal.
+ *
+ * @param {string} mp4 the picked path, as the report writes it
+ * @param {string} scenarioPath its scenario file, `s<n>-storyboard.json` beside it
+ * @param {(path: string) => string} read
+ * @returns {string | null}
+ */
+function signInWarning(mp4, scenarioPath, read) {
+  let sessions;
+  try {
+    sessions = JSON.parse(read(scenarioPath))?.context?.sessions;
+  } catch {
+    sessions = undefined;
+  }
+  if (!Array.isArray(sessions))
+    return (
+      `\`${mp4}\`: its scenario file \`${scenarioPath}\` could not be read, so it may play a ` +
+      `role's sign-in on camera (ADR 0020): ${SIGN_IN_CAVEAT}`
+    );
+  const roles = sessions
+    .filter((s) => s && typeof s === "object" && s.kind === "role")
+    .map((s) => s.account);
+  if (!roles.length) return null;
+  // An id that is not a plain word (an email, say) is never printed.
+  const plain = roles.filter((id) => typeof id === "string" && PLAIN_ID.test(id));
+  const named = [...new Set(plain)].map((id) => `\`${id}\``);
+  // A role Session with no plain id (an email, a missing one) is counted, never shown.
+  const hidden = roles.length - plain.length;
+  const roleWord = (n) => (n > 1 ? "roles" : "role");
+  const list = named.length > 1 ? `${named.slice(0, -1).join(", ")} and ${named.at(-1)}` : named[0];
+  let who;
+  if (!named.length) who = `${hidden} ${roleWord(hidden)} whose id is not shown`;
+  else {
+    who = `${roleWord(named.length)} ${list}`;
+    if (hidden) who += `, and of ${hidden} more ${roleWord(hidden)} whose id is not shown`;
+  }
+  return `\`${mp4}\` plays the sign-in of ${who} on camera (ADR 0020): ${SIGN_IN_CAVEAT}`;
+}
 
 const lf = (text) => String(text).replace(/^﻿/, "").replace(/\r\n/g, "\n");
 
@@ -969,6 +1020,12 @@ export function evidenceUpload({
               .join("/")}/${encodeURIComponent(asset)}`
           : null;
         out.accepted.push({ file, asset, url });
+        const own = MP4.exec(normal);
+        if (own) {
+          const scenario = posix.join(posix.dirname(normal), `s${own[1]}-storyboard.json`);
+          const warning = signInWarning(file, scenario, read);
+          if (warning) out.warnings.push(warning);
+        }
       }
     }
   }

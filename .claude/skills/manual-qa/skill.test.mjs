@@ -642,6 +642,40 @@ test("step 6 builds an MP4 for each `Capture: video` scenario after its Storyboa
   assert.match(adapter, /## The MP4/);
 });
 
+test("step 6 writes each Session's id and how it signs in to the scenario file, and the MP4 follows the story across Cuts (#383)", () => {
+  const flat = skill.replace(/\s+/g, " ");
+  assert.match(
+    flat,
+    /the run context \(ids only\), with each Session's id, its account's id and how it signs in \(`kind`: `role`, `scenario account` or `nobody`;/,
+  );
+  assert.match(flat, /a single-session scenario's one Session is `A`/);
+  assert.match(
+    flat,
+    /The MP4 plays the steps in order across Sessions, cutting to each Session at its Cut/,
+  );
+  const adapterFlat = adapter.replace(/\s+/g, " ");
+  assert.doesNotMatch(adapterFlat, /One Session per side/);
+  assert.match(adapterFlat, /\*\*Scenes and Cuts:\*\*/);
+  assert.match(adapterFlat, /\*\*Recording windows:\*\*/);
+  assert.match(adapterFlat, /`proves` only sets the highlight/);
+  assert.match(adapterFlat, /`kind`/);
+});
+
+test("step 6 copies the plan's Story into the scenario file, and both builders tell it (#385)", () => {
+  const flat = skill.replace(/\s+/g, " ");
+  assert.match(
+    flat,
+    /the scenario's \*\*Story:\*\* sentences as `story`, copied word for word and in order \(`\[\]` when the plan has none\)/,
+  );
+  assert.match(flat, /each Scene's Story sentence as a heading row above its steps/);
+  assert.match(flat, /each Scene opening on a Title card with its Story sentence/);
+  const adapterFlat = adapter.replace(/\s+/g, " ");
+  assert.match(adapterFlat, /\| `story` +\|/);
+  assert.match(adapterFlat, /\*\*Scene headings:\*\*/);
+  assert.match(adapterFlat, /\*\*Title cards:\*\*/);
+  assert.match(adapterFlat, /each Story sentence/);
+});
+
 test("finding a driver notes whether it can save images and record", () => {
   const flat = skill.replace(/\s+/g, " ");
   assert.match(flat, /whether it can \*\*save images\*\*.*and whether it can \*\*record\*\*/);

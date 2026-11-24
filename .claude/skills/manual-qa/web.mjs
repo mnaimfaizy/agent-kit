@@ -21,7 +21,11 @@
 //     about (its box), that element's visible text, the Session and the time.
 //     A still is withheld while a password field, or any field holding a
 //     sign-in value, has a value, or while a sign-in value is on the screen.
-//   - With `--video`, a video per Session, Playwright's own `webm`.
+//   - With `--video`, a video per Session, Playwright's own `webm`, made to look
+//     like a person working: a literal value is typed key by key, and a pointer
+//     marker moves to each click target before the click. A `{{env:QA_…}}` value
+//     is still filled in one go, masked first, and the pointer is taken out of
+//     the page for every still, so no still and no crop changes.
 //
 //   Playwright is the repository's own, loaded from its `node_modules`; this
 //   driver never installs it, and Agent-kit takes no dependency on it.
@@ -80,6 +84,25 @@ const popupWhy = (n) =>
   "without following; drive that step with a browser tool";
 /** How long the driver waits after the last action for a late tab or window. */
 export const SETTLE_MS = 500;
+/** With `--video`, the pause after each key of a literal value typed key by key. */
+export const KEY_DELAY_MS = 60;
+/** With `--video`, a literal value's key pauses add up to at most this: a long one types faster. */
+export const TYPING_BUDGET_MS = 3_000;
+/** With `--video`, how long the pointer takes to move to a click target. */
+const POINTER_MOVE_MS = 400;
+/** The element id of the pointer marker drawn into each Session's page with `--video`. */
+export const POINTER_ID = "agent-kit-qa-pointer";
+const POINTER_SIZE = 22;
+/** The input types a literal is typed into key by key with `--video`: the text-like ones. */
+const TYPED_INPUTS = ["text", "search", "email", "url", "tel", "number"];
+/**
+ * A literal typed key by key: printable keyboard characters only. A line break would
+ * press Enter (and could submit a form mid-fill), and a character off the keyboard
+ * arrives with no key event, so such a value is filled in one go, as without `--video`.
+ */
+const TYPABLE = /^[\x20-\x7e]+$/;
+/** With `--video`, the time allowed for each key on top of its pause, in a typing's bound. */
+const PER_KEY_SLACK_MS = 5;
 const VIEWPORT = { width: 1280, height: 720 };
 const MIN_SECRET_LENGTH = 4;
 
@@ -353,6 +376,106 @@ async function mask(page, values) {
       .catch(() => {});
 }
 
+// ── With --video: a person at work ─────────────────────────────────────────
+
+/**
+ * Draws the pointer marker at `x, y` (its centre, in viewport pixels), adding it when
+ * the page has none, and moves it there over `ms`. It is a fixed, see-through ring
+ * the page cannot click or read: `aria-hidden`, no text, no pointer events, and
+ * on `<html>`, outside `<body>`, so it changes no layout, no element's box and no
+ * text a step records. Runs in the page.
+ * @param {[string, number, number, number, number]} args id, x, y, ms, size
+ */
+function placePointer([id, x, y, ms, size]) {
+  let marker = document.getElementById(id);
+  const at = (left, top) =>
+    `translate(${Math.round(left - size / 2)}px, ${Math.round(top - size / 2)}px)`;
+  if (!marker) {
+    marker = document.createElement("div");
+    marker.id = id;
+    marker.setAttribute("aria-hidden", "true");
+    const style = {
+      all: "initial",
+      position: "fixed",
+      left: "0",
+      top: "0",
+      width: `${size}px`,
+      height: `${size}px`,
+      "box-sizing": "border-box",
+      "border-radius": "50%",
+      border: "3px solid #fff",
+      background: "rgba(220, 38, 38, 0.55)",
+      "box-shadow": "0 0 0 1px rgba(0, 0, 0, 0.6), 0 2px 6px rgba(0, 0, 0, 0.45)",
+      "pointer-events": "none",
+      "z-index": "2147483647",
+      display: "block",
+      transform: at(x, y),
+    };
+    for (const [key, value] of Object.entries(style))
+      marker.style.setProperty(key, value, "important");
+    document.documentElement.append(marker);
+    return;
+  }
+  // Commit where it is now, so the move below animates from there.
+  marker.getBoundingClientRect();
+  marker.style.setProperty(
+    "transition",
+    ms ? `transform ${ms}ms ease-in-out` : "none",
+    "important",
+  );
+  marker.style.setProperty("transform", at(x, y), "important");
+}
+
+/**
+ * The pointer for one Session's page, with `--video` only: drawn after every action,
+ * moved to each click target before the click, and taken out of the page for every
+ * still. Drawing is best-effort: a page that is navigating or refuses the element
+ * leaves the video without a pointer for a moment, and the action runs as before.
+ * @param {any} page
+ */
+function pointerFor(page) {
+  let x = VIEWPORT.width / 2;
+  let y = VIEWPORT.height / 2;
+  const draw = (ms = 0) =>
+    page.evaluate(placePointer, [POINTER_ID, x, y, ms, POINTER_SIZE]).catch(() => {});
+  return {
+    draw: () => draw(),
+    /** Moves to the target's centre, scrolling it into view as the click would. */
+    async moveTo(target) {
+      // Only a target that is there now: a missing, hidden or ambiguous one is left
+      // to the click, which fails with its own error, after its own wait.
+      const box = await target
+        .isVisible()
+        .then((visible) =>
+          visible ? target.scrollIntoViewIfNeeded().then(() => target.boundingBox()) : null,
+        )
+        .catch(() => null);
+      if (!box) return;
+      await draw();
+      x = box.x + box.width / 2;
+      y = box.y + box.height / 2;
+      await draw(POINTER_MOVE_MS);
+      await page.waitForTimeout(POINTER_MOVE_MS);
+    },
+    /** Takes the marker out of the page for a still; false when that could not be confirmed. */
+    hide: () =>
+      page
+        .evaluate((id) => {
+          document.getElementById(id)?.remove();
+          return document.getElementById(id) === null;
+        }, POINTER_ID)
+        .catch(() => false),
+  };
+}
+
+/**
+ * The pause after each key of a literal value typed with `--video`: `KEY_DELAY_MS`,
+ * shortened for a long value so its pauses add up to at most `TYPING_BUDGET_MS`.
+ * @param {string} text
+ */
+export const keyDelay = (text) =>
+  Math.min(KEY_DELAY_MS, Math.floor(TYPING_BUDGET_MS / Math.max(text.length, 1)));
+
 /** Whether a page's address is the checked one (or the blank page a context opens on). */
 const onAddress = (url, origin) => {
   if (url === "about:blank") return true;
@@ -544,7 +667,7 @@ export async function runSequence(
       opened.close().catch(() => {});
     });
     sessionInfo[session] = { startedAtMs: Math.round(clock() - start), video: null };
-    const opened = { context, page, state };
+    const opened = { context, page, state, pointer: video ? pointerFor(page) : null };
     sessions.set(session, opened);
     return opened;
   };
@@ -567,10 +690,13 @@ export async function runSequence(
       const { session } = action;
       const [verb] = Object.keys(ACTIONS).filter((v) => v in action);
       try {
-        const { page, state } = await open(session);
+        const { page, state, pointer } = await open(session);
         if (verb === "goto") await page.goto(new URL(action.goto, origin).href);
-        else if (verb === "click") await locate(page, action.click).click();
-        else if (verb === "press") await page.keyboard.press(action.press);
+        else if (verb === "click") {
+          const target = locate(page, action.click);
+          if (pointer) await pointer.moveTo(target);
+          await target.click();
+        } else if (verb === "press") await page.keyboard.press(action.press);
         else if (verb === "wait")
           await locate(page, action.wait).waitFor({
             state: "visible",
@@ -578,13 +704,39 @@ export async function runSequence(
           });
         else if (verb === "fill") {
           const field = locate(page, action.fill);
-          const type = await field.evaluate((e) => (e instanceof HTMLInputElement ? e.type : ""));
+          const { type, typable } = await field.evaluate((e, inputs) => {
+            const input = e instanceof HTMLInputElement;
+            const editable =
+              (input && inputs.includes(e.type)) ||
+              e instanceof HTMLTextAreaElement ||
+              /** @type {HTMLElement} */ (e).isContentEditable;
+            const locked =
+              /** @type {HTMLInputElement} */ (e).disabled ||
+              /** @type {HTMLInputElement} */ (e).readOnly;
+            return { type: input ? e.type : "", typable: Boolean(editable && !locked) };
+          }, TYPED_INPUTS);
           if (type === "password" && action.value !== "" && !onlyPlaceholders(action.value))
             throw new Error("a literal value into a password field; give it as {{env:QA_…}}");
           // A field filled from a sign-in value shows dots, as a password field does,
           // so the value as typed reaches no still or video frame (best-effort: see `mask`).
-          if (action.value.match(PLACEHOLDER)) await field.evaluate(maskField);
-          await field.fill(fill(action.value));
+          if (action.value.match(PLACEHOLDER)) {
+            await field.evaluate(maskField);
+            // Always in one go: a sign-in value is never typed key by key, so it is
+            // masked before any of it arrives, with `--video` or without.
+            await field.fill(fill(action.value));
+          } else if (video && typable && TYPABLE.test(action.value)) {
+            // A literal, with `--video`: typed as a person types it, over the
+            // field's old text, selected first, so each character is one key. Any
+            // other field (a select, a date, one that is read-only) is filled as
+            // without `--video`, and fails the same way.
+            await field.selectText();
+            await field.pressSequentially(action.value, {
+              delay: keyDelay(action.value),
+              // The bound is the typing's, not the element's: `selectText` found it.
+              timeout:
+                ACTION_TIMEOUT_MS + TYPING_BUDGET_MS + PER_KEY_SLACK_MS * action.value.length,
+            });
+          } else await field.fill(action.value);
         } else {
           let subject = null;
           let text = null;
@@ -608,7 +760,13 @@ export async function runSequence(
                 : visible;
           }
           const index = steps.length + 1;
-          let withheld = await withholdReason(page, values);
+          // The pointer is the video's, never a still's: out of the page from the
+          // first check to the last, and drawn again once the step is done, as after
+          // every action. A pointer that may still be there withholds the still.
+          const hidden = pointer ? await pointer.hide() : true;
+          let withheld = hidden
+            ? await withholdReason(page, values)
+            : "the pointer could not be taken out of the page, so the still is withheld";
           let still = withheld
             ? null
             : `step-${String(index).padStart(2, "0")}-${session.toLowerCase()}.png`;
@@ -641,6 +799,7 @@ export async function runSequence(
         // counts, and is named by the last action that ran, not blamed on it.
         if (opened()) throw new Error(popupWhy(i + 1));
         await mask(page, values);
+        if (pointer) await pointer.draw();
         done += 1;
       } catch (failure) {
         const left = sessions.get(session)?.state.left;

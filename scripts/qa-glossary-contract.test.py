@@ -23,6 +23,7 @@ TERMS = [
     "Cut",
     "Scene",
     "Title card",
+    "Story",
     "Surface",
     "Driver",
     "QA Stack",
