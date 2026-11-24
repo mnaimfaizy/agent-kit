@@ -284,6 +284,57 @@ describe("review fixes on PR #297", () => {
   });
 });
 
+describe("approving QA in the Dispatch Plan (#419)", () => {
+  const yes = bullet(STEP4, "- **The QA yes.**");
+  const qaLine = STEP4.split("\n").find((l) => l.startsWith("Under it, the **QA** line"));
+
+  it("is a yes of its own, asked only when the config proposes QA rows, and not implied by go autonomous", () => {
+    assert.match(yes, /separate yes/);
+    assert.match(yes, /only when the config proposes QA rows/);
+    assert.match(yes, /asks nothing/);
+    assert.match(yes, /not implied by `autonomous`/);
+  });
+
+  it("lets the human strike rows, as in 'QA all but #258'", () => {
+    assert.match(yes, /QA all but #258/);
+    assert.match(yes, /strike/);
+  });
+
+  it("'no' (or a struck row) means no QA: Ready to Merge without it, the board and close-out say so, no readiness question", () => {
+    assert.match(yes, /"no", or a struck row, means no QA/);
+    assert.match(yes, /Ready to Merge without it/);
+    assert.match(yes, /QA declined in the Dispatch Plan/);
+    assert.match(yes, /board/);
+    assert.match(yes, /close-out/);
+    assert.match(yes, /no readiness question/);
+  });
+
+  it("covers re-QA on a new head, and leaves a plain go run on the typed route", () => {
+    assert.match(yes, /`-qa2`/);
+    assert.match(yes, /`-qa3`/);
+    assert.match(yes, /plain `go`/);
+    assert.match(yes, /typed route/);
+  });
+
+  it("the QA line sits under the Decision authority line: asked now, ruled on, held for close-out", () => {
+    assert.ok(STEP4.indexOf("Under it, the **QA** line") > STEP4.indexOf("Last, the **Decision authority** line"));
+    assert.match(qaLine, /asked now/);
+    assert.match(qaLine, /the Chief of Staff rules on/);
+    assert.match(qaLine, /held for close-out/);
+  });
+
+  it("the QA Rulings join the autonomous half only when QA is approved", () => {
+    const line = STEP4.split("\n").find((l) => l.startsWith("Last, the **Decision authority** line"));
+    assert.match(line, /only when QA is approved/);
+    assert.match(AUTONOMOUS, /only when QA is approved/);
+  });
+
+  it("RUN.md's board records the QA line, and what declined QA looks like", () => {
+    assert.match(RUN, /^QA: </m);
+    assert.match(RUN, /QA declined in the Dispatch Plan/);
+  });
+});
+
 describe("the ADR and the changelog", () => {
   const adrs = readdirSync(join(root, "docs/adr"));
   const old = adrs.filter((f) => f.startsWith("0013-"));

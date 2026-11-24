@@ -40,6 +40,8 @@ Started <date>. Plan approved <date>. Approved routine writes: <list, or none>. 
 
 QA readiness: <none needed; or for <base>, this run only, or saved to <config> (uncommitted); and each other base answered>.
 
+QA: <none proposed; approved for <rows>; declined in the Dispatch Plan for <rows>; or, in a run with plain `go`, not asked>.
+
 Heartbeat: <id, interval, made <time>; `foreground watch`, where the harness has no scheduler; none yet; deleted <time>; or none on tier 3>.
 
 Default branch: <name> at <SHA>, checked <time>; passed: <Delegation>@<head>, …, or none.
@@ -61,6 +63,8 @@ Shared Board labels: not held, <why>.
 ```
 
 The `QA readiness` line is there only when the run has a QA Delegation. It names the base branch the answers in `qa-readiness.json` hold for, so a QA brief for a pull request with another base gives no answers file ([SKILL.md](SKILL.md) step 4). In `qa-readiness-<base>.json`, a `/` in the branch name is written `-`.
+
+The `QA` line is there only when the run has a QA Delegation proposed by the config, and records the QA yes of a `go autonomous` run ([SKILL.md](SKILL.md) step 4): the rows approved, and the rows that were not, as `QA declined in the Dispatch Plan`. A declined row has no QA Delegation, and the close-out prints the same words beside it, so the board and the close-out both show that no QA ran by the human's choice. `--resume` and `--status` print it.
 
 The `Heartbeat` line is the check that re-arms itself while the run waits on a Delegation (SKILL.md step 6), so `--status` shows whether one is armed and `--resume` knows what to arm again.
 
