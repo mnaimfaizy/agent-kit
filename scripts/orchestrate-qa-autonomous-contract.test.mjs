@@ -755,9 +755,15 @@ describe("orchestrate reads the QA summary (#420)", () => {
     assert.match(places, /`none`/);
   });
 
+  it("says plainly that only check --for plan reads a run-only Places change", () => {
+    assert.match(places, /adapter\.mjs plan/);
+    assert.match(places, /commit it to the config/);
+  });
+
   it("the QA brief carries the run's Places", () => {
     assert.match(QA_BRIEF, /\*\*The Places:\*\*/);
     assert.match(QA_BRIEF, /report\.places/);
+    assert.match(QA_BRIEF, /report\.holds/);
   });
 
   it("uploads stay off unless 'upload eligible QA Artifacts to <tag>' is approved once, with the public-repo warning shown", () => {
