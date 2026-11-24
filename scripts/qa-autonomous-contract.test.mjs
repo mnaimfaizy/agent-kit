@@ -1,6 +1,7 @@
 /**
  * Contract test: each QA skill owns the mapping that lets an autonomous
- * orchestrate run follow it from a brief (issue #289, ADR 0013). `qa-plan` and
+ * orchestrate run follow it from a brief (issue #289; ADR 0013, superseded by the autonomous-QA
+ * handover ADR). `qa-plan` and
  * `manual-qa` each carry a "Run from an autonomous brief" section with one row
  * per workflow step that waits on the person, saying what replaces the wait.
  *

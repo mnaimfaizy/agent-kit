@@ -1,7 +1,8 @@
 /**
  * Contract test: in a `go autonomous` orchestrate run, QA runs from the brief,
  * and in every run the QA readiness question is asked once, in the Dispatch
- * Plan (issue #289, ADR 0013). The skill is prose, so these tests pin the
+ * Plan (issue #289; ADR 0013, superseded by the
+ * autonomous-QA handover ADR). The skill is prose, so these tests pin the
  * sentences a run relies on: the readiness question and its file, the rule
  * that keeps it out of every QA brief and every Ruling, the base-branch reuse
  * rule, the exact typed command with `--answers` in a plain `go` run, the
@@ -284,16 +285,43 @@ describe("review fixes on PR #297", () => {
 });
 
 describe("the ADR and the changelog", () => {
-  const adrs = readdirSync(join(root, "docs/adr")).filter((f) => f.startsWith("0013-"));
+  const adrs = readdirSync(join(root, "docs/adr"));
+  const old = adrs.filter((f) => f.startsWith("0013-"));
+  const handover = adrs.filter((f) => f.includes("autonomous-qa-handover"));
 
-  it("ADR 0013 says the QA skills run from the brief, with its why and considered options", () => {
-    assert.equal(adrs.length, 1);
-    const adr = read(`docs/adr/${adrs[0]}`);
-    assert.match(adr, /^# In an autonomous orchestrate run, the QA skills run from the brief$/m);
-    assert.match(adr, /## Considered options/i);
+  it("ADR 0013 is marked superseded by the handover ADR, and the handover ADR supersedes it", () => {
+    assert.equal(old.length, 1);
+    assert.equal(handover.length, 1);
+    const number = handover[0].slice(0, 4);
+    const adr = read(`docs/adr/${old[0]}`);
+    assert.match(adr, new RegExp(`^status: superseded by ADR-${number}$`, "m"));
+    const next = read(`docs/adr/${handover[0]}`);
+    assert.match(next, /^supersedes: ADR-0013$/m);
+  });
+
+  it("the handover ADR pins the decision, with its why and considered options", () => {
+    const adr = read(`docs/adr/${handover[0]}`);
+    assert.match(adr, /^# .*QA/m);
+    assert.match(adr, /## Considered Options/);
     assert.match(adr, /model-invocable/);
-    assert.match(adr, /keep the human typing/i);
-    assert.match(adr, /hosted/);
+    assert.match(adr, /implied by `go autonomous`/i);
+    assert.match(adr, /mid-run/i);
+    assert.match(adr, /hosted/i);
+    assert.match(adr, /no config key confirms a hosted address/i);
+    assert.match(adr, /sub-agent/i);
+    assert.match(adr, /scheduled task/i);
+    assert.match(adr, /never ticked by an agent/i);
+    assert.match(adr, /parked/i);
+  });
+
+  it("the summary-post ADR exists, with its considered options", () => {
+    const summary = adrs.filter((f) => f.includes("qa-report-summary"));
+    assert.equal(summary.length, 1);
+    const adr = read(`docs/adr/${summary[0]}`);
+    assert.match(adr, /## Considered Options/);
+    assert.match(adr, /full report/i);
+    assert.match(adr, /variant B/i);
+    assert.match(adr, /variant C/i);
   });
 
   it("CHANGELOG.md has the line, in [Unreleased] or the release that shipped it", () => {
