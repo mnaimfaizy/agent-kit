@@ -869,7 +869,9 @@ describe("hosted targets typed in the Dispatch Plan (#421)", () => {
   });
 
   it("the Decision authority line says a url target runs from the brief too", () => {
-    const line = STEP4.split("\n").find((l) => l.startsWith("Last, the **Decision authority** line"));
+    const line = STEP4.split("\n").find((l) =>
+      l.startsWith("Last, the **Decision authority** line"),
+    );
     assert.doesNotMatch(line, /a `url` target stays on the typed route/);
     assert.match(line, /`url`/);
   });

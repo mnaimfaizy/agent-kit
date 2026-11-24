@@ -259,6 +259,18 @@ _Avoid_: test report, QA results
 Where a person checks an item left for a person: `local`, `staging` and `production` by default, or the names a repository configures. A Place that holds a merge counts as left for a person in the posted summary; any other is deferred and never holds.
 _Avoid_: environment, stage
 
+### Hosted targets
+
+How a `url` QA target names more than one address, and who confirms each: the terms [`manual-qa`](.claude/skills/manual-qa/SKILL.md) and the `orchestrate` Dispatch Plan share.
+
+**Host candidate**:
+A hosted address that a QA config lists under `run.hosts`. No config key confirms a hosted address, so it counts as a host only once the human types it, per host and per run (in chat, or in an approved-QA run's Dispatch Plan), and `adapter.mjs host` gives `hosted`.
+_Avoid_: configured host, saved host
+
+**Service**:
+A named hosted service of a `url` target, such as `billing`, that has an address of its own; a scenario picks it with **Service:**, and without one it uses the entry for its surface.
+_Avoid_: backend, microservice
+
 ### Orchestration
 
 The `orchestrate` Portable skill; why it is a core plus a per-repository config: [ADR 0004](docs/adr/0004-orchestrate-is-a-core-plus-a-config.md). The skill's [`DESIGN.md`](.claude/skills/orchestrate/DESIGN.md#glossary) carries the same definitions, word for word, so the skill keeps them when it is installed alone; `scripts/orchestrate-glossary-contract.test.py` keeps the two the same. "Live Session" is always written in full: a **Session** alone is a QA term.
@@ -310,6 +322,10 @@ _Avoid_: sign-off, approval
 **QA held for you**:
 In an approved-QA run, the list, right after the Ruling Review, of the QA questions the human keeps, each with its row, evidence and options; not Rulings, so outside the Ruling Ledger, and a row is Ready to Merge once they are answered.
 _Avoid_: QA queue, held Rulings
+
+**Parked QA session**:
+In an approved-QA run on Claude Code desktop, a QA Live Session started at the `go` turn on a brief with no head yet; it idles until the Chief of Staff messages it the head, and runs a re-QA in the same session.
+_Avoid_: idle session, standby session
 
 **Dispatch Plan**:
 The one table the Chief of Staff shows before any Delegation starts, giving each one's scope, Executor, model and wave, with the kinds of routine write the human may approve; one "go" approves it whole.
