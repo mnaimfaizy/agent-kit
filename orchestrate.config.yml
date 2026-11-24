@@ -34,7 +34,41 @@ skills:
 
 triage_labels: docs/agents/triage-labels.md
 
+models:
+  analysis: claude-sonnet-5-5
+  build: claude-sonnet-5-5
+  review: claude-sonnet-5-5
+  qa: claude-sonnet-5-5
+
 harness: claude-code-desktop
 
+# executors is left out: every Delegation runs on the pinned harness.
+
+limits:
+  building: 3
+  shared: []
+
+decisions:
+  to: pull-request
+
 ready_to_merge:
+  review: settled
+  qa: report # a QA Delegation per head, only for an issue labeled qa
+  qa_labels: [qa]
   review_workflow: detect
+
+spec:
+  landing: ask
+  integration_branch: orchestrate/spec-<n>
+
+tracker: detect
+
+team:
+  labels:
+    planned: "team: planned"
+    parked: "team: parked"
+    running: "team: running"
+    waiting: "team: waiting"
+    ready_to_merge: "team: ready to merge"
+    merged: "team: merged"
+  recent_activity: 5
