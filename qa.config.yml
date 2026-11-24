@@ -1,0 +1,33 @@
+# qa.config.yml: Agent-kit's own settings for the qa-plan and manual-qa skills.
+# This repository's config, not part of the kit. Template:
+# examples/qa.config.yml. Guide: docs/qa.md.
+#
+# No run: section. Agent-kit has no application to start, so there is no QA
+# Stack and no QA Account. When a plan has scenarios to run, manual-qa asks for
+# the target, surface and roles in chat.
+#
+# Each suite runs in a fresh worktree that holds tracked files only, at the head
+# and at the merge-base, so it installs what it needs. Node does not create the
+# folder for its JUnit file, so the node suite creates it first.
+
+working_dir: tmp/qa # gitignored; plans, reports and evidence are written here
+
+plan:
+  base_ref: origin/main
+  suites:
+    - name: python
+      command: "uv run pytest --junitxml=tmp/qa/reports/python.xml"
+      junit: tmp/qa/reports/python.xml
+      surfaces: ["**/*.py", "pyproject.toml", "uv.lock"]
+    - name: node
+      command: 'npm ci && node -e "fs.mkdirSync(process.argv[1],{recursive:true})" tmp/qa/reports && node --test --test-reporter=junit --test-reporter-destination=tmp/qa/reports/node.xml scripts/*.test.mjs .claude/skills/*/*.test.mjs examples/patterns/*/*.test.mjs'
+      junit: tmp/qa/reports/node.xml
+      surfaces:
+        - "**/*.mjs"
+        - "cli/**"
+        - ".claude/skills/**"
+        - "package.json"
+        - "package-lock.json"
+  publish:
+    - { default: true, to: pr-comment }
+  tracker: github
