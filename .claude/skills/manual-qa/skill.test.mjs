@@ -651,7 +651,7 @@ test("step 6 writes each Session's id and how it signs in to the scenario file, 
   assert.match(flat, /a single-session scenario's one Session is `A`/);
   assert.match(
     flat,
-    /The MP4 plays the steps in order across Sessions, switching Session at each Cut/,
+    /The MP4 plays the steps in order across Sessions, cutting to each Session at its Cut/,
   );
   const adapterFlat = adapter.replace(/\s+/g, " ");
   assert.doesNotMatch(adapterFlat, /One Session per side/);
