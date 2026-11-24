@@ -131,6 +131,8 @@ Codex Cloud, the Copilot cloud agent, Devin Cloud, Cursor Cloud Agents and Antig
 | analysis   | A sub-agent, or a Live Session if long | A sub-agent, or a headless run                  | A session the human starts |
 | QA         | A Live Session                         | A headless run; else a session the human starts | A session the human starts |
 
+On a harness whose file says so (Claude Code desktop), a QA Live Session is **parked**: started at the `go` turn, which the human's words authorize, on a QA brief without `<head>`, and messaged its head later, and again for a re-QA, so no card or click is needed. `executors.qa: claude-code-cli` moves QA to a headless run instead ([SKILL.md](SKILL.md) step 4 gives its costs).
+
 A harness file's **Executors** line wins over this table where they differ. The Dispatch Plan names the Executor for every Delegation, and the human's "go" approves it.
 
 A QA Delegation is never a sub-agent, on any harness: QA needs a working copy and a browser of its own, and outside an autonomous run, a sub-agent cannot take a user-invoked skill either. On every harness, the QA Delegation's session starts on its brief, never on a skill command, so the head is pinned before `qa-plan` runs. Then its QA skills start by one of two routes ([SKILL.md](SKILL.md) step 4):
