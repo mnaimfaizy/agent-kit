@@ -1677,6 +1677,171 @@ test("a public repository, or one of unknown visibility, gets the QA Account war
     );
 });
 
+// --- The sign-in warning for an MP4 (#386, ADR 0020) ---
+
+/** A scenario file whose Sessions sign in as given: [session, account, kind?]. */
+const scenarioFile = (...sessions) =>
+  JSON.stringify({
+    scenario: "S1",
+    context: {
+      accounts: sessions.map(([, account]) => account),
+      sessions: sessions.map(([session, account, kind]) =>
+        kind === undefined ? { session, account } : { session, account, kind },
+      ),
+    },
+  });
+const withScenario = (text) => (path) => {
+  if (path === p57("s1-storyboard.json")) return text;
+  return everyFile(path);
+};
+const signInWarnings = (result) => result.warnings.filter((w) => /sign-in/.test(w));
+
+test("an MP4 whose Sessions sign in as roles gets a warning naming each role, and still goes (#386)", () => {
+  const result = upload(BOARDS, [p57("s1.mp4")], {
+    read: withScenario(
+      scenarioFile(["A", "admin", "role"], ["B", "user", "role"], ["C", "admin", "role"]),
+    ),
+  });
+  assert.deepEqual(result.refused, []);
+  assert.deepEqual(
+    result.accepted.map((a) => a.asset),
+    ["pr-57-s1.mp4"],
+  );
+  const [warning, ...more] = signInWarnings(result);
+  assert.deepEqual(more, []);
+  assert.match(
+    warning,
+    /^`qa-report-pr-57\/s1\.mp4` plays the sign-in of roles `admin` and `user`/,
+  );
+  assert.match(warning, /masking is best-effort/);
+  assert.match(
+    warning,
+    /any value the page itself shows, such as an email in a header, is visible/,
+  );
+});
+
+test("a Scenario account's or a signed-out Session's id is never named (#386)", () => {
+  const scenario = scenarioFile(
+    ["A", "user", "role"],
+    ["B", "new_member", "scenario account"],
+    ["C", "visitor", "nobody"],
+    ["D", "old_member"],
+  );
+  const [warning] = signInWarnings(
+    upload(BOARDS, [p57("s1.mp4")], { read: withScenario(scenario) }),
+  );
+  assert.match(warning, /plays the sign-in of role `user` on camera/);
+  for (const id of ["new_member", "visitor", "old_member"]) assert.ok(!warning.includes(id), id);
+  // With no role signed in on camera, there is nothing to warn about.
+  const none = scenarioFile(["A", "new_member", "scenario account"], ["B", "visitor", "nobody"]);
+  const quiet = upload(BOARDS, [p57("s1.mp4")], { read: withScenario(none) });
+  assert.deepEqual(signInWarnings(quiet), []);
+  assert.equal(quiet.accepted.length, 1);
+});
+
+test("a Storyboard, a still or a plain-text log gets no sign-in warning (#386)", () => {
+  const read = withScenario(scenarioFile(["A", "admin", "role"]));
+  const result = upload(
+    BOARDS,
+    [p57("s1-storyboard.png"), p57("s2-web/step-03-a.png"), p57("s2-http.log")],
+    {
+      read,
+    },
+  );
+  assert.equal(result.accepted.length, 3);
+  assert.deepEqual(result.warnings, []);
+  // A refused MP4 is not uploaded, so it draws no warning either.
+  const failed = reportFor([
+    BOARD_ROWS[0].replace("| PASS |", "| FAIL: regression |"),
+    BOARD_ROWS[1],
+  ]);
+  const refused = upload(failed, [p57("s1.mp4")], { read });
+  assert.equal(refused.refused.length, 1);
+  assert.deepEqual(signInWarnings(refused), []);
+});
+
+test("on a public repository, or one of unknown visibility, both warnings are given (#386)", () => {
+  const read = withScenario(scenarioFile(["A", "user", "role"], ["B", "admin", "role"]));
+  for (const visibility of ["PUBLIC", null]) {
+    const { warnings, accepted } = upload(BOARDS, [p57("s1.mp4")], { read, visibility });
+    assert.equal(accepted.length, 1);
+    assert.equal(warnings.length, 2, String(visibility));
+    assert.match(warnings[0], /only files that show QA Account data/);
+    assert.match(warnings[1], /plays the sign-in of roles `user` and `admin`/);
+  }
+});
+
+test("the sign-in warning never prints a sign-in value (#386)", () => {
+  // Built at run time: no credential-looking literal is ever committed.
+  const email = ["ada", "@", "example", ".test"].join("");
+  const secret = ["Zq", "8v", "Lw", "3n"].join("");
+  const scenario = JSON.stringify({
+    scenario: "S1",
+    context: {
+      accounts: ["user"],
+      sessions: [
+        { session: "A", account: email, kind: "role" },
+        { session: "B", account: "user", kind: "role", password: secret },
+      ],
+    },
+    variables: ["QA_A_EMAIL"],
+  });
+  const [warning] = signInWarnings(
+    upload(BOARDS, [p57("s1.mp4")], { read: withScenario(scenario) }),
+  );
+  assert.ok(!warning.includes(email));
+  assert.ok(!warning.includes(secret));
+  assert.match(
+    warning,
+    /plays the sign-in of role `user` on camera \(ADR 0020\), and of another role whose id is not a plain id, so it is not shown: /,
+  );
+  // With only such ids, no id is printed at all.
+  const only = JSON.stringify({
+    context: { sessions: [{ session: "A", account: email, kind: "role" }] },
+  });
+  const [alone] = signInWarnings(upload(BOARDS, [p57("s1.mp4")], { read: withScenario(only) }));
+  assert.ok(!alone.includes(email));
+  assert.match(
+    alone,
+    /plays the sign-in of a role whose id is not a plain id, so it is not shown, on camera/,
+  );
+});
+
+test("an MP4 whose scenario file cannot be read is warned about, and still goes (#386)", () => {
+  const unread = () => {
+    throw Object.assign(new Error("gone"), { code: "ENOENT" });
+  };
+  for (const read of [unread, withScenario("{not json"), withScenario('{"context": {}}')]) {
+    const result = upload(BOARDS, [p57("s1.mp4")], { read });
+    assert.equal(result.accepted.length, 1);
+    const [warning] = signInWarnings(result);
+    assert.match(
+      warning,
+      /^`qa-report-pr-57\/s1\.mp4`: its scenario file `qa-report-pr-57\/s1-storyboard\.json` could not be read/,
+    );
+    assert.match(warning, /it may play a role's sign-in/);
+  }
+});
+
+test("the CLI prints the sign-in warning and uploads the MP4 with exit 0 (#386)", () => {
+  const { code, out } = main(
+    ["evidence", "report.md", "--pick", p57("s1.mp4"), "--visibility", "PRIVATE"],
+    {
+      readFile: (p) => (p === "report.md" ? BOARDS : null),
+      read: (p) =>
+        p === "qa.config.yml" ? "run:\n  evidence: { upload: gh-release:qa-artifacts }\n" : null,
+      exists: () => true,
+      readEvidence: withScenario(scenarioFile(["A", "user", "role"], ["B", "admin", "role"])),
+    },
+  );
+  assert.equal(code, 0);
+  const result = JSON.parse(out);
+  assert.deepEqual(result.refused, []);
+  assert.equal(result.accepted[0].file, p57("s1.mp4"));
+  assert.equal(result.warnings.length, 1);
+  assert.match(result.warnings[0], /plays the sign-in of roles `user` and `admin` on camera/);
+});
+
 // --- CLI ---
 
 test("the CLI refuses a failed run's media with exit 1", () => {
