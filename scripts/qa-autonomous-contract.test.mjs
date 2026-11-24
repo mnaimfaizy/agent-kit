@@ -105,10 +105,16 @@ describe("qa-plan: what replaces each wait", () => {
   const text = section(SKILL, HEADING);
   const row = (n) => text.split("\n").find((line) => new RegExp(`^\\|\\s*${n}\\s*\\|`).test(line));
 
-  it("takes the readiness answers from the --answers file, and never offers to save a config", () => {
+  it("takes the readiness answers from the --answers file, never offers to save a config, and holds what the file leaves", () => {
     assert.match(row(2), /`--answers`/);
     assert.match(row(2), /never (?:offers|offer) to save/);
-    assert.match(row(2), /never (?:a Ruling|rules)/);
+    assert.match(row(2), /never a Ruling/);
+    assert.match(row(2), /held for close-out/);
+  });
+
+  it("an unignored working_dir: writes nothing and stops, and the row is held", () => {
+    assert.match(row(2), /`working_dir`/);
+    assert.match(row(2), /write nothing and stop/);
   });
 
   it("makes the subject issue and an `unknown` row Rulings under the evidence bar, else the human's", () => {
@@ -116,7 +122,13 @@ describe("qa-plan: what replaces each wait", () => {
     assert.match(row(3), /evidence bar/);
     assert.match(row(4), /`unknown`/);
     assert.match(row(4), /evidence bar/);
-    assert.match(text, /`waiting`/);
+    assert.match(row(3), /held for close-out/);
+    assert.match(row(4), /held for close-out/);
+  });
+
+  it("never sets this Delegation `waiting` on the human: a question the evidence does not settle is held", () => {
+    assert.match(text, /never `waiting` on the human/);
+    assert.match(text, /held for close-out/);
   });
 
   it("turns 'Add the test' into a send-back Ruling, voids this QA, and commits nothing", () => {
@@ -127,9 +139,17 @@ describe("qa-plan: what replaces each wait", () => {
     assert.match(row(4), /commits nothing/);
   });
 
-  it("delivers the QA Plan on a Ruling, with the reused-answers line", () => {
+  it("delivers the QA Plan on a Ruling, with the reused-answers line, each Review box naming its file and exact words", () => {
     assert.match(row(7), /Ruling/);
     assert.match(row(7), /answers\.reused/);
+    assert.match(row(7), /the file and the exact words/);
+  });
+
+  it("skips the stale-report edit and logs it, since the header names its commit and a re-QA replaces the comment", () => {
+    assert.match(row(8), /skip/i);
+    assert.match(row(8), /log/);
+    assert.match(row(8), /replaces the comment/);
+    assert.doesNotMatch(row(8), /Decision Request/);
   });
 });
 
@@ -143,6 +163,43 @@ describe("manual-qa: what replaces each wait", () => {
     assert.match(text, /`url`/);
     assert.match(row(5), /typed/);
     assert.match(row(5), /`waiting`/);
+  });
+
+  it("takes the run needs from the --answers file (qa-run.json), holds what appears after compose, and never asks", () => {
+    assert.match(row(2), /`--answers`/);
+    assert.match(row(2), /`qa-run\.json`/);
+    assert.match(row(2), /never (?:offers|offer) to save/);
+    assert.match(row(2), /after compose/);
+    assert.match(row(2), /left for a person/);
+    assert.match(row(2), /held for close-out/);
+  });
+
+  it("an unignored working_dir at the head: writes nothing and stops, and the row is held", () => {
+    assert.match(row(2), /write nothing and stop/);
+  });
+
+  it("run.surface is a Ruling under the evidence bar, otherwise held", () => {
+    assert.match(row(2), /`run\.surface:`/);
+    assert.match(row(2), /Ruling/);
+    assert.match(row(2), /evidence bar/);
+  });
+
+  it("an address `up` does not print comes from `run.stack.address`, and is held when there is none", () => {
+    assert.match(row(5), /`run\.stack\.address`/);
+    assert.match(row(5), /held for close-out/);
+    assert.match(row(5), /`adapter\.mjs host`|`host`/);
+  });
+
+  it("each open Review box is quoted at the pinned head and classified, and no agent ticks one", () => {
+    assert.match(row(8), /quote/);
+    assert.match(row(8), /"literal, quoted"/);
+    assert.match(row(8), /"needs judgment"/);
+    assert.match(row(8), /never ticks/);
+    assert.match(row(8), /`review-quotes\.md`/);
+  });
+
+  it("never sets this Delegation `waiting` on the human on a stack target", () => {
+    assert.match(text, /never `waiting` on the human/);
   });
 
   it("uploads nothing: every QA Artifact stays local", () => {
