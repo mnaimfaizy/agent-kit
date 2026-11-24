@@ -1,0 +1,90 @@
+# Agent-kit's own Scan recipe (#374): how `agent-kit deep-scan` builds and
+# probes this repository. The Threat pack stays in security/; deep-scan reads
+# its paths from .github/workflows/dogfood-security-audit.yml.
+#
+# Every entry point is a command, so there is no start or ready. The shims and
+# offline fixtures the entry points use are in security/deep-scan/ (test-only;
+# see its README). They never make a network call or read a real credential.
+
+# A stock devcontainer image, pinned by its multi-arch index digest: Node 22,
+# npm, git, jq, curl, bash, python3, CA certificates, useradd and usermod,
+# with no Dockerfile, so the recipe runs on Docker Sandboxes and on gVisor.
+# Its uid 1000 account is `node`, which the Docker Sandboxes template layer
+# renames to `agent`. Tag 5.2.7-22-bookworm, built 2026-11-20.
+image: mcr.microsoft.com/devcontainers/javascript-node:5.2.7-22-bookworm@sha256:48796309693b0f696394668b323afb5fb0b6907d31e20e1f8db19488659d4f65
+
+# The dev install. Nothing here needs root: no package manager, no sudo.
+setup:
+  - for tool in node npm git jq curl bash python3; do command -v "$tool" >/dev/null || { echo "the image lacks $tool" >&2; exit 1; }; done
+  - npm ci --ignore-scripts --no-audit --no-fund
+
+registries:
+  - registry.npmjs.org
+
+entry_points:
+  - command: node .github/agent-runtime/confine-reads-to-workspace.mjs
+    note: Read confinement PreToolUse hook; stdin is a hook event, GITHUB_WORKSPACE the workspace. Fixture read-confinement.
+  - command: node .github/agent-runtime/confine-writes-to-worktree.mjs
+    note: Write confinement PreToolUse hook for the implementer; stdin is a hook event. Fixture write-confinement.
+  - command: node .github/agent-runtime/guard-implementer-push.mjs
+    note: Implementer push and Bash guard PreToolUse hook; reads RUNNER_TEMP/read-confinement/push-guard-base. Fixture push-guard.
+  - command: node .github/agent-runtime/check-git-config.mjs
+    note: The git-config allowlist check, run on a path to a .git folder. Fixture git-config.
+  - command: bash .github/security-audit/publish-draft-advisory.sh
+    note: Files the report as a draft advisory through gh; run only with the recording gh shim on PATH. Fixture publish-advisory.
+  - command: bash .github/security-audit/comment-pr-counts.sh
+    note: Posts the counts-only PR comment through gh; run only with the recording gh shim on PATH. Fixture pr-comment.
+  - command: bash .github/security-audit/notify-email.sh
+    note: Mails the notice over SMTP from python3; point it only at the recording mail shim on 127.0.0.1. Fixture notify-email.
+  - command: node cli/bin/agent-kit.mjs
+    note: The CLI's init, upgrade and doctor, in a crafted Consumer repository, up to the tag fetch. Fixtures cli-init, cli-upgrade, cli-doctor.
+  - command: node security/deep-scan/drive.mjs
+    note: The fixture driver; with a fixture name, runs that fixture's crafted cases against its entry point and prints each verdict.
+
+# The fixtures, each run with `node security/deep-scan/drive.mjs <fixture>`.
+# Every value in them is fake; the driver gives each child process a clean
+# environment, so no real token reaches an entry point.
+fixtures:
+  - fixture: read-confinement
+    drives: .github/agent-runtime/confine-reads-to-workspace.mjs
+    cases: security/deep-scan/hook-events/read-confinement.json
+  - fixture: write-confinement
+    drives: .github/agent-runtime/confine-writes-to-worktree.mjs
+    cases: security/deep-scan/hook-events/write-confinement.json
+  - fixture: push-guard
+    drives: .github/agent-runtime/guard-implementer-push.mjs
+    cases: security/deep-scan/hook-events/push-guard.json
+  - fixture: git-config
+    drives: .github/agent-runtime/check-git-config.mjs
+    cases: security/deep-scan/git-configs/cases.json
+  - fixture: publish-advisory
+    drives: .github/security-audit/publish-draft-advisory.sh
+    shim: security/deep-scan/shims/gh
+  - fixture: pr-comment
+    drives: .github/security-audit/comment-pr-counts.sh
+    shim: security/deep-scan/shims/gh
+  - fixture: notify-email
+    drives: .github/security-audit/notify-email.sh
+    shim: security/deep-scan/shims/mail.mjs
+  - fixture: cli-init
+    drives: cli/bin/agent-kit.mjs init
+    consumer: security/deep-scan/consumer
+  - fixture: cli-upgrade
+    drives: cli/bin/agent-kit.mjs upgrade
+    consumer: security/deep-scan/consumer
+  - fixture: cli-doctor
+    drives: cli/bin/agent-kit.mjs doctor
+    consumer: security/deep-scan/consumer
+  - token: fake-github-token-for-shims-only
+    role: the GITHUB_TOKEN value the delivery fixtures pass; the gh shim records only that a token is set
+
+grounding:
+  - https://docs.github.com/api/article/body?pathname=/en/actions/reference/security/secure-use
+  - https://code.claude.com/docs/en/hooks.md
+
+notes:
+  - The reusable workflows (.github/workflows/*-reusable.yml) and the dogfood Callers stay static-only; no workflow runs in the sandbox.
+  - The prose skills (.claude/skills/) and the agent prompts (.github/agent-pipeline/, .github/security-audit/prompt.md) stay static-only.
+  - Prompt injection against the agent stages (planner, implementer, reviewer, review response, audit) stays static-only; no model runs as a target.
+  - The CLI's tag fetch stays static-only. init, upgrade and doctor read a tag only from an https git server (cli/src/kit-tag.mjs), with no offline source; the fixtures point GITHUB_SERVER_URL at a local sentinel that only records that the fetch was reached.
+  - The delivery scripts run only against the recording gh and mail shims; GitHub's advisory and comment APIs and a real SMTP server are never reached.

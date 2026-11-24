@@ -57,7 +57,15 @@ MANIFEST = "scripts/release-snapshot-manifest.txt"
 # Paths whose mentions of an older tag are history or fixtures, not pins: never bumped.
 # scripts/ holds this tooling and the contract tests, whose example tags must not move.
 # The Deprecation register's `release:` is the release each change shipped in (#361).
-HISTORY_PATHS = ("CHANGELOG.md", "release-notes/", "docs/adr/", "scripts/", "docs/deprecations.yml")
+# security/deep-scan/ holds the dogfood Deep scan's fixtures, whose tags are crafted inputs (#374).
+HISTORY_PATHS = (
+    "CHANGELOG.md",
+    "release-notes/",
+    "docs/adr/",
+    "scripts/",
+    "docs/deprecations.yml",
+    "security/deep-scan/",
+)
 TEST_FILE = re.compile(r"\.test\.(?:py|mjs)$")
 BROKEN_SECTION = "## Broken releases"
 # A line that calls a tag broken is history. A whole word, so "unbroken" is not.

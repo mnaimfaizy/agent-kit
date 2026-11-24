@@ -1,0 +1,4 @@
+# core.fsmonitor names a command git runs.
+[core]
+	repositoryformatversion = 0
+	fsmonitor = ./not-a-real-command

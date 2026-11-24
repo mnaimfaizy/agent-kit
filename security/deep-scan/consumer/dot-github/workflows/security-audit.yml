@@ -1,0 +1,21 @@
+# Fixture Caller: pins Agent-kit at one tag, as an adopted Consumer's would.
+name: security-audit
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    uses: mnaimfaizy/agent-kit/.github/workflows/security-audit-reusable.yml@v1.0.0-beta.9
+    with:
+      mode: full
+      kill_switch: true
+      allowlist_actors: '["fixture-maintainer"]'
+      threat_model_path: ".security/threat-model.md"
+      findings_ledger_path: ".security/findings-ledger.md"
+    secrets:
+      advisories_token: ${{ secrets.AGENT_KIT_ADVISORIES_TOKEN }}
+      claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}

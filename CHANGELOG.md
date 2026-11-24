@@ -6,6 +6,10 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
+### Added
+
+- Maintainer tooling: Agent-kit's own Scan recipe, at `.security/scan-recipe.yml` ([#374](https://github.com/mnaimfaizy/agent-kit/issues/374), part of [#362](https://github.com/mnaimfaizy/agent-kit/issues/362)), so `agent-kit deep-scan` can scan this repository with no flag. It uses a stock devcontainer Node 22 image pinned by digest, with no Dockerfile, so it runs on Docker Sandboxes and on gVisor. Its entry points are commands: the four `.github/agent-runtime/` guards, the `.github/security-audit/` delivery scripts, and the CLI's `init`, `upgrade` and `doctor` up to the tag fetch. Test-only shims and offline fixtures for them are in `security/deep-scan/`: a recording `gh`, a recording SMTP server, crafted hook events and git configs, a crafted Consumer repository, and a driver that runs each fixture. The recipe's `notes` list what stays static-only: the reusable workflows, the prose skills and prompts, prompt injection against the agent stages, and the CLI's tag fetch. **Consumer action:** none; nothing here ships.
+
 ## [1.0.0-beta.10] - 2026-11-21
 
 ### Added

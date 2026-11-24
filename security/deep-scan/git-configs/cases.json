@@ -1,0 +1,60 @@
+{
+  "entry_point": ".github/agent-runtime/check-git-config.mjs",
+  "about": "Each case is a .git folder the driver builds: config is copied from the named file, hooks lists the files made in .git/hooks. pass means exit 0 with no output; fail means exit 1, with names in the output.",
+  "cases": [
+    {
+      "name": "a checkout's own config, no hooks",
+      "config": "checkout.gitconfig",
+      "hooks": [],
+      "expect": "pass"
+    },
+    {
+      "name": "only git's sample hooks",
+      "config": "checkout.gitconfig",
+      "hooks": ["pre-commit.sample", "pre-push.sample"],
+      "expect": "pass"
+    },
+    {
+      "name": "core.fsmonitor",
+      "config": "fsmonitor.gitconfig",
+      "hooks": [],
+      "expect": "fail",
+      "names": "core.fsmonitor"
+    },
+    {
+      "name": "include.path",
+      "config": "include.gitconfig",
+      "hooks": [],
+      "expect": "fail",
+      "names": "include.path"
+    },
+    {
+      "name": "a shell alias",
+      "config": "alias.gitconfig",
+      "hooks": [],
+      "expect": "fail",
+      "names": "alias.st"
+    },
+    {
+      "name": "credential.helper",
+      "config": "credential-helper.gitconfig",
+      "hooks": [],
+      "expect": "fail",
+      "names": "credential.helper"
+    },
+    {
+      "name": "a remote whose name differs only in case",
+      "config": "remote-case.gitconfig",
+      "hooks": [],
+      "expect": "fail",
+      "names": "remote.Origin.url"
+    },
+    {
+      "name": "a real hook beside the samples",
+      "config": "checkout.gitconfig",
+      "hooks": ["pre-commit.sample", "post-checkout"],
+      "expect": "fail",
+      "names": "hooks/post-checkout"
+    }
+  ]
+}

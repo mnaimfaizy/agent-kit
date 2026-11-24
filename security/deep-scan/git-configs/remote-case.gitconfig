@@ -1,0 +1,6 @@
+# A subsection is case-sensitive: remote "Origin" is not remote "origin".
+[core]
+	repositoryformatversion = 0
+[remote "Origin"]
+	url = https://github.com/fixture-owner/fixture-repo
+	uploadpack = ./not-a-real-command
