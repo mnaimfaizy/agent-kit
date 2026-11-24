@@ -285,6 +285,123 @@ test("SKILL.md composes a multi-session scenario when a promise needs two people
   assert.match(skill, /Never fold the second person into a step's prose/);
 });
 
+/** The text of ANATOMY.md's `#### Scenes and Cuts`, the last part of its Scenarios section. */
+function scenesAndCuts() {
+  const scenarios = section("Scenarios");
+  const from = scenarios.indexOf("\n#### Scenes and Cuts\n");
+  assert.notEqual(from, -1, "ANATOMY.md has no `#### Scenes and Cuts`");
+  return scenarios.slice(from + 1);
+}
+
+test("ANATOMY.md defines Scenes and Cuts, and the shot list at each Cut", () => {
+  const text = scenesAndCuts().replace(/\s+/g, " ");
+  assert.match(text, /A run of consecutive steps in one Session is a \*\*Scene\*\*/);
+  assert.match(text, /A step whose Session is not the previous step's is a \*\*Cut\*\*/);
+  assert.match(text, /A single-session scenario is one Scene/);
+  assert.match(
+    text,
+    /\*\*At each Cut, show the new Session's on-screen result before the story moves on\.\*\*/,
+  );
+  assert.match(text, /A Scene ends on what its person sees, never on a click/);
+  assert.match(text, /no check reads it/);
+});
+
+test("ANATOMY.md says a Scenario account's Scene opens already signed in", () => {
+  const text = scenesAndCuts().replace(/\s+/g, " ");
+  assert.match(
+    text,
+    /A Scene that opens a Session signed in as a \[Scenario account\]\(#scenario-accounts\)\*\* has a sentence that says the person is already signed in/,
+  );
+  assert.match(text, /its sign-in is never on camera/);
+});
+
+test("ANATOMY.md gives an api-shaped promise with a screen a sibling web video scenario", () => {
+  const text = scenesAndCuts().replace(/\s+/g, " ");
+  assert.match(text, /\*\*An `api`-shaped promise whose product has a screen gets a sibling\.\*\*/);
+  assert.match(
+    text,
+    /add a sibling `Surface: web`, `Capture: video` multi-session scenario that tells the story on screen/,
+  );
+  assert.match(text, /The sibling earns its Residue place only by what the screen shows/);
+});
+
+test("ANATOMY.md's worked example is the four-beat story, in three Scenes with a Story each", () => {
+  const text = scenesAndCuts();
+  assert.match(
+    text.replace(/\s+/g, " "),
+    /four beats: the user is signed in, the admin's confirming screen, the user reloads, and the user lands on the sign-in page/,
+  );
+  const example = /```markdown\n([\s\S]*?)```/.exec(text)?.[1];
+  assert.ok(example, "Scenes and Cuts has no example");
+  assert.match(example, /^### S3: An admin's password reset ends the user's session$/m);
+  assert.match(example, /^- \*\*Sessions:\*\* A = `user`, B = `admin`$/m);
+  assert.match(example, /^- \*\*Capture:\*\* `video`$/m);
+  const block = (label) => {
+    const from = example.indexOf(`- **${label}:**\n`);
+    assert.notEqual(from, -1, `the example has no **${label}:** list`);
+    const body = example.slice(from).split("\n").slice(1);
+    const end = body.findIndex((line) => !line.startsWith("  "));
+    return body.slice(0, end).map((line) => line.trim());
+  };
+  assert.deepEqual(block("Story"), [
+    "1. The user signs in and opens their profile.",
+    "2. The admin signs in, sets a new password for the user, and sees it saved.",
+    "3. The user reloads their profile and lands on the sign-in page.",
+  ]);
+  assert.deepEqual(block("Steps"), [
+    "1. In session A, open **Profile**.",
+    "2. In session B, open **Users**, pick the user, click **Set password**, and see **Password updated**.",
+    "3. In session A, reload **Profile**.",
+    "4. In session A, see the page it lands on.",
+  ]);
+  // The Scenes the steps make, one Story sentence each.
+  const order = block("Steps").map((step) => /In session ([A-Z]),/.exec(step)[1]);
+  assert.equal(
+    order.filter((name, k) => k === 0 || name !== order[k - 1]).length,
+    block("Story").length,
+  );
+  assert.match(
+    example,
+    /^- \*\*Expected result:\*\* session A shows \*\*Sign in to continue\*\*; session B shows \*\*Password updated\*\*\.$/m,
+  );
+});
+
+test("SKILL.md plans a multi-session story in Scenes, with the shot list at each Cut", () => {
+  const flat = skill.replace(/\s+/g, " ");
+  assert.match(
+    flat,
+    /at each Cut, show the new Session's on-screen result before the story moves on \(\[ANATOMY\.md\]\(ANATOMY\.md#scenes-and-cuts\)\)/,
+  );
+  assert.match(flat, /A Scene ends on what its person sees, not on a click/);
+  assert.match(
+    flat,
+    /four beats: the user signed in, the admin's confirming screen, the user's reload, and the user landing on the sign-in page/,
+  );
+  assert.match(flat, /ANATOMY\.md's S3 is the worked example/);
+});
+
+test("SKILL.md gives a video scenario a Story, one sentence per Scene", () => {
+  const flat = skill.replace(/\s+/g, " ");
+  assert.match(
+    flat,
+    /Give a `Capture: video` scenario a \*\*Story:\*\*, right after its \*\*Capture:\*\*: one sentence per Scene, in order, in the product's own words and under the same public-text rules as \*\*Expected result:\*\*/,
+  );
+  assert.match(flat, /A single-session scenario is one Scene, so one sentence/);
+  assert.match(
+    flat,
+    /When a Scene opens a Session signed in as a Scenario account, its sentence says the person is already signed in/,
+  );
+});
+
+test("SKILL.md gives an api-shaped promise with a screen a sibling web video scenario", () => {
+  const flat = skill.replace(/\s+/g, " ");
+  assert.match(
+    flat,
+    /add a sibling `Surface: web`, `Capture: video` multi-session scenario that tells the story on screen/,
+  );
+  assert.match(flat, /The sibling earns its Residue place only by what the screen shows/);
+});
+
 test("Setup and Steps carry product actions only, and say what to do with a command-only promise (#199)", () => {
   const promise =
     /A promise that only a command can observe \(a setting, a cache entry, internal state\) is either observable through the product surface, or it is not Residue/;
@@ -461,7 +578,10 @@ test("a scenario tells its story, one sentence per Scene, right after Capture an
   assert.equal(labels[labels.indexOf("Capture") + 1], "Story", labels.join(" · "));
   assert.ok(labels.indexOf("Story") < labels.indexOf("Steps"), labels.join(" · "));
   const story = scenarios.split("\n").find((line) => line.startsWith("- **Story:**"));
-  assert.match(story, /a numbered list with one sentence per \[Scene\]\(#sessions\), in order/);
+  assert.match(
+    story,
+    /a numbered list with one sentence per \[Scene\]\(#scenes-and-cuts\), in order/,
+  );
   assert.match(story, /under the same public-text rules as \*\*Expected result:\*\*/);
   assert.match(story, /A single-session scenario is one Scene/);
   assert.match(
