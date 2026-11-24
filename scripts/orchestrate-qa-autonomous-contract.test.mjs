@@ -527,7 +527,7 @@ describe("QA held for you: after the Ruling Review, outside the Ledger (#419)", 
   });
 
   it("RUN.md has the state, the held file and the review quotes", () => {
-    assert.match(RUN, /`awaiting QA answers`/);
+    assert.match(RUN, /held QA items still unanswered in `qa-held\.md`/);
     assert.match(section(RUN, "## Layout"), /qa-held\.md/);
     assert.match(section(RUN, "## Layout"), /review-quotes\.md/);
   });
