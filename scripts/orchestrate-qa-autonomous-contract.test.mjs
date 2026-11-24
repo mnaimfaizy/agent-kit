@@ -54,6 +54,7 @@ const STEP4 = section(SKILL, "### 4. Show the Dispatch Plan");
 const STEP9 = section(SKILL, "### 9. QA each finished head");
 const AUTONOMOUS = section(SKILL, "## Autonomous runs");
 const QA_BRIEF = section(BRIEF, "## The QA brief");
+const STEP10 = section(SKILL, "### 10. Close out");
 
 describe("readiness, once, in the Dispatch Plan", () => {
   const readiness = bullet(STEP4, "- **QA readiness, asked once.**");
@@ -317,14 +318,19 @@ describe("approving QA in the Dispatch Plan (#419)", () => {
   });
 
   it("the QA line sits under the Decision authority line: asked now, ruled on, held for close-out", () => {
-    assert.ok(STEP4.indexOf("Under it, the **QA** line") > STEP4.indexOf("Last, the **Decision authority** line"));
+    assert.ok(
+      STEP4.indexOf("Under it, the **QA** line") >
+        STEP4.indexOf("Last, the **Decision authority** line"),
+    );
     assert.match(qaLine, /asked now/);
     assert.match(qaLine, /the Chief of Staff rules on/);
     assert.match(qaLine, /held for close-out/);
   });
 
   it("the QA Rulings join the autonomous half only when QA is approved", () => {
-    const line = STEP4.split("\n").find((l) => l.startsWith("Last, the **Decision authority** line"));
+    const line = STEP4.split("\n").find((l) =>
+      l.startsWith("Last, the **Decision authority** line"),
+    );
     assert.match(line, /only when QA is approved/);
     assert.match(AUTONOMOUS, /only when QA is approved/);
   });
@@ -390,6 +396,140 @@ describe("the run's needs, asked up front (#419)", () => {
   it("how each QA skill starts: from the brief only on approved QA, on a stack target", () => {
     const starts = bullet(STEP4, "- **How each QA skill starts.**");
     assert.match(starts, /QA is approved/);
+  });
+});
+
+describe("nothing asked mid-run once QA is approved (#419)", () => {
+  const approved = section(SKILL, "#### Approved QA: Rulings, holds and Review boxes");
+  const rules = AUTONOMOUS.split("\n").find((l) =>
+    l.startsWith("- **The Chief of Staff rules on:**"),
+  );
+  const nothing = bullet(AUTONOMOUS, "**Nothing is asked mid-run once QA is approved.**");
+
+  it("no QA Decision Request sets a Delegation `waiting` on the human mid-run", () => {
+    assert.match(nothing, /never sets itself `waiting` on the human/);
+    assert.match(approved, /never `waiting` on the human/);
+  });
+
+  it("each question goes one of three ways: asked up front, ruled, or held", () => {
+    assert.match(nothing, /asked once in the Dispatch Plan/i);
+    assert.match(nothing, /ruled by the Chief of Staff/i);
+    assert.match(nothing, /held for close-out/i);
+  });
+
+  it("rules on plan delivery, the subject issue, unknown rows, the add-the-test send-back, run.surface and a FAIL", () => {
+    for (const re of [
+      /delivery of a QA Plan/,
+      /subject issue/,
+      /`unknown`/,
+      /add the test|Add the test/i,
+      /`run\.surface`/,
+      /send(?:ing)? (?:it )?back|send it back/i,
+      /re-?run|run QA again/i,
+    ])
+      assert.match(`${rules}\n${approved}`, re);
+  });
+
+  it("holds judgment boxes, scenarios left for a person, after-merge scenarios, late needs, an unignored working_dir, a missing address, accepting a FAIL and waiving a scenario", () => {
+    for (const re of [
+      /judgment boxes|needs judgment/,
+      /scenarios left for a person/,
+      /after[- ]merge/,
+      /pass, waive, or run after merge/,
+      /only appear after compose|appear only after compose/,
+      /`working_dir` not ignored/,
+      /missing address/,
+      /accepting a FAIL/,
+      /waiving a scenario/,
+      /anything the evidence does not settle/,
+    ])
+      assert.match(nothing, re);
+  });
+
+  it("the unignored working_dir: the session writes nothing, stops, and its row is held", () => {
+    assert.match(approved, /writes nothing and stops/);
+  });
+
+  it("the evidence bar holds the Rulings; the human's QA answers are not Rulings", () => {
+    assert.match(nothing, /not Rulings/);
+  });
+});
+
+describe("Review boxes: quoted, ruled, never ticked by an agent (#419)", () => {
+  const approved = section(SKILL, "#### Approved QA: Rulings, holds and Review boxes");
+  const boxes = bullet(approved, "- **Review boxes.**");
+
+  it("the QA session quotes each open box's file at the pinned head, saves the quote, and marks it literal or judgment", () => {
+    assert.match(boxes, /quotes each open box's file at the pinned head/);
+    assert.match(boxes, /`review-quotes\.md`/);
+    assert.match(boxes, /"literal, quoted"/);
+    assert.match(boxes, /"needs judgment"/);
+  });
+
+  it("the Chief of Staff re-reads the source at that SHA, and rules holds or does not hold", () => {
+    assert.match(boxes, /re-reads the source at that SHA/);
+    assert.match(boxes, /"holds"/);
+    assert.match(boxes, /"does not hold"/);
+    assert.match(boxes, /never the only evidence/);
+  });
+
+  it("'holds' is shown as (checked under R<n>), and its Ruling reaches the pull request body", () => {
+    assert.match(boxes, /\(checked under R<n>\)/);
+    assert.match(boxes, /pull request/);
+  });
+
+  it("'does not hold' is a FAIL, sent back; a judgment box is held", () => {
+    assert.match(boxes, /FAIL/);
+    assert.match(boxes, /sent back/);
+    assert.match(boxes, /held for close-out/);
+  });
+
+  it("no agent ever ticks a box, even under a 'holds' Ruling", () => {
+    assert.match(boxes, /No agent ever ticks a box/);
+    assert.match(boxes, /even under a "holds" Ruling/);
+  });
+
+  it("the QA brief and its report carry the quotes and the held items", () => {
+    assert.match(QA_BRIEF, /`review-quotes\.md`/);
+    assert.match(BRIEF, /\*\*Held for close-out:\*\*/);
+  });
+});
+
+describe("QA held for you: after the Ruling Review, outside the Ledger (#419)", () => {
+  const held = bullet(STEP10, "**QA held for you.**");
+
+  it("is listed right after the Ruling Review", () => {
+    assert.ok(
+      STEP10.indexOf("**QA held for you.**") > STEP10.indexOf("the Ruling Review comes first"),
+    );
+    assert.match(held, /right after the Ruling Review/);
+  });
+
+  it("lists each held item with its row, evidence and options, in one sitting", () => {
+    assert.match(held, /row/);
+    assert.match(held, /evidence/);
+    assert.match(held, /options/);
+  });
+
+  it("is outside the Ruling Ledger, since held items are not Rulings", () => {
+    assert.match(held, /outside the Ruling Ledger/);
+    assert.match(held, /not Rulings/);
+    assert.match(held, /`qa-held\.md`/);
+  });
+
+  it("a row is Ready to Merge once its held items are answered", () => {
+    assert.match(held, /Ready to Merge once/);
+    assert.match(held, /answered/);
+  });
+
+  it("the close-out says QA declined in the Dispatch Plan, for each such row", () => {
+    assert.match(STEP10, /QA declined in the Dispatch Plan/);
+  });
+
+  it("RUN.md has the state, the held file and the review quotes", () => {
+    assert.match(RUN, /`awaiting QA answers`/);
+    assert.match(section(RUN, "## Layout"), /qa-held\.md/);
+    assert.match(section(RUN, "## Layout"), /review-quotes\.md/);
   });
 });
 
