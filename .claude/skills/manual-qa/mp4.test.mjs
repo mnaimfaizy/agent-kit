@@ -84,9 +84,12 @@ function runFolder({ edit = (meta) => meta, scenario = "s1", videos = FFMPEG } =
   const metaPath = join(dir, `${scenario}-storyboard.json`);
   const meta = JSON.parse(readFileSync(metaPath, "utf8"));
   writeFileSync(metaPath, JSON.stringify(edit(meta)));
-  if (videos)
+  if (videos) {
     for (const side of ["s1-web", "s1-before-web", "s2-web"])
       recording(join(dir, side, "video-a.webm"));
+    for (const side of ["s3-web", "s3-before-web"])
+      for (const name of ["video-a.webm", "video-b.webm"]) recording(join(dir, side, name), 7);
+  }
   return { dir, metaPath };
 }
 
@@ -164,6 +167,19 @@ const loaded = (metaPath) => {
   return { ...l, laid: timeline(l.records, l.meta, l.raw) };
 };
 
+/** The multi-session fixture's timeline, its scenario file edited by `edit`. */
+const s3 = (edit) => loaded(runFolder({ scenario: "s3", videos: false, edit }).metaPath).laid;
+/** The scenario file with Session B's `kind` set, or taken out when undefined. */
+const bAs = (kind) => (m) => ({
+  ...m,
+  context: {
+    ...m.context,
+    sessions: m.context.sessions.map((e) => (e.session === "B" ? { ...e, kind } : e)),
+  },
+});
+/** Each piece as [kind, step, Session, Scene, seconds]. */
+const shape = (laid) => laid.pieces.map((p) => [p.kind, p.index, p.session, p.scene, p.seconds]);
+
 // ── The timing line, without ffmpeg ──────────────────────────────────────────
 
 test("the timing line gives the wall clock in the run's zone, the time since the side started, and After minus Before", () => {
@@ -209,13 +225,18 @@ test("the wall clock is whole seconds in the start time's own zone, rolls over m
 
 // ── The timeline, without ffmpeg ─────────────────────────────────────────────
 
-test("a fix scenario plays two sides, each step held and the stretch between steps slowed to the longer side's", () => {
+test("a single-session fix scenario is one Scene on two sides, each step held and the stretch between steps slowed to the longer side's", () => {
   const { laid } = loaded(runFolder({ videos: false }).metaPath);
   assert.deepEqual(
     laid.sides.map((s) => s.side),
     ["Before", "After"],
   );
-  assert.equal(laid.session, "A");
+  // A single-session scenario is one Scene: the case with no Cuts.
+  assert.deepEqual(laid.sessions, ["A"]);
+  assert.deepEqual(
+    laid.scenes.map((c) => [c.number, c.session, c.steps]),
+    [[1, "A", [1, 2, 3]]],
+  );
   // Recording times: atMs less the Session's startedAtMs (After 500 ms, Before 300 ms).
   assert.deepEqual(
     laid.sides[1].steps.map((s) => s.at),
@@ -303,34 +324,235 @@ test("a Before not run, or with no recording of the Session, leaves After alone"
   assert.equal(loaded(metaPath).laid.beforeNote, "Before: no recording of Session A");
 });
 
-test("the video follows the Session the proving step names, else the first After step's", () => {
-  const { dir, metaPath } = runFolder({
-    videos: false,
-    edit: (m) => ({ ...m, proves: { session: "B", index: 4 } }),
-  });
-  const file = join(dir, "s1-web", "steps.json");
-  const steps = JSON.parse(readFileSync(file, "utf8"));
-  steps.steps.push({
-    ...steps.steps[2],
-    session: "B",
-    index: 4,
-    still: "step-04-b.png",
-    atMs: 3900,
-  });
-  steps.sessions.B = { startedAtMs: 3000, video: "video-b.webm" };
-  writeFileSync(file, JSON.stringify(steps));
-  const laid = loaded(metaPath).laid;
-  assert.equal(laid.session, "B");
-  assert.equal(laid.beforeNote, "Before: no recording of Session B");
+test("steps in Sessions A, B, A play as three Scenes in step order, Before and After cutting together", () => {
+  const laid = s3();
+  assert.deepEqual(laid.sessions, ["A", "B"]);
   assert.deepEqual(
-    laid.sides[0].steps.map((s) => s.index),
-    [4],
+    laid.scenes.map((c) => [c.number, c.session, c.steps, c.beforeNote]),
+    [
+      [1, "A", [1], null],
+      [2, "B", [2], null],
+      [3, "A", [3], null],
+    ],
   );
-  assert.equal(laid.sides[0].video, "video-b.webm");
-  const first = loaded(
-    runFolder({ videos: false, edit: (m) => ({ ...m, proves: undefined }) }).metaPath,
+  assert.deepEqual(
+    laid.sides.map((s) => s.side),
+    ["Before", "After"],
   );
-  assert.equal(first.laid.session, "A");
+  // Paired by index and Session: both sides switch Session at the same step, so they Cut together.
+  for (const side of laid.sides)
+    assert.deepEqual(
+      side.steps.map((s) => [s.index, s.session, s.scene]),
+      [
+        [1, "A", 1],
+        [2, "B", 2],
+        [3, "A", 3],
+      ],
+    );
+  // Each piece belongs to one Scene and one Session, in step order.
+  assert.deepEqual(shape(laid), [
+    ["between", 1, "A", 1, 2 / BETWEEN_SPEED],
+    ["hold", 1, "A", 1, HOLD_SECONDS],
+    ["between", 2, "B", 2, 4.5 / BETWEEN_SPEED],
+    ["hold", 2, "B", 2, HOLD_SECONDS],
+    ["between", 3, "A", 3, 1.6 / BETWEEN_SPEED],
+    ["hold", 3, "A", 3, HOLD_SECONDS],
+  ]);
+  assert.equal(laid.seconds, 3 * HOLD_SECONDS + (2 + 4.5 + 1.6) / BETWEEN_SPEED);
+  // Every heading counts the scenario's steps, across Sessions.
+  assert.equal(laid.sides[1].overlays.at(-1).heading, "After · step 3 of 3, Session A");
+  for (const side of laid.sides) assert.equal(side.overlays.length, laid.pieces.length);
+});
+
+test("a role's first Scene plays from its recording's start, and a later Scene from the previous step's time", () => {
+  const [before, after] = s3().sides;
+  // Recording times: atMs less the Session's startedAtMs (After: A 200 ms, B 400 ms; Before: A 100 ms, B 300 ms).
+  assert.deepEqual(
+    after.steps.map((s) => [s.from, s.at]),
+    [
+      [0, 2], // A's first Scene, from its recording's start: the sign-in plays
+      [0, 4], // B's first Scene, the same: B signs in as a role too
+      [4.2, 5.8], // A's later Scene, from step 2's time (4400 ms) in A's recording
+    ],
+  );
+  assert.deepEqual(
+    before.steps.map((s) => [s.from, s.at]),
+    [
+      [0, 2],
+      [0, 4.5],
+      [4.7, 5.5],
+    ],
+  );
+  // Each window's line says where it starts.
+  const leadIns = after.overlays.filter((o) => /lead-in/.test(o.field)).map((o) => o.timing);
+  assert.deepEqual(leadIns, [
+    "played at 0.5× speed from the start of Session A's recording (0.2 s) to step 1 (2.2 s since After started)",
+    "played at 0.5× speed from the start of Session B's recording (0.4 s) to step 2 (4.4 s since After started)",
+    "played at 0.5× speed from step 2 (4.4 s) to step 3 (6.0 s since After started)",
+  ]);
+});
+
+test("a Scenario account's first Scene opens on its first step's hold, so none of its sign-in plays", () => {
+  for (const kind of ["scenario account", undefined]) {
+    const laid = s3(bAs(kind));
+    // B's first Scene starts at its step's own time on each side: no stretch before it.
+    for (const side of laid.sides) {
+      const b = side.steps.find((s) => s.session === "B");
+      assert.equal(b.from, b.at, `${side.side}, kind ${kind}`);
+    }
+    assert.deepEqual(
+      shape(laid).filter(([, , session]) => session === "B"),
+      [["hold", 2, "B", 2, HOLD_SECONDS]],
+    );
+    // A, a role, still plays from its recording's start; its later Scene is unchanged.
+    assert.deepEqual(
+      laid.sides[1].steps.map((s) => s.from),
+      [0, 4, 4.2],
+    );
+  }
+  // A signed-out Session has no sign-in to keep out: it plays from its recording's start.
+  assert.equal(s3(bAs("nobody")).sides[1].steps[1].from, 0);
+});
+
+test("nothing of a Session plays before its first Scene, and each Scene reads only its own Session's recording", () => {
+  const laid = s3();
+  const captions = laid.sides.map(() =>
+    laid.pieces.map((_, j) => ({ file: `c${j}.png`, height: 61 })),
+  );
+  const args = ffmpegArgs(laid, {
+    videos: [
+      { A: "before-a.webm", B: "before-b.webm" },
+      { A: "after-a.webm", B: "after-b.webm" },
+    ],
+    durations: [
+      { A: 7, B: 7 },
+      { A: 7, B: 7 },
+    ],
+    bands: laid.scenes.map(() => ({ file: "band.png", height: 151 })),
+    captions,
+    frames: {},
+    encoder: "libx264",
+    out: "s3.mp4",
+  });
+  const seeks = [];
+  args.forEach((a, i) => a === "-ss" && seeks.push([args[i + 5], args[i + 1], args[i + 3]]));
+  assert.deepEqual(seeks, [
+    ["before-a.webm", "0.000", "2.000"],
+    ["before-b.webm", "0.000", "4.500"],
+    ["before-a.webm", "4.700", "0.800"],
+    ["after-a.webm", "0.000", "2.000"],
+    ["after-b.webm", "0.000", "4.000"],
+    ["after-a.webm", "4.200", "1.600"],
+  ]);
+  const graph = args[args.indexOf("-filter_complex") + 1];
+  assert.match(graph, /hstack=inputs=2\[sides\]/);
+  assert.doesNotMatch(graph, /drawtext|subtitles/, "no text is drawn by ffmpeg");
+});
+
+test("changing `proves` changes only the highlight, never which Session plays", () => {
+  const strip = (laid) => ({
+    ...laid,
+    sides: laid.sides.map((s) => ({ ...s, overlays: s.overlays.map(({ proves, ...o }) => o) })),
+  });
+  const onA = s3();
+  const onB = s3((m) => ({ ...m, proves: { session: "B", index: 2 } }));
+  const none = s3((m) => ({ ...m, proves: undefined }));
+  assert.deepEqual(strip(onB), strip(onA));
+  assert.deepEqual(strip(none), strip(onA));
+  const highlighted = (laid) =>
+    laid.sides[1].overlays.filter((o) => o.proves).map((o) => o.heading);
+  assert.deepEqual(highlighted(onA), ["After · step 3 of 3, Session A"]);
+  assert.deepEqual(highlighted(onB), ["After · step 2 of 3, Session B"]);
+  // Without `proves`, the last After step is the one, as on the Storyboard.
+  assert.deepEqual(highlighted(none), ["After · step 3 of 3, Session A"]);
+  // Before's same step is highlighted beside it, and the page says so.
+  assert.deepEqual(
+    onB.sides[0].overlays.filter((o) => o.proves).map((o) => o.heading),
+    ["Before · step 2 of 3, Session B"],
+  );
+  const { meta, records } = loadScenario(runFolder({ scenario: "s3", videos: false }).metaPath);
+  const pages = overlayPages(onA, meta, records);
+  assert.equal(pages.filter((p) => /Proves the result/.test(p.html)).length, 2);
+});
+
+test("a Scene whose Session Before did not record shows the no-recording frame on Before, with its band note", () => {
+  const { dir, metaPath } = runFolder({ scenario: "s3", videos: false });
+  const file = join(dir, "s3-before-web", "steps.json");
+  const steps = JSON.parse(readFileSync(file, "utf8"));
+  steps.sessions.B.video = null;
+  writeFileSync(file, JSON.stringify(steps));
+  const { meta, records, laid } = loaded(metaPath);
+  // Before still plays beside After: it has Session A's recording.
+  assert.deepEqual(
+    laid.sides.map((s) => s.side),
+    ["Before", "After"],
+  );
+  assert.equal(laid.beforeNote, null);
+  assert.deepEqual(
+    laid.scenes.map((c) => c.beforeNote),
+    [null, "Before: no recording of Session B", null],
+  );
+  const before = laid.sides[0];
+  assert.deepEqual(
+    before.steps.map((s) => s.recorded),
+    [true, false, true],
+  );
+  // The Scene keeps its length from After alone; A's later Scene still starts at step 2's time on Before.
+  assert.deepEqual(shape(laid)[2], ["between", 2, "B", 2, 4 / BETWEEN_SPEED]);
+  assert.deepEqual(before.steps[2].from, 4.7);
+  // Its pages: the Storyboard's empty frame on Before for that Scene, and the note in that Scene's band.
+  const pages = overlayPages(laid, meta, records);
+  const frames = pages.filter((p) => p.kind === "frame");
+  assert.deepEqual(
+    frames.map((p) => [p.scene, p.width]),
+    [[2, SIDE.width]],
+  );
+  assert.match(frames[0].html, /class="frame empty"[^>]*>Before: no recording of Session B</);
+  const bands = pages.filter((p) => p.kind === "band");
+  assert.equal(bands.length, 3);
+  assert.deepEqual(
+    bands.map((p) => /no recording of Session B/.test(p.html)),
+    [false, true, false],
+  );
+  // The note is checked, per Scene.
+  assert.ok(
+    overlayFields(laid).some(
+      (f) =>
+        f.field === "MP4 Before note, Scene 2" && f.text === "Before: no recording of Session B",
+    ),
+  );
+  // ffmpeg holds that frame for the Scene and reads no B recording on Before.
+  const args = ffmpegArgs(laid, {
+    videos: [{ A: "before-a.webm" }, { A: "after-a.webm", B: "after-b.webm" }],
+    durations: [{ A: 7 }, { A: 7, B: 7 }],
+    bands: bands.map(() => ({ file: "band.png", height: 151 })),
+    captions: laid.sides.map(() => laid.pieces.map((_, j) => ({ file: `c${j}.png`, height: 61 }))),
+    frames: { 2: { file: "frame-2.png" } },
+    encoder: "libx264",
+    out: "s3.mp4",
+  });
+  assert.ok(!args.includes("before-b.webm"));
+  const frameAt = args.indexOf("frame-2.png");
+  assert.equal(args[frameAt - 2], (4 / BETWEEN_SPEED + HOLD_SECONDS).toFixed(3));
+});
+
+test("with no recording of any Session on Before, After plays alone and the band says why", () => {
+  const { dir, metaPath } = runFolder({ scenario: "s3", videos: false });
+  const file = join(dir, "s3-before-web", "steps.json");
+  const steps = JSON.parse(readFileSync(file, "utf8"));
+  steps.sessions.A.video = null;
+  steps.sessions.B.video = null;
+  writeFileSync(file, JSON.stringify(steps));
+  const { laid } = loaded(metaPath);
+  assert.deepEqual(
+    laid.sides.map((s) => s.side),
+    ["After"],
+  );
+  assert.equal(laid.beforeNote, "Before: no recording of Sessions A, B");
+  assert.deepEqual(
+    laid.scenes.map((c) => c.beforeNote),
+    [null, null, null],
+  );
 });
 
 test("a step Before lacks waits where Before was, and its line says so", () => {
@@ -354,7 +576,11 @@ test("a step Before lacks waits where Before was, and its line says so", () => {
 test("the band and every caption are pages in the Storyboard's style, one per piece and side", () => {
   const { meta, records, laid } = loaded(runFolder({ videos: false }).metaPath);
   const pages = overlayPages(laid, meta, records);
-  assert.equal(pages.length, 1 + 2 * laid.pieces.length);
+  assert.equal(pages.length, laid.scenes.length + 2 * laid.pieces.length);
+  assert.deepEqual(
+    pages.map((p) => p.kind),
+    ["band", ...laid.pieces.map(() => "caption"), ...laid.pieces.map(() => "caption")],
+  );
   assert.equal(pages[0].width, 2 * SIDE.width);
   assert.match(
     pages[0].html,
@@ -376,10 +602,11 @@ test("ffmpeg only scales, pads, stacks and joins: two sides side by side under t
     laid.pieces.map((_, j) => ({ file: `c${j}.png`, height: 61 })),
   );
   const args = ffmpegArgs(laid, {
-    videos: ["before.webm", "after.webm"],
-    durations: [4, 4],
-    band: { file: "band.png", height: 151 },
+    videos: [{ A: "before.webm" }, { A: "after.webm" }],
+    durations: [{ A: 4 }, { A: 4 }],
+    bands: [{ file: "band.png", height: 151 }],
     captions,
+    frames: {},
     encoder: "libx264",
     out: "s1.mp4",
   });
@@ -405,10 +632,11 @@ test("ffmpeg only scales, pads, stacks and joins: two sides side by side under t
   );
   // A step time past the recording's end is read from its last frames.
   const short = ffmpegArgs(laid, {
-    videos: ["before.webm", "after.webm"],
-    durations: [1.5, 1.5],
-    band: { file: "band.png", height: 150 },
+    videos: [{ A: "before.webm" }, { A: "after.webm" }],
+    durations: [{ A: 1.5 }, { A: 1.5 }],
+    bands: [{ file: "band.png", height: 150 }],
     captions,
+    frames: {},
     encoder: "mpeg4",
     out: "s1.mp4",
   });
@@ -608,6 +836,7 @@ test(
     assert.equal(code, 0, out);
     const summary = JSON.parse(out);
     assert.deepEqual(summary.sides, ["Before", "After"]);
+    assert.deepEqual(summary.session, ["A"]);
     const expected = 3 * HOLD_SECONDS + (1.5 + 0.7) / BETWEEN_SPEED;
     assert.equal(summary.seconds, expected);
     const video = probe(join(dir, "s1.mp4"));
@@ -620,6 +849,38 @@ test(
     // The raw recordings stay where web.mjs left them; nothing else is left behind.
     assert.ok(existsSync(join(dir, "s1-web", "video-a.webm")));
     assert.equal(existsSync(join(dir, ".s1.mp4.partial")), false);
+  },
+);
+
+test(
+  "a multi-session scenario builds a two-sided MP4 that Cuts between its Sessions",
+  { skip: NEEDS_FFMPEG },
+  async () => {
+    const { dir, metaPath } = runFolder({ scenario: "s3" });
+    const { code, out } = await main(["build", metaPath], { env: ENV, renderer: standIn });
+    assert.equal(code, 0, out);
+    const summary = JSON.parse(out);
+    assert.deepEqual(summary.session, ["A", "B"]);
+    assert.deepEqual(summary.sides, ["Before", "After"]);
+    assert.equal(summary.steps, 3);
+    const expected = 3 * HOLD_SECONDS + (2 + 4.5 + 1.6) / BETWEEN_SPEED;
+    assert.equal(summary.seconds, expected);
+    const video = probe(join(dir, "s3.mp4"));
+    assert.ok(
+      Math.abs(video.duration - expected) <= 0.15,
+      `${video.duration} s, expected ${expected} s`,
+    );
+    assert.equal(video.width, 2 * SIDE.width);
+    // Without Before's recording of B, Scene 2 holds the no-recording frame; the MP4 is still built.
+    rmSync(join(dir, "s3-before-web", "video-b.webm"));
+    const again = await main(["build", metaPath], { env: ENV, renderer: standIn });
+    assert.equal(again.code, 0, again.out);
+    assert.equal(JSON.parse(again.out).note, "Scene 2: Before: no recording of Session B");
+    // Without After's recording of B, there is no MP4, and the reason names the Session.
+    rmSync(join(dir, "s3-web", "video-b.webm"));
+    const none = await main(["build", metaPath], { env: ENV, renderer: standIn });
+    assert.equal(none.code, 2);
+    assert.match(JSON.parse(none.out).reason, /^no MP4: no recording of Session B on After/);
   },
 );
 

@@ -8,9 +8,16 @@
 //   recordings `web.mjs --video` wrote. Nothing is run again, so the MP4 can be
 //   built again at any time from the same files.
 //
-//   - One Session per side: the one `proves` names, or the first After step's.
-//     Before beside After when Before has a recording of that Session; After
-//     alone otherwise (a feature scenario, a Before not run or not observed).
+//   - The steps play in order across Sessions, split into Scenes at each Cut,
+//     where the story moves to another Session; both sides switch Session
+//     there, full frame. A role's Session first plays from its recording's
+//     start, so its sign-in is on camera (ADR 0020); a Scenario account's
+//     from its first step. A later Scene plays from the previous step's time.
+//     `proves` only sets the highlight.
+//   - Before beside After when Before has a recording of a Session shown, a
+//     Scene whose Session it lacks showing the no-recording frame on Before;
+//     After alone otherwise (a feature scenario, a Before not run or not
+//     observed, or no recording of any Session shown).
 //   - Each side holds on each step's frame for `HOLD_SECONDS`, and plays the
 //     stretch between two steps at `BETWEEN_SPEED`; the side whose stretch is
 //     shorter waits on its step's frame, so both sides reach each step together.
@@ -34,7 +41,7 @@
 //   Exit 0: the MP4 was written. Exit 1: refused (the privacy check, a problem
 //   in the files, a variable not given); no MP4 written.
 //   Exit 2: usage, no ffmpeg or ffprobe on `PATH`, no Playwright with Chromium,
-//   no recording of the Session, or ffmpeg did not build it: no MP4, the row
+//   no recording of a Session on After, or ffmpeg did not build it: no MP4, the row
 //   keeps its Storyboard, and `reason` is what its note says. Stdout is a JSON
 //   summary.
 
@@ -127,110 +134,254 @@ export function timingLine({ side, startedAt, atMs, beforeAtMs = null }) {
 
 // ── The timeline ────────────────────────────────────────────────────────────
 
-/** The Session the MP4 follows: the one `proves` names, or the first After step's. */
-const sessionOf = (records, meta) => meta.proves?.session ?? records.after[0]?.session;
-
-/** A side's recording of the Session, by the name `web.mjs` gives it, or null. */
+/** A side's recording of a Session, by the name `web.mjs` gives it, or null. */
 function videoOf(file, session) {
   const name = file?.sessions?.[session]?.video;
   return typeof name === "string" && VIDEO_NAME.test(name) ? name : null;
 }
 
+/** When a side's recording of a Session began, in `atMs` terms: 0 when not given. */
+function startOf(file, session) {
+  const ms = file?.sessions?.[session]?.startedAtMs;
+  return Number.isFinite(ms) ? ms : 0;
+}
+
 /**
- * Why Before does not play beside After, or null when it does: Before ran and
- * has a recording of the Session, named in its step file and, by `recorded`,
- * there on disk.
- * @param {(side: "Before" | "After", name: string) => boolean} recorded
+ * The Scenes: After's steps in order, a new Scene at each Cut, where a step's
+ * Session is not the previous step's. A single-session scenario is one Scene.
+ * @param {any[]} afterSteps
  */
-function beforeNoteFor(meta, raw, session, recorded) {
+function scenesOf(afterSteps) {
+  const scenes = [];
+  for (const step of afterSteps) {
+    const last = scenes.at(-1);
+    if (last && last.session === step.session) last.steps.push(step.index);
+    else scenes.push({ number: scenes.length + 1, session: step.session, steps: [step.index] });
+  }
+  return scenes;
+}
+
+/**
+ * Whether Before plays beside After, and why not: Before ran and has a
+ * recording of at least one Session shown, named in its step file and, by
+ * `recorded`, there on disk. `missing` lists the Sessions it has none of.
+ * @param {(side: "Before" | "After", name: string) => boolean} recorded
+ * @returns {{two: boolean, note: string | null, missing: Set<string>}}
+ */
+function beforePlays(meta, raw, sessions, recorded) {
   const before = isObject(meta.before) ? meta.before : null;
-  if (!before) return "Before: not run, a feature scenario runs After only";
-  if (BEFORE_UNSEEN.includes(before.state)) return `Before ${before.state}: ${before.observed}`;
-  const name = videoOf(raw.before, session);
-  if (!name || !recorded("Before", name)) return `Before: no recording of Session ${session}`;
-  return null;
+  const none = (note) => ({ two: false, note, missing: new Set(sessions) });
+  if (!before) return none("Before: not run, a feature scenario runs After only");
+  if (BEFORE_UNSEEN.includes(before.state))
+    return none(`Before ${before.state}: ${before.observed}`);
+  const missing = new Set(
+    sessions.filter((session) => {
+      const name = videoOf(raw.before, session);
+      return !name || !recorded("Before", name);
+    }),
+  );
+  if (missing.size < sessions.length) return { two: true, note: null, missing };
+  return none(
+    `Before: no recording of Session${sessions.length > 1 ? "s" : ""} ${sessions.join(", ")}`,
+  );
+}
+
+/** The Sessions After's steps show, in the order they first appear. */
+const sessionsOf = (records) => [...new Set(records.after.map((r) => r.session))];
+
+/**
+ * Whether a Session's first Scene opens on its recording's start: a role's
+ * or a signed-out Session's does, so its sign-in plays (ADR 0020). A
+ * Scenario account's, or one the run context does not say, opens on its
+ * first step: its values never go into the evidence.
+ */
+function opensAtStart(meta, session) {
+  const sessions = isObject(meta.context) ? meta.context.sessions : null;
+  const entry = Array.isArray(sessions) ? sessions.find((s) => s?.session === session) : null;
+  return entry?.kind === "role" || entry?.kind === "nobody";
 }
 
 /**
  * What the MP4 shows, from the saved files: pure data, so it is tested
  * without ffmpeg and is the same on every re-build.
  *
- * Each side's recording time of a step is its `atMs` less its Session's
- * `startedAtMs`, when the recording began. The MP4 opens on step 1's hold;
- * each later step is reached by its side's stretch from the step before,
- * played at `BETWEEN_SPEED`, and held for `HOLD_SECONDS`. A stretch lasts as
- * long as the longer side's, the shorter side waiting on its step's frame.
+ * The steps play in After's order across Sessions, split into Scenes at each
+ * Cut; each side switches to the Scene's Session there, so Before and After
+ * Cut together, paired by index and Session. A step's time in its recording
+ * is its `atMs` less its Session's `startedAtMs`. Each Scene plays its
+ * Session's recording from a window's start to each of its steps in turn,
+ * the stretch at `BETWEEN_SPEED`, then held for `HOLD_SECONDS`; a stretch
+ * lasts as long as the longer side's, the shorter side waiting on its step's
+ * frame. A Session's first Scene starts at its recording's start for a role
+ * (its sign-in plays) and at its first step for a Scenario account; a later
+ * Scene starts at the previous step's time, so the Session's idle time while
+ * another acted is not replayed. Nothing of a Session plays before its first
+ * Scene. `proves` only says which step is highlighted.
  *
  * @param {{after: any[], before: any[] | null}} records
  * @param {any} meta the scenario file
  * @param {{after: any, before: any}} raw the step files as read (their `sessions`)
  * @param {{recorded?: (side: "Before" | "After", name: string) => boolean}} [options]
  *   whether a side's recording is on disk (`main` looks; every recording counts as there by default)
- * @returns {{session: string, sides: Side[], beforeNote: string | null,
- *   pieces: {kind: "hold" | "between", index: number, seconds: number}[], seconds: number}}
+ * @returns {{sessions: string[], scenes: Scene[], sides: Side[], beforeNote: string | null,
+ *   pieces: {kind: "hold" | "between", index: number, session: string, scene: number, seconds: number}[],
+ *   seconds: number}}
  *
- * @typedef {{side: "Before" | "After", video: string | null, startedAt: string,
- *   steps: {index: number, caption: string, atMs: number | null, at: number, from: number}[],
- *   overlays: {field: string, heading: string, caption: string, timing: string}[]}} Side
- *   `at`: the step's time in the recording, in seconds; `from`: where its stretch starts
+ * @typedef {{number: number, session: string, steps: number[], beforeNote: string | null}} Scene
+ *   `beforeNote`: why Before shows the no-recording frame in this Scene, or null
+ * @typedef {{side: "Before" | "After", startedAt: string, videos: Record<string, string>,
+ *   steps: {index: number, session: string, scene: number, recorded: boolean, caption: string,
+ *     atMs: number | null, at: number, from: number}[],
+ *   overlays: {field: string, heading: string, caption: string, timing: string, proves: boolean}[]}} Side
+ *   `at`: the step's time in its Session's recording, in seconds; `from`: where its stretch starts;
+ *   `recorded`: whether this side plays the Session's recording here (else the no-recording frame)
  */
 export function timeline(records, meta, raw, { recorded = () => true } = {}) {
-  const session = sessionOf(records, meta);
-  const afterSteps = records.after.filter((r) => r.session === session);
+  const afterSteps = records.after;
   if (!afterSteps.length) throw new Error("After has no steps to show");
-  const startOf = (file) => {
-    const ms = file?.sessions?.[session]?.startedAtMs;
-    return Number.isFinite(ms) ? ms : 0;
-  };
-
+  const sessions = sessionsOf(records);
+  const plays = beforePlays(meta, raw, sessions, recorded);
+  const scenes = scenesOf(afterSteps).map((c) => ({
+    ...c,
+    beforeNote:
+      plays.two && plays.missing.has(c.session)
+        ? `Before: no recording of Session ${c.session}`
+        : null,
+  }));
+  const sceneOf = new Map(scenes.flatMap((c) => c.steps.map((i) => [`${c.session}:${i}`, c])));
+  const key = (r) => `${r.session}:${r.index}`;
+  const last = afterSteps.at(-1);
+  const proves = meta.proves ?? { session: last.session, index: last.index };
+  const proving = (a) => a.session === proves.session && a.index === proves.index;
   const before = isObject(meta.before) ? meta.before : null;
-  const beforeNote = beforeNoteFor(meta, raw, session, recorded);
-  const two = beforeNote === null;
-  const beforeBy = new Map(
-    (two ? (records.before ?? []) : [])
-      .filter((r) => r.session === session)
-      .map((r) => [r.index, r]),
-  );
-
+  const beforeBy = new Map((plays.two ? (records.before ?? []) : []).map((r) => [key(r), r]));
   const n = afterSteps.length;
-  const side = (name, file, startedAt, pick) => {
-    const start = startOf(file);
-    let last = 0;
+
+  const side = (name, file, startedAt, pick, has) => {
+    const time = (record) => (record.atMs - startOf(file, record.session)) / 1000;
+    /** Each Session's place in its recording, once its first Scene has started. */
+    const place = new Map();
+    /** The previous step's `atMs` this side reached, in any Session. */
+    let prevAtMs = null;
     const steps = afterSteps.map((a, k) => {
+      const scene = /** @type {Scene} */ (sceneOf.get(key(a)));
       const record = pick(a);
-      const from = last;
+      const first = !place.has(a.session);
+      let from;
+      if (first) {
+        // A role's first Scene from its recording's start; a Scenario account's at its
+        // first step this side reached, so no stretch before it plays its sign-in.
+        const reached = afterSteps
+          .slice(k)
+          .filter((b) => sceneOf.get(key(b)) === scene)
+          .map(pick)
+          .find(Boolean);
+        const start = startOf(file, a.session);
+        from = opensAtStart(meta, a.session)
+          ? 0
+          : Math.max(reached ? time(reached) : ((prevAtMs ?? start) - start) / 1000, 0);
+      } else {
+        from = /** @type {number} */ (place.get(a.session));
+        // A later Scene from the previous step's time, never back past where the Session was.
+        if (scene.steps[0] === a.index && prevAtMs !== null)
+          from = Math.max((prevAtMs - startOf(file, a.session)) / 1000, from);
+      }
       // A step this side lacks takes no time: it waits where it was.
-      const at = record ? Math.max((record.atMs - start) / 1000, k ? from : 0) : from;
-      last = at;
+      const at = record ? Math.max(time(record), from) : from;
+      place.set(a.session, at);
+      const prev = prevAtMs;
+      if (record) prevAtMs = record.atMs;
       return {
         index: a.index,
+        session: a.session,
+        scene: scene.number,
+        recorded: has(a.session),
         caption: record ? record.caption : `No ${name} step ${a.index}`,
         atMs: record ? record.atMs : null,
         at,
-        from: k ? from : at,
+        from,
+        // Where its stretch starts, for its line: the recording's start, or the previous step.
+        fromStart: first && opensAtStart(meta, a.session),
+        prev: k ? { index: afterSteps[k - 1].index, atMs: prev } : null,
       };
     });
-    const overlays = [];
-    steps.forEach((s, k) => {
-      const where = `${name} step ${s.index} (${session})`;
-      if (k)
-        overlays.push({
+    const videos = Object.fromEntries(
+      sessions.filter(has).map((s) => [s, /** @type {string} */ (videoOf(file, s))]),
+    );
+    return { side: name, file, startedAt, videos, steps };
+  };
+
+  const sidesRaw = [
+    ...(plays.two
+      ? [
+          side(
+            "Before",
+            raw.before,
+            before.startedAt,
+            (a) => beforeBy.get(key(a)),
+            (s) => !plays.missing.has(s),
+          ),
+        ]
+      : []),
+    side(
+      "After",
+      raw.after,
+      meta.after.startedAt,
+      (a) => a,
+      () => true,
+    ),
+  ];
+
+  const pieces = [];
+  afterSteps.forEach((a, k) => {
+    const stretch = Math.max(
+      ...sidesRaw.map((s) => (s.steps[k].recorded ? s.steps[k].at - s.steps[k].from : 0)),
+    );
+    const scene = sceneOf.get(key(a)).number;
+    const seconds = frames(stretch / BETWEEN_SPEED);
+    if (seconds > 0)
+      pieces.push({ kind: "between", index: a.index, session: a.session, scene, seconds });
+    pieces.push({
+      kind: "hold",
+      index: a.index,
+      session: a.session,
+      scene,
+      seconds: frames(HOLD_SECONDS),
+    });
+  });
+
+  const sides = sidesRaw.map(({ side: name, file, startedAt, videos, steps }) => {
+    const overlays = pieces.map((piece) => {
+      const k = afterSteps.findIndex((a) => a.index === piece.index && a.session === piece.session);
+      const s = steps[k];
+      const where = `${name} step ${s.index} (${s.session})`;
+      const heading = `${name} · ${piece.kind === "between" ? "on to " : ""}step ${s.index} of ${n}, Session ${s.session}`;
+      const unrecorded = `no recording of Session ${s.session} on ${name}`;
+      if (piece.kind === "between") {
+        const fromLabel = s.fromStart
+          ? `the start of Session ${s.session}'s recording (${tenths(startOf(file, s.session))} s)`
+          : `step ${s.prev.index}${s.prev.atMs !== null ? ` (${tenths(s.prev.atMs)} s)` : ""}`;
+        return {
           field: `${where}: MP4 lead-in`,
-          heading: `${name} · on to step ${s.index} of ${n}, Session ${session}`,
+          heading,
           caption: s.caption,
-          timing:
-            `played at ${BETWEEN_SPEED}× speed from step ${steps[k - 1].index}` +
-            (s.atMs !== null && steps[k - 1].atMs !== null
-              ? ` (${tenths(steps[k - 1].atMs)} s) to step ${s.index} (${tenths(s.atMs)} s since ${name} started)`
-              : ""),
-        });
-      const paired = beforeBy.get(s.index);
-      overlays.push({
+          timing: !s.recorded
+            ? unrecorded
+            : `played at ${BETWEEN_SPEED}× speed from ${fromLabel}` +
+              (s.atMs !== null
+                ? ` to step ${s.index} (${tenths(s.atMs)} s since ${name} started)`
+                : ""),
+          proves: false,
+        };
+      }
+      const paired = beforeBy.get(key(afterSteps[k]));
+      return {
         field: `${where}: MP4 timing line`,
-        heading: `${name} · step ${s.index} of ${n}, Session ${session}`,
+        heading,
         caption: s.caption,
-        timing:
-          s.atMs === null
+        timing: !s.recorded
+          ? unrecorded
+          : s.atMs === null
             ? "not reached on this side"
             : timingLine({
                 side: name,
@@ -238,35 +389,25 @@ export function timeline(records, meta, raw, { recorded = () => true } = {}) {
                 atMs: s.atMs,
                 beforeAtMs: name === "After" && paired ? paired.atMs : null,
               }),
-      });
+        proves: proving(afterSteps[k]),
+      };
     });
-    return { side: name, video: videoOf(file, session), startedAt, steps, overlays };
-  };
-
-  const sides = [
-    ...(two ? [side("Before", raw.before, before.startedAt, (a) => beforeBy.get(a.index))] : []),
-    side("After", raw.after, meta.after.startedAt, (a) => a),
-  ];
-  const pieces = [];
-  for (let k = 0; k < n; k += 1) {
-    if (k) {
-      const stretch = Math.max(...sides.map((s) => s.steps[k].at - s.steps[k].from));
-      pieces.push({
-        kind: "between",
-        index: afterSteps[k].index,
-        seconds: frames(stretch / BETWEEN_SPEED),
-      });
-    }
-    pieces.push({ kind: "hold", index: afterSteps[k].index, seconds: frames(HOLD_SECONDS) });
-  }
+    return {
+      side: name,
+      startedAt,
+      videos,
+      steps: steps.map(({ fromStart, prev, ...s }) => s),
+      overlays,
+    };
+  });
   const seconds = frames(pieces.reduce((sum, p) => sum + p.seconds, 0));
-  return { session, sides, beforeNote, pieces, seconds };
+  return { sessions, scenes, sides, beforeNote: plays.note, pieces, seconds };
 }
 
 /**
  * The texts the MP4 adds over what the Storyboard shows: each overlay's
- * heading and timing line. Its captions are the step records', which the
- * Storyboard's fields already hold.
+ * heading and timing line, and each note on Before. Its captions are the
+ * step records', which the Storyboard's fields already hold.
  * @param {ReturnType<typeof timeline>} laid
  */
 export function overlayFields(laid) {
@@ -277,37 +418,71 @@ export function overlayFields(laid) {
     ]),
   );
   if (laid.beforeNote) fields.push({ field: "MP4 Before note", text: laid.beforeNote });
+  for (const c of laid.scenes)
+    if (c.beforeNote)
+      fields.push({ field: `MP4 Before note, Scene ${c.number}`, text: c.beforeNote });
   return fields;
+}
+
+/** The notes on Before the summary gives: the one for the MP4, or each Scene's. */
+function notesOf(laid) {
+  if (laid.beforeNote) return laid.beforeNote;
+  const each = laid.scenes.filter((c) => c.beforeNote);
+  return each.length ? each.map((c) => `Scene ${c.number}: ${c.beforeNote}`).join("; ") : null;
 }
 
 // ── Overlay pages ───────────────────────────────────────────────────────────
 
-/** The page each overlay image is rendered from, in the Storyboard's style. */
+/**
+ * The pages each overlay image is rendered from, in the Storyboard's style:
+ * the band for each Scene, with its note on Before; each side's caption for
+ * each piece; and on Before the no-recording frame for each Scene it lacks.
+ * @returns {{kind: "band" | "caption" | "frame", scene?: number, html: string, width: number, height: number}[]}
+ */
 export function overlayPages(laid, meta, records) {
   const width = SIDE.width * laid.sides.length;
   const failed = meta.result.startsWith("FAIL");
   const style = { cellWidth: SIDE.width - 32, failed };
   const band = layout(records, meta).band;
-  const note = laid.beforeNote
-    ? `<div class="meta" style="padding:0 24px 12px;margin:0;background:#f6f7f9">${escapeHtml(laid.beforeNote)}</div>`
-    : "";
-  const pages = [
-    {
-      html: pageHtml(`${bandHtml(band)}${note}`, { pageWidth: width, ...style }),
-      width,
-      height: 1,
-    },
-  ];
+  const noteHtml = (note) =>
+    note
+      ? `<div class="meta" style="padding:0 24px 12px;margin:0;background:#f6f7f9">${escapeHtml(note)}</div>`
+      : "";
+  const pages = laid.scenes.map((c) => ({
+    kind: /** @type {const} */ ("band"),
+    scene: c.number,
+    html: pageHtml(`${bandHtml(band)}${noteHtml(laid.beforeNote ?? c.beforeNote)}`, {
+      pageWidth: width,
+      ...style,
+    }),
+    width,
+    height: 1,
+  }));
   for (const s of laid.sides)
     for (const o of s.overlays)
       pages.push({
+        kind: "caption",
         width: SIDE.width,
         height: 1,
         html: pageHtml(
-          `<div style="padding:8px 16px 12px">` +
+          `<div${o.proves ? ' class="row proves"' : ""} style="display:block;padding:8px 16px 12px">` +
             `<div class="meta" style="margin:0;font-weight:600">${escapeHtml(o.heading)}</div>` +
             `<div class="caption" style="font-size:16px">${escapeHtml(o.caption)}</div>` +
-            `<div class="meta" style="margin-top:2px">${escapeHtml(o.timing)}</div></div>`,
+            `<div class="meta" style="margin-top:2px">${escapeHtml(o.timing)}</div>` +
+            (o.proves ? `<div class="proves-label">Proves the result</div>` : "") +
+            `</div>`,
+          { pageWidth: SIDE.width, ...style },
+        ),
+      });
+  for (const c of laid.scenes)
+    if (c.beforeNote)
+      pages.push({
+        kind: "frame",
+        scene: c.number,
+        width: SIDE.width,
+        height: SIDE.height,
+        html: pageHtml(
+          `<div class="frame empty" style="width:${SIDE.width}px;height:${SIDE.height}px">${escapeHtml(c.beforeNote)}</div>`,
           { pageWidth: SIDE.width, ...style },
         ),
       });
@@ -328,13 +503,19 @@ const even = (n) => Math.ceil(n / 2) * 2;
  * The ffmpeg arguments that build the MP4: pure, from the timeline, each
  * recording's length, and the overlay images already rendered.
  * @param {ReturnType<typeof timeline>} laid
- * @param {{videos: string[], durations: number[], band: {file: string, height: number},
- *   captions: {file: string, height: number}[][], encoder: string, out: string}} files
- *   `videos`, `durations` and `captions` are per side, in `laid.sides` order
+ * @param {{videos: Record<string, string>[], durations: Record<string, number>[],
+ *   bands: {file: string, height: number}[], captions: {file: string, height: number}[][],
+ *   frames: Record<number, {file: string}>, encoder: string, out: string}} files
+ *   `videos` and `durations` are per side, in `laid.sides` order, by Session; `bands` per
+ *   Scene; `captions` per side and piece; `frames` Before's no-recording frame, by Scene number
  */
-export function ffmpegArgs(laid, { videos, durations, band, captions, encoder, out }) {
+export function ffmpegArgs(
+  laid,
+  { videos, durations, bands, captions, frames: shown, encoder, out },
+) {
   const width = SIDE.width * laid.sides.length;
   const captionHeight = even(Math.max(...captions.flat().map((c) => c.height)));
+  const bandHeight = even(Math.max(...bands.map((b) => b.height)));
   const args = ["-hide_banner", "-loglevel", "error", "-y"];
   const filters = [];
   let input = 0;
@@ -344,32 +525,58 @@ export function ffmpegArgs(laid, { videos, durations, band, captions, encoder, o
   };
   const still = (pad, h) =>
     `fps=${FPS},scale=${pad}:-1,pad=${pad}:${h}:0:0:white,setsar=1,format=yuv420p`;
+  const sceneSeconds = (number) =>
+    frames(laid.pieces.filter((p) => p.scene === number).reduce((sum, p) => sum + p.seconds, 0));
 
-  const b = image(band.file, laid.seconds);
-  filters.push(`[${b}:v]${still(width, even(band.height))},trim=duration=${laid.seconds}[band]`);
+  // The band: one image per Scene, each with that Scene's note on Before.
+  const bandParts = laid.scenes.map((c, j) => {
+    const seconds = sceneSeconds(c.number);
+    const at = image(bands[j].file, seconds);
+    filters.push(
+      `[${at}:v]${still(width, bandHeight)},trim=duration=${seconds},setpts=PTS-STARTPTS[b${j}]`,
+    );
+    return `[b${j}]`;
+  });
+  filters.push(`${bandParts.join("")}concat=n=${bandParts.length}:v=1:a=0[band]`);
 
   laid.sides.forEach((s, i) => {
     const tag = `s${i}`;
-    const last = Math.max(durations[i] - 2 / FPS, 0);
-    const clamp = (t) => Math.min(Math.max(t, 0), last);
-    // The recording: one piece per hold, and per stretch with its hold, each its own input.
     const chunks = [];
-    for (let k = 0; k < s.steps.length; k += 1) {
-      const step = s.steps[k];
-      const between = k
-        ? laid.pieces.find((p) => p.kind === "between" && p.index === step.index)
-        : null;
-      const seconds = frames((between?.seconds ?? 0) + HOLD_SECONDS);
-      const from = clamp(k ? step.from : step.at);
-      const length = Math.max(clamp(step.at) - from, 2 / FPS);
-      args.push("-ss", from.toFixed(3), "-t", length.toFixed(3), "-i", videos[i]);
-      const at = input++;
-      filters.push(
-        `[${at}:v]setpts=(PTS-STARTPTS)/${BETWEEN_SPEED},fps=${FPS},` +
-          `scale=${SIDE.width}:${SIDE.height},setsar=1,format=yuv420p,` +
-          `tpad=stop_mode=clone:stop_duration=${seconds},trim=duration=${seconds},setpts=PTS-STARTPTS[${tag}v${k}]`,
-      );
-      chunks.push(`[${tag}v${k}]`);
+    for (const c of laid.scenes) {
+      const first = s.steps.findIndex((step) => step.scene === c.number);
+      if (!s.steps[first].recorded) {
+        // No recording of the Scene's Session on this side: its frame, for the whole Scene.
+        const seconds = sceneSeconds(c.number);
+        const at = image(shown[c.number].file, seconds);
+        filters.push(
+          `[${at}:v]fps=${FPS},scale=${SIDE.width}:${SIDE.height}:force_original_aspect_ratio=decrease,` +
+            `pad=${SIDE.width}:${SIDE.height}:0:0:white,setsar=1,format=yuv420p,` +
+            `trim=duration=${seconds},setpts=PTS-STARTPTS[${tag}f${c.number}]`,
+        );
+        chunks.push(`[${tag}f${c.number}]`);
+        continue;
+      }
+      const video = videos[i][c.session];
+      const last = Math.max(durations[i][c.session] - 2 / FPS, 0);
+      const clamp = (t) => Math.min(Math.max(t, 0), last);
+      // The recording: one piece per step, its stretch with its hold, each its own input.
+      s.steps.forEach((step, k) => {
+        if (step.scene !== c.number) return;
+        const between = laid.pieces.find(
+          (p) => p.kind === "between" && p.index === step.index && p.session === step.session,
+        );
+        const seconds = frames((between?.seconds ?? 0) + HOLD_SECONDS);
+        const from = clamp(step.from);
+        const length = Math.max(clamp(step.at) - from, 2 / FPS);
+        args.push("-ss", from.toFixed(3), "-t", length.toFixed(3), "-i", video);
+        const at = input++;
+        filters.push(
+          `[${at}:v]setpts=(PTS-STARTPTS)/${BETWEEN_SPEED},fps=${FPS},` +
+            `scale=${SIDE.width}:${SIDE.height},setsar=1,format=yuv420p,` +
+            `tpad=stop_mode=clone:stop_duration=${seconds},trim=duration=${seconds},setpts=PTS-STARTPTS[${tag}v${k}]`,
+        );
+        chunks.push(`[${tag}v${k}]`);
+      });
     }
     filters.push(`${chunks.join("")}concat=n=${chunks.length}:v=1:a=0[${tag}v]`);
     // The captions: one image per piece, in the same order as the pieces.
@@ -507,7 +714,7 @@ export async function main(argv, io = {}) {
 
   const dirs = { Before: loaded.records.beforeDir, After: loaded.records.afterDir };
   const recorded = (side, name) => Boolean(dirs[side]) && existsSync(join(dirs[side], name));
-  const two = beforeNoteFor(meta, loaded.raw, sessionOf(records, meta), recorded) === null;
+  const { two } = beforePlays(meta, loaded.raw, sessionsOf(records), recorded);
   const times = checkStartTimes(meta, two);
   if (times.length) return none(1, { problems: times });
   let laid;
@@ -529,15 +736,22 @@ export async function main(argv, io = {}) {
     return none(1, { refused });
   }
 
-  // Before plays only with its recording there, so only After can lack one here.
-  const videos = laid.sides.map((s) => (s.video ? join(dirs[s.side], s.video) : null));
-  const lacking = laid.sides.find((s, i) => !videos[i] || !existsSync(videos[i]));
+  // Before plays a Session only with its recording there, so only After can lack one here.
+  const after = /** @type {Side} */ (laid.sides.at(-1));
+  const lacking = laid.sessions.find(
+    (session) => !after.videos[session] || !existsSync(join(dirs.After, after.videos[session])),
+  );
   if (lacking)
     return none(2, {
       reason:
-        `no MP4: no recording of Session ${laid.session} on ${lacking.side} ` +
+        `no MP4: no recording of Session ${lacking} on After ` +
         "(web.mjs ran without --video, or its file is gone); the row keeps its Storyboard",
     });
+  const videos = laid.sides.map((s) =>
+    Object.fromEntries(
+      Object.entries(s.videos).map(([session, name]) => [session, join(dirs[s.side], name)]),
+    ),
+  );
 
   let renderer = io.renderer;
   if (!renderer) {
@@ -557,7 +771,11 @@ export async function main(argv, io = {}) {
     return none(2, { reason: `no MP4: ${why}; the row keeps its Storyboard` });
   };
   try {
-    const durations = videos.map((file) => probeSeconds(run, /** @type {string} */ (file)));
+    const durations = videos.map((bySession) =>
+      Object.fromEntries(
+        Object.entries(bySession).map(([session, file]) => [session, probeSeconds(run, file)]),
+      ),
+    );
     const pages = overlayPages(laid, meta, records);
     let pngs;
     try {
@@ -568,21 +786,26 @@ export async function main(argv, io = {}) {
     const files = pngs.map((png, i) => {
       const file = join(work, `overlay-${i}.png`);
       writeFileSync(file, png);
-      return { file, height: pngSize(png).height };
+      return { file, height: pngSize(png).height, page: pages[i] };
     });
-    const [band, ...rest] = files;
+    const bands = files.filter((f) => f.page.kind === "band");
+    const rest = files.filter((f) => f.page.kind === "caption");
     const per = laid.pieces.length;
     const captions = laid.sides.map((_, i) => rest.slice(i * per, (i + 1) * per));
+    const frameFiles = Object.fromEntries(
+      files.filter((f) => f.page.kind === "frame").map((f) => [f.page.scene, f]),
+    );
     const encoders = run("ffmpeg", ["-hide_banner", "-encoders"]);
     if (encoders.status !== 0) return failed(`ffmpeg did not run (${firstLine(encoders.stderr)})`);
     const encoder = /\blibx264\b/.test(encoders.stdout) ? "libx264" : "mpeg4";
     const built = run(
       "ffmpeg",
       ffmpegArgs(laid, {
-        videos: /** @type {string[]} */ (videos),
+        videos,
         durations,
-        band,
+        bands,
         captions,
+        frames: frameFiles,
         encoder,
         out: partial,
       }),
@@ -600,11 +823,11 @@ export async function main(argv, io = {}) {
     out: json({
       written: true,
       mp4: out ?? join(dirname(target), basename(/** @type {string} */ (mp4))),
-      session: laid.session,
+      session: laid.sessions,
       sides: laid.sides.map((s) => s.side),
       steps: laid.sides[0].steps.length,
       seconds: laid.seconds,
-      ...(laid.beforeNote ? { note: laid.beforeNote } : {}),
+      ...(notesOf(laid) ? { note: notesOf(laid) } : {}),
     }),
   };
 }
