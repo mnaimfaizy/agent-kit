@@ -574,6 +574,212 @@ test("each Session in the run context says how it signs in, ids only, and the ch
   );
 });
 
+// ── The Story: one sentence per Scene, carried in the scenario file (#385) ──
+
+/** The fixture's two steps, the second in Session B: two Scenes, so a Cut between them. */
+function twoSessionFolder(edit = (meta) => meta) {
+  const folder = runFolder((meta) => edit({ ...meta, proves: { session: "B", index: 2 } }));
+  for (const side of ["s1-web", "s1-before-web"]) {
+    const file = join(folder.dir, side, "steps.json");
+    const stepFile = JSON.parse(readFileSync(file, "utf8"));
+    stepFile.steps[1] = { ...stepFile.steps[1], session: "B", still: "step-02-b.png" };
+    writeFileSync(join(folder.dir, side, "step-02-b.png"), PNG_1X1);
+    writeFileSync(file, JSON.stringify(stepFile));
+  }
+  return folder;
+}
+const TWO_STORY = ["Ada saves her new name.", "The admin sees it listed once."];
+
+test("the scenario file carries the plan's Story as `story`, a list of sentences, and an older file without it still loads", () => {
+  const withStory = (story) => ({ ...fixtureMeta(), story });
+  assert.deepEqual(checkScenario(withStory(["Ada saves her new name."])), []);
+  assert.deepEqual(checkScenario(withStory([])), []);
+  assert.deepEqual(checkScenario(fixtureMeta()), [], "a scenario file from before #385");
+  for (const story of ["Ada saves her new name.", [""], ["  "], [1], [null], {}, null])
+    assert.deepEqual(
+      checkScenario(withStory(story)),
+      ["story is not a list of sentences, one per Scene ([] for none)"],
+      JSON.stringify(story),
+    );
+});
+
+test("a Story with fewer sentences than After's steps make Scenes is a problem; one with more is a run that stopped early", async () => {
+  const short = twoSessionFolder((meta) => ({ ...meta, story: [TWO_STORY[0]] }));
+  assert.deepEqual(loadScenario(short.metaPath).problems, [
+    "story has 1 sentence, and After's steps make 2 Scenes: copy the plan's Story:, one sentence per Scene",
+  ]);
+  const { code, out } = await main(["render", short.metaPath], {
+    env: ENV,
+    cwd: ROOT,
+    renderer: stubRenderer([]),
+  });
+  assert.equal(code, 1, out);
+  // After stopped before its last Scene: the Story keeps every planned sentence.
+  const long = runFolder((meta) => ({ ...meta, story: TWO_STORY }));
+  assert.deepEqual(loadScenario(long.metaPath).problems, []);
+  assert.deepEqual(loadScenario(runFolder().metaPath).problems, []);
+});
+
+/** An admin ends a member's session: Scenes A, B, A, each step its own row, as #381's story. */
+function cutRecords() {
+  const step = (session, index, caption, extra = {}) => ({
+    session,
+    index,
+    caption,
+    still: `step-0${index}-${session.toLowerCase()}.png`,
+    subject: null,
+    text: null,
+    withheld: null,
+    ...extra,
+  });
+  const steps = () => [
+    step("A", 1, "The member's dashboard"),
+    step("B", 2, "The admin's sessions page, the member's session ended"),
+    step("A", 3, "The member's page after a reload"),
+    step("A", 4, "The sign-in page the member lands on"),
+  ];
+  return { after: steps(), before: steps() };
+}
+const CUT_STORY = [
+  "The member is signed in and on their dashboard.",
+  "The admin ends the member's session.",
+  "The member reloads and lands on the sign-in page.",
+];
+const cutMeta = (edit = {}) => ({
+  ...fixtureMeta(),
+  before: { ...fixtureMeta().before, expected: "The member stays on the dashboard" },
+  proves: { session: "A", index: 4 },
+  story: CUT_STORY,
+  ...edit,
+});
+/** The laid-out Storyboard read top to bottom: each heading row and each numbered row. */
+const readDown = (laid) => {
+  const seen = new Set();
+  return laid.rows.flatMap((row) => {
+    const scene = laid.scenes.find((s) => s.number === row.scene);
+    const heading = scene?.sentence && !seen.has(scene.number) ? [`# ${scene.sentence}`] : [];
+    if (scene) seen.add(scene.number);
+    return [...heading, `${row.number} ${row.session}`];
+  });
+};
+
+test("each Scene's Story sentence is a heading row above that Scene's steps, in order (#385)", () => {
+  const laid = layout(cutRecords(), cutMeta());
+  assert.deepEqual(
+    laid.scenes.map((s) => [s.number, s.session, s.steps, s.sentence]),
+    [
+      [1, "A", [1], CUT_STORY[0]],
+      [2, "B", [2], CUT_STORY[1]],
+      [3, "A", [3, 4], CUT_STORY[2]],
+    ],
+  );
+  // The admin's confirming step and the member's landing step are each their own numbered row.
+  assert.deepEqual(readDown(laid), [
+    `# ${CUT_STORY[0]}`,
+    "1 A",
+    `# ${CUT_STORY[1]}`,
+    "2 B",
+    `# ${CUT_STORY[2]}`,
+    "3 A",
+    "4 A",
+  ]);
+  // The page draws them in that order, each heading once.
+  const html = storyboardHtml(laid, () => PNG_1X1);
+  const at = (text) => html.indexOf(text.replaceAll("'", "&#39;"));
+  const order = [
+    CUT_STORY[0],
+    "The member's dashboard",
+    CUT_STORY[1],
+    "The admin's sessions page",
+    CUT_STORY[2],
+    "after a reload",
+    "The sign-in page the member lands on",
+  ].map(at);
+  assert.ok(order.every((i) => i >= 0));
+  assert.deepEqual(
+    [...order].sort((a, b) => a - b),
+    order,
+  );
+  assert.equal(html.match(/class="scene"/g).length, 3);
+  assert.match(html, /<div class="scene"><small>Scene 2 of 3 · Session B<\/small>The admin ends/);
+});
+
+test("a still withheld for privacy keeps its row, caption and labelled frame under its Scene's heading", () => {
+  const steps = cutRecords();
+  steps.after[1] = { ...steps.after[1], still: null, withheld: "a sign-in value is on the screen" };
+  const laid = layout(steps, cutMeta());
+  assert.deepEqual(readDown(laid).slice(2, 4), [`# ${CUT_STORY[1]}`, "2 B"]);
+  const row = laid.rows[1];
+  assert.equal(row.scene, 2);
+  assert.equal(row.after.caption, "The admin's sessions page, the member's session ended");
+  assert.equal(row.after.withheld, "a sign-in value is on the screen");
+  const html = storyboardHtml(laid, () => PNG_1X1);
+  assert.ok(
+    html.indexOf(CUT_STORY[1].replaceAll("'", "&#39;")) <
+      html.indexOf("Still withheld: a sign-in value is on the screen"),
+  );
+});
+
+test("a scenario file with no Story has no heading rows, and lays out as before", () => {
+  const laid = layout(cutRecords(), cutMeta({ story: undefined }));
+  assert.deepEqual(
+    laid.scenes.map((s) => s.sentence),
+    [null, null, null],
+  );
+  assert.deepEqual(readDown(laid), ["1 A", "2 B", "3 A", "4 A"]);
+  assert.doesNotMatch(
+    storyboardHtml(laid, () => PNG_1X1),
+    /class="scene"/,
+  );
+  // A Before step with no After step keeps its row, after the others, under no Scene.
+  const steps = cutRecords();
+  steps.after.pop();
+  const short = layout(steps, cutMeta({ proves: { session: "A", index: 3 } }));
+  assert.deepEqual(readDown(short).slice(-2), ["3 A", "4 A"]);
+  assert.equal(short.rows.at(-1).scene, null);
+});
+
+test("every Story sentence is a field the privacy check reads, a Storyboard shown or not", () => {
+  const meta = { ...fixtureMeta(), story: ["One.", "Two."] };
+  const fields = shownFields(records(), meta).filter((f) => f.field.startsWith("story"));
+  assert.deepEqual(fields, [
+    { field: "story[0]", text: "One.", from: { file: "meta", path: ["story", 0] } },
+    { field: "story[1]", text: "Two.", from: { file: "meta", path: ["story", 1] } },
+  ]);
+});
+
+test("a Story sentence holding a sign-in value refuses the Storyboard by its field, never its value, and is kept [withheld]", async () => {
+  const { dir, metaPath } = twoSessionFolder((meta) => ({
+    ...meta,
+    story: [TWO_STORY[0], `The admin, ${EMAIL}, sees it listed once.`],
+  }));
+  const seen = [];
+  const { code, out } = await main(["render", metaPath], {
+    env: ENV,
+    cwd: ROOT,
+    renderer: stubRenderer(seen),
+  });
+  assert.equal(code, 1, out);
+  assert.deepEqual(JSON.parse(out).refused, [
+    { field: "story[1]", why: "holds a sign-in value (QA_A_EMAIL)" },
+  ]);
+  assert.equal(seen.length, 0, "nothing rendered");
+  assert.ok(!out.includes(EMAIL));
+  assert.ok(!allText(dir).includes(EMAIL));
+  assert.deepEqual(JSON.parse(readFileSync(metaPath, "utf8")).story, [TWO_STORY[0], WITHHELD]);
+  // Run again, it builds, the sentence shown as [withheld].
+  const again = await main(["render", metaPath], {
+    env: ENV,
+    cwd: ROOT,
+    renderer: stubRenderer(seen),
+  });
+  assert.equal(again.code, 0, again.out);
+  assert.deepEqual(
+    seen[0].scenes.map((s) => s.sentence),
+    [TWO_STORY[0], WITHHELD],
+  );
+});
+
 test("every refusal removes an older Storyboard at its path, so none outlives what the run now says (#235 review)", async () => {
   const cases = [
     ["a result re-graded to Not proven", (meta) => ({ ...meta, result: "Not proven" }), {}],

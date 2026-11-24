@@ -210,6 +210,7 @@ export function shownFields(records, meta) {
     if (typeof text === "string") fields.push({ field, text, from: { file, path } });
   };
   add("title", meta.title, "meta", ["title"]);
+  storyOf(meta).forEach((sentence, i) => add(`story[${i}]`, sentence, "meta", ["story", i]));
   for (const side of ["before", "after"])
     if (isObject(meta[side]))
       for (const key of ["expected", "observed", "note"])
@@ -238,6 +239,32 @@ export function shownFields(records, meta) {
     });
   return fields;
 }
+
+// ── Scenes ──────────────────────────────────────────────────────────────────
+
+/**
+ * The Scenes: After's steps in order, a new Scene at each Cut, where a step's
+ * Session is not the previous step's. A single-session scenario is one Scene.
+ * Exported so the MP4 splits its timeline at the same Cuts.
+ * @param {{session: string, index: number}[]} afterSteps
+ * @returns {{number: number, session: string, steps: number[]}[]}
+ */
+export function scenesOf(afterSteps) {
+  const scenes = [];
+  for (const step of afterSteps) {
+    const last = scenes.at(-1);
+    if (last && last.session === step.session) last.steps.push(step.index);
+    else scenes.push({ number: scenes.length + 1, session: step.session, steps: [step.index] });
+  }
+  return scenes;
+}
+
+/**
+ * The scenario's Story sentences, one per Scene in order, as the scenario file
+ * carries them (`[]` when it has none: a plan with no Story, or a file written
+ * before #385).
+ */
+export const storyOf = (meta) => (Array.isArray(meta?.story) ? meta.story : []);
 
 // ── Layout ──────────────────────────────────────────────────────────────────
 
@@ -370,11 +397,21 @@ export function layout(records, meta) {
         "with that index and Session",
     );
 
+  // Each Scene's sentence heads its steps; a Scene with none (no Story) has no heading.
+  const story = storyOf(meta);
+  const scenes = scenesOf(records.after).map((scene) => ({
+    ...scene,
+    sentence: story[scene.number - 1] ?? null,
+  }));
+  const sceneOf = new Map(
+    scenes.flatMap((scene) => scene.steps.map((i) => [`${scene.session}:${i}`, scene.number])),
+  );
   const rows = records.after.map((record) => {
     const paired = beforeBy.get(key(record));
     return {
       number: record.index,
       session: record.session,
+      scene: /** @type {number} */ (sceneOf.get(key(record))),
       proves: Boolean(proves) && key(record) === `${proves.session}:${proves.index}`,
       before: columns === 2 ? (paired ? cell(paired) : missingCell("no Before step")) : null,
       after: cell(record),
@@ -388,6 +425,7 @@ export function layout(records, meta) {
         rows.push({
           number: record.index,
           session: record.session,
+          scene: null,
           proves: false,
           before: cell(record),
           after: missingCell("no After step"),
@@ -408,6 +446,7 @@ export function layout(records, meta) {
       },
     },
     columns,
+    scenes,
     rows,
   };
 }
@@ -523,6 +562,9 @@ body{margin:0;width:${pageWidth}px;background:${p.page};color:${p.ink};font:15px
 .outline{position:absolute;outline:3px solid ${p.outline};outline-offset:0}
 .caption{margin-top:4px;width:${cellWidth}px;font-size:13px}
 .note{flex:1;padding-top:4px;color:${p.muted};font-size:13px}
+.scene{padding:14px 24px 10px;background:${p.panel};border-bottom:1px solid ${p.line};font-size:17px;font-weight:700}
+.scene small{display:block;margin-bottom:2px;font-size:12px;font-weight:600;color:${p.muted}}
+.title-card{display:flex;align-items:center;justify-content:center;padding:48px 96px;text-align:center;font-size:40px;line-height:1.3;font-weight:700}
 </style></head><body>
 ${body}
 </body></html>`;
@@ -542,8 +584,18 @@ export function storyboardHtml(laid, stillOf) {
     laid.columns === 2
       ? `<div class="heads"><span></span><span>Before</span><span>After</span></div>`
       : "";
+  const headed = new Set();
   const rows = laid.rows
     .map((row) => {
+      // A Scene's heading row, above its first step.
+      const scene = laid.scenes.find((s) => s.number === row.scene);
+      let heading = "";
+      if (scene?.sentence && !headed.has(scene.number)) {
+        headed.add(scene.number);
+        heading =
+          `<div class="scene"><small>Scene ${scene.number} of ${laid.scenes.length} · Session ${escapeHtml(scene.session)}</small>` +
+          `${escapeHtml(scene.sentence)}</div>`;
+      }
       const cells = [
         row.before
           ? frameHtml(row.before, width, row.before.still && stillOf("before", row.before.still))
@@ -556,6 +608,7 @@ export function storyboardHtml(laid, stillOf) {
       const note = row.beforeNote ? `<div class="note">${escapeHtml(row.beforeNote)}</div>` : "";
       const proves = row.proves ? `<div class="proves-label">Proves the result</div>` : "";
       return (
+        heading +
         `<div class="row${row.proves ? " proves" : ""}">` +
         `<div class="number">${row.number}<small>${escapeHtml(row.session)}</small>${proves}</div>` +
         `${cells}${note}</div>`
@@ -751,6 +804,15 @@ export function checkScenario(meta) {
     )
   )
     problems.push('proves is not {"session", "index"}');
+  // Optional, so an older scenario file still loads; a video without it gets no card sentence.
+  if (
+    m.story !== undefined &&
+    !(
+      Array.isArray(m.story) &&
+      m.story.every((sentence) => typeof sentence === "string" && sentence.trim())
+    )
+  )
+    problems.push("story is not a list of sentences, one per Scene ([] for none)");
   // Required, so the check always knows which values the run used; an empty list says none.
   if (!(Array.isArray(m.variables) && m.variables.every((name) => ENV_NAME.test(name))))
     problems.push("variables is not a list of the QA_ variable names the run used ([] for none)");
@@ -794,6 +856,16 @@ export function loadScenario(metaPath) {
     typeof meta.before?.steps === "string" ? side(meta.before.steps, "before.steps") : null;
   files.after = after.file;
   files.before = before?.file ?? null;
+  // A sentence for every Scene After's steps make; more is a run that stopped before its last Scene.
+  const story = storyOf(meta);
+  const steps = Array.isArray(after.raw?.steps) ? after.raw.steps : [];
+  if (story.length && !problems.length && scenesOf(steps).length > story.length) {
+    const scenes = scenesOf(steps).length;
+    problems.push(
+      `story has ${story.length} sentence${story.length === 1 ? "" : "s"}, and After's steps make ` +
+        `${scenes} Scenes: copy the plan's Story:, one sentence per Scene`,
+    );
+  }
   return {
     meta,
     records: {
