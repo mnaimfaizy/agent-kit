@@ -97,7 +97,7 @@ test("each `run:` problem is named with its line", () => {
     "  colour: blue",
   );
   assert.deepEqual(read.runProblems, [
-    "line 14: `run.colour`: unknown key (ADAPTER.md documents: target, surface, stack, accounts, version_endpoint, evidence)",
+    "line 14: `run.colour`: unknown key (ADAPTER.md documents: target, surface, stack, hosts, accounts, version_endpoint, evidence)",
     "line 2: `run.target`: expected one of: stack, url",
     "line 3: `run.surface`: expected one of: web, desktop, mobile, api",
     "line 4: `run.stack.start`: unknown key (ADAPTER.md documents: up, migrate, seed, down, address)",
@@ -761,7 +761,11 @@ test("a URL found only in the plan is not confirmation", () => {
   assert.equal(readiness.ready, true);
   assert.equal(readiness.run.target, "url");
   assert.doesNotMatch(JSON.stringify(readiness), /example\.com/);
-  assert.ok(readiness.notes.some((n) => /ask the QA person for it in chat/.test(n)));
+  assert.ok(
+    readiness.notes.some((n) =>
+      /no config key confirms a hosted address; ask the QA person to type it in chat/.test(n),
+    ),
+  );
   // The plan's own URL, unconfirmed, is not one a run may sign in at.
   assert.equal(hostVerdict(planUrl, url).verdict, "confirm");
   assert.equal(main(["host", planUrl, "--target", "url"], { read: reader(files) }).code, 3);
@@ -1056,4 +1060,230 @@ test("`run.stack.address` given as a run answer reaches the effective run", () =
   assert.equal(code, 0);
   assert.equal(result.effective.run.stack.address, "localhost:3000");
   assert.equal(main(["host", "localhost:3000"], { read: reader({}) }).code, 0);
+});
+
+// ── run.hosts: candidates the person still confirms by typing (#418) ────────
+
+const HOSTS_CONFIG = [
+  "run:",
+  "  target: url",
+  "  surface: web",
+  "  hosts:",
+  "    - { name: app, url: https://qa.example.com, surface: web }",
+  "    - { name: api, url: https://api.qa.example.com, surface: api }",
+  "    - { name: billing, url: https://billing.staging.example.com }",
+  "  accounts:",
+  '    print: "npm run seed:qa -- --print"',
+  "    roles:",
+  "      - { id: admin, purpose: manages members }",
+  "      - { id: member, purpose: an ordinary member }",
+].join("\n");
+const URL_PLAN = GOOD_PLAN.replace("- **Target:** `stack`", "- **Target:** `url`");
+/** S2 drives the `api` surface; S1 stays on the Run brief's `web`. */
+const API_S2 = URL_PLAN.replace(
+  "- **Signs in as:** nobody\n",
+  "- **Signs in as:** nobody\n- **Surface:** api\n",
+);
+/** S2 tests the named `billing` service. */
+const BILLING_S2 = API_S2.replace(
+  "- **Surface:** api\n",
+  "- **Surface:** api\n- **Service:** billing\n",
+);
+
+/** `check --for run --plan` over HOSTS_CONFIG (or `config`), with each `--host` typed. */
+function checkHosts(plan, typed = [], config = HOSTS_CONFIG) {
+  const io = {
+    read: reader({ "qa.config.yml": config }),
+    readFile: (p) => (p === "plan.md" ? plan : null),
+  };
+  const flags = typed.flatMap((value) => ["--host", value]);
+  const result = main(["check", "--for", "run", "--plan", "plan.md", ...flags], io);
+  return { code: result.code, out: JSON.parse(result.out) };
+}
+
+test("`run.hosts` reads as a list of { name, url, surface } and is a candidate list", () => {
+  assert.deepEqual(yaml(...HOSTS_CONFIG.split("\n")).runProblems, []);
+});
+
+test("`run.hosts` problems are named with their line", () => {
+  const read = yaml(
+    "run:",
+    "  hosts:",
+    "    - { name: app, url: https://qa.example.com, surface: web }",
+    "    - { name: app, url: https://qa2.example.com }",
+    "    - { name: other, url: https://qa3.example.com, surface: web }",
+    "    - { name: bad name, url: https://qa.example.com }",
+    "    - { name: nourl }",
+    "    - { name: creds, url: https://me:pw@qa.example.com }",
+    "    - { name: ftp, url: ftp://qa.example.com }",
+    "    - { name: tv, url: https://tv.example.com, surface: tv }",
+    "    - { name: extra, url: https://x.example.com, token: abc }",
+    "    - not-a-mapping",
+  );
+  assert.deepEqual(read.runProblems, [
+    "line 4: `run.hosts[1].name`: duplicate name `app`",
+    "line 5: `run.hosts[2].surface`: `web` already has an entry (`app`): a surface has at most one",
+    "line 6: `run.hosts[3].name`: required: letters, digits, `_` and `-` only",
+    "line 7: `run.hosts[4].url`: required: a web address, such as `https://qa.example.com`",
+    "line 8: `run.hosts[5].url`: required: a web address with no sign-in values in it",
+    "line 9: `run.hosts[6].url`: required: a web address, such as `https://qa.example.com`",
+    "line 10: `run.hosts[7].surface`: expected one of: web, desktop, mobile, api",
+    "line 11: `run.hosts[8].token`: unknown key (ADAPTER.md documents: name, url, surface)",
+    "line 12: `run.hosts[9]`: expected a mapping of `name`, `url`, `surface`",
+  ]);
+  assert.deepEqual(yaml("run:", "  hosts: https://qa.example.com").runProblems, [
+    "line 2: `run.hosts`: expected a list of `{ name, url, surface }` candidates",
+  ]);
+});
+
+test("check --for run lists each `run.hosts` entry as a candidate and still asks to type it", () => {
+  const { code, out } = checkHosts(URL_PLAN);
+  assert.equal(code, 0);
+  assert.deepEqual(
+    out.readiness.hosts.map((h) => [h.name, h.verdict, h.confirmed]),
+    [
+      ["app", "confirm", false],
+      ["api", "confirm", false],
+      ["billing", "confirm", false],
+    ],
+  );
+  for (const name of ["app", "api", "billing"])
+    assert.ok(
+      out.readiness.notes.some(
+        (n) => n.includes(`\`${name}\``) && n.includes("a candidate, never a confirmation"),
+      ),
+      name,
+    );
+  // Nothing typed: the config confirms nothing, and every scenario waits for a person.
+  assert.deepEqual(
+    out.readiness.held.map((h) => h.id),
+    ["S1", "S2"],
+  );
+  assert.ok(out.readiness.held.every((h) => /not confirmed/.test(h.why)));
+});
+
+test("a typed host confirms its entry; a scenario without Service: uses its surface's entry", () => {
+  const { out } = checkHosts(API_S2, ["app=qa.example.com", "api=https://api.qa.example.com"]);
+  assert.deepEqual(
+    out.readiness.hosts.map((h) => [h.name, h.verdict, h.confirmed]),
+    [
+      ["app", "hosted", true],
+      ["api", "hosted", true],
+      ["billing", "confirm", false],
+    ],
+  );
+  assert.deepEqual(out.readiness.held, []);
+  assert.deepEqual(
+    out.readiness.scenarioHosts.map((s) => [s.id, s.entry]),
+    [
+      ["S1", "app"],
+      ["S2", "api"],
+    ],
+  );
+});
+
+test("**Service:** picks the named entry, and the surface's entry is not used", () => {
+  const { out } = checkHosts(BILLING_S2, [
+    "app=qa.example.com",
+    "billing=billing.staging.example.com",
+  ]);
+  assert.deepEqual(out.readiness.held, []);
+  assert.deepEqual(
+    out.readiness.scenarioHosts.map((s) => [s.id, s.entry]),
+    [
+      ["S1", "app"],
+      ["S2", "billing"],
+    ],
+  );
+});
+
+test("a host typed for another address does not confirm the entry", () => {
+  const { out } = checkHosts(URL_PLAN, ["app=evil.example.com", "api=api.qa.example.com"]);
+  const app = out.readiness.hosts.find((h) => h.name === "app");
+  assert.equal(app.verdict, "stop");
+  assert.equal(app.confirmed, false);
+  assert.ok(out.readiness.held.some((h) => h.id === "S1" && /app/.test(h.why)));
+});
+
+test("a `stop` entry holds only its own scenarios; the rest run", () => {
+  const config = HOSTS_CONFIG.replace("https://api.qa.example.com", "https://api.example.com");
+  const { out } = checkHosts(API_S2, ["app=qa.example.com", "api=api.example.com"], config);
+  const api = out.readiness.hosts.find((h) => h.name === "api");
+  assert.equal(api.verdict, "stop");
+  assert.deepEqual(
+    out.readiness.held.map((h) => h.id),
+    ["S2"],
+  );
+  assert.match(out.readiness.held[0].why, /api/);
+  assert.deepEqual(
+    out.readiness.scenarioHosts.map((s) => s.id),
+    ["S1"],
+  );
+});
+
+test("a scenario that needs an entry the run lacks is held, not given another host", () => {
+  // No `api` entry for S2's surface.
+  const noApi = HOSTS_CONFIG.replace(
+    "    - { name: api, url: https://api.qa.example.com, surface: api }\n",
+    "",
+  );
+  const lacking = checkHosts(API_S2, ["app=qa.example.com"], noApi).out.readiness.held;
+  assert.deepEqual(
+    lacking.map((h) => h.id),
+    ["S2"],
+  );
+  assert.match(lacking[0].why, /no entry for the `api` surface/);
+  // **Service:** names a service the run has no entry for.
+  const noBilling = HOSTS_CONFIG.replace(
+    "    - { name: billing, url: https://billing.staging.example.com }\n",
+    "",
+  );
+  const missing = checkHosts(BILLING_S2, ["app=qa.example.com"], noBilling).out.readiness.held;
+  assert.deepEqual(
+    missing.map((h) => h.id),
+    ["S2"],
+  );
+  assert.match(missing[0].why, /no service `billing`/);
+});
+
+test("with no `run.hosts`, a **Service:** scenario is held and the rest use the one typed URL", () => {
+  const config = HOSTS_CONFIG.split("\n")
+    .filter((l) => !/^  hosts:|^    - \{ name: (app|api|billing)/.test(l))
+    .join("\n");
+  const { out } = checkHosts(BILLING_S2, [], config);
+  assert.deepEqual(
+    out.readiness.held.map((h) => h.id),
+    ["S2"],
+  );
+  assert.match(out.readiness.held[0].why, /no service `billing`/);
+  assert.deepEqual(out.readiness.hosts, []);
+});
+
+test("the seeder question is asked once per environment", () => {
+  const config = HOSTS_CONFIG.replace("https://api.qa.example.com", "https://qa.example.com/api");
+  const { out } = checkHosts(API_S2, [], config);
+  assert.deepEqual(
+    out.readiness.environments.map((e) => [e.host, e.entries]),
+    [
+      ["qa.example.com", ["app", "api"]],
+      ["billing.staging.example.com", ["billing"]],
+    ],
+  );
+  for (const environment of out.readiness.environments)
+    assert.match(environment.question, /did the environment's owner run this repo's seeder/i);
+});
+
+test("`--host` for a name `run.hosts` lacks is a usage error", () => {
+  const io = { read: reader({ "qa.config.yml": HOSTS_CONFIG }) };
+  const result = main(["check", "--for", "run", "--host", "nope=qa.example.com"], io);
+  assert.equal(result.code, 2);
+  assert.match(result.out, /no `run.hosts` entry named `nope`/);
+  assert.equal(main(["check", "--for", "run", "--host", "nope"], io).code, 2);
+});
+
+test("`run.hosts` is read only for a `url` target", () => {
+  const config = HOSTS_CONFIG.replace("target: url", "target: stack");
+  const { out } = checkHosts(GOOD_PLAN, [], config);
+  assert.equal(out.readiness.hosts, undefined);
+  assert.ok(out.readiness.notes.some((n) => /`run.hosts` is read only for target `url`/.test(n)));
 });

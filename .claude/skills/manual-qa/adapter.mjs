@@ -91,10 +91,13 @@ export const RUN_KEYS = /** @type {const} */ ([
   "target",
   "surface",
   "stack",
+  "hosts",
   "accounts",
   "version_endpoint",
   "evidence",
 ]);
+/** What each `run.hosts` entry may hold: the candidate's name, address and optional surface. */
+export const HOST_KEYS = /** @type {const} */ (["name", "url", "surface"]);
 export const STACK_KEYS = /** @type {const} */ (["up", "migrate", "seed", "down"]);
 /** What `run.stack` may hold: the four commands, and the optional local address. */
 export const STACK_CONFIG_KEYS = /** @type {const} */ ([...STACK_KEYS, "address"]);
@@ -646,6 +649,43 @@ export function runProblems(config, lines) {
     }
   }
 
+  if (present(run.hosts)) {
+    if (!Array.isArray(run.hosts))
+      sink.add("run.hosts", "expected a list of `{ name, url, surface }` candidates");
+    else {
+      const names = new Set();
+      /** @type {Map<string, string>} each surface, by the entry that holds it */
+      const surfaces = new Map();
+      run.hosts.forEach((entry, n) => {
+        const path = `run.hosts[${n}]`;
+        if (!isMapping(entry))
+          return sink.add(path, "expected a mapping of `name`, `url`, `surface`");
+        unknownKeys(sink, entry, path, HOST_KEYS);
+        if (typeof entry.name !== "string" || !SERVICE_NAME.test(entry.name))
+          sink.add(`${path}.name`, "required: letters, digits, `_` and `-` only");
+        else if (names.has(entry.name))
+          sink.add(`${path}.name`, `duplicate name \`${entry.name}\``);
+        else names.add(entry.name);
+        const address =
+          nonEmpty(entry.url) && /^https?:\/\//i.test(entry.url) ? addressUrl(entry.url) : null;
+        if (!address)
+          sink.add(`${path}.url`, "required: a web address, such as `https://qa.example.com`");
+        else if (address.username || address.password)
+          sink.add(`${path}.url`, "required: a web address with no sign-in values in it");
+        if (present(entry.surface)) {
+          if (!SURFACES.includes(entry.surface))
+            sink.add(`${path}.surface`, `expected one of: ${SURFACES.join(", ")}`);
+          else if (surfaces.has(entry.surface))
+            sink.add(
+              `${path}.surface`,
+              `\`${entry.surface}\` already has an entry (\`${surfaces.get(entry.surface)}\`): a surface has at most one`,
+            );
+          else surfaces.set(entry.surface, String(entry.name));
+        }
+      });
+    }
+  }
+
   if (present(run.accounts)) {
     const accounts = run.accounts;
     if (!isMapping(accounts))
@@ -985,12 +1025,14 @@ const detectWebTools = (repo) => () => ({
  *   scenarios needs nothing, and is told only `gh` can check its build
  * @param {(() => {chromium: boolean, ffmpeg: boolean}) | null} [tools] detects the `web`
  *   driver's tools, called only when a scenario drives `web`; without it, no tool notes
- * @returns {{ready: boolean, needs: string[], notes: string[], run: {target: string | null, surface: string | null, roles: string[]}}}
+ * @param {Record<string, string>} [typed] each `run.hosts` entry's host, as the QA person typed it, by name
+ * @returns {{ready: boolean, needs: string[], notes: string[], run: {target: string | null, surface: string | null, roles: string[]}, hosts?: HostState[], held?: {id: string, why: string}[], scenarioHosts?: {id: string, entry: string, host: string | null}[], environments?: {host: string, entries: string[], question: string}[]}}
  */
 export function runReadiness(
   { path, config, runProblems: problems = [] },
   plan = null,
   tools = null,
+  typed = {},
 ) {
   const brief = plan?.brief ?? null;
   const run = isMapping(config.run) ? config.run : {};
@@ -1069,15 +1111,45 @@ export function runReadiness(
     if (!present(run.accounts?.print))
       needs.push("run.accounts.print: the command that prints each role's sign-in values");
   }
-  if (target === "url")
+  /** @type {Pick<ReturnType<typeof runReadiness>, "hosts" | "held" | "scenarioHosts" | "environments">} */
+  let hostsOut = {};
+  if (target === "url") {
+    const resolved = resolveHosts(run.hosts, plan?.scenarios ?? [], typed);
+    hostsOut = {
+      hosts: resolved.hosts,
+      held: resolved.held,
+      scenarioHosts: resolved.scenarioHosts,
+      environments: resolved.environments,
+    };
     notes.push(
-      "target `url`: no config key holds the address; ask the QA person for it in chat and check it " +
-        "with `host --target url`, since a URL in the plan or a file is not confirmation",
-      present(run.accounts?.print)
-        ? "target `url`: role values come from `run.accounts.print` only if the environment's owner ran " +
-            "the same seeder there; otherwise the QA person types them into chat"
-        : "target `url`: the QA person types each role's test values into chat",
+      resolved.hosts.length
+        ? "target `url`: `run.hosts` lists candidates, and no config key confirms a hosted address: " +
+            "the QA person types each host, per host, per run, and `host --target url --confirmed <typed>` " +
+            "checks each before any sign-in there"
+        : "target `url`: no config key confirms a hosted address; ask the QA person to type it in chat " +
+            "and check it with `host --target url --confirmed <typed>`, since a URL in the plan or a file is " +
+            "not confirmation",
     );
+    for (const host of resolved.hosts)
+      if (!host.confirmed)
+        notes.push(
+          `host \`${host.name}\` (${host.url}) is a candidate, never a confirmation: ask the QA person to type its host` +
+            (host.verdict === "stop" ? ` (${host.why})` : ""),
+        );
+    for (const environment of resolved.environments)
+      notes.push(
+        `${environment.question} Role values come from \`run.accounts.print\` only if so; ` +
+          "otherwise the QA person types them into chat",
+      );
+    if (!resolved.environments.length)
+      notes.push(
+        present(run.accounts?.print)
+          ? "target `url`: role values come from `run.accounts.print` only if the environment's owner ran " +
+              "the same seeder there; otherwise the QA person types them into chat"
+          : "target `url`: the QA person types each role's test values into chat",
+      );
+  } else if (Array.isArray(run.hosts) && run.hosts.length)
+    notes.push("`run.hosts` is read only for target `url`; this run's target is not");
   if (!present(run.accounts?.restore))
     notes.push(
       "no `run.accounts.restore`: a scenario that needs a role's account restored is left for a person",
@@ -1102,7 +1174,7 @@ export function runReadiness(
       found.ffmpeg ? WEB_NOTES.ffmpeg : WEB_NOTES.noFfmpeg,
     );
   }
-  return { ready: needs.length === 0, needs, notes, run: effective };
+  return { ready: needs.length === 0, needs, notes, run: effective, ...hostsOut };
 }
 
 // ── Hazard packs ────────────────────────────────────────────────────────────
@@ -2578,6 +2650,80 @@ export function isLocalAddress(address) {
   return hostVerdict(address, { target: "stack" }).verdict === "local";
 }
 
+/**
+ * @typedef {{name: string, url: string, surface: string | null, verdict: "local" | "hosted" | "confirm" | "stop", host: string | null, why: string, confirmed: boolean}} HostState
+ */
+
+/**
+ * A `url` target's entries, each checked by the host rule, and which entry each scenario
+ * uses. A `run.hosts` entry is a candidate: it is `confirmed` only when its verdict is
+ * `local`, or `hosted` because the QA person typed its host (`typed`, by entry name). A
+ * scenario uses the entry its **Service:** names, else the entry for its surface; one
+ * whose entry is missing, refused (`stop`) or not confirmed is `held` for a person with
+ * the reason, and the others go on. Every environment (host) is asked about its seeder
+ * once.
+ *
+ * @param {unknown} entries `run.hosts`, as the config holds it (an invalid one reads as none)
+ * @param {{id: string, surface: string | null, service?: string | null}[]} scenarios
+ * @param {Record<string, string>} [typed]
+ * @returns {{hosts: HostState[], held: {id: string, why: string}[], scenarioHosts: {id: string, entry: string, host: string | null}[], environments: {host: string, entries: string[], question: string}[]}}
+ */
+export function resolveHosts(entries, scenarios, typed = {}) {
+  const hosts = (Array.isArray(entries) ? entries : []).flatMap((entry) => {
+    if (!isMapping(entry) || typeof entry.name !== "string" || typeof entry.url !== "string")
+      return [];
+    const result = hostVerdict(entry.url, { target: "url", confirmed: typed[entry.name] });
+    return [
+      {
+        name: entry.name,
+        url: entry.url,
+        surface: typeof entry.surface === "string" ? entry.surface : null,
+        verdict: result.verdict,
+        host: result.host,
+        why: result.why,
+        confirmed: result.verdict === "local" || result.verdict === "hosted",
+      },
+    ];
+  });
+  /** @type {{id: string, why: string}[]} */
+  const held = [];
+  /** @type {{id: string, entry: string, host: string | null}[]} */
+  const scenarioHosts = [];
+  for (const scenario of scenarios) {
+    const entry = scenario.service
+      ? hosts.find((candidate) => candidate.name === scenario.service)
+      : hosts.find((candidate) => candidate.surface === scenario.surface);
+    if (!entry) {
+      // One URL for every surface (no list) serves a scenario with no **Service:**.
+      if (!scenario.service && !hosts.length) continue;
+      held.push({
+        id: scenario.id,
+        why: scenario.service
+          ? `no service \`${scenario.service}\` in the run's hosts: no host is added mid-run`
+          : `no entry for the \`${scenario.surface}\` surface in the run's hosts: no host is added mid-run`,
+      });
+    } else if (entry.verdict === "stop")
+      held.push({ id: scenario.id, why: `the host of \`${entry.name}\` is refused: ${entry.why}` });
+    else if (!entry.confirmed)
+      held.push({
+        id: scenario.id,
+        why: `the host of \`${entry.name}\` is not confirmed: the QA person has not typed it`,
+      });
+    else scenarioHosts.push({ id: scenario.id, entry: entry.name, host: entry.host });
+  }
+  /** @type {Map<string, string[]>} */
+  const byHost = new Map();
+  for (const entry of hosts)
+    if (entry.verdict !== "stop" && entry.host)
+      byHost.set(entry.host, [...(byHost.get(entry.host) ?? []), entry.name]);
+  const environments = [...byHost].map(([host, names]) => ({
+    host,
+    entries: names,
+    question: `At \`${host}\`, did the environment's owner run this repo's seeder there?`,
+  }));
+  return { hosts, held, scenarioHosts, environments };
+}
+
 // ── Writing ─────────────────────────────────────────────────────────────────
 
 const PLAIN_SAFE = /^[A-Za-z0-9_./@~+-][A-Za-z0-9_./@~+=-]*$/;
@@ -2910,6 +3056,35 @@ function whichCopyCommand(argv, io) {
   return { code: 0, out: `${JSON.stringify(result, null, 2)}\n` };
 }
 
+/**
+ * The hosts the QA person typed, from each `--host <name>=<host>`: a `run.hosts` entry's
+ * name and the host as they typed it. A string is the usage problem.
+ *
+ * @param {string[]} argv
+ * @param {Record<string, any>} config
+ * @returns {Record<string, string> | string}
+ */
+function typedHosts(argv, config) {
+  /** @type {Record<string, string>} */
+  const typed = {};
+  const named = new Set(
+    (Array.isArray(config.run?.hosts) ? config.run.hosts : []).flatMap((entry) =>
+      isMapping(entry) && typeof entry.name === "string" ? [entry.name] : [],
+    ),
+  );
+  for (const [n, arg] of argv.entries()) {
+    if (arg !== "--host" || argv[n + 1] === undefined) continue;
+    const text = argv[n + 1];
+    const at = text.indexOf("=");
+    if (at < 1 || at === text.length - 1)
+      return `--host expects <name>=<host the QA person typed>, not \`${text}\``;
+    const name = text.slice(0, at);
+    if (!named.has(name)) return `no \`run.hosts\` entry named \`${name}\` for --host to confirm`;
+    typed[name] = text.slice(at + 1);
+  }
+  return typed;
+}
+
 function option(argv, name) {
   const values = [];
   argv.forEach((arg, n) => {
@@ -2995,10 +3170,10 @@ const baseName = (ref) => ref.replace(/^refs\/heads\//, "").replace(/^origin\//,
  * @param {string[]} argv
  * @param {string} repo
  * @param {{path: string | null, config: Record<string, any>, runProblems: string[]}} loaded
- * @param {{plan: {plan: any, problems: string[]} | null, tools: () => {chromium: boolean, ffmpeg: boolean}}} given
+ * @param {{plan: {plan: any, problems: string[]} | null, tools: () => {chromium: boolean, ffmpeg: boolean}, typed: Record<string, string>}} given
  * @returns {{code: number, out: string} | null} null on bad usage
  */
-function checkRunAnswers(argv, repo, loaded, { plan: planned, tools }) {
+function checkRunAnswers(argv, repo, loaded, { plan: planned, tools, typed }) {
   const file = option(argv, "--answers")[0];
   if (file === undefined || file.startsWith("--")) return null;
   const [answersBase] = option(argv, "--answers-base");
@@ -3012,6 +3187,7 @@ function checkRunAnswers(argv, repo, loaded, { plan: planned, tools }) {
       { path: loaded.path, config, runProblems: problems },
       planned?.problems.length ? null : planned?.plan,
       tools,
+      typed,
     );
   const planFailed = (planned?.problems.length ?? 0) > 0;
   if (loaded.runProblems.length)
@@ -3092,10 +3268,12 @@ export function main(argv, io = {}) {
   const stdin = io.stdin ?? readStdin;
   const json = (value) => `${JSON.stringify(value, null, 2)}\n`;
   const loaded = readQaConfig(read);
+  const typed = typedHosts(argv, loaded.config);
+  if (typeof typed === "string") return { code: 2, out: `check: ${typed}\n` };
   const usage = {
     code: 2,
     out:
-      "usage: node adapter.mjs check --for plan [--answers <file.json>] | check --for run [--plan <file>] [--answers <file.json> [--answers-base <branch> --base <branch>]] | " +
+      "usage: node adapter.mjs check --for plan [--answers <file.json>] | check --for run [--plan <file>] [--host <name>=<typed host>]… [--answers <file.json> [--answers-base <branch> --base <branch>]] | " +
       "plan [<file>] < plan.md | host <url> [--target stack|url] [--confirmed <host>] | " +
       "hazards < changed-paths | " +
       "delivery [--label <name>]… | render [--write [--drop-comments]] < answers.json | " +
@@ -3172,12 +3350,14 @@ export function main(argv, io = {}) {
           checkRunAnswers(argv, repo, loaded, {
             plan: planned,
             tools: io.tools ?? detectWebTools(repo),
+            typed,
           }) ?? usage
         );
       const readiness = runReadiness(
         loaded,
         planned?.problems.length ? null : planned?.plan,
         io.tools ?? detectWebTools(repo),
+        typed,
       );
       const failed = loaded.runProblems.length > 0 || (planned?.problems.length ?? 0) > 0;
       return {
