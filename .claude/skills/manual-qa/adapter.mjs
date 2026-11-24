@@ -90,6 +90,8 @@ export const RUN_KEYS = /** @type {const} */ ([
   "evidence",
 ]);
 export const STACK_KEYS = /** @type {const} */ (["up", "migrate", "seed", "down"]);
+/** What `run.stack` may hold: the four commands, and the optional local address. */
+export const STACK_CONFIG_KEYS = /** @type {const} */ ([...STACK_KEYS, "address"]);
 export const ACCOUNT_KEYS = /** @type {const} */ (["print", "restore", "roles"]);
 export const ROLE_KEYS = /** @type {const} */ (["id", "purpose"]);
 export const EVIDENCE_KEYS = /** @type {const} */ (["upload"]);
@@ -562,12 +564,22 @@ export function runProblems(config, lines) {
 
   if (present(run.stack)) {
     if (!isMapping(run.stack))
-      sink.add("run.stack", "expected a mapping of `up`, `migrate`, `seed`, `down`");
+      sink.add("run.stack", "expected a mapping of `up`, `migrate`, `seed`, `down`, `address`");
     else {
-      unknownKeys(sink, run.stack, "run.stack", STACK_KEYS);
+      unknownKeys(sink, run.stack, "run.stack", STACK_CONFIG_KEYS);
       for (const key of STACK_KEYS)
         if (present(run.stack[key]) && !nonEmpty(run.stack[key]))
           sink.add(`run.stack.${key}`, "expected a command");
+      // The address a stack whose `up` prints none serves on. `host` must call it
+      // `local`: a `stack` run signs in nowhere else, so a config never holds another.
+      if (
+        present(run.stack.address) &&
+        !(nonEmpty(run.stack.address) && isLocalAddress(run.stack.address))
+      )
+        sink.add(
+          "run.stack.address",
+          "expected a local address, one `adapter.mjs host` calls `local`, such as `http://localhost:3000`",
+        );
     }
   }
 
@@ -2423,6 +2435,11 @@ export function hostVerdict(address, { target = "stack", confirmed } = {}) {
   return { verdict: "hosted", host, why: `a hosted test host (\`${label}\`), confirmed in chat` };
 }
 
+/** Whether `host` calls `address` `local`: the only address a `stack` run signs in to. */
+export function isLocalAddress(address) {
+  return hostVerdict(address, { target: "stack" }).verdict === "local";
+}
+
 // ── Writing ─────────────────────────────────────────────────────────────────
 
 const PLAIN_SAFE = /^[A-Za-z0-9_./@~+-][A-Za-z0-9_./@~+=-]*$/;
@@ -2581,15 +2598,16 @@ export function answersPlaceProblem(repo, workingDir, answersPath) {
  *
  * @param {string} file the answers file, as given
  * @param {Record<string, any>} answers
+ * @param {string} [what] whose answers: `Readiness` (`qa-plan`) or `Run` (`manual-qa`)
  */
-export function reusedAnswersLine(file, answers) {
+export function reusedAnswersLine(file, answers, what = "Readiness") {
   const values = [];
   for (const [key, value] of Object.entries(answers))
     if (MERGED_ONE_LEVEL_DOWN.includes(key) && isMapping(value))
       for (const [sub, inner] of Object.entries(value))
         values.push(`${key}.${sub}=${JSON.stringify(inner)}`);
     else values.push(`${key}=${JSON.stringify(value)}`);
-  return `Readiness answers reused from ${file}: ${values.join("; ") || "none"}`;
+  return `${what} answers reused from ${file}: ${values.join("; ") || "none"}`;
 }
 
 /**
@@ -2825,6 +2843,104 @@ function checkPlanAnswers(argv, repo, loaded) {
   };
 }
 
+/** A base branch as `origin/main` and `main` both name it. */
+const baseName = (ref) => ref.replace(/^refs\/heads\//, "").replace(/^origin\//, "");
+
+/**
+ * `check --for run --answers <file>`: the run readiness with the run needs
+ * given up front merged over the config, by `check --for plan --answers`'s
+ * rules: the file is the JSON object `render` takes, read only from inside the
+ * merged `working_dir`, and nothing is written. The file holds for the base
+ * branch it was given for: with `--answers-base` and `--base` that differ, it
+ * is not used, and the readiness is that of the config alone.
+ *
+ * @param {string[]} argv
+ * @param {string} repo
+ * @param {{path: string | null, config: Record<string, any>, runProblems: string[]}} loaded
+ * @param {{plan: {plan: any, problems: string[]} | null, tools: () => {chromium: boolean, ffmpeg: boolean}}} given
+ * @returns {{code: number, out: string} | null} null on bad usage
+ */
+function checkRunAnswers(argv, repo, loaded, { plan: planned, tools }) {
+  const file = option(argv, "--answers")[0];
+  if (file === undefined || file.startsWith("--")) return null;
+  const [answersBase] = option(argv, "--answers-base");
+  const [base] = option(argv, "--base");
+  for (const flag of ["--answers-base", "--base"])
+    if (argv.includes(flag) && (option(argv, flag)[0] ?? "--").startsWith("--")) return null;
+  const json = (value) => `${JSON.stringify(value, null, 2)}\n`;
+  const planProblems = planned ? { planProblems: planned.problems } : {};
+  const readiness = (config, problems) =>
+    runReadiness(
+      { path: loaded.path, config, runProblems: problems },
+      planned?.problems.length ? null : planned?.plan,
+      tools,
+    );
+  const failed = (problems) => (planned?.problems.length ?? 0) > 0 || problems.length > 0;
+  if (loaded.runProblems.length)
+    return {
+      code: 1,
+      out: json({
+        path: loaded.path,
+        problems: loaded.runProblems,
+        ...planProblems,
+        effective: null,
+        readiness: readiness(loaded.config, loaded.runProblems),
+      }),
+    };
+  if (answersBase !== undefined && base !== undefined && baseName(answersBase) !== baseName(base)) {
+    const effective = effectiveConfig(loaded.config);
+    return {
+      code: failed([]) ? 1 : 0,
+      out: json({
+        path: loaded.path,
+        problems: [],
+        ...planProblems,
+        effective: { working_dir: effective.working_dir, run: effective.run },
+        readiness: readiness(loaded.config, []),
+        answers: {
+          file,
+          used: false,
+          why: `the answers were given for \`${answersBase}\`, and this pull request's base is \`${base}\``,
+        },
+      }),
+    };
+  }
+  let read;
+  try {
+    read = readAnswersFile(repo, file);
+  } catch (error) {
+    if (error instanceof AnswersError) return { code: 2, out: `check: ${error.message}\n` };
+    throw error;
+  }
+  const merged = mergeAnswers(loaded.config, read.answers);
+  const problems = runProblems(merged).map((p) => `the answers: ${p}`);
+  if (problems.length)
+    return {
+      code: 1,
+      out: json({
+        path: loaded.path,
+        problems,
+        ...planProblems,
+        effective: null,
+        readiness: readiness(merged, problems),
+      }),
+    };
+  const effective = effectiveConfig(merged);
+  const misplaced = answersPlaceProblem(repo, effective.working_dir, read.path);
+  if (misplaced) return { code: 2, out: `check: ${misplaced}\n` };
+  return {
+    code: failed([]) ? 1 : 0,
+    out: json({
+      path: loaded.path,
+      problems: [],
+      ...planProblems,
+      effective: { working_dir: effective.working_dir, run: effective.run },
+      readiness: readiness(merged, []),
+      answers: { file, used: true, reused: reusedAnswersLine(file, read.answers, "Run") },
+    }),
+  };
+}
+
 /**
  * @param {string[]} argv the arguments after the script
  * @param {{read?: (path: string) => string | null, stdin?: () => string,
@@ -2841,7 +2957,7 @@ export function main(argv, io = {}) {
   const usage = {
     code: 2,
     out:
-      "usage: node adapter.mjs check --for plan [--answers <file.json>] | check --for run [--plan <file>] | " +
+      "usage: node adapter.mjs check --for plan [--answers <file.json>] | check --for run [--plan <file>] [--answers <file.json> [--answers-base <branch> --base <branch>]] | " +
       "plan [<file>] < plan.md | host <url> [--target stack|url] [--confirmed <host>] | " +
       "hazards < changed-paths | " +
       "delivery [--label <name>]… | render [--write [--drop-comments]] < answers.json | " +
@@ -2912,6 +3028,13 @@ export function main(argv, io = {}) {
     if (section === "run") {
       const planPath = option(argv, "--plan")[0];
       const planned = planPath === undefined ? null : readPlan(planPath);
+      if (argv.includes("--answers"))
+        return (
+          checkRunAnswers(argv, repo, loaded, {
+            plan: planned,
+            tools: io.tools ?? detectWebTools(repo),
+          }) ?? usage
+        );
       const readiness = runReadiness(
         loaded,
         planned?.problems.length ? null : planned?.plan,

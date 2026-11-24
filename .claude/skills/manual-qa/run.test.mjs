@@ -9,10 +9,10 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { test } from "node:test";
+import { after, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -100,7 +100,7 @@ test("each `run:` problem is named with its line", () => {
     "line 14: `run.colour`: unknown key (ADAPTER.md documents: target, surface, stack, accounts, version_endpoint, evidence)",
     "line 2: `run.target`: expected one of: stack, url",
     "line 3: `run.surface`: expected one of: web, desktop, mobile, api",
-    "line 4: `run.stack.start`: unknown key (ADAPTER.md documents: up, migrate, seed, down)",
+    "line 4: `run.stack.start`: unknown key (ADAPTER.md documents: up, migrate, seed, down, address)",
     "line 6: `run.accounts.print`: expected a command",
     "line 7: `run.accounts.restore`: expected `{id}` where the role id goes",
     "line 9: `run.accounts.roles[0].id`: required: letters, digits, `_` and `-` only",
@@ -114,7 +114,7 @@ test("each `run:` problem is named with its line", () => {
 test("wrong shapes for `run:` and its mappings are problems", () => {
   assert.deepEqual(yaml("run: stack").runProblems, ["line 1: `run`: expected a mapping"]);
   assert.deepEqual(yaml("run:", "  stack: up", "  accounts: [a]", "  evidence: none").runProblems, [
-    "line 2: `run.stack`: expected a mapping of `up`, `migrate`, `seed`, `down`",
+    "line 2: `run.stack`: expected a mapping of `up`, `migrate`, `seed`, `down`, `address`",
     "line 3: `run.accounts`: expected a mapping of `print`, `restore`, `roles`",
     "line 4: `run.evidence`: expected a mapping, such as `{ upload: none }`",
   ]);
@@ -838,4 +838,222 @@ test("`host` exits 0 to sign in, 1 on a stop, 3 to confirm, 2 on bad usage", () 
     JSON.parse(main(["host", "https://qa.example.com", "--target", "url"], io).out).verdict,
     "confirm",
   );
+});
+
+// ── `check --for run --answers`: run needs given up front ───────────────────
+
+/** A repository folder holding `files` (objects as JSON), removed after the suite. */
+function answersRepo(files) {
+  const repo = realpathSync(mkdtempSync(join(tmpdir(), "run-answers-")));
+  after(() => rmSync(repo, { recursive: true, force: true }));
+  for (const [path, text] of Object.entries(files)) {
+    mkdirSync(dirname(join(repo, path)), { recursive: true });
+    writeFileSync(join(repo, path), typeof text === "string" ? text : JSON.stringify(text));
+  }
+  return repo;
+}
+
+/** The `run:` answers a QA Stack run needs, as `qa-run.json` holds them. */
+const RUN_ANSWERS = {
+  run: {
+    target: "stack",
+    surface: "web",
+    stack: { up: "make up", migrate: "make migrate", seed: "make seed", down: "make down" },
+    accounts: {
+      print: "make print",
+      roles: [{ id: "admin", purpose: "manages members" }],
+    },
+  },
+};
+const ANSWERS_FILE = "tmp/qa/qa-run.json";
+const checkRun = (repo, ...extra) => {
+  const { code, out } = main(["check", "--for", "run", "--repo", repo, ...extra]);
+  return { code, result: out.startsWith("{") ? JSON.parse(out) : out };
+};
+
+test("check --for run --answers reports no needs when the file answers them all", () => {
+  const repo = answersRepo({ [ANSWERS_FILE]: RUN_ANSWERS });
+  const { code, result } = checkRun(repo, "--answers", ANSWERS_FILE);
+  assert.equal(code, 0);
+  assert.deepEqual(result.readiness.needs, []);
+  assert.equal(result.readiness.ready, true);
+  assert.equal(result.effective.run.stack.up, "make up");
+  assert.equal(result.answers.used, true);
+});
+
+test("check --for run --answers lists only the needs the file leaves", () => {
+  const repo = answersRepo({
+    [ANSWERS_FILE]: { run: { target: "stack", stack: { up: "make up", down: "make down" } } },
+  });
+  const { code, result } = checkRun(repo, "--answers", ANSWERS_FILE);
+  assert.equal(code, 0);
+  assert.deepEqual(
+    result.readiness.needs.map((need) => need.split(":")[0]),
+    [
+      "run.surface",
+      "run.accounts.roles",
+      "run.stack.migrate",
+      "run.stack.seed",
+      "run.accounts.print",
+    ],
+  );
+});
+
+test("check --for run --answers merges `run` key by key, as qa-plan's rules do", () => {
+  const repo = answersRepo({
+    "qa.config.yml": "run:\n  target: stack\n  stack: { up: from-config, down: d }\n",
+    [ANSWERS_FILE]: { run: { stack: { up: "from-answers" } } },
+  });
+  const { result } = checkRun(repo, "--answers", ANSWERS_FILE);
+  assert.equal(result.effective.run.target, "stack");
+  // `run` merges one level down: an answered `stack` replaces the config's whole `stack`.
+  assert.deepEqual(result.effective.run.stack, { up: "from-answers" });
+});
+
+test("check --for run --answers shows the reused-answers line, each value as key=value", () => {
+  const repo = answersRepo({ [ANSWERS_FILE]: { run: { target: "stack", surface: "web" } } });
+  const { result } = checkRun(repo, "--answers", ANSWERS_FILE);
+  assert.equal(
+    result.answers.reused,
+    `Run answers reused from ${ANSWERS_FILE}: run.target="stack"; run.surface="web"`,
+  );
+  assert.equal(result.answers.file, ANSWERS_FILE);
+});
+
+test("check --for run with no --answers has no reused-answers line", () => {
+  const repo = answersRepo({});
+  const { result } = checkRun(repo);
+  assert.equal("answers" in result, false);
+});
+
+test("an answers file for another base branch is not used", () => {
+  const repo = answersRepo({ [ANSWERS_FILE]: RUN_ANSWERS });
+  const { code, result } = checkRun(
+    repo,
+    "--answers",
+    ANSWERS_FILE,
+    "--answers-base",
+    "main",
+    "--base",
+    "release/2.0",
+  );
+  assert.equal(code, 0);
+  assert.equal(result.answers.used, false);
+  assert.match(result.answers.why, /`main`.*`release\/2\.0`/);
+  assert.equal("reused" in result.answers, false);
+  assert.equal(result.effective.run, null);
+  assert.ok(result.readiness.needs.some((need) => need.startsWith("run.target:")));
+});
+
+test("an answers file for the same base branch is used, `origin/main` naming `main`", () => {
+  const repo = answersRepo({ [ANSWERS_FILE]: RUN_ANSWERS });
+  const { result } = checkRun(
+    repo,
+    "--answers",
+    ANSWERS_FILE,
+    "--answers-base",
+    "origin/main",
+    "--base",
+    "main",
+  );
+  assert.equal(result.answers.used, true);
+  assert.deepEqual(result.readiness.needs, []);
+});
+
+test("a base given without the other leaves the file in use, as qa-plan's does", () => {
+  const repo = answersRepo({ [ANSWERS_FILE]: RUN_ANSWERS });
+  assert.equal(
+    checkRun(repo, "--answers", ANSWERS_FILE, "--base", "main").result.answers.used,
+    true,
+  );
+  assert.equal(
+    checkRun(repo, "--answers", ANSWERS_FILE, "--answers-base", "main").result.answers.used,
+    true,
+  );
+});
+
+test("check --for run --answers exits 2 for a missing, non-JSON or outside file", () => {
+  const repo = answersRepo({
+    [ANSWERS_FILE]: "not json",
+    "elsewhere/qa-run.json": RUN_ANSWERS,
+    "list.json": [],
+  });
+  for (const file of ["tmp/qa/none.json", ANSWERS_FILE, "list.json", "elsewhere/qa-run.json"]) {
+    const { code, result } = checkRun(repo, "--answers", file);
+    assert.equal(code, 2, file);
+    assert.match(result, /^check: /, file);
+  }
+  assert.equal(main(["check", "--for", "run", "--answers"], { read: reader({}) }).code, 2);
+});
+
+test("check --for run --answers refuses answers whose merged `run:` has problems", () => {
+  const repo = answersRepo({ [ANSWERS_FILE]: { run: { target: "moon" } } });
+  const { code, result } = checkRun(repo, "--answers", ANSWERS_FILE);
+  assert.equal(code, 1);
+  assert.deepEqual(result.problems, ["the answers: `run.target`: expected one of: stack, url"]);
+  assert.equal(result.effective, null);
+});
+
+test("check --for run --answers keeps the plan checks beside the answers", () => {
+  const repo = answersRepo({ [ANSWERS_FILE]: RUN_ANSWERS });
+  writeFileSync(join(repo, "tmp/qa/plan.md"), GOOD_PLAN);
+  const { result } = checkRun(
+    repo,
+    "--answers",
+    ANSWERS_FILE,
+    "--plan",
+    join(repo, "tmp/qa/plan.md"),
+  );
+  assert.deepEqual(result.planProblems, []);
+  assert.ok(result.readiness.needs.every((need) => !need.startsWith("run.target")));
+});
+
+// ── `run.stack.address` ─────────────────────────────────────────────────────
+
+test("`run.stack.address` reads with no problem for a local address, and is not a need", () => {
+  const read = yaml(
+    "run:",
+    "  target: stack",
+    "  stack: { up: a, migrate: b, seed: c, down: d, address: http://localhost:3000 }",
+  );
+  assert.deepEqual(read.runProblems, []);
+  const needs = runReadiness({ path: "qa.config.yml", config: read.config }).needs;
+  assert.equal(
+    needs.some((need) => need.startsWith("run.stack.address")),
+    false,
+  );
+});
+
+test("`run.stack.address` that `host` does not call local is refused, in the config and as an answer", () => {
+  for (const address of [
+    "https://app.example.com",
+    "https://staging.example.com",
+    "http://admin:pw@localhost:3000",
+    "not an address",
+    "file:///etc/passwd",
+  ]) {
+    const read = yaml("run:", "  stack:", `    address: "${address}"`);
+    assert.deepEqual(
+      read.runProblems.map((p) => p.replace(/^line \d+: /, "").split(":")[0]),
+      ["`run.stack.address`"],
+      address,
+    );
+    assert.match(read.runProblems[0], /expected a local address/);
+    const repo = answersRepo({ [ANSWERS_FILE]: { run: { stack: { address } } } });
+    const { code, result } = checkRun(repo, "--answers", ANSWERS_FILE);
+    assert.equal(code, 1, address);
+    assert.match(result.problems[0], /^the answers: `run\.stack\.address`/, address);
+  }
+});
+
+test("`run.stack.address` given as a run answer reaches the effective run", () => {
+  const repo = answersRepo({
+    [ANSWERS_FILE]: {
+      run: { ...RUN_ANSWERS.run, stack: { ...RUN_ANSWERS.run.stack, address: "localhost:3000" } },
+    },
+  });
+  const { code, result } = checkRun(repo, "--answers", ANSWERS_FILE);
+  assert.equal(code, 0);
+  assert.equal(result.effective.run.stack.address, "localhost:3000");
+  assert.equal(main(["host", "localhost:3000"], { read: reader({}) }).code, 0);
 });
