@@ -196,7 +196,7 @@ describe("manual-qa: what replaces each wait", () => {
 
   it("row 2: the target is the plan's and config's, and a `url` target's address is the brief's typed host, never asked", () => {
     assert.match(row(2), /address/);
-    assert.match(row(2), /brief/);
+    assert.match(row(2), /the hosts the brief records/);
   });
 
   it("takes the run needs from the --answers file (qa-run.json), holds what appears after compose, and never asks", () => {

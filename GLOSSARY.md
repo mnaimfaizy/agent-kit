@@ -324,7 +324,7 @@ In an approved-QA run, the list, right after the Ruling Review, of the QA questi
 _Avoid_: QA queue, held Rulings
 
 **Parked QA session**:
-In an approved-QA run on Claude Code desktop, a QA Live Session started at the `go` turn on a brief with no head yet; it idles until the Chief of Staff messages it the head, and runs a re-QA in the same session.
+In an approved-QA run on Claude Code desktop, a Live Session for QA started at the `go` turn on a brief with no head yet; it idles until the Chief of Staff messages it the head, and runs a re-QA in the same session.
 _Avoid_: idle session, standby session
 
 **Dispatch Plan**:
