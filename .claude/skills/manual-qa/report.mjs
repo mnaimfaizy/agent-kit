@@ -227,19 +227,17 @@ function signInWarning(mp4, scenarioPath, read) {
   // An id that is not a plain word (an email, say) is never printed.
   const plain = roles.filter((id) => typeof id === "string" && PLAIN_ID.test(id));
   const named = [...new Set(plain)].map((id) => `\`${id}\``);
-  const hidden = plain.length < roles.length;
+  // A role Session with no plain id (an email, a missing one) is counted, never shown.
+  const hidden = roles.length - plain.length;
+  const roleWord = (n) => (n > 1 ? "roles" : "role");
+  const list = named.length > 1 ? `${named.slice(0, -1).join(", ")} and ${named.at(-1)}` : named[0];
   let who;
-  if (!named.length) who = "a role whose id is not a plain id, so it is not shown,";
+  if (!named.length) who = `${hidden} ${roleWord(hidden)} whose id is not shown`;
   else {
-    const list =
-      named.length > 1 ? `${named.slice(0, -1).join(", ")} and ${named.at(-1)}` : named[0];
-    who = `${named.length > 1 ? "roles" : "role"} ${list}`;
+    who = `${roleWord(named.length)} ${list}`;
+    if (hidden) who += `, and of ${hidden} more ${roleWord(hidden)} whose id is not shown`;
   }
-  const more =
-    hidden && named.length
-      ? ", and of another role whose id is not a plain id, so it is not shown"
-      : "";
-  return `\`${mp4}\` plays the sign-in of ${who} on camera (ADR 0020)${more}: ${SIGN_IN_CAVEAT}`;
+  return `\`${mp4}\` plays the sign-in of ${who} on camera (ADR 0020): ${SIGN_IN_CAVEAT}`;
 }
 
 const lf = (text) => String(text).replace(/^﻿/, "").replace(/\r\n/g, "\n");

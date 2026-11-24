@@ -1782,6 +1782,7 @@ test("the sign-in warning never prints a sign-in value (#386)", () => {
       sessions: [
         { session: "A", account: email, kind: "role" },
         { session: "B", account: "user", kind: "role", password: secret },
+        { session: "C", kind: "role" },
       ],
     },
     variables: ["QA_A_EMAIL"],
@@ -1793,7 +1794,7 @@ test("the sign-in warning never prints a sign-in value (#386)", () => {
   assert.ok(!warning.includes(secret));
   assert.match(
     warning,
-    /plays the sign-in of role `user` on camera \(ADR 0020\), and of another role whose id is not a plain id, so it is not shown: /,
+    /plays the sign-in of role `user`, and of 2 more roles whose id is not shown on camera \(ADR 0020\): /,
   );
   // With only such ids, no id is printed at all.
   const only = JSON.stringify({
@@ -1801,10 +1802,7 @@ test("the sign-in warning never prints a sign-in value (#386)", () => {
   });
   const [alone] = signInWarnings(upload(BOARDS, [p57("s1.mp4")], { read: withScenario(only) }));
   assert.ok(!alone.includes(email));
-  assert.match(
-    alone,
-    /plays the sign-in of a role whose id is not a plain id, so it is not shown, on camera/,
-  );
+  assert.match(alone, /plays the sign-in of 1 role whose id is not shown on camera/);
 });
 
 test("an MP4 whose scenario file cannot be read is warned about, and still goes (#386)", () => {
