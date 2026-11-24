@@ -68,6 +68,10 @@ _Avoid_: hook, confinement hook, restriction (a hook, a sandbox or a policy is a
 What leaves a Stage's sandbox for trusted code to read as data: the one file the agent writes where its brief says and, on a Stage that changes code, its commits; nothing the agent says in its own text is part of it.
 _Avoid_: output, final message, response
 
+**Proving run**:
+A run of a Stage on a harness whose Support Level is below what the Stage requires, made on purpose to record the evidence that raises the level.
+_Avoid_: trial run, test run, override
+
 **Portable skill**:
 An agent skill vendored in Agent-kit that a Consumer copies into `.claude/skills/` unchanged, and that a Skill installer may install on its own.
 _Avoid_: kit skill, core skill
@@ -268,12 +272,8 @@ The agent product an agent run happens in (Claude Code desktop, Claude Code CLI,
 _Avoid_: tool, IDE, client, platform
 
 **Support Level**:
-How far `orchestrate` has been proven on a harness or a tracker, or one Stage on one harness: verified (a full run passed), tried (a run happened, with known gaps) or documented (built from its documentation alone). A Stage's level belongs to the harness and Stage pair, so one harness holds a different level for each Stage.
+How far `orchestrate` has been proven on a harness or a tracker: verified (a full run passed), tried (a run happened, with known gaps) or documented (built from its documentation alone). A Stage's level belongs to the harness and Stage pair, so one harness holds a different level for each Stage.
 _Avoid_: compatibility, maturity, tier (a tier is what the harness can do)
-
-**Proving run**:
-A run of a Stage on a harness whose Support Level is below what the Stage requires, made on purpose to record the evidence that raises the level.
-_Avoid_: trial run, test run, override
 
 **Live Session**:
 A separate agent session the human can open, read and talk to while it works; always written in full, because a Session is a signed-in identity in a QA scenario.

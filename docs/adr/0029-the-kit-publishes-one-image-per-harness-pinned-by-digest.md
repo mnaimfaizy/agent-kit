@@ -26,11 +26,11 @@ Neither takes a Dockerfile. A private `sandbox_image` is pulled by a trusted wor
 
 **Setup presets** become three values each, which `agent-kit init` writes into the Caller:
 
-| Preset | `sandbox_image` | `setup_registries` | `setup_commands` |
-|---|---|---|---|
-| node | `node:22-bookworm` | `registry.npmjs.org` | `npm ci` |
+| Preset | `sandbox_image`        | `setup_registries`                   | `setup_commands`                  |
+| ------ | ---------------------- | ------------------------------------ | --------------------------------- |
+| node   | `node:22-bookworm`     | `registry.npmjs.org`                 | `npm ci`                          |
 | python | `python:3.12-bookworm` | `pypi.org`, `files.pythonhosted.org` | `pip install -r requirements.txt` |
-| mixed | empty | all three | both |
+| mixed  | empty                  | all three                            | both                              |
 
 **The verify job** runs `setup_commands` and `verify_commands` in the same Sandbox image, with the same registries and the same network cut, and no agent.
 

@@ -10,13 +10,13 @@ In CI the Launcher also runs the model proxy core from [ADR 0023](0023-a-deep-sc
 
 The model credentials each harness accepts in CI, completing [ADR 0022](0022-stage-settings-are-named-for-the-kit-not-the-harness.md):
 
-| Harness | Accepted credential |
-|---|---|
+| Harness     | Accepted credential                              |
+| ----------- | ------------------------------------------------ |
 | Claude Code | `claude_code_oauth_token` or `anthropic_api_key` |
-| Codex CLI | `openai_api_key` |
-| Gemini CLI | `gemini_api_key` |
-| opencode | the key of a provider that has a profile |
-| Cursor CLI | `cursor_api_key` |
+| Codex CLI   | `openai_api_key`                                 |
+| Gemini CLI  | `gemini_api_key`                                 |
+| opencode    | the key of a provider that has a profile         |
+| Cursor CLI  | `cursor_api_key`                                 |
 
 `anthropics/claude-code-action` is transitional. A Stage keeps its Claude Code path on the action until the Launcher's Claude Code adapter reaches `verified` for that Stage, and then the action is dropped from it. Nothing changes for a Consumer on Claude Code until then.
 

@@ -8,14 +8,14 @@ On the Launcher path ([ADR 0024](0024-every-stage-runs-through-agent-kits-launch
 
 A **Guard** is an outcome a Stage requires, stated without naming how it is reached. Every Stage requires all six:
 
-| Guard | plan | implement | review | review response | security audit | Deep scan |
-|---|---|---|---|---|---|---|
-| Reads stay in the workspace, by any tool including the shell | yes | yes | yes | yes | yes | yes |
-| Writes | none | working tree | none | working tree | none | none |
-| The agent holds no GitHub write credential | yes | yes | yes | yes | yes | yes |
-| The real model key and the Launcher's process are out of reach | yes | yes | yes | yes | yes | yes |
-| The checkout's harness config is not loaded | yes | yes | yes | yes | yes | yes |
-| The network reaches only the model proxy | yes | yes | yes | yes | yes | yes |
+| Guard                                                          | plan | implement    | review | review response | security audit | Deep scan |
+| -------------------------------------------------------------- | ---- | ------------ | ------ | --------------- | -------------- | --------- |
+| Reads stay in the workspace, by any tool including the shell   | yes  | yes          | yes    | yes             | yes            | yes       |
+| Writes                                                         | none | working tree | none   | working tree    | none           | none      |
+| The agent holds no GitHub write credential                     | yes  | yes          | yes    | yes             | yes            | yes       |
+| The real model key and the Launcher's process are out of reach | yes  | yes          | yes    | yes             | yes            | yes       |
+| The checkout's harness config is not loaded                    | yes  | yes          | yes    | yes             | yes            | yes       |
+| The network reaches only the model proxy                       | yes  | yes          | yes    | yes             | yes            | yes       |
 
 How they are reached:
 
