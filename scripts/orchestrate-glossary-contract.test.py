@@ -26,6 +26,7 @@ TERMS = [
     "Ruling",
     "Ruling Ledger",
     "Ruling Review",
+    "QA held for you",
     "Dispatch Plan",
     "Activity Log",
     "Heartbeat",

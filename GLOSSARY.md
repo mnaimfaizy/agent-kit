@@ -303,6 +303,10 @@ _Avoid_: decision log, audit log
 The human's pass over a run's Ruling Ledger, in which each Ruling ends upheld or overturned; overturning one sends every Ruling that cited it back for review.
 _Avoid_: sign-off, approval
 
+**QA held for you**:
+In an approved-QA run, the list, right after the Ruling Review, of the QA questions the human keeps, each with its row, evidence and options; not Rulings, so outside the Ruling Ledger, and a row is Ready to Merge once they are answered.
+_Avoid_: QA queue, held Rulings
+
 **Dispatch Plan**:
 The one table the Chief of Staff shows before any Delegation starts, giving each one's scope, Executor, model and wave, with the kinds of routine write the human may approve; one "go" approves it whole.
 _Avoid_: run plan, schedule

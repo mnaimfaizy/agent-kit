@@ -8,7 +8,7 @@ Each skill's own files are the reference; this page is the walkthrough:
 - `manual-qa`: [`SKILL.md`](../.claude/skills/manual-qa/SKILL.md), its `run:` keys, the QA Stack and QA Account contracts, the host rule and posting [`ADAPTER.md`](../.claude/skills/manual-qa/ADAPTER.md).
 - Templates to copy: [`examples/qa.config.yml`](../examples/qa.config.yml) and the sample Hazard pack in [`examples/qa-hazards/`](../examples/qa-hazards/).
 
-Both skills are User-scope: they work from your own skills directory as well as from a repository that adopted the kit ([Install individual skills](install-skills.md)). Both need Node 22 or later, and both are run by hand; no First-class flow runs them. The one exception is a `go autonomous` [`orchestrate`](orchestrate.md#autonomous-runs) run on a `stack` target: there a QA session follows each skill from its brief, and nobody types either command ([ADR 0032](adr/0032-autonomous-qa-handover-nothing-asked-mid-run.md), which supersedes ADR 0013).
+Both skills are User-scope: they work from your own skills directory as well as from a repository that adopted the kit ([Install individual skills](install-skills.md)). Both need Node 22 or later, and both are run by hand; no First-class flow runs them. The one exception is a `go autonomous` [`orchestrate`](orchestrate.md#autonomous-runs) run on a `stack` target, once you approve QA with a separate yes in its Dispatch Plan: there a QA session follows each skill from its brief, nobody types either command, and nothing is asked of you until close-out ([ADR 0032](adr/0032-autonomous-qa-handover-nothing-asked-mid-run.md), which supersedes ADR 0013).
 
 ## The handoff
 

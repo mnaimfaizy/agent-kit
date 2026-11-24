@@ -533,6 +533,44 @@ describe("QA held for you: after the Ruling Review, outside the Ledger (#419)", 
   });
 });
 
+describe("DESIGN.md, HARNESSES.md, docs and the glossary say it (#419)", () => {
+  it("DESIGN.md gives the reasons: a separate yes, nothing asked mid-run, held items outside the Ledger, no ticks", () => {
+    const why = section(DESIGN, "## QA asks nothing mid-run");
+    assert.match(why, /separate yes/);
+    assert.match(why, /never `waiting`|never waits/);
+    assert.match(why, /outside the Ruling Ledger/);
+    assert.match(why, /never ticked by an agent|No agent ever ticks/);
+    assert.match(why, /ADR 0032/);
+  });
+
+  it("DESIGN.md's QA section no longer says the human types the hosted commands only; the stack route is from the brief on approved QA", () => {
+    assert.match(DESIGN, /approved QA/);
+  });
+
+  it("HARNESSES.md says the stack route needs the QA yes, and plain go stays typed", () => {
+    const choosing = section(HARNESSES, "## Choosing an Executor");
+    assert.match(choosing, /QA yes/);
+    assert.match(choosing, /With `go`, and for a `url` target in any run:\*\* typed/);
+  });
+
+  it("docs/orchestrate.md says QA is a separate yes, nothing is asked mid-run, and the held list", () => {
+    const docs = read("docs/orchestrate.md");
+    const para = docs.split("\n").find((l) => l.startsWith("**QA runs from the brief.**"));
+    assert.match(para, /separate yes/);
+    assert.match(para, /QA held for you/);
+    assert.match(para, /QA declined in the Dispatch Plan/);
+    assert.match(para, /Review box/);
+    assert.match(docs, /^ {2}qa-run\.json /m);
+    assert.match(docs, /^ {2}qa-held\.md /m);
+  });
+
+  it("GLOSSARY.md defines QA held for you, right after Ruling Review", () => {
+    const g = read("GLOSSARY.md");
+    assert.ok(g.indexOf("**QA held for you**:") > g.indexOf("**Ruling Review**:"));
+    assert.ok(g.indexOf("**QA held for you**:") < g.indexOf("**Dispatch Plan**:"));
+  });
+});
+
 describe("the ADR and the changelog", () => {
   const adrs = readdirSync(join(root, "docs/adr"));
   const old = adrs.filter((f) => f.startsWith("0013-"));
