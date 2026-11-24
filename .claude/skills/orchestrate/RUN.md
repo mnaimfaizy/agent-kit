@@ -15,6 +15,7 @@ A run lives in its own folder inside the config's `run_dir`, which is gitignored
   qa-readiness-<base>.json  the same, for a pull request with another base branch, once the human has answered for it
   qa-run.json               the run answers manual-qa's check --for run listed, asked in the same message, the JSON object manual-qa's --answers takes (approved QA only)
   rulings.md                the Ruling Ledger, in an autonomous run
+  qa-hosts.json             the hosts the human typed in the Dispatch Plan, each with its `host` verdict and its environment's seeder answer, for a `url` target (approved QA only); never written to a config, and deleted at close-out
   qa-held.md                the QA held for you list, in an approved-QA run: each held item, with its row, evidence and options, and its answer once given (not Rulings, so not in the Ledger)
   evidence/                 command output a Ruling cites, one file each: R<n>-<k>.txt
   shared-board/<n>.md       in a Team Run, ticket <n>'s Shared Board row as this run last wrote it

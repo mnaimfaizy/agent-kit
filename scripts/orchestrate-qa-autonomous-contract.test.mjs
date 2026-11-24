@@ -140,11 +140,11 @@ describe("SKILL.md: how each QA skill starts", () => {
     assert.match(starts, /no command/i);
   });
 
-  it("in a go autonomous run on a url target, the QA Delegation takes the typed route and waits; the run goes on", () => {
+  it("in a go autonomous run on a url target, QA runs from the brief too, with the hosts typed in the Dispatch Plan (#421)", () => {
     assert.match(starts, /`target: url`/);
-    assert.match(starts, /typed route/);
-    assert.match(starts, /`waiting`/);
-    assert.match(starts, /the run goes on/);
+    assert.match(starts, /typed in the Dispatch Plan/);
+    assert.doesNotMatch(starts, /`target: url`: the typed route/);
+    assert.doesNotMatch(starts, /so that QA Delegation is `waiting`/);
   });
 
   it("step 9 gives the exact command on the typed route, and nothing to send on the brief route", () => {
@@ -174,10 +174,12 @@ describe("the autonomous split and the Decision authority line", () => {
     assert.match(rules, /test/);
   });
 
-  it("keeps the readiness answers and a hosted target's host and role values with the human", () => {
+  it("keeps the readiness answers, and the typing of each hosted host, with the human (#421)", () => {
     const keeps = AUTONOMOUS.split("\n").find((l) => l.startsWith("- **The human keeps:**"));
     assert.match(keeps, /QA readiness answers/);
     assert.match(keeps, /`url`/);
+    assert.match(keeps, /typed in the Dispatch Plan/);
+    assert.doesNotMatch(keeps, /host and role test values/);
   });
 
   it("the Decision authority line says QA runs from the brief", () => {
@@ -550,7 +552,8 @@ describe("DESIGN.md, HARNESSES.md, docs and the glossary say it (#419)", () => {
   it("HARNESSES.md says the stack route needs the QA yes, and plain go stays typed", () => {
     const choosing = section(HARNESSES, "## Choosing an Executor");
     assert.match(choosing, /QA yes/);
-    assert.match(choosing, /With `go`, and for a `url` target in any run:\*\* typed/);
+    assert.match(choosing, /With `go`:\*\* typed/);
+    assert.doesNotMatch(choosing, /for a `url` target in any run/);
   });
 
   it("docs/orchestrate.md says QA is a separate yes, nothing is asked mid-run, and the held list", () => {
@@ -812,5 +815,156 @@ describe("orchestrate reads the QA summary (#420)", () => {
     assert.match(DOCS, /header/);
     assert.match(DOCS, /upload eligible QA Artifacts/);
     assert.match(DOCS, /stale/);
+  });
+});
+
+describe("hosted targets typed in the Dispatch Plan (#421)", () => {
+  const hosts = bullet(STEP4, "- **QA hosts, typed in the Dispatch Plan.**");
+
+  it("collects each typed host, or each run.hosts candidate confirmed by typing it, in the reply to the plan", () => {
+    assert.match(hosts, /`run\.hosts`/);
+    assert.match(hosts, /candidates?/);
+    assert.match(hosts, /typing/);
+    assert.match(hosts, /reply to the Dispatch Plan|their reply/);
+  });
+
+  it("runs host --target url --confirmed with the typed host, and shows each verdict; only `hosted` goes ahead", () => {
+    assert.match(hosts, /adapter\.mjs" host .*--target url --confirmed/);
+    assert.match(hosts, /verdict/);
+    assert.match(hosts, /only `hosted` goes ahead/);
+  });
+
+  it("holds a `stop` or unconfirmed entry before go, and only its scenarios", () => {
+    assert.match(hosts, /`stop`/);
+    assert.match(hosts, /unconfirmed/);
+    assert.match(hosts, /held before "go"|held before the "go"/);
+    assert.match(hosts, /only (?:its|the) scenarios/);
+  });
+
+  it("asks the seeder question per environment: yes lets the QA session run accounts.print, no holds the scenarios that sign in there", () => {
+    assert.match(hosts, /did the environment's owner run this repo's seeder there\?/);
+    assert.match(hosts, /`readiness\.environments`|each environment/);
+    assert.match(hosts, /`accounts\.print` itself/);
+    assert.match(hosts, /"no"[^.]*held/);
+    assert.match(hosts, /never collects? role values|no role value is collected/);
+  });
+
+  it("never writes a host to the config, and a QA session never gets it any other way than its brief", () => {
+    assert.match(hosts, /never written to (?:a|the) config/);
+    assert.match(hosts, /only through its brief/);
+  });
+
+  it("is asked in the same message as the QA yes, never mid-run, never a Ruling", () => {
+    assert.match(hosts, /never a mid-run Decision Request or a Ruling/);
+  });
+
+  it("step 9 holds a refused, missing or unconfirmed host's scenarios and never falls back to the typed route", () => {
+    assert.match(STEP9, /refused|unconfirmed/);
+    assert.match(STEP9, /never (?:falls back to|moves it to) the typed route|no typed route/);
+  });
+
+  it("the close-out deletes the hosts file and lists no host as saved", () => {
+    assert.match(STEP10, /`qa-hosts\.json`/);
+    assert.match(STEP10, /delete/i);
+  });
+
+  it("the Decision authority line says a url target runs from the brief too", () => {
+    const line = STEP4.split("\n").find((l) => l.startsWith("Last, the **Decision authority** line"));
+    assert.doesNotMatch(line, /a `url` target stays on the typed route/);
+    assert.match(line, /`url`/);
+  });
+});
+
+describe("the QA brief carries each host with its provenance (#421)", () => {
+  it("names each host, its provenance line and the verdict", () => {
+    assert.match(QA_BRIEF, /typed by the human in this run's Dispatch Plan, verdict hosted/);
+    assert.match(QA_BRIEF, /`qa-hosts\.json`/);
+  });
+
+  it("says the host is never written to the config and the brief is the only route", () => {
+    assert.match(QA_BRIEF, /never written to (?:a|the) config/);
+  });
+
+  it("a url target is on the brief route, and a refusal holds its scenarios", () => {
+    assert.doesNotMatch(QA_BRIEF, /and for a `target: url` plan in any run/);
+    assert.match(QA_BRIEF, /held, never typed|never moved to the typed route/);
+  });
+
+  it("the brief is deleted of its host at close-out: the run folder no longer holds it", () => {
+    assert.match(QA_BRIEF, /deleted at close-out|close-out deletes/);
+  });
+});
+
+describe("RUN.md keeps the host, and close-out deletes it (#421)", () => {
+  it("the layout lists qa-hosts.json as approved-QA only, never in a config, deleted at close-out", () => {
+    const line = RUN.split("\n").find((l) => /^\s*qa-hosts\.json/.test(l));
+    assert.ok(line, "qa-hosts.json is in the layout");
+    assert.match(line, /deleted at close-out/);
+    assert.match(line, /never written to a config|never in a config/);
+  });
+});
+
+describe("every harness file's check-before-use names the relayed host (#421)", () => {
+  it("lists whether a QA session accepts a host relayed through its brief", () => {
+    const dir = `${SKILL_DIR}/harnesses`;
+    for (const file of readdirSync(join(root, dir)).filter((f) => f.endsWith(".md"))) {
+      const text = read(`${dir}/${file}`);
+      const check = section(text, "## Check before use");
+      assert.match(
+        check,
+        /whether a QA session accepts a host relayed through its brief/i,
+        `${file}: the host item`,
+      );
+    }
+  });
+
+  it("no harness file keeps a url target on the typed route", () => {
+    const dir = `${SKILL_DIR}/harnesses`;
+    for (const file of readdirSync(join(root, dir)).filter((f) => f.endsWith(".md"))) {
+      const text = read(`${dir}/${file}`);
+      assert.doesNotMatch(text, /with `go`, or a `url` target/, file);
+      assert.doesNotMatch(text, /A `url` target stays on the typed route/, file);
+    }
+  });
+});
+
+describe("DESIGN.md, docs and the glossary give the typed-host flow (#421)", () => {
+  it("DESIGN.md gives the reason: the person gives the host, not where they type it", () => {
+    const why = section(DESIGN, "## QA asks nothing mid-run");
+    assert.match(why, /typed in the Dispatch Plan/);
+    assert.match(why, /seeder/);
+    assert.match(why, /held, never typed|never falls back/);
+  });
+
+  it("docs/orchestrate.md says a url target runs from the brief, with hosts typed in the plan", () => {
+    const doc = read("docs/orchestrate.md");
+    assert.match(doc, /typed in the Dispatch Plan/);
+    assert.doesNotMatch(doc, /a hosted \(`url`\) QA target's host and role values/);
+    assert.doesNotMatch(doc, /on the typed route \(with `go`, or a `url` target\)/);
+  });
+
+  it("GLOSSARY.md defines the spec's new terms", () => {
+    const g = read("GLOSSARY.md");
+    for (const term of ["Parked QA session", "Host candidate", "Service", "Place"]) {
+      assert.match(g, new RegExp(`^\\*\\*${term}\\*\\*:`, "m"), `${term} is defined`);
+    }
+  });
+
+  it("CHANGELOG.md has one entry for spec #413, naming each ticket and both ADRs", () => {
+    const log = read("CHANGELOG.md");
+    const unreleased = log.slice(log.indexOf("## [Unreleased]"), log.indexOf("\n## [1."));
+    const entry = unreleased.split("\n").find((l) => l.includes("/issues/413"));
+    assert.ok(entry, "an entry links #413");
+    for (const n of [415, 416, 417, 418, 419, 420, 421, 422]) {
+      assert.ok(entry.includes(`/issues/${n}`), `#${n} is linked`);
+    }
+    assert.match(entry, /ADR 0032/);
+    assert.match(entry, /ADR 0033/);
+    assert.match(entry, /\*\*Consumer action:\*\*/);
+    assert.match(entry, /`qa-plan` and `manual-qa` together/);
+    assert.match(entry, /`report\.places`/);
+    assert.match(entry, /`run\.hosts`/);
+    assert.match(entry, /`run\.stack\.address`/);
+    assert.match(entry, /composing the QA Plan only/);
   });
 });
