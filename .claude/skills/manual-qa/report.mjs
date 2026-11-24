@@ -7,7 +7,8 @@
 //   results and said yes, and hands this file what `gh` printed.
 //
 //   1. `read`: reads a QA Report file (SKILL.md "The QA Report") into its
-//      headline, its anchors, its optional **Run deviations:** header line,
+//      headline, its anchors, its optional **Run deviations:** and
+//      `Run answers reused from` header lines,
 //      and one result per scenario, each one of the five (`RESULTS`) with its
 //      Before cell, and says whether the run failed (a FAIL of either kind,
 //      or a run stopped on a blocking outcome). It checks that the headline
@@ -98,6 +99,8 @@ function staleFor(body) {
 }
 /** The optional QA Report header line listing where the run departed from the plan or the rules. */
 const DEVIATIONS_LABEL = "- **Run deviations:**";
+/** The optional QA Report header line saying the run took its run needs from an `--answers` file. */
+const REUSED_LABEL = "- Run answers reused from";
 /** A Follow-ups line for an open `Review:` box (SKILL.md, The QA Report), its text captured. */
 const REVIEW_FOLLOW_UP = /^\s*[-*]\s+Review, for a person:\s*(\S.*?)\s*$/;
 /** The first line of the PR comment `qa-plan` posts naming its tracker issue. */
@@ -311,7 +314,8 @@ const cells = (row) =>
  *   subject: number | null, pr: number | null, head: string | null,
  *   target: "stack" | "url" | null, results: {id: string, scenario: string, result: string,
  *   before: string, evidence: string[], notes: string}[], failed: boolean, stopped: boolean,
- *   record: string | null, deviations: string | null, reviews: string[]},
+ *   record: string | null, deviations: string | null, runAnswers: string | null,
+ *   reviews: string[]},
  *   problems: string[]}}
  */
 export function readReport(text) {
@@ -334,6 +338,8 @@ export function readReport(text) {
     record: null,
     // The **Run deviations:** line's text, or `null`: the line is left out when there were none.
     deviations: null,
+    // What the `Run answers reused from` line says after its label (`<file>: <values>`), or `null`.
+    runAnswers: null,
     // The text of each `- Review, for a person: <text>` line under Follow-ups, outside fences.
     reviews: [],
   };
@@ -404,6 +410,27 @@ export function readReport(text) {
       problems.push(
         "the **Run deviations:** line still carries the template's placeholder: write each " +
           "departure and what was done about it, or leave the line out",
+      );
+  }
+
+  const reusedLines = lines
+    .slice(0, headerEnd)
+    .filter((line, n) => !fenced[n] && line.startsWith(REUSED_LABEL));
+  if (reusedLines.length > 1)
+    problems.push(
+      `the header has ${reusedLines.length} \`Run answers reused from\` lines: keep the one`,
+    );
+  if (reusedLines.length) {
+    report.runAnswers = reusedLines[0].slice(REUSED_LABEL.length).trim();
+    if (!/^\S+: \S/.test(report.runAnswers))
+      problems.push(
+        "the `Run answers reused from` line names no file and values: " +
+          "`Run answers reused from <file>: <values>`, or leave the line out",
+      );
+    else if (report.runAnswers.startsWith("<"))
+      problems.push(
+        "the `Run answers reused from` line still carries the template's placeholder: " +
+          "write the file and the values, or leave the line out",
       );
   }
 

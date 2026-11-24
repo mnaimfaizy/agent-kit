@@ -191,6 +191,53 @@ test("a report without the **Run deviations:** line reads as before, deviations 
   assert.equal(JSON.parse(cli.out).report.deviations, null);
 });
 
+const REUSED = 'tmp/qa/qa-run.json: run.target="stack"; run.surface="web"';
+/** A report with the reused-answers header line after **Teardown:**, as the template places it. */
+const withReused = (text, line) => {
+  const teardown = "- **Teardown:** `down` run; nothing else started\n";
+  return text.replace(teardown, `${teardown}${line}\n`);
+};
+
+test("a `Run answers reused from` header line reads with no problem, its text kept", () => {
+  const reused = withReused(PASSED, `- Run answers reused from ${REUSED}`);
+  assert.notEqual(reused, PASSED);
+  const { report, problems } = readReport(reused);
+  assert.deepEqual(problems, []);
+  assert.equal(report.runAnswers, REUSED);
+  assert.deepEqual({ ...report, runAnswers: null }, readReport(PASSED).report);
+  const cli = main(["read", "report.md", "--plan", "plan.md"], {
+    readFile: (path) => (path === "plan.md" ? PLAN : reused),
+  });
+  assert.equal(JSON.parse(cli.out).report.runAnswers, REUSED);
+});
+
+test("a report run without --answers reads with runAnswers null", () => {
+  assert.equal(readReport(PASSED).report.runAnswers, null);
+});
+
+test("a `Run answers reused from` line with no file and values, or twice, is a problem", () => {
+  assert.match(
+    readReport(withReused(PASSED, "- Run answers reused from")).problems.join("\n"),
+    /names no file and values/,
+  );
+  assert.match(
+    readReport(withReused(PASSED, "- Run answers reused from <file>: <values>")).problems.join(
+      "\n",
+    ),
+    /placeholder/,
+  );
+  const twice = withReused(
+    PASSED,
+    `- Run answers reused from ${REUSED}\n- Run answers reused from ${REUSED}`,
+  );
+  assert.match(readReport(twice).problems.join("\n"), /2 `Run answers reused from` lines/);
+});
+
+test("a `Run answers reused from` line in a fenced block or after the header is not read", () => {
+  const late = `${PASSED}\n## Follow-ups\n\n- Run answers reused from ${REUSED}\n`;
+  assert.equal(readReport(late).report.runAnswers, null);
+});
+
 test("an empty **Run deviations:** line is a problem: list each one, or leave it out", () => {
   const empty = withDeviations(PASSED, "   ");
   assert.match(readReport(empty).problems.join("\n"), /Run deviations:\*\* line is empty/);
