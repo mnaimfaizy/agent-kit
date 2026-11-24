@@ -159,11 +159,44 @@ describe("manual-qa: what replaces each wait", () => {
   const text = section(SKILL, HEADING);
   const row = (n) => text.split("\n").find((line) => new RegExp(`^\\|\\s*${n}\\s*\\|`).test(line));
 
-  it("runs only a `stack` target from the brief: a `url` target stays typed by the human", () => {
+  it("runs a `stack` target and a `url` target from the brief, with a `url` host typed in the Dispatch Plan (#421)", () => {
     assert.match(text, /`target: stack`/);
-    assert.match(text, /`url`/);
-    assert.match(row(5), /typed/);
-    assert.match(row(5), /`waiting`/);
+    assert.match(text, /`target: url`/);
+    assert.doesNotMatch(text, /A `url` target never runs from a brief/);
+    assert.doesNotMatch(row(5), /`waiting`/);
+    assert.doesNotMatch(row(5), /takes the typed route/);
+  });
+
+  it("the hosted-address rule widens to a host typed in this chat or in this run's Dispatch Plan, as the brief records", () => {
+    assert.match(text, /typed in this chat, or in this run's Dispatch Plan as the brief records/);
+    assert.match(
+      SKILL.split("\n").find((l) => l.startsWith("- **Sign in only as a role")),
+      /typed in this chat, or in this run's Dispatch Plan as the brief records/,
+    );
+  });
+
+  it("row 5: on a `url` target the brief's typed hosts are the addresses, `host` is re-run before any sign-in, and a seeder yes runs accounts.print", () => {
+    assert.match(row(5), /`url`/);
+    assert.match(row(5), /provenance/);
+    assert.match(row(5), /adapter\.mjs host[^|]*--target url --confirmed|`host`[^|]*re-?run/i);
+    assert.match(row(5), /before any sign-in/);
+    assert.match(row(5), /`accounts\.print`/);
+    assert.match(row(5), /seeder/);
+  });
+
+  it("a refused host, a missing entry or an unconfirmed entry holds only the affected scenarios, is logged, and never falls back to the typed route", () => {
+    for (const where of [row(5), row(2)]) assert.ok(where);
+    assert.match(row(5), /refused/);
+    assert.match(row(5), /missing/);
+    assert.match(row(5), /unconfirmed/);
+    assert.match(row(5), /logged|log /);
+    assert.match(row(5), /held for close-out/);
+    assert.match(row(5), /never (?:asked|typed)|no typed route|never falls back/);
+  });
+
+  it("row 2: the target is the plan's and config's, and a `url` target's address is the brief's typed host, never asked", () => {
+    assert.match(row(2), /address/);
+    assert.match(row(2), /brief/);
   });
 
   it("takes the run needs from the --answers file (qa-run.json), holds what appears after compose, and never asks", () => {
