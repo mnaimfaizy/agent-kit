@@ -1941,3 +1941,10 @@ test("the CLI answers `none` when the config has no `run:` section, or there is 
     assert.match(JSON.parse(out).refused[0].why, /`run.evidence.upload` is `none`/);
   }
 });
+
+test("a `Run answers reused from` file path with a space reads with no problem", () => {
+  const line = '- Run answers reused from tmp/my qa/qa-run.json: run.target="stack"';
+  const { report, problems } = readReport(withReused(PASSED, line));
+  assert.deepEqual(problems, []);
+  assert.equal(report.runAnswers, 'tmp/my qa/qa-run.json: run.target="stack"');
+});

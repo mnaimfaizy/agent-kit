@@ -422,7 +422,7 @@ export function readReport(text) {
     );
   if (reusedLines.length) {
     report.runAnswers = reusedLines[0].slice(REUSED_LABEL.length).trim();
-    if (!/^\S+: \S/.test(report.runAnswers))
+    if (!/^\S.*: \S/.test(report.runAnswers))
       problems.push(
         "the `Run answers reused from` line names no file and values: " +
           "`Run answers reused from <file>: <values>`, or leave the line out",

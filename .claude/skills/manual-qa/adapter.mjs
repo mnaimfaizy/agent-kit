@@ -2875,7 +2875,7 @@ function checkRunAnswers(argv, repo, loaded, { plan: planned, tools }) {
       planned?.problems.length ? null : planned?.plan,
       tools,
     );
-  const failed = (problems) => (planned?.problems.length ?? 0) > 0 || problems.length > 0;
+  const planFailed = (planned?.problems.length ?? 0) > 0;
   if (loaded.runProblems.length)
     return {
       code: 1,
@@ -2890,7 +2890,7 @@ function checkRunAnswers(argv, repo, loaded, { plan: planned, tools }) {
   if (answersBase !== undefined && base !== undefined && baseName(answersBase) !== baseName(base)) {
     const effective = effectiveConfig(loaded.config);
     return {
-      code: failed([]) ? 1 : 0,
+      code: planFailed ? 1 : 0,
       out: json({
         path: loaded.path,
         problems: [],
@@ -2929,7 +2929,7 @@ function checkRunAnswers(argv, repo, loaded, { plan: planned, tools }) {
   const misplaced = answersPlaceProblem(repo, effective.working_dir, read.path);
   if (misplaced) return { code: 2, out: `check: ${misplaced}\n` };
   return {
-    code: failed([]) ? 1 : 0,
+    code: planFailed ? 1 : 0,
     out: json({
       path: loaded.path,
       problems: [],

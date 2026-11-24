@@ -1335,3 +1335,11 @@ test("a Story sits right after Capture, before Steps, once, as a numbered list",
     );
   }
 });
+
+test("run.stack.address is a run key `host` must call local, and check --for run --answers is shared", () => {
+  const read = parseConfig("qa.config.yml", "run:\n  stack: { address: http://localhost:3000 }\n");
+  assert.deepEqual(read.runProblems, []);
+  const bad = parseConfig("qa.config.yml", "run:\n  stack: { address: https://app.example.com }\n");
+  assert.match(bad.runProblems[0], /`run\.stack\.address`: expected a local address/);
+  assert.deepEqual(bad.problems, [], "a `run:` problem never stops qa-plan");
+});
