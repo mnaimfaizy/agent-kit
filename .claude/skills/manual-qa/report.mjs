@@ -123,7 +123,7 @@ const LIST_ITEM = /^\s*(?:[-*+]|\d+[.)])(?:\s|$)/;
 const LEFT_HEADING = "### Left for a person";
 
 /**
- * Read the header line strictly, after My Organiser's `qa-report.ts`: pure, and
+ * Read the header line strictly, pure, and
  * only the two fixed forms read. Anything else (a short SHA, an extra or a
  * missing field, loose spelling or spacing) is refused.
  *
@@ -151,7 +151,7 @@ export function parseHeader(line) {
     "the header is not `QA Report: result=passed|failed; commit=<sha>; left-for-person=<n>; " +
       "deferred=<n>` or `QA Report: no manual QA needed; commit=<sha>`, written exactly",
   ];
-  if (/^QA Report:/.test(line) && !/commit=[0-9a-f]{40}(?:[0-9a-f]{24})?(?:;|$)/.test(line))
+  if (/^QA Report:/.test(line) && !new RegExp(`commit=${HEAD_HEX}(?:;|$)`).test(line))
     problems.push(`its commit must be ${SHA_WORDS}`);
   return { header: null, problems };
 }
@@ -1257,7 +1257,8 @@ export function reportComment(reportText, { links = {}, places } = {}) {
   const built = summaryBody(report, configured, links);
   if (built.body === null) return built;
   // The local report is scanned too: a sign-in value is refused wherever it sits.
-  checkBody(`${built.body}\n${lf(reportText)}`, problems);
+  for (const problem of credentialProblems(lf(reportText).split("\n")))
+    problems.push(problem.replace(/; a plan carries.*/, "; remove it before posting"));
   if (!problems.length) problems.push(...parseSummary(built.body, { places: configured }).problems);
   if (!problems.length) checkBody(built.body, problems);
   return { body: problems.length ? null : built.body, problems };

@@ -1395,7 +1395,6 @@ export const FORMAT = FORMATS.at(-1);
 const RULE_OUT = "If this fails, first rule out";
 /** A Sign-off box for a promise only reading can check: `- [ ] Review: <what to read, and what it must say>`, a space after the colon. */
 const REVIEW_BOX = /^\s*[-*]\s+\[(?<tick>[ xX])\]\s+Review:(?<text>(?:\s.*)?)$/;
-/** A box that looks meant as a `Review:` box but is not written as one: `review:`, `**Review:**`, `Review :`, `Review:docs`. */
 /** A Place leading a `Review:` box's text: `[<place>] <text>`. */
 const REVIEW_PLACE = /^\[([^\]\s]*)\](?:\s|$)/;
 /**
@@ -1415,6 +1414,7 @@ function placeProblem(place, text, places) {
     return `the box's Place \`${place}\` is not configured (${names.join(", ")}): pick one of them, or add it to \`report.places\``;
   return null;
 }
+/** A box that looks meant as a `Review:` box but is not written as one: `review:`, `**Review:**`, `Review :`, `Review:docs`. */
 const NEAR_REVIEW_BOX = /^\s*[-*]\s+\[[ xX]\]\s+[*_]*review[*_]*\s*[*_]*:/i;
 /** A role id, and a Scenario account id: letters, digits, `_` and `-`. */
 const ACCOUNT_ID = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;

@@ -2429,3 +2429,14 @@ test("a `Run answers reused from` file path with a space reads with no problem",
   assert.deepEqual(problems, []);
   assert.equal(report.runAnswers, 'tmp/my qa/qa-run.json: run.target="stack"');
 });
+
+test("a long local report does not block a short post: only the summary counts against the limit", () => {
+  const long = PASSED.replace(
+    "- **Accounts:** admin",
+    `- **Accounts:** admin\n- **Run deviations:** ${"x ".repeat(40000)}`,
+  );
+  assert.ok(long.length > 65536);
+  const { body, problems } = reportComment(long);
+  assert.deepEqual(problems, []);
+  assert.ok(body.length < 2000);
+});
