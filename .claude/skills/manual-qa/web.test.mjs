@@ -189,6 +189,20 @@ before(async () => {
             "    if (id === 'email') seen.email.masked.push(getComputedStyle(field).webkitTextSecurity);" +
             "    show(); }); }</script>",
         );
+      if (url.pathname === "/odd")
+        // A form an Enter would submit, a textarea counting its keys, and a read-only field.
+        return html(
+          '<form id="f"><label>Story <textarea id="story"></textarea></label>' +
+            '<label>Fixed <input id="fixed" readonly value="kept"></label>' +
+            '<button>Send</button></form><p role="status" id="r"></p><script>' +
+            "let keys = 0, sent = 0; const story = document.getElementById('story');" +
+            "const show = () => { document.getElementById('r').textContent =" +
+            "  `story ${keys} keys, sent ${sent}, [${story.value.replace(/\\n/g, '|')}]`; };" +
+            "story.addEventListener('keydown', () => { keys += 1; show(); });" +
+            "story.addEventListener('input', show);" +
+            "document.getElementById('f').addEventListener('submit', (e) => { e.preventDefault(); sent += 1; show(); });" +
+            "</script>",
+        );
       if (url.pathname === "/pointer")
         // A button that says, when clicked, whether the pointer marker sits on it, and a
         // line that says whether the marker is in the page now.
@@ -995,8 +1009,47 @@ test(
   },
 );
 
+test(
+  "with --video, a value with a line break or off the keyboard is filled in one go",
+  { skip: NEEDS_CHROMIUM },
+  async () => {
+    for (const [value, shown] of [
+      ["line one\nline two", "line one|line two"],
+      ["café", "café"],
+    ]) {
+      const { code, steps, stdout } = await drive(
+        [
+          { session: "A", goto: "/odd" },
+          { session: "A", fill: { label: "Story" }, value },
+          { session: "A", step: "Filled", subject: { role: "status" } },
+        ],
+        { video: true },
+      );
+      assert.equal(code, 0, stdout);
+      assert.equal(steps.steps[0].text, `story 0 keys, sent 0, [${shown}]`, "no Enter, no keys");
+    }
+  },
+);
+
+test(
+  "with --video, a fill into a read-only field fails as it does without",
+  { skip: NEEDS_CHROMIUM },
+  async () => {
+    const actions = [
+      { session: "A", goto: "/odd" },
+      { session: "A", fill: { label: "Fixed" }, value: "changed" },
+    ];
+    for (const video of [false, true]) {
+      const { code, summary } = await drive(actions, { video });
+      assert.equal(code, 1, `video: ${video}`);
+      assert.equal(summary.error.action, 2);
+      assert.equal(summary.error.verb, "fill");
+    }
+  },
+);
+
 /** Runs a sequence in-process, noting at each still whether the pointer marker is in the page. */
-async function aimed(actions, video) {
+async function runNotingPointer(actions, video) {
   const out = mkdtempSync(join(tmpdir(), "web-pointer-"));
   const atStills = [];
   const screenshot = async (pageHandle, path) => {
@@ -1022,7 +1075,7 @@ test(
   "with --video, a pointer moves to each click target, and no still shows it",
   { skip: NEEDS_CHROMIUM },
   async () => {
-    const { steps, atStills } = await aimed(
+    const { steps, atStills } = await runNotingPointer(
       [
         { session: "A", goto: "/pointer" },
         { session: "A", step: "Before the click" },
@@ -1047,7 +1100,7 @@ test(
     );
     assert.deepEqual(atStills, [false, false, false, false], "no still has the pointer");
     // The crop is the page's own: the subject's box is the same as without --video.
-    const plain = await aimed(
+    const plain = await runNotingPointer(
       [
         { session: "A", goto: "/pointer" },
         { session: "A", click: { role: "button", name: "Aim" } },
@@ -1060,7 +1113,7 @@ test(
 );
 
 test("without --video, there is no pointer", { skip: NEEDS_CHROMIUM }, async () => {
-  const { steps, atStills } = await aimed(
+  const { steps, atStills } = await runNotingPointer(
     [
       { session: "A", goto: "/pointer" },
       { session: "A", click: { role: "button", name: "Aim" } },

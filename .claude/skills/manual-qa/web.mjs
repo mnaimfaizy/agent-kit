@@ -89,16 +89,20 @@ export const KEY_DELAY_MS = 60;
 /** With `--video`, a literal value's key pauses add up to at most this: a long one types faster. */
 export const TYPING_BUDGET_MS = 3_000;
 /** With `--video`, how long the pointer takes to move to a click target. */
-export const POINTER_MOVE_MS = 400;
+const POINTER_MOVE_MS = 400;
 /** The element id of the pointer marker drawn into each Session's page with `--video`. */
 export const POINTER_ID = "agent-kit-qa-pointer";
 const POINTER_SIZE = 22;
+/** The input types a literal is typed into key by key with `--video`: the text-like ones. */
+const TYPED_INPUTS = ["text", "search", "email", "url", "tel", "number"];
 /**
- * The fields a literal is typed into key by key with `--video`: a textarea or an
- * editable element (no input type), and text-like inputs. A date, time, colour or
- * range input takes its value whole, as Playwright fills it.
+ * A literal typed key by key: printable keyboard characters only. A line break would
+ * press Enter (and could submit a form mid-fill), and a character off the keyboard
+ * arrives with no key event, so such a value is filled in one go, as without `--video`.
  */
-const TYPED_FIELDS = ["", "text", "search", "email", "url", "tel", "number"];
+const TYPABLE = /^[\x20-\x7e]+$/;
+/** With `--video`, the time allowed for each key on top of its pause, in a typing's bound. */
+const PER_KEY_SLACK_MS = 5;
 const VIEWPORT = { width: 1280, height: 720 };
 const MIN_SECRET_LENGTH = 4;
 
@@ -438,9 +442,14 @@ function pointerFor(page) {
     draw: () => draw(),
     /** Moves to the target's centre, scrolling it into view as the click would. */
     async moveTo(target) {
-      // Not caught: a target that cannot be scrolled to fails as its click would.
-      await target.scrollIntoViewIfNeeded();
-      const box = await target.boundingBox().catch(() => null);
+      // Only a target that is there now: a missing, hidden or ambiguous one is left
+      // to the click, which fails with its own error, after its own wait.
+      const box = await target
+        .isVisible()
+        .then((visible) =>
+          visible ? target.scrollIntoViewIfNeeded().then(() => target.boundingBox()) : null,
+        )
+        .catch(() => null);
       if (!box) return;
       await draw();
       x = box.x + box.width / 2;
@@ -695,7 +704,17 @@ export async function runSequence(
           });
         else if (verb === "fill") {
           const field = locate(page, action.fill);
-          const type = await field.evaluate((e) => (e instanceof HTMLInputElement ? e.type : ""));
+          const { type, typable } = await field.evaluate((e, inputs) => {
+            const input = e instanceof HTMLInputElement;
+            const editable =
+              (input && inputs.includes(e.type)) ||
+              e instanceof HTMLTextAreaElement ||
+              /** @type {HTMLElement} */ (e).isContentEditable;
+            const locked =
+              /** @type {HTMLInputElement} */ (e).disabled ||
+              /** @type {HTMLInputElement} */ (e).readOnly;
+            return { type: input ? e.type : "", typable: Boolean(editable && !locked) };
+          }, TYPED_INPUTS);
           if (type === "password" && action.value !== "" && !onlyPlaceholders(action.value))
             throw new Error("a literal value into a password field; give it as {{env:QA_…}}");
           // A field filled from a sign-in value shows dots, as a password field does,
@@ -705,14 +724,17 @@ export async function runSequence(
             // Always in one go: a sign-in value is never typed key by key, so it is
             // masked before any of it arrives, with `--video` or without.
             await field.fill(fill(action.value));
-          } else if (video && action.value !== "" && TYPED_FIELDS.includes(type)) {
+          } else if (video && typable && TYPABLE.test(action.value)) {
             // A literal, with `--video`: typed as a person types it, over the
-            // field's old text, selected first, so each character is one key.
+            // field's old text, selected first, so each character is one key. Any
+            // other field (a select, a date, one that is read-only) is filled as
+            // without `--video`, and fails the same way.
             await field.selectText();
             await field.pressSequentially(action.value, {
               delay: keyDelay(action.value),
               // The bound is the typing's, not the element's: `selectText` found it.
-              timeout: ACTION_TIMEOUT_MS + TYPING_BUDGET_MS + 5 * action.value.length,
+              timeout:
+                ACTION_TIMEOUT_MS + TYPING_BUDGET_MS + PER_KEY_SLACK_MS * action.value.length,
             });
           } else await field.fill(action.value);
         } else {
