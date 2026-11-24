@@ -31,8 +31,10 @@ import {
   MIN_CROP_WIDTH,
   OUTLINE_GAP,
   OUTLINE_STROKE,
+  SESSION_KINDS,
   VIEWPORT,
   WITHHELD,
+  checkScenario,
   cropFor,
   knownFromEnv,
   layout,
@@ -534,6 +536,42 @@ test("a scenario file without `variables`, or with a step file outside the run, 
     assert.match(out, why);
     assert.ok(!existsSync(join(dir, "s1-storyboard.png")));
   }
+});
+
+test("each Session in the run context says how it signs in, ids only, and the check refuses any other word", () => {
+  assert.deepEqual(SESSION_KINDS, ["role", "scenario account", "nobody"]);
+  const withSessions = (sessions) => ({ ...fixtureMeta(), context: { accounts: [], sessions } });
+  assert.deepEqual(
+    checkScenario(
+      withSessions([
+        { session: "A", account: "admin", kind: "role" },
+        { session: "B", account: "temp-user", kind: "scenario account" },
+        { session: "C", account: "nobody", kind: "nobody" },
+      ]),
+    ),
+    [],
+  );
+  // An older scenario file, written before Sessions said how they sign in, still loads.
+  assert.deepEqual(checkScenario(withSessions([{ session: "A", account: "admin" }])), []);
+  for (const kind of ["Role", "account", "", 1, null])
+    assert.deepEqual(
+      checkScenario(withSessions([{ session: "A", account: "admin", kind }])),
+      [
+        'context is not {"accounts": [ids], "sessions": [{"session", "account", "kind"}]}, ' +
+          "kind one of role, scenario account, nobody",
+      ],
+      String(kind),
+    );
+  // A Session named twice is out of shape: the MP4 could not tell which entry is its own.
+  assert.equal(
+    checkScenario(
+      withSessions([
+        { session: "A", account: "admin", kind: "role" },
+        { session: "A", account: "member", kind: "role" },
+      ]),
+    ).length,
+    1,
+  );
 });
 
 test("every refusal removes an older Storyboard at its path, so none outlives what the run now says (#235 review)", async () => {

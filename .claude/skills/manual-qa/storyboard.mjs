@@ -53,6 +53,13 @@ import { BEFORE_STATES } from "./report.mjs";
  * still is this size, and every subject box is in it. Change the two together.
  */
 export const VIEWPORT = Object.freeze({ width: 1280, height: 720 });
+/**
+ * How a Session in the run context signs in (`context.sessions[].kind`):
+ * as a role the Run brief names, as a Scenario account, or signed out. The MP4
+ * opens a role's or a signed-out Session on its recording's start, and a
+ * Scenario account's, or one that does not say, on its first step (ADR 0020).
+ */
+export const SESSION_KINDS = Object.freeze(["role", "scenario account", "nobody"]);
 /** Space kept around a subject's outline inside its crop, in still pixels. */
 export const CROP_PADDING = 48;
 /** A crop is never narrower than this, in still pixels, so a small subject keeps its context. */
@@ -714,6 +721,11 @@ export function checkScenario(meta) {
     problems.push("commits is not {base, head}, each a commit sha in lower-case hex");
   if (m.context !== undefined) {
     const c = m.context;
+    const entry = (s) =>
+      isObject(s) &&
+      SESSION.test(s.session ?? "") &&
+      typeof s.account === "string" &&
+      (s.kind === undefined || SESSION_KINDS.includes(s.kind));
     if (
       !isObject(c) ||
       (c.accounts !== undefined &&
@@ -721,12 +733,14 @@ export function checkScenario(meta) {
       (c.sessions !== undefined &&
         !(
           Array.isArray(c.sessions) &&
-          c.sessions.every(
-            (s) => isObject(s) && SESSION.test(s.session ?? "") && typeof s.account === "string",
-          )
+          c.sessions.every(entry) &&
+          new Set(c.sessions.map((s) => s.session)).size === c.sessions.length
         ))
     )
-      problems.push('context is not {"accounts": [ids], "sessions": [{"session", "account"}]}');
+      problems.push(
+        'context is not {"accounts": [ids], "sessions": [{"session", "account", "kind"}]}, ' +
+          `kind one of ${SESSION_KINDS.join(", ")}`,
+      );
   }
   if (
     m.proves !== undefined &&
