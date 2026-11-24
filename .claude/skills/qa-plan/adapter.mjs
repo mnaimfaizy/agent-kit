@@ -1327,6 +1327,14 @@ export const CREATES = "Creates";
  */
 export const SCENARIO_SURFACE = "Surface";
 /**
+ * The optional field (format=2) naming the service a scenario tests on a hosted (`url`)
+ * target, in place of its surface's entry: right after **Surface:** (or where it would
+ * sit), before **Observes:**.
+ */
+export const SCENARIO_SERVICE = "Service";
+/** A service's name, as `run.hosts` and **Service:** spell it. */
+export const SERVICE_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
+/**
  * The optional field (format=2) naming what a scenario's result observes, for `manual-qa`
  * to check each driver against: right after the scenario's **Surface:**, or after its
  * sign-in field (and **Creates:**) when it has none, before **Steps:**.
@@ -2094,6 +2102,38 @@ export function validatePlan(text, { places } = {}) {
         else surface = word;
         if (surface !== word) surfaceKnown = false;
       }
+      // The service it tests (#418): after its Surface, else after its sign-in field.
+      /** @type {string | null} */
+      let service = null;
+      const services = found.filter((entry) => entry.label === SCENARIO_SERVICE);
+      for (const extra of services.slice(1))
+        at(extra.n, `${id}: a second **${SCENARIO_SERVICE}:**: a scenario has at most one`);
+      const ownService = services[0];
+      if (ownService) {
+        const k = found.indexOf(ownService);
+        const misplaced =
+          found.slice(k + 1).some((entry) => [...before, SCENARIO_SURFACE].includes(entry.label)) ||
+          found.slice(0, k).some((entry) => after.includes(entry.label));
+        const what = `${id}: **${SCENARIO_SERVICE}:**`;
+        const word = plainWord(ownService.inline);
+        if (plan.format === 1)
+          at(
+            ownService.n,
+            `${what} is a format=2 field: mark the plan \`format=2\`, or leave it out`,
+          );
+        else if (misplaced)
+          at(
+            ownService.n,
+            `${what} is out of position: it goes right after the scenario's **${SCENARIO_SURFACE}:**, or after **${SCENARIO_LABELS[1]}:** or **${SESSIONS}:** (and **${CREATES}:**, when present) when it has none, before **Steps:**`,
+          );
+        else if (ownService.text === "") at(ownService.n, `${what} is empty`);
+        else if (!SERVICE_NAME.test(word))
+          at(
+            ownService.n,
+            `${what} expected a service name: letters, digits, \`_\` and \`-\`, first on its line`,
+          );
+        else service = word;
+      }
       // What the scenario observes (#204): after its Surface, else after its sign-in field.
       /** @type {string[]} */
       const observes = [];
@@ -2104,8 +2144,11 @@ export function validatePlan(text, { places } = {}) {
       if (listed) {
         const k = found.indexOf(listed);
         const misplaced =
-          found.slice(k + 1).some((entry) => [...before, SCENARIO_SURFACE].includes(entry.label)) ||
-          found.slice(0, k).some((entry) => after.includes(entry.label));
+          found
+            .slice(k + 1)
+            .some((entry) =>
+              [...before, SCENARIO_SURFACE, SCENARIO_SERVICE].includes(entry.label),
+            ) || found.slice(0, k).some((entry) => after.includes(entry.label));
         const what = `${id}: **${SCENARIO_OBSERVES}:**`;
         if (plan.format === 1)
           at(listed.n, `${what} is a format=2 field: mark the plan \`format=2\`, or leave it out`);
@@ -2142,7 +2185,9 @@ export function validatePlan(text, { places } = {}) {
           found
             .slice(k + 1)
             .some((entry) =>
-              [...before, SCENARIO_SURFACE, SCENARIO_OBSERVES].includes(entry.label),
+              [...before, SCENARIO_SURFACE, SCENARIO_SERVICE, SCENARIO_OBSERVES].includes(
+                entry.label,
+              ),
             ) || found.slice(0, k).some((entry) => after.includes(entry.label));
         const what = `${id}: **${SCENARIO_CAPTURE}:**`;
         const word = plainWord(ownCapture.inline);
@@ -2192,9 +2237,13 @@ export function validatePlan(text, { places } = {}) {
           found
             .slice(k + 1)
             .some((entry) =>
-              [...before, SCENARIO_SURFACE, SCENARIO_OBSERVES, SCENARIO_CAPTURE].includes(
-                entry.label,
-              ),
+              [
+                ...before,
+                SCENARIO_SURFACE,
+                SCENARIO_SERVICE,
+                SCENARIO_OBSERVES,
+                SCENARIO_CAPTURE,
+              ].includes(entry.label),
             ) || found.slice(0, k).some((entry) => after.includes(entry.label));
         const what = `${id}: **${SCENARIO_STORY}:**`;
         const end = found[k + 1]?.n ?? heads[i + 1]?.n ?? to;
@@ -2330,6 +2379,7 @@ export function validatePlan(text, { places } = {}) {
         sessions,
         creates: [...new Set(made.filter((made) => made !== ""))],
         surface,
+        service,
         observes,
         capture,
         captureGiven: Boolean(ownCapture),

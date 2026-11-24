@@ -94,6 +94,7 @@ test("the good plan reads with no problems, and its parts are read out", () => {
       creates: [],
       surface: "web",
       observes: [],
+      service: null,
       capture: "screenshot",
       captureGiven: false,
       expectedBefore: null,
@@ -107,6 +108,7 @@ test("the good plan reads with no problems, and its parts are read out", () => {
       creates: [],
       surface: "web",
       observes: [],
+      service: null,
       capture: "screenshot",
       captureGiven: false,
       expectedBefore: null,
@@ -2084,4 +2086,56 @@ test("`adapter.mjs plan` checks a box's Place against the repository's config", 
   assert.equal(run("report:\n  places: [local, prod]\n  holds: [local]\n").code, 0);
   assert.match(run("report:\n  places: none\n").out, /Places are off/);
   assert.match(run(null).out, /Place `prod` is not configured \(local, staging, production\)/);
+});
+
+// ── Which service a scenario tests (format=2, #418) ─────────────────────────
+
+const withService = (line = "- **Service:** `billing`", { after: anchor = S2_SIGNS } = {}) =>
+  broken(anchor, `${anchor}${line}\n`);
+
+test("a scenario with **Service:** validates and `plan` prints it; one without prints null", () => {
+  assert.deepEqual(problemsOf(withService()), []);
+  const result = main(["plan"], { read: () => null, stdin: () => withService() });
+  assert.equal(result.code, 0);
+  assert.deepEqual(
+    JSON.parse(result.out).plan.scenarios.map((s) => s.service),
+    [null, "billing"],
+  );
+});
+
+test("**Service:** sits after **Surface:** and before **Observes:**", () => {
+  const ok = broken(
+    S2_SIGNS,
+    `${S2_SIGNS}- **Surface:** api\n- **Service:** billing\n- **Observes:** status\n`,
+  );
+  assert.deepEqual(problemsOf(ok), []);
+  const before = broken(S2_SIGNS, `${S2_SIGNS}- **Service:** billing\n- **Surface:** api\n`);
+  assertProblem(before, /S2: \*\*Service:\*\* is out of position/);
+  const afterObserves = broken(
+    S2_SIGNS,
+    `${S2_SIGNS}- **Observes:** status\n- **Service:** billing\n`,
+  );
+  // The later field is the one out of position: **Observes:** goes after **Service:**.
+  assertProblem(afterObserves, /S2: \*\*Observes:\*\* is out of position/);
+});
+
+test("**Service:** is read as a first-word name; an empty, repeated or malformed one is a problem", () => {
+  assertProblem(withService("- **Service:**"), /S2: \*\*Service:\*\* is empty/);
+  assertProblem(
+    withService("- **Service:** billing\n- **Service:** auth"),
+    /S2: a second \*\*Service:\*\*: a scenario has at most one/,
+  );
+  assertProblem(
+    withService("- **Service:** `@billing`"),
+    /S2: \*\*Service:\*\* expected a service name: letters, digits, `_` and `-`/,
+  );
+  assert.deepEqual(problemsOf(withService("- **Service:** **billing**, the billing API")), []);
+});
+
+test("a format=1 plan carries no **Service:**", () => {
+  const text = withService().replace("format=2", "format=1");
+  assertProblem(
+    text,
+    /S2: \*\*Service:\*\* is a format=2 field: mark the plan `format=2`, or leave it out/,
+  );
 });
