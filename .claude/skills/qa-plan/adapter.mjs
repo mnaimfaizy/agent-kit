@@ -1288,20 +1288,27 @@ export const SCENARIO_EXPECTED_BEFORE = "Expected before";
 export const SCENARIO_STORY = "Story";
 
 /**
- * A Story sentence as plain text, since a Title card and a Storyboard heading
- * show it as written: paired inline Markdown is stripped (`**x**`, `__x__`,
- * `*x*`, `_x_` and `` `x` `` to `x`, `[text](url)` to `text`). An underscore
- * inside a word (`member_id`) and a lone `*` are kept.
+ * A Story sentence as plain text, since a Title card and a Storyboard heading show it as
+ * written: paired inline Markdown is stripped (`**x**`, `__x__`, `*x*`, `_x_` and `` `x` ``
+ * to `x`, `[text](url)` to `text`). A code span's content is kept as written, and an
+ * underscore inside a word (`member_id`) and a lone `*` are kept.
  */
 function plainStory(sentence) {
   return sentence
-    .replace(/`([^`]+)`/g, "$1")
-    .replace(/\[([^\]]+)\]\([^)\s]*\)/g, "$1")
-    .replace(/\*\*(?=\S)(.+?)(?<=\S)\*\*/g, "$1")
-    .replace(/(?<![\p{L}\p{N}_])__(?=\S)(.+?)(?<=\S)__(?![\p{L}\p{N}_])/gu, "$1")
-    .replace(/\*(?=\S)([^*]+?)(?<=\S)\*/g, "$1")
-    .replace(/(?<![\p{L}\p{N}_])_(?=\S)([^_]+?)(?<=\S)_(?![\p{L}\p{N}_])/gu, "$1");
+    .split(/(`[^`]+`)/)
+    .map((part, i) =>
+      i % 2
+        ? part.slice(1, -1)
+        : part
+            .replace(/\[([^\]]+)\]\((?:[^()\s]|\([^()\s]*\))*\)/g, "$1")
+            .replace(/\*\*(?=\S)(.+?)(?<=\S)\*\*/g, "$1")
+            .replace(/(?<![\p{L}\p{N}_])__(?=\S)(.+?)(?<=\S)__(?![\p{L}\p{N}_])/gu, "$1")
+            .replace(/\*(?=\S)([^*]+?)(?<=\S)\*/g, "$1")
+            .replace(/(?<![\p{L}\p{N}_])_(?=\S)([^_]+?)(?<=\S)_(?![\p{L}\p{N}_])/gu, "$1"),
+    )
+    .join("");
 }
+
 /**
  * The plan formats this copy reads. A format=1 plan carries no per-scenario field; a
  * format=2 plan no **Capture:** or **Expected before:**; a format=3 plan no **Story:**.

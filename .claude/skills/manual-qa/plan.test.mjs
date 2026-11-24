@@ -1894,6 +1894,12 @@ test("a Story sentence reads as plain text: paired inline Markdown is stripped, 
   assert.deepEqual(story("The member_id field shows 5 * 3 and a_b."), [
     "The member_id field shows 5 * 3 and a_b.",
   ]);
+  assert.deepEqual(story("The `__init__` file and `*.md` glob read as written."), [
+    "The __init__ file and *.md glob read as written.",
+  ]);
+  assert.deepEqual(story("It opens [the guide](https://example.test/a_(b)) now."), [
+    "It opens the guide now.",
+  ]);
 });
 
 test("a single-session scenario is one Scene: a one-sentence Story reads, a second sentence is refused", () => {
