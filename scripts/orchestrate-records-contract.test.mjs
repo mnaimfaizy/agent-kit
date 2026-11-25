@@ -450,7 +450,7 @@ describe("uploading the Run Record to a sink", () => {
     assert.match(index, /\| `gitlab` \| `documented` \|/);
     assert.match(
       index,
-      /A sink's Support Level is the one its own file states, and the Dispatch Plan and the disclosure name it while it is below `verified` \\(\\[RUN\\.md\\]\\(RUN\\.md#uploading-the-run-record\\)\\): `gitlab` ships at `documented` until a run has uploaded to it/,
+      /A sink's Support Level is the one its own file states, and the Dispatch Plan and the disclosure name it while it is below `verified` \(\[RUN\.md\]\(RUN\.md#uploading-the-run-record\)\): `gitlab` ships at `documented` until a run has uploaded to it/,
     );
   });
 
