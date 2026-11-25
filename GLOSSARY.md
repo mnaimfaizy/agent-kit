@@ -118,7 +118,7 @@ _Avoid_: channel, track
 ### Gates and trust
 
 **Kill switch**:
-A Consumer-owned control that, when on, makes a First-class flow or one Stage of it do nothing.
+A Consumer-owned control that, when on, makes a First-class flow, one Stage of it, or the Factory do nothing; the Factory's drains, starting nothing new while running Stages finish.
 _Avoid_: feature flag, toggle
 
 **Allowlist**:
@@ -304,7 +304,7 @@ The eight items every Delegation's brief carries: what to read first, the goal a
 _Avoid_: brief template, prompt template
 
 **Decision Request**:
-A question a Delegation cannot settle from its brief, raised to the human through the Chief of Staff (or, in an autonomous run, answered by a Ruling), self-contained, with options, evidence and a recommendation.
+A question a Delegation, or a Factory task, cannot settle from its brief, raised to the human (through the Chief of Staff, or on the issue with `factory:needs-decision`) or, in an autonomous run, answered by a Ruling; self-contained, with options, evidence and a recommendation.
 _Avoid_: question, escalation, blocker
 
 **Ruling**:
@@ -348,7 +348,7 @@ The account of a finished run, offered after the human merges, for the issue tha
 _Avoid_: wrap-up, final report
 
 **Run Record**:
-The structured, machine-readable account of one run, written at close-out and holding only fields that are safe to publish (counts, ids, durations, outcomes, and each human intervention with its kind), never quoted issue text or command output; what a Consumer may keep or upload once the raw run folder is gone.
+The structured, machine-readable account of one run (an `orchestrate` run, or one Stage run of a Factory task, on either Factory engine), written at close-out and holding only fields that are safe to publish (counts, ids, durations, outcomes, and each human intervention with its kind), never quoted issue text or command output; what a Consumer may keep or upload once the raw run folder is gone.
 _Avoid_: run metadata, telemetry, run log
 
 **Run Event**:
@@ -370,6 +370,106 @@ _Avoid_: team mode, shared run, joining a run
 **Shared Board**:
 The board of a Team Run on the issue tracker: one row comment on each spec ticket, written only by its current assignee's Chief of Staff, and one state label mirroring its state; a published projection of each teammate's own run folder, never a store.
 _Avoid_: team board, shared run folder
+
+### Factory
+
+Turning labelled issues into merge-ready pull requests with no human typing code, while humans keep risky merges and releases. Being charted; the terms below are settled, the design is not.
+
+**Factory**:
+The whole system that moves an issue from ready for an agent to merged: its lifecycle labels on the tracker, its Run Records, and its merge gate, whichever Factory engine does the work.
+_Avoid_: pipeline, software factory (as a name for one flow)
+
+**Factory engine**:
+What does the factory's work in one repository: the Workflow engine or the Orchestrate engine. Named for what it runs on, not where it runs.
+_Avoid_: runtime, backend, self-hosted mode
+
+**Workflow engine**:
+The Factory engine built from the kit's reusable workflows, on GitHub-hosted or self-hosted runners alike.
+_Avoid_: CI mode, Actions engine
+
+**Orchestrate engine**:
+The Factory engine that runs `orchestrate` from a long-running process on the user's own machine, on their own harnesses and model keys.
+_Avoid_: self-hosted engine, local factory, orchestrator
+
+**Dispatcher**:
+The deterministic loop inside a Factory engine that claims, locks, retries and caps the factory's work; it judges nothing, and leaves judgement to the agents it starts.
+_Avoid_: orchestrator, scheduler, Chief of Staff
+
+**Factory state**:
+The one `factory:*` label a Factory task's issue carries at a time, naming where the task stands: queued, planning, planned, building, reviewing, checking, ready to merge, merged, or needs decision.
+_Avoid_: status, stage (a Stage is a run, not a state)
+
+**Human move**:
+One of the few Factory state changes a person with write access may make by hand: enter a task, pause or unpause it, send it to needs decision, re-queue it once answered, restart it, or withdraw it; the Dispatcher reverts any other hand-made change.
+_Avoid_: override, manual transition
+
+**Claim**:
+A Dispatcher's hold on a Factory task while an agent works on it: a lock comment naming the engine, Stage, Attempt and expiry, read back after writing, plus an assignee where the engine runs as a person; never a state of its own.
+_Avoid_: lock state, reservation
+
+**Attempt**:
+One try at a Factory task that ends in a failure the Dispatcher counts (a failed build, changes requested, a failed check, an expired Claim); a set number of them sends the task to needs decision.
+_Avoid_: retry, run
+
+**Plan header**:
+The machine-readable part of a Verified plan, checked by a trusted step before it is posted: the Risk tier, the Allowed paths, the test plan, and any questions or split.
+_Avoid_: plan metadata, front matter
+
+**Risk tier**:
+How risky a Factory task's change is, `low`, `medium` or `high`: the higher of the planner's proposal and what the risk rules give for its paths, and only ever raised later.
+_Avoid_: risk level, severity
+
+**Merge gate**:
+The part of the Factory that decides, for a task's exact pull request head, whether it merges by itself or waits for a person; it can only hold on a judgment, never merge on one, and it merges nothing while its mode is `off` or `shadow`.
+_Avoid_: auto-merger, merge bot, merge queue (a queue is GitHub's own feature)
+
+**Guarded path**:
+A path whose change no Factory task may auto-merge, judged against the base branch's copy: the gate's own mode, the risk rules, the factory config and the workflows.
+_Avoid_: protected path, locked file
+
+**Allowed paths**:
+The paths a Factory task's build may change, named in its Plan header; on the Orchestrate engine they are the building Delegation's scope fence, word for word.
+_Avoid_: touch list, file list
+
+**Stage check**:
+The `pass` or `fail` one Stage (review, QA or security) records on one head commit of a Factory task's pull request, written by a trusted step and read by the merge gate; a new head starts with none.
+_Avoid_: verdict (a Verdict answers one review thread), gate result, approval
+
+**Snapshot**:
+The GitHub reads an Orchestrate engine writes into an agent's sandbox, refreshed every sweep, so the agent learns what the tracker says without holding a GitHub credential.
+_Avoid_: mirror, cache, context dump
+
+**Outbox**:
+Where an agent on the Orchestrate engine asks the engine for a GitHub write or a new Delegation; the engine checks each request before it acts, and refuses any it does not allow.
+_Avoid_: mailbox, bridge, broker
+
+**Factory mode**:
+`orchestrate` as the Orchestrate engine runs it, one Chief of Staff per build Stage run with nobody in chat: always autonomous, its Rulings checked by the review Stage, and any question it does not rule on ending the Stage as a Decision Request on the issue.
+_Avoid_: headless orchestrate, unattended mode
+
+**Engine lease**:
+The one running Orchestrate engine's hold on a repository, renewed every sweep, so a second engine finds it and refuses to start.
+_Avoid_: engine lock, heartbeat
+
+**Factory control issue**:
+The one pinned issue per Factory repository that holds what belongs to the whole Factory rather than to a task: the Engine lease, the merge gate's trip marker, and the daily cap's notices.
+_Avoid_: control panel, status issue, dashboard issue
+
+**Factory blueprint**:
+The files a Consumer copies once from Agent-kit to set up a Factory and owns from then on: the factory config, the risk rules, the Callers, the code-owner lines and the ruleset; never a Kit-owned path.
+_Avoid_: factory template, starter kit, scaffold
+
+**Task size**:
+How much work a Factory task's build is expected to take, `s`, `m` or `l`, proposed by the planner in the Plan header; it picks the build's token cap, and only a person raises it.
+_Avoid_: estimate, effort (Effort is a model setting), complexity
+
+**Daily cap**:
+The most tokens a Factory may spend in one repository in one UTC day, counting what finished runs spent and the full cap of every run still going; reaching it starts nothing new until midnight.
+_Avoid_: budget, spend cap, quota
+
+**Rollout phase**:
+One step on a Consumer's supervised path from an installed Factory to one that auto-merges a Risk tier, each step entered by a person only once the measured bar of the step before it is met.
+_Avoid_: stage (a Stage is one agent run), level, autonomy level
 
 ### Review response
 

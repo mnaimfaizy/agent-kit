@@ -34,3 +34,5 @@ The skill runs in any Consumer's repository, with Node built-ins and the tracker
 - **Other storage is a doc hint, not a promise.** Any S3-compatible store (AWS S3, R2, GCS with HMAC keys, Backblaze B2, MinIO, Wasabi, DigitalOcean Spaces) should work as `s3` with its own endpoint, but is untested. Azure Blob, Bitbucket, Gitea and Forgejo are not sinks: a Consumer keeps Run Records local, or asks for a sink.
 - **The `gitlab` sink ships at Support Level `documented`,** like the GitLab tracker, until a run has uploaded to it. GitLab does not document whether creating a file that already exists fails, so the sink reads the path before it creates the file.
 - **Uploads stop for anyone without a login.** A Consumer with no `gh` or `glab` login and no environment override keeps Run Records local.
+
+- **Amended for the factory** by [ADR 0040](0040-in-factory-mode-the-chief-of-staff-never-waits-on-a-human.md) (proposed): on the Orchestrate engine, the raw-upload yes is given once at engine start with `--upload-raw`, never in config.
