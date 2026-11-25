@@ -36,7 +36,7 @@ TERMS = [
 ]
 # Under "Hosted targets": carried by `manual-qa` alone, which uses them.
 HOSTED_TERMS = ["Host candidate", "Service"]
-MANUAL_QA_DESIGN = DESIGNS[1]
+MANUAL_QA_DESIGN = next(d for d in DESIGNS if d.parent.name == "manual-qa")
 
 
 def glossary_terms(heading: str = "Manual QA") -> dict[str, str]:

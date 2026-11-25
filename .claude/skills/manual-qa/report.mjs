@@ -316,7 +316,7 @@ const REUSED_LABEL = "- Run answers reused from";
 const REVIEW_FOLLOW_UP = /^\s*[-*]\s+Review, for a person:\s*(\S.*?)\s*$/;
 /** The line directly under a Review line that says a Ruling checked the box: `  (checked under R<n>)`. */
 const CHECKED_UNDER = /^\s+\(checked under (R[1-9]\d*)\)\s*$/;
-/** A Place leading a Review box's text, as `qa-plan` writes it: `[<place>] <text>`. */
+/** A Place leading a Review box's text, as `qa-plan` writes it: `[<place>] <text>`. The name's shape is `PLACE_NAME`'s in `adapter.mjs`; keep the two in step. */
 const TEXT_PLACE = /^\[([a-z0-9][a-z0-9-]*)\]\s+(\S[\s\S]*)$/;
 /** A scenario's note that a deviation limits how far its result can be trusted: a few words. */
 const LIMITS_TRUST = /(?<![A-Za-z])Limits trust:\s*([^;]*?)\s*(?:;|\.(?:\s|$)|$)/;
