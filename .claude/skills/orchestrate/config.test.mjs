@@ -1790,6 +1790,10 @@ test("`records` problems, each with its line, in YAML", () => {
     problems("  repository: widgets"),
     /line 2: `records\.repository`: expected `host\/owner\/repo`/,
   );
+  assert.match(
+    problems("  repository: github.com/../widgets"),
+    /`records\.repository`: expected `host\/owner\/repo`/,
+  );
   assert.match(problems("  upload: always"), /`records\.upload`: expected one of: offer, never/);
   assert.match(problems("  sink: s3"), /`records\.sink`: expected a mapping/);
   assert.match(

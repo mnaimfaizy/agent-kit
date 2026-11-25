@@ -923,7 +923,7 @@ export const SECTIONS = {
     unknownKeys(sink, value, "records", RECORDS_KEYS);
     if (
       given(sink, value, "repository", "records.repository") &&
-      !REPOSITORY.test(value.repository)
+      !plainRepo(REPOSITORY, value.repository)
     )
       sink.add(
         "records.repository",
