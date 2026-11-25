@@ -15,6 +15,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
+import { LAND_REFUSALS } from "../.claude/skills/orchestrate/config.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (p) => readFileSync(join(root, p), "utf8");
@@ -92,8 +93,39 @@ describe("CONFIG.md", () => {
     );
   });
 
+  it("names each refusal code `land` can print", () => {
+    assert.ok(LAND_REFUSALS.length > 0);
+    const sentence = CONFIG.split("\n").find((l) => l.includes("`refusal` code"));
+    assert.ok(sentence, "CONFIG.md has the sentence naming the refusal codes");
+    for (const code of LAND_REFUSALS) assert.ok(sentence.includes(`\`${code}\``), code);
+  });
+
+  it("says an allowed failure excuses only named test failures", () => {
+    assert.match(CONFIG, /only excuses named test failures/);
+    assert.match(CONFIG, /anything but 1/);
+  });
+
   it("says how a failing test is named, and that a listed name is matched whole", () => {
     assert.match(CONFIG, /matched whole/);
+  });
+});
+
+describe("docs/orchestrate.md", () => {
+  const DOCS = read("docs/orchestrate.md");
+
+  it("tells the integration-branch flow's reader about the whole-integration review and its fix", () => {
+    const flow = DOCS.split("\n").find((l) =>
+      l.startsWith("On an integration branch, the Chief of Staff cuts"),
+    );
+    assert.match(flow, /`d<n>-review`/);
+    assert.match(flow, /stale-wording list/);
+    assert.match(flow, /before the pull request is drafted/);
+  });
+
+  it("points the verify step's re-gate at `config.mjs regate` and `land`", () => {
+    const step = DOCS.split("\n").find((l) => l.startsWith("7. **Verify each report**"));
+    assert.match(step, /config\.mjs regate/);
+    assert.match(step, /config\.mjs land/);
   });
 });
 

@@ -246,6 +246,34 @@ describe("regate", () => {
     assert.match(out, /no count/);
   });
 
+  test("a non-test failure beside an allowed test failure is not excused", () => {
+    const named = "printf '%s\\n' 'FAILED a.py::test_x - boom' '1 failed in 0.5s'";
+    const listed = allowing("test_x");
+    const cases = [
+      [
+        "a coverage threshold",
+        `${named}; echo 'FAIL Required test coverage of 90% not reached'; exit 1`,
+        /coverage/,
+      ],
+      ["a pytest usage error (exit 2)", `${named}; exit 2`, /exited 2/],
+      ["pytest's internal error (exit 3)", `${named}; exit 3`, /exited 3/],
+    ];
+    for (const [what, command, expected] of cases) {
+      const dir = repo({ [CONFIG]: configText({ commands: [command], allowed_failures: listed }) });
+      const { code, out } = run(dir, "regate", "HEAD", "--out", OUT);
+      assert.equal(code, 1, what);
+      assert.match(out, expected, what);
+    }
+    const plain = repo({
+      [CONFIG]: configText({ commands: [`${named}; exit 1`], allowed_failures: listed }),
+    });
+    assert.equal(
+      run(plain, "regate", "HEAD", "--out", OUT).code,
+      0,
+      "exit 1 with the named test alone",
+    );
+  });
+
   test("a command that passes is ok, whatever the allowed list holds", () => {
     const dir = repo({
       [CONFIG]: configText({ commands: ["true"], allowed_failures: allowing("never fails") }),

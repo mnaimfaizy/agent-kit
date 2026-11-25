@@ -121,7 +121,7 @@ regate:
       reason: fails on main under macOS bash 3.2, tracked in #123
 ```
 
-`node "<skill>/config.mjs" regate <sha> --out <file>` runs the commands and compares what failed to this list ([SKILL.md](SKILL.md#7-verify-each-report)). A failure that is not listed fails the re-gate, and is named. An entry is for a test that fails on the default branch as well: it stops a known failure from being read by eye each time, and a fix removes its entry. `check` prints the commands as `regate` and the list as `regate_allowed_failures`, `[]` when there is none.
+`node "<skill>/config.mjs" regate <sha> --out <file>` runs the commands and compares what failed to this list ([SKILL.md](SKILL.md#7-verify-each-report)). A failure that is not listed fails the re-gate, and is named. An entry only excuses named test failures: a command that exits with anything but 1 (pytest's 2 to 5 are not test failures), that prints a failure no test name accounts for (a coverage threshold, `--cov-fail-under`), or that counts more failures than it names, fails the re-gate even when every named test is listed. Give each command one test runner, since `cmd1; cmd2` hides a failure of `cmd2` behind the exit and names of `cmd1`; chain with `&&`. An entry is for a test that fails on the default branch as well: it stops a known failure from being read by eye each time, and a fix removes its entry. `check` prints the commands as `regate` and the list as `regate_allowed_failures`, `[]` when there is none.
 
 #### The commands
 

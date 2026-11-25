@@ -214,6 +214,16 @@ export function harnessCandidates(env = process.env) {
 }
 
 /** `regate` as a mapping: the commands, and the tests that fail on the default branch too. */
+/** The `refusal` codes `land` prints (CONFIG.md names each one). */
+export const LAND_REFUSALS = /** @type {const} */ ([
+  "unknown-ref",
+  "not-descended",
+  "outside-fence",
+  "checked-out",
+  "not-fast-forward",
+  "moved",
+]);
+
 export const REGATE_KEYS = /** @type {const} */ (["commands", "allowed_failures"]);
 export const ALLOWED_FAILURE_KEYS = /** @type {const} */ (["test", "reason"]);
 export const SPEC_KEYS = /** @type {const} */ (["landing", "integration_branch"]);
@@ -1460,10 +1470,22 @@ export function failedTests(output) {
   return { failed, reported };
 }
 
+/** A failure line no test name accounts for, such as pytest-cov's `FAIL Required test coverage`. */
+const OTHER_FAILURE =
+  /^FAIL(?!ED)\b|Required test coverage|coverage .*(?:not reached|below|too low)/im;
+
 /** What one finished command makes of the allowed list: which failures are allowed, and which are not. */
 function judge(command, code, output, allowedTests) {
   if (code === 0) return { allowed: [], unallowed: [] };
   const { failed, reported } = failedTests(output);
+  // A list excuses named test failures only. A test runner exits 1 when tests failed; any other
+  // code (pytest's 2 to 5) or a failure line the tests do not name is a failure the list cannot excuse.
+  const other = [];
+  if (code !== 1) other.push(`\`${command}\` exited ${code}, not 1: not a test failure`);
+  else if (OTHER_FAILURE.test(plain(output)))
+    other.push(
+      `\`${command}\` printed a failure that is not a named test (such as a coverage threshold)`,
+    );
   const found = [...new Map(failed.map((f) => [f.id, f])).values()];
   const listed = (f) => allowedTests.has(f.name) || allowedTests.has(f.id);
   const allowed = found.filter(listed).map((f) => f.id);
@@ -1475,7 +1497,7 @@ function judge(command, code, output, allowedTests) {
     unallowed.push(
       `\`${command}\`: ${reported} failed, but only ${found.length} named in its output`,
     );
-  return { allowed, unallowed };
+  return { allowed, unallowed: [...unallowed, ...other] };
 }
 
 /**
@@ -1587,10 +1609,13 @@ function landCommand(rest, io) {
   const repo = resolve(io.cwd ?? process.cwd(), options["--repo"] ?? ".");
   const [branch] = parsed.positional;
   const onto = options["--onto"];
-  const refusal = (reason, cause, extra = {}) => ({
-    code: 1,
-    out: `${JSON.stringify({ landed: false, branch, onto, refusal: reason, cause, ...extra }, null, 2)}\n`,
-  });
+  const refusal = (reason, cause, extra = {}) => {
+    if (!LAND_REFUSALS.includes(reason)) throw new Error(`unknown refusal code ${reason}`);
+    return {
+      code: 1,
+      out: `${JSON.stringify({ landed: false, branch, onto, refusal: reason, cause, ...extra }, null, 2)}\n`,
+    };
+  };
 
   const head = commitOf(repo, branch);
   if (head === null) return refusal("unknown-ref", `\`${branch}\` is not a branch or commit`);
