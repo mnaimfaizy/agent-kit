@@ -235,7 +235,11 @@ export const TRACKERS = /** @type {const} */ (["detect", "github", "gitlab"]);
 export const TRACKER_HOSTS = Object.freeze({ "github.com": "github", "gitlab.com": "gitlab" });
 export const TEAM_KEYS = /** @type {const} */ (["labels", "recent_activity"]);
 /** `records`' keys (CONFIG.md): the Run Record sink and whether close-out offers an upload. */
-export const RECORDS_KEYS = /** @type {const} */ (["repository", "upload", "sink"]);
+export const RECORDS_KEYS = /** @type {const} */ (["repository", "upload", "sink", "raw"]);
+/** `records.raw`'s keys: the one sink raw run folders go to, which can only be a bucket. */
+export const RAW_KEYS = /** @type {const} */ (["sink"]);
+export const RAW_SINK_TYPES = /** @type {const} */ (["s3"]);
+const RAW_SINK_ONLY = "`s3` only";
 export const RECORDS_UPLOADS = /** @type {const} */ (["offer", "never"]);
 /** The Run Record sink types this reader knows. */
 export const SINK_TYPES = /** @type {const} */ (["github", "gitlab", "s3"]);
@@ -817,6 +821,72 @@ const isCount = (v) =>
   (typeof v === "string" && /^[1-9]\d{0,8}$/.test(v));
 
 /**
+ * Check one sink mapping at `base` (`records.sink` or `records.raw.sink`).
+ * `types` are the types allowed there and `expected` is how a problem names them:
+ * the raw-folder sink is `s3` only, so a `github` one is a problem even though
+ * it is a sink type.
+ */
+function checkSink(sink, s, base, types, expected) {
+  if (!isMapping(s)) return sink.add(base, "expected a mapping");
+  unknownKeys(sink, s, base, SINK_KEYS);
+  if (!given(sink, s, "type", `${base}.type`))
+    sink.add(
+      `${base}.type`,
+      `missing: ${types === RAW_SINK_TYPES ? RAW_SINK_ONLY : `one of ${expected}`}`,
+    );
+  else if (!types.includes(s.type))
+    sink.add(
+      `${base}.type`,
+      types === RAW_SINK_TYPES
+        ? `\`${s.type}\` cannot hold raw run folders: ${RAW_SINK_ONLY}, because only a bucket can expire them`
+        : `unknown sink type \`${s.type}\`; expected one of: ${expected}`,
+    );
+  const secret = new Set(
+    Object.entries(s)
+      .filter(([, v]) => looksLikeSecret(v))
+      .map(([k]) => k),
+  );
+  for (const key of secret)
+    sink.add(
+      `${base}.${key}`,
+      "looks like a secret: credentials come only from ORCHESTRATE_S3_ACCESS_KEY_ID and ORCHESTRATE_S3_SECRET_ACCESS_KEY, never from the config. Remove it",
+    );
+  const here = (key) => given(sink, s, key, `${base}.${key}`) && !secret.has(key);
+  if (s.type === "s3") {
+    for (const key of GIT_SINK_KEYS)
+      if (here(key)) sink.add(`${base}.${key}`, "not used by an `s3` sink: delete it");
+    for (const key of S3_SINK_KEYS)
+      if (!given(sink, s, key, `${base}.${key}`))
+        sink.add(
+          `${base}.${key}`,
+          `missing: ${{ endpoint: "the store's https URL, such as `https://<account>.r2.cloudflarestorage.com`", bucket: "the bucket's name", region: "the bucket's region, such as `us-east-1` (`auto` for R2)" }[key]}`,
+        );
+    if (here("endpoint") && !validEndpoint(s.endpoint))
+      sink.add(
+        `${base}.endpoint`,
+        "expected an https URL with a host and nothing else: no password, path or query (http only for localhost)",
+      );
+    if (here("bucket") && !(typeof s.bucket === "string" && BUCKET.test(s.bucket)))
+      sink.add(
+        `${base}.bucket`,
+        "expected a bucket name: 3 to 63 lowercase letters, digits, dots or hyphens",
+      );
+    if (here("region") && !(typeof s.region === "string" && REGION.test(s.region)))
+      sink.add(`${base}.region`, "expected a region, such as `us-east-1` or `auto`");
+    return;
+  }
+  if (types === RAW_SINK_TYPES) return;
+  for (const key of S3_SINK_KEYS)
+    if (here(key)) sink.add(`${base}.${key}`, "only an `s3` sink uses this: delete it");
+  if (!given(sink, s, "repo", `${base}.repo`))
+    sink.add(`${base}.repo`, "missing: the private repository, `owner/name` or `host/owner/name`");
+  else if (!secret.has("repo") && !plainRepo(SINK_REPO, s.repo))
+    sink.add(`${base}.repo`, "expected `owner/name` or `host/owner/name`");
+  if (here("branch") && !validBranch(s.branch))
+    sink.add(`${base}.branch`, "expected a valid git branch name");
+}
+
+/**
  * The checker for each top-level key, in CONFIG.md's order. A mode that needs
  * keys of its own adds its section here.
  *
@@ -1043,62 +1113,13 @@ export const SECTIONS = {
       );
     if (given(sink, value, "upload", "records.upload") && !RECORDS_UPLOADS.includes(value.upload))
       sink.add("records.upload", `expected one of: ${RECORDS_UPLOADS.join(", ")}`);
-    if (!given(sink, value, "sink", "records.sink")) return;
-    const s = value.sink;
-    if (!isMapping(s)) return sink.add("records.sink", "expected a mapping");
-    unknownKeys(sink, s, "records.sink", SINK_KEYS);
-    if (!given(sink, s, "type", "records.sink.type"))
-      sink.add("records.sink.type", `missing: one of ${SINK_TYPES.join(", ")}`);
-    else if (!SINK_TYPES.includes(s.type))
-      sink.add(
-        "records.sink.type",
-        `unknown sink type \`${s.type}\`; expected one of: ${SINK_TYPES.join(", ")}`,
-      );
-    const secret = new Set(
-      Object.entries(s)
-        .filter(([, v]) => looksLikeSecret(v))
-        .map(([k]) => k),
-    );
-    for (const key of secret)
-      sink.add(
-        `records.sink.${key}`,
-        "looks like a secret: credentials come only from ORCHESTRATE_S3_ACCESS_KEY_ID and ORCHESTRATE_S3_SECRET_ACCESS_KEY, never from the config. Remove it",
-      );
-    const here = (key) => given(sink, s, key, `records.sink.${key}`) && !secret.has(key);
-    if (s.type === "s3") {
-      for (const key of GIT_SINK_KEYS)
-        if (here(key)) sink.add(`records.sink.${key}`, "not used by an `s3` sink: delete it");
-      for (const key of S3_SINK_KEYS)
-        if (!given(sink, s, key, `records.sink.${key}`))
-          sink.add(
-            `records.sink.${key}`,
-            `missing: ${{ endpoint: "the store's https URL, such as `https://<account>.r2.cloudflarestorage.com`", bucket: "the bucket's name", region: "the bucket's region, such as `us-east-1` (`auto` for R2)" }[key]}`,
-          );
-      if (here("endpoint") && !validEndpoint(s.endpoint))
-        sink.add(
-          "records.sink.endpoint",
-          "expected an https URL with a host and nothing else: no password, path or query (http only for localhost)",
-        );
-      if (here("bucket") && !(typeof s.bucket === "string" && BUCKET.test(s.bucket)))
-        sink.add(
-          "records.sink.bucket",
-          "expected a bucket name: 3 to 63 lowercase letters, digits, dots or hyphens",
-        );
-      if (here("region") && !(typeof s.region === "string" && REGION.test(s.region)))
-        sink.add("records.sink.region", "expected a region, such as `us-east-1` or `auto`");
-      return;
-    }
-    for (const key of S3_SINK_KEYS)
-      if (here(key)) sink.add(`records.sink.${key}`, "only an `s3` sink uses this: delete it");
-    if (!given(sink, s, "repo", "records.sink.repo"))
-      sink.add(
-        "records.sink.repo",
-        "missing: the private repository, `owner/name` or `host/owner/name`",
-      );
-    else if (!secret.has("repo") && !plainRepo(SINK_REPO, s.repo))
-      sink.add("records.sink.repo", "expected `owner/name` or `host/owner/name`");
-    if (here("branch") && !validBranch(s.branch))
-      sink.add("records.sink.branch", "expected a valid git branch name");
+    if (given(sink, value, "sink", "records.sink"))
+      checkSink(sink, value.sink, "records.sink", SINK_TYPES, SINK_TYPES.join(", "));
+    if (!given(sink, value, "raw", "records.raw")) return;
+    if (!isMapping(value.raw)) return sink.add("records.raw", "expected a mapping");
+    unknownKeys(sink, value.raw, "records.raw", RAW_KEYS);
+    if (given(sink, value.raw, "sink", "records.raw.sink"))
+      checkSink(sink, value.raw.sink, "records.raw.sink", RAW_SINK_TYPES, RAW_SINK_ONLY);
   },
   prune(sink, value) {
     if (!isMapping(value)) return sink.add("prune", "expected a mapping");
@@ -1350,6 +1371,17 @@ export function effectiveConfig(config) {
               branch: sinkValue.branch ?? null,
             }
         : null,
+      raw: {
+        sink:
+          isMapping(records.raw) && isMapping(records.raw.sink) && records.raw.sink.type === "s3"
+            ? {
+                type: "s3",
+                endpoint: records.raw.sink.endpoint ?? null,
+                bucket: records.raw.sink.bucket ?? null,
+                region: records.raw.sink.region ?? null,
+              }
+            : null,
+      },
     },
     prune: {
       after_days: prune.after_days === undefined ? null : Number(prune.after_days),

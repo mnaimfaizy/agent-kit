@@ -170,7 +170,7 @@ test("each key's default, with an empty config", () => {
     ready_to_merge: { review: "settled", qa: "none", qa_labels: [], review_workflow: "detect" },
     spec: { landing: "ask", integration_branch: "orchestrate/spec-<n>" },
     tracker: "detect",
-    records: { repository: null, upload: "offer", sink: null },
+    records: { repository: null, upload: "offer", sink: null, raw: { sink: null } },
     prune: { after_days: null },
     team: {
       labels: {
@@ -1890,8 +1890,9 @@ test("a `records` section reads the same in YAML and JSON, with its defaults", (
   );
   const fromJson = json(JSON.stringify({ records: want }));
   assert.deepEqual([fromYaml.problems, fromJson.problems], [[], []]);
-  assert.deepEqual(effectiveConfig(fromYaml.config).records, want);
-  assert.deepEqual(effectiveConfig(fromJson.config).records, want);
+  const wantRead = { ...want, raw: { sink: null } };
+  assert.deepEqual(effectiveConfig(fromYaml.config).records, wantRead);
+  assert.deepEqual(effectiveConfig(fromJson.config).records, wantRead);
   // A sink with only its required keys: the offer is on, and the branch is the repository's default.
   const bare = yaml("records:", "  sink:", "    type: github", "    repo: acme/run-records");
   assert.deepEqual(bare.problems, []);
@@ -1899,11 +1900,13 @@ test("a `records` section reads the same in YAML and JSON, with its defaults", (
     repository: null,
     upload: "offer",
     sink: { type: "github", repo: "acme/run-records", branch: null },
+    raw: { sink: null },
   });
   assert.deepEqual(effectiveConfig(yaml("records: {}").config).records, {
     repository: null,
     upload: "offer",
     sink: null,
+    raw: { sink: null },
   });
 });
 
@@ -2101,6 +2104,7 @@ test("CONFIG.md's `records` example reads with no problems", () => {
     repository: "github.com/acme/widgets",
     upload: "offer",
     sink: { type: "github", repo: "acme/run-records", branch: "main" },
+    raw: { sink: null },
   });
 });
 
@@ -2145,4 +2149,76 @@ test("CONFIG.md's `prune` example reads with no problems", () => {
   const read = parseConfig("orchestrate.config.yml", block);
   assert.deepEqual(read.problems, []);
   assert.deepEqual(effectiveConfig(read.config).prune, { after_days: 90 });
+});
+
+// ── Run Records: `records.raw` ──────────────────────────────────────────────
+
+const RAW_SINK = {
+  type: "s3",
+  endpoint: "https://acct.r2.cloudflarestorage.com",
+  bucket: "acme-run-records",
+  region: "auto",
+};
+
+test("`records.raw.sink` reads the same in YAML and JSON; unset means raw folders are never offered", () => {
+  const fromYaml = yaml(
+    "records:",
+    "  raw:",
+    "    sink:",
+    "      type: s3",
+    "      endpoint: https://acct.r2.cloudflarestorage.com",
+    "      bucket: acme-run-records",
+    "      region: auto",
+  );
+  const fromJson = json(JSON.stringify({ records: { raw: { sink: RAW_SINK } } }));
+  assert.deepEqual([fromYaml.problems, fromJson.problems], [[], []]);
+  assert.deepEqual(effectiveConfig(fromYaml.config).records.raw, { sink: RAW_SINK });
+  assert.deepEqual(effectiveConfig(fromJson.config).records.raw, { sink: RAW_SINK });
+  // Independent of the Run Record sink.
+  assert.equal(effectiveConfig(fromYaml.config).records.sink, null);
+  assert.deepEqual(effectiveConfig(yaml("records: {}").config).records.raw, { sink: null });
+  assert.deepEqual(effectiveConfig(yaml("run_dir: x").config).records.raw, { sink: null });
+});
+
+test("`records.raw.sink` problems: only `s3`, with its required fields, and no secret", () => {
+  const problems = (raw) => json(JSON.stringify({ records: { raw } })).problems.join("\n");
+  for (const type of ["github", "gitlab", "local", "azure"])
+    assert.match(
+      problems({ sink: { type, repo: "acme/runs" } }),
+      new RegExp(
+        `\`records\\.raw\\.sink\\.type\`: \`${type}\` cannot hold raw run folders: \`s3\` only`,
+      ),
+    );
+  assert.match(
+    problems({ sink: { endpoint: RAW_SINK.endpoint } }),
+    /`records\.raw\.sink\.type`: missing: `s3` only/,
+  );
+  for (const key of ["endpoint", "bucket", "region"]) {
+    const { [key]: _, ...rest } = RAW_SINK;
+    assert.match(
+      problems({ sink: rest }),
+      new RegExp(`\`records\\.raw\\.sink\\.${key}\`: missing`),
+    );
+  }
+  assert.match(
+    problems({ sink: { ...RAW_SINK, endpoint: "http://example.com" } }),
+    /`records\.raw\.sink\.endpoint`: expected an https URL/,
+  );
+  assert.match(
+    problems({ sink: { ...RAW_SINK, repo: "a/b" } }),
+    /`records\.raw\.sink\.repo`: not used by an `s3` sink/,
+  );
+  assert.match(
+    problems({ sink: { ...RAW_SINK, region: "AKIAIOSFODNN7EXAMPLE" } }),
+    /`records\.raw\.sink\.region`: looks like a secret/,
+  );
+  assert.match(problems({ sink: "s3" }), /`records\.raw\.sink`: expected a mapping/);
+  assert.match(problems("s3"), /`records\.raw`: expected a mapping/);
+  assert.match(problems({ bucket: "x" }), /`records\.raw\.bucket`: unknown key/);
+  assert.match(problems({ sink: null }), /`records\.raw\.sink`: no value/);
+});
+
+test("`records.raw` problems name their lines in YAML", () => {
+  const found = yaml("records:", "  raw:", "    sink:", "      type: github").problems.join("\n");
+  assert.match(found, /^line 4: `records\.raw\.sink\.type`: `github` cannot hold raw run folders/);
 });
