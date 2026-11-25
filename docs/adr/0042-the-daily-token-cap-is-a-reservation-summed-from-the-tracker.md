@@ -4,7 +4,7 @@ status: proposed
 
 # The Factory's daily token cap is a reservation summed from the tracker
 
-The Factory limits spend per repository per UTC day in **tokens**, never money ([ADR 0036](0036-a-stage-records-counts-come-from-what-the-kit-runs.md)). The Dispatcher does not read Run Records from the Sink. Instead, each Stage's trusted step writes the run's token total, as the model proxy counted it, into the Claim's release comment. Each sweep adds up the release comments posted since 00:00 UTC. It then **reserves** the per-run `max_tokens` of every Stage still running. A Stage starts only if spent + reserved + that Stage's own cap ≤ the daily cap. The cap therefore holds at all times, not just on average.
+The Factory limits spend per repository per UTC day in **tokens**, never money ([ADR 0036](0036-a-stages-run-record-counts-only-what-the-kit-runs.md)). The Dispatcher does not read Run Records from the Sink. Instead, each Stage's trusted step writes the run's token total, as the model proxy counted it, into the Claim's release comment. Each sweep adds up the release comments posted since 00:00 UTC. It then **reserves** the per-run `max_tokens` of every Stage still running. A Stage starts only if spent + reserved + that Stage's own cap ≤ the daily cap. The cap therefore holds at all times, not just on average.
 
 Decided in [Kill switch, budgets and spend cap](https://github.com/mnaimfaizy/agent-kit/issues/493), on the map [Wayfinder: Agentic Software Factory](https://github.com/mnaimfaizy/agent-kit/issues/480).
 

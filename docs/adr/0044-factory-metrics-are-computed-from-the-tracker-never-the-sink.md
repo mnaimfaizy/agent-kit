@@ -10,7 +10,7 @@ Decided in [Factory metrics in v1: which, from which source, shown where](https:
 
 - **Counted over** Factory tasks that reached a terminal state (merged, withdrawn, or closed unmerged) inside the window. A restart counts as the same task. Each metric is shown by Risk tier. Revert rate and lead time are also shown by merge path (person or gate).
 - **Tokens** are the sum of the release-comment totals for every Stage run of the task, failed Attempts included. As in [ADR 0042](0042-the-daily-token-cap-is-a-reservation-summed-from-the-tracker.md), a missing or edited total counts at its full cap, and the report shows how many such totals it counted.
-- **A revert** is a revert of a merged Factory PR, or a `regression` issue linking one, within 7 days: the same trigger that trips the gate ([ADR 0041](0041-auto-merge-exists-only-in-the-factory-behind-its-merge-gate.md)).
+- **A revert** is a revert of a merged Factory PR, or a `regression` issue linking one, within 7 days. This is wider than the gate's trip ([ADR 0041](0041-auto-merge-exists-only-in-the-factory-behind-its-merge-gate.md)), which only an auto-merged pull request sets off: the revert rate counts every merged Factory PR, so it can be shown by merge path.
 
 ## Considered Options
 

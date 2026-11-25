@@ -37,7 +37,7 @@ The First-class flow plan → implement → review, behind one master Kill switc
 _Avoid_: pipeline, agent pipeline
 
 **Stage**:
-One agent run of a First-class flow with its own harness, model, effort and Kill switch: plan, implement, review, review response, or security audit.
+One agent run with its own harness, model, effort and Kill switch: in a First-class flow, plan, implement, review, review response or security audit; in the Factory, plan, build, review, QA or security.
 _Avoid_: step, phase, pipeline
 
 **Launcher**:
@@ -396,7 +396,7 @@ The deterministic loop inside a Factory engine that claims, locks, retries and c
 _Avoid_: orchestrator, scheduler, Chief of Staff
 
 **Factory state**:
-The one `factory:*` label a Factory task's issue carries at a time, naming where the task stands: queued, planning, planned, building, reviewing, checking, ready to merge, merged, or needs decision.
+The one `factory:*` state label a Factory task's issue carries at a time (the `factory:paused` modifier may sit beside it, and is not a state), naming where the task stands: queued, planning, planned, building, reviewing, checking, ready to merge, merged, or needs decision.
 _Avoid_: status, stage (a Stage is a run, not a state)
 
 **Human move**:
@@ -404,7 +404,7 @@ One of the few Factory state changes a person with write access may make by hand
 _Avoid_: override, manual transition
 
 **Claim**:
-A Dispatcher's hold on a Factory task while an agent works on it: a lock comment naming the engine, Stage, Attempt and expiry, read back after writing, plus an assignee where the engine runs as a person; never a state of its own.
+A Dispatcher's hold on a Factory task while an agent works on it (not a wayfinder session claiming a ticket by assignee): a lock comment naming the engine, Stage, Attempt and expiry, read back after writing, plus an assignee where the engine runs as a person; never a state of its own.
 _Avoid_: lock state, reservation
 
 **Attempt**:
@@ -432,7 +432,7 @@ The paths a Factory task's build may change, named in its Plan header; on the Or
 _Avoid_: touch list, file list
 
 **Stage check**:
-The `pass` or `fail` one Stage (review, QA or security) records on one head commit of a Factory task's pull request, written by a trusted step and read by the merge gate; a new head starts with none.
+The commit status (`pending`, `success`, `failure` or `error`) one Stage (review, QA or security) records on one head commit of a Factory task's pull request, written by a trusted step and read by the merge gate; a new head starts with none.
 _Avoid_: verdict (a Verdict answers one review thread), gate result, approval
 
 **Snapshot**:

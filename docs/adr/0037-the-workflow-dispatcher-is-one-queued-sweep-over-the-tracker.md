@@ -10,7 +10,7 @@ Decided in [The Dispatcher on the Workflow engine](https://github.com/mnaimfaizy
 
 - **Wakes.** `issues` (labeled, unlabeled, closed), `pull_request: closed`, a `workflow_dispatch` from every Stage's last job, and a `schedule` every 15 minutes that catches expired Claims and dropped events. Not `workflow_run`.
 - **Starts a Stage** with `workflow_dispatch` on that Stage's Caller, passing the issue, Attempt and a Claim nonce that the Caller puts in its `run-name`.
-- **Token.** `GITHUB_TOKEN` only (`issues`, `pull-requests` and `actions` write, `contents` read). Its writes start no workflow, so it cannot wake itself. It checks the sender's permission before acting on a human event.
+- **Token.** `GITHUB_TOKEN` only (`issues`, `pull-requests` and `actions` write, `contents` read). Its label and comment writes start no workflow; only its explicit `workflow_dispatch` calls do, and it never dispatches itself. It checks the sender's permission before acting on a human event.
 - **One App token, in one job.** Only the build Stage's publish job turns a Consumer-owned GitHub App's key into a short-lived token, to push and open the pull request, so the Consumer's CI runs on it without approval. Every other job, the Stage checks' writers included, keeps `GITHUB_TOKEN`.
 - **Claim** is the lock comment alone, read back after writing; this engine sets no assignee.
 
