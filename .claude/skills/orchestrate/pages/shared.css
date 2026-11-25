@@ -618,6 +618,9 @@ table[data-table="people"] td > div {
 .card.run-wait {
   border-style: dashed;
 }
+.banner[hidden] {
+  display: none;
+}
 .needs {
   border: 1px solid var(--warn-ink);
   background: var(--warn-bg);

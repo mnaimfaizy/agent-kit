@@ -883,7 +883,9 @@ function allPage(entries, context, repositories, kit) {
   const where = context.sink
     ? context.sink.read
       ? `from this machine and from ${code(context.sink.name)}`
-      : `from this machine (${code(context.sink.name)} could not be read)`
+      : context.sink.cached
+        ? `from this machine, with the records of ${code(context.sink.name)} an earlier build cached (the server reads no sink)`
+        : `from this machine (${code(context.sink.name)} could not be read)`
     : "from this machine";
   return page(
     "/",

@@ -9,7 +9,7 @@
  */
 
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import {
   appendFileSync,
   cpSync,
@@ -25,7 +25,8 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { after, describe, it } from "node:test";
+import { after, afterEach, describe, it } from "node:test";
+import { request } from "node:http";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import {
@@ -4734,5 +4735,338 @@ describe("board: links, and what never leaves the folder", () => {
       calls.filter(([c]) => c !== "git"),
       [],
     );
+  });
+});
+
+// --- serve: the optional 127.0.0.1 server for the live run board (#434).
+
+/** Start `serve` through `main` on an ephemeral port. `stop()` aborts it and returns main's result. */
+async function serving(dir, args = [], io = {}) {
+  const controller = new AbortController();
+  let listening;
+  const ready = new Promise((resolve) => (listening = resolve));
+  const done = main(["serve", `tmp/orchestrate/${RUN}`, ...args], {
+    cwd: dir,
+    now: at("2026-11-19T03:30:00Z"),
+    env: {},
+    pollMs: 20,
+    signal: controller.signal,
+    listening,
+    ...io,
+  });
+  const info = await Promise.race([
+    ready,
+    done.then((r) => assert.fail(`serve ended before listening: ${r.out}`)),
+  ]);
+  const stop = () => (controller.abort(), done);
+  stops.push(stop);
+  return { ...info, stop };
+}
+const stops = [];
+afterEach(() => Promise.all(stops.splice(0).map((stop) => stop())));
+
+/** Connect to the server's event stream. `next(event)` waits for the next message of that name. */
+async function listen(url, query = "") {
+  const controller = new AbortController();
+  const response = await fetch(new URL(`events${query}`, url), { signal: controller.signal });
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get("content-type"), /^text\/event-stream/);
+  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+  stops.push(async () => controller.abort());
+  const queue = [];
+  let buffer = "";
+  return async function next(name) {
+    const deadline = Date.now() + 5000;
+    for (;;) {
+      const found = queue.findIndex((m) => m.event === name);
+      if (found >= 0) return queue.splice(found, 1)[0].data;
+      const timer = setTimeout(() => controller.abort(), Math.max(0, deadline - Date.now()));
+      const { value, done } = await reader.read().finally(() => clearTimeout(timer));
+      assert.ok(!done, `the stream ended while waiting for ${name}`);
+      buffer += value;
+      let cut;
+      while ((cut = buffer.indexOf("\n\n")) >= 0) {
+        const lines = buffer.slice(0, cut).split("\n");
+        buffer = buffer.slice(cut + 2);
+        const event = lines.find((l) => l.startsWith("event: "))?.slice(7);
+        const data = lines.find((l) => l.startsWith("data: "))?.slice(6);
+        if (event) queue.push({ event, data: JSON.parse(data) });
+      }
+    }
+  };
+}
+
+const delegationEvents = (dir, id) => join(runFolder(dir), "delegations", id, "events.jsonl");
+const line = (event) => `${JSON.stringify(event)}\n`;
+const SEND_BACK = {
+  at: "2026-11-19T03:31:00Z",
+  kind: "send-back",
+  actor: "chief-of-staff",
+  delegation: "d350",
+};
+
+describe("serve: bound to 127.0.0.1, pushing Run Events", () => {
+  it("listens on 127.0.0.1 only, on the port it reports, and stops when told", async () => {
+    const dir = replayed("2026-11-19T03:30:00Z");
+    const server = await serving(dir);
+    assert.equal(server.address, "127.0.0.1");
+    assert.equal(server.url, `http://127.0.0.1:${server.port}/`);
+    assert.equal((await fetch(server.url)).status, 200);
+    await assert.rejects(fetch(`http://[::1]:${server.port}/`));
+    const result = await server.stop();
+    assert.equal(result.code, 0, result.out);
+    await assert.rejects(fetch(server.url));
+  });
+
+  it("pushes an event appended to the Chief of Staff's events file to a connected client", async () => {
+    const dir = replayed("2026-11-19T03:30:00Z");
+    const server = await serving(dir);
+    const next = await listen(server.url);
+    const event = {
+      at: "2026-11-19T03:31:00Z",
+      kind: "pull-request",
+      actor: "chief-of-staff",
+      pr: 9,
+    };
+    appendFileSync(join(runFolder(dir), "events.jsonl"), line(event));
+    assert.deepEqual(await next("run-event"), event);
+  });
+
+  it("pushes a Delegation's own step, from a file that existed and from one made after the start", async () => {
+    const dir = replayed("2026-11-19T03:30:00Z");
+    const server = await serving(dir);
+    const next = await listen(server.url);
+    appendFileSync(delegationEvents(dir, "d350"), line(SEND_BACK));
+    assert.deepEqual(await next("run-event"), SEND_BACK);
+    mkdirSync(join(runFolder(dir), "delegations", "d999"), { recursive: true });
+    const late = { ...SEND_BACK, delegation: "d999" };
+    writeFileSync(delegationEvents(dir, "d999"), line(late));
+    assert.deepEqual(await next("run-event"), late);
+  });
+
+  it("pushes nothing that was there at the start, nothing half written and nothing that fails the check", async () => {
+    const dir = replayed("2026-11-19T03:30:00Z");
+    const server = await serving(dir);
+    const next = await listen(server.url);
+    const text = line(SEND_BACK);
+    appendFileSync(delegationEvents(dir, "d350"), `{"kind":"nonsense"}\n${text.slice(0, 20)}`);
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    appendFileSync(delegationEvents(dir, "d350"), text.slice(20));
+    assert.deepEqual(await next("run-event"), SEND_BACK);
+  });
+
+  it("replays to a page that connects late what was appended since the page was built", async () => {
+    const dir = replayed("2026-11-19T03:30:00Z");
+    const server = await serving(dir);
+    const html = await (await fetch(server.url)).text();
+    const { session, seq } = JSON.parse(html.match(/id="board-live">([\s\S]*?)<\/script>/)[1]);
+    appendFileSync(delegationEvents(dir, "d350"), line(SEND_BACK));
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    const next = await listen(server.url, `?session=${session}&after=${seq}`);
+    assert.deepEqual(await next("run-event"), SEND_BACK);
+    const stale = await listen(server.url, "?session=other&after=0");
+    assert.deepEqual(await stale("reload"), {});
+  });
+
+  it("answers only GET and HEAD, only for its own address, and gives no other origin the board", async () => {
+    const server = await serving(replayed("2026-11-19T03:30:00Z"));
+    const asked = (headers, method = "GET", path = "/") =>
+      new Promise((resolve, reject) =>
+        request({ host: "127.0.0.1", port: server.port, path, method, headers }, (res) => {
+          res.resume();
+          resolve(res);
+        })
+          .on("error", reject)
+          .end(),
+      );
+    assert.equal((await asked({ host: "evil.example" })).statusCode, 403);
+    assert.equal((await asked({ host: `localhost:${server.port}` })).statusCode, 200);
+    assert.equal((await asked({}, "POST")).statusCode, 405);
+    assert.equal((await asked({}, "GET", "/events.jsonl")).statusCode, 404);
+    const page = await asked({ origin: "https://evil.example" });
+    assert.equal(page.headers["access-control-allow-origin"], undefined);
+    assert.equal(page.headers["cache-control"], "no-store");
+  });
+
+  it("refuses a missing folder, a bad flag, a bad port and a port in use", async () => {
+    const dir = replayed("2026-11-19T03:30:00Z");
+    const run = (args) => main(["serve", ...args], { cwd: dir, env: {} });
+    assert.equal((await run([])).code, 2);
+    assert.equal((await run(["nowhere"])).code, 2);
+    const folder = `tmp/orchestrate/${RUN}`;
+    assert.equal((await run([folder, "--host", "0.0.0.0"])).code, 2);
+    assert.equal((await run([folder, "--port", "70000"])).code, 2);
+    const first = await serving(dir);
+    const second = await run([folder, "--port", String(first.port)]);
+    assert.equal(second.code, 1);
+    assert.match(second.out, /port \d+ is already in use/);
+  });
+
+  it("runs as a script, printing its address and stopping on SIGINT", async () => {
+    const dir = replayed("2026-11-19T03:30:00Z");
+    const child = spawn(
+      process.execPath,
+      [join(here, "records.mjs"), "serve", `tmp/orchestrate/${RUN}`],
+      { cwd: dir },
+    );
+    let out = "";
+    const exited = new Promise((resolve) => child.on("exit", resolve));
+    stops.push(async () => child.kill("SIGKILL"));
+    await new Promise((resolve, reject) => {
+      child.on("exit", () => reject(new Error(`ended before listening: ${out}`)));
+      child.stdout.on("data", (chunk) => {
+        out += chunk;
+        if (/http:\/\/127\.0\.0\.1:\d+\/\n/.test(out)) resolve();
+      });
+    });
+    const url = out.match(/http:\/\/127\.0\.0\.1:\d+\//)[0];
+    assert.equal((await fetch(url)).status, 200);
+    child.kill("SIGINT");
+    assert.equal(await exited, 0);
+    assert.match(out, /stopped serving/);
+  });
+});
+
+describe("serve: the served board, and the file board without it", () => {
+  const dataOf = (html, id) =>
+    JSON.parse(html.match(new RegExp(`id="${id}">([\\s\\S]*?)</script>`))[1]);
+
+  it("serves the board of the run as it now is", async () => {
+    const dir = replayed("2026-11-19T03:35:00Z");
+    const server = await serving(dir);
+    const before = await (await fetch(server.url)).text();
+    assert.equal(columns(before).d350, "Running");
+    appendFileSync(
+      delegationEvents(dir, "d350"),
+      line({
+        at: "2026-11-19T03:36:00Z",
+        kind: "wait-opened",
+        actor: "delegation",
+        wait_id: "w-new",
+        delegation: "d350",
+        step_kind: "decision-request",
+        cause: "spec-gap",
+        how: "chat",
+      }),
+    );
+    const after = await (await fetch(server.url)).text();
+    assert.equal(columns(after).d350, "Needs you");
+  });
+
+  it("may raise browser notifications for new waits, only after the human asks for them", async () => {
+    const server = await serving(replayed("2026-11-19T03:05:00Z"));
+    const html = await (await fetch(server.url)).text();
+    assert.match(html, /<button[^>]+id="notify"[^>]*hidden[^>]*>Notify me of new waits<\/button>/);
+    assert.match(html, /Notification\.requestPermission\(\)/);
+    assert.ok(Array.isArray(dataOf(html, "board-data").waits));
+  });
+
+  it("when the server stops, stops reloading and points at board.html, which a browser cannot open itself", async () => {
+    const dir = replayed("2026-11-19T03:05:00Z");
+    const server = await serving(dir);
+    const html = await (await fetch(server.url)).text();
+    const file = pathToFileURL(boardAt(dir)).href;
+    assert.match(html, /new EventSource\(/);
+    assert.match(
+      html,
+      /<div class="banner server-stopped" role="alert" hidden>The server stopped, so this page no longer updates\./,
+    );
+    assert.ok(html.includes(`<code id="file-board">${file}</code>`));
+    assert.doesNotMatch(html, /setTimeout\(reload, data\.reloadSeconds/);
+  });
+
+  it("writes board.html at the start only when the run has none", async () => {
+    const dir = replayed("2026-11-19T03:05:00Z");
+    await serving(dir);
+    assert.ok(existsSync(boardAt(dir)));
+    const kept = replayed("2026-11-19T03:05:00Z");
+    writeFileSync(boardAt(kept), "the Chief of Staff's\n");
+    await serving(kept);
+    assert.equal(readFileSync(boardAt(kept), "utf8"), "the Chief of Staff's\n");
+  });
+
+  it("leaves a file board that needs no server: it reloads itself and connects to nothing", async () => {
+    const dir = replayed("2026-11-19T03:05:00Z");
+    const server = await serving(dir);
+    await server.stop();
+    const { result, html } = await board(dir, [], { until: "2026-11-19T03:05:00Z" });
+    assert.equal(result.code, 0, result.out);
+    assert.match(html, /setTimeout\(reload, data\.reloadSeconds \* 1000\)/);
+    assert.doesNotMatch(
+      html,
+      /EventSource|Notification|127\.0\.0\.1|id="board-live"|server-stopped" role/,
+    );
+  });
+
+  it("says what is wrong with a bad events file, and tries again", async () => {
+    const dir = replayed("2026-11-19T03:05:00Z");
+    const server = await serving(dir);
+    appendFileSync(join(runFolder(dir), "events.jsonl"), '{"at":"x"}\n');
+    const response = await fetch(server.url);
+    assert.equal(response.status, 500);
+    const text = await response.text();
+    assert.match(text, /<meta http-equiv="refresh" content="5">/);
+    assert.match(text, /events\.jsonl:\d+/);
+  });
+
+  it("redacts the Activity Logs it serves, and links a closed run to /dashboard", async () => {
+    const dir = replayed("2026-11-19T06:30:00Z");
+    writeFileSync(join(runFolder(dir), "activity.md"), `pushed with ${SECRET}\n`);
+    const server = await serving(dir, [], { env: { GH_TOKEN: SECRET } });
+    const html = await (await fetch(server.url)).text();
+    assert.ok(!html.includes(SECRET));
+    assert.match(html, /<a href="\/dashboard#\/run\/2026-11-19-spec-344\/summary">/);
+  });
+});
+
+describe("serve: /dashboard", () => {
+  it("returns the dashboard built from the local records, rebuilt on each request", async () => {
+    const dir = replayed("2026-11-19T06:30:00Z");
+    const server = await serving(dir);
+    const none = await fetch(new URL("dashboard", server.url));
+    assert.equal(none.status, 404);
+    assert.match(await none.text(), /no Run Records/);
+    await derived(dir);
+    const first = await fetch(new URL("dashboard", server.url));
+    assert.equal(first.status, 200);
+    assert.match(first.headers.get("content-type"), /^text\/html/);
+    const html = await first.text();
+    assert.ok(html.includes(`id="/run/${RUN}/summary"`));
+    assert.doesNotMatch(html, /don&#39;t share this file/);
+    const record = JSON.parse(readFileSync(recordPath(dir), "utf8"));
+    record.run.id = "2026-11-20-later";
+    writeFileSync(
+      join(dir, "tmp", "orchestrate", "records", "2026-11-20-later.json"),
+      JSON.stringify(record),
+    );
+    const second = await (await fetch(new URL("dashboard", server.url))).text();
+    assert.ok(second.includes('id="/run/2026-11-20-later/summary"'));
+    assert.ok(!existsSync(join(dir, "tmp", "orchestrate", "dashboard.html")), "writes no file");
+  });
+
+  it("reads no sink and no tracker: it shows the records an earlier build cached, and says so", async () => {
+    const { dir, transport } = await readyToRead();
+    await build(dir, transport);
+    const built = page(dir);
+    const calls = [];
+    const server = await serving(dir, [], {
+      exec: (command, args) => {
+        calls.push([command, ...args]);
+        return command === "git" ? transport.exec(command, args) : { code: 1, out: "", err: "" };
+      },
+      fetch: () => assert.fail("the server never reads a sink"),
+    });
+    const html = await (await fetch(new URL("dashboard", server.url))).text();
+    assert.deepEqual(
+      calls.filter(([c]) => c !== "git"),
+      [],
+    );
+    for (const ns of [NS_A, NS_B]) {
+      assert.ok(built.includes(`id="/repo/${ns}"`));
+      assert.ok(html.includes(`id="/repo/${ns}"`), ns);
+    }
+    assert.match(html, /the server reads no sink/);
+    assert.doesNotMatch(html, /could not be read/);
+    assert.equal(readFileSync(join(dir, "tmp", "orchestrate", "dashboard.html"), "utf8"), built);
   });
 });

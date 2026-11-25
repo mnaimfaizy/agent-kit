@@ -11,11 +11,13 @@
  *   node records.mjs prune [--declined]
  *   node records.mjs dashboard [--local-logs]
  *   node records.mjs board <run-folder> [--heartbeat <minutes|none>]
+ *   node records.mjs serve <run-folder> [--port <n>] [--heartbeat <minutes|none>]
  *
  * `main(argv, io)` is the one seam. `io` injects the clock (`now`), the files
  * root (`cwd`, which relative paths resolve against), the environment (`env`)
  * and a transport (`exec`: tracker CLI and git calls, `(command, args) =>
  * {code, out}`), so a test never touches the network or the real clock.
+ * `serve` runs until `io.signal` aborts, and tells `io.listening` its address.
  *
  * A Run Record holds only counts, ids, SHAs, issue and pull request numbers,
  * times, durations, enum values and outcomes. Every value is checked against
@@ -24,7 +26,7 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { createHash, createHmac } from "node:crypto";
+import { createHash, createHmac, randomUUID } from "node:crypto";
 import {
   appendFileSync,
   existsSync,
@@ -37,6 +39,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { createServer } from "node:http";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -477,7 +480,9 @@ const PRUNE_USAGE = "usage: node records.mjs prune [--declined]\n";
 const DASHBOARD_USAGE =
   "usage: node records.mjs dashboard [--repo <host/owner/repo>] [--local-logs]\n";
 const BOARD_USAGE = "usage: node records.mjs board <run-folder> [--heartbeat <minutes|none>]\n";
-const USAGE = `${EVENT_USAGE}${DERIVE_USAGE}${UPLOAD_USAGE}${UPLOAD_RAW_USAGE}${PRUNE_USAGE}${DASHBOARD_USAGE}${BOARD_USAGE}`;
+const SERVE_USAGE =
+  "usage: node records.mjs serve <run-folder> [--port <n>] [--heartbeat <minutes|none>]\n";
+const USAGE = `${EVENT_USAGE}${DERIVE_USAGE}${UPLOAD_USAGE}${UPLOAD_RAW_USAGE}${PRUNE_USAGE}${DASHBOARD_USAGE}${BOARD_USAGE}${SERVE_USAGE}`;
 
 function appendEvent(args, io) {
   const given = pairs(args);
@@ -519,8 +524,8 @@ function appendEvent(args, io) {
 
 const seconds = (from, to) => Math.max(0, Math.round((Date.parse(to) - Date.parse(from)) / 1000));
 
-/** The events of a run folder: the Chief of Staff's, then each Delegation's, each checked. */
-function readEvents(runFolder) {
+/** The events files of a run folder: the Chief of Staff's, then each Delegation's. */
+function eventFiles(runFolder) {
   const files = [];
   const own = join(runFolder, "events.jsonl");
   if (existsSync(own)) files.push(own);
@@ -530,6 +535,12 @@ function readEvents(runFolder) {
       const path = join(delegations, name, "events.jsonl");
       if (existsSync(path)) files.push(path);
     }
+  return files;
+}
+
+/** The events of a run folder: the Chief of Staff's, then each Delegation's, each checked. */
+function readEvents(runFolder) {
+  const files = eventFiles(runFolder);
   const events = [];
   const problems = [];
   for (const file of files) {
@@ -2046,16 +2057,34 @@ async function readSink(sinkConfig, { cache, exec, env, fetch, now, current }) {
   return out;
 }
 
-async function dashboard(args, io) {
-  let localLogs = false;
-  let only = null;
-  for (let n = 0; n < args.length; n += 1) {
-    if (args[n] === "--local-logs" && !localLogs) localLogs = true;
-    else if (args[n] === "--repo" && only === null && args[n + 1] && !args[n + 1].startsWith("--"))
-      only = args[(n += 1)].toLowerCase();
-    else return { code: 2, out: DASHBOARD_USAGE };
+/** The sink's records as an earlier build cached them, with no call to the sink. */
+function cachedSink(sinkConfig, cache) {
+  const out = { read: false, found: new Map(), skipped: [], warnings: [] };
+  out.warnings.push(
+    `the server reads no sink: records of \`${sinkLabel(sinkConfig)}\` are the copies an earlier build cached, if any. Run \`/orchestrate --dashboard\` to fetch new ones`,
+  );
+  let names = [];
+  try {
+    names = readdirSync(join(cache, "records"), { recursive: true });
+  } catch {
+    // No cache yet: the local records are all there is.
   }
-  if (only !== null && !REPO.test(only)) return { code: 2, out: DASHBOARD_USAGE };
+  for (const name of names.sort()) {
+    const path = `records/${String(name).replaceAll("\\", "/")}`;
+    const parsed = parseSinkPath(path);
+    if (parsed === null) continue;
+    const text = readText(join(cache, ...path.split("/")));
+    if (text !== null) out.found.set(path, { ...parsed, text });
+  }
+  return out;
+}
+
+/**
+ * What a build shows, from the local records and the configured sink: the entries and the
+ * render options, or `{problem}`, a command result. Writes no page. `offline` reads no sink:
+ * it takes the records an earlier build cached.
+ */
+async function buildDashboard(io, { only = null, offline = false } = {}) {
   const cwd = io.cwd ?? process.cwd();
   const env = io.env ?? process.env;
   const exec = io.exec ?? defaultExec;
@@ -2067,7 +2096,8 @@ async function dashboard(args, io) {
       return null;
     }
   });
-  if (loaded.problems.length) return { code: 1, out: `${loaded.problems.join("\n")}\n` };
+  if (loaded.problems.length)
+    return { problem: { code: 1, out: `${loaded.problems.join("\n")}\n` } };
   const { records, run_dir } = effectiveConfig(loaded.config);
   const runDir = resolve(cwd, run_dir);
   const recordsDir = join(runDir, "records");
@@ -2095,16 +2125,18 @@ async function dashboard(args, io) {
 
   // The configured sink, if any: one more place the same records may be.
   const configured = records.sink;
-  const far = configured
-    ? await readSink(configured, {
-        cache: cacheFolder(runDir, configured),
-        exec,
-        env,
-        fetch: io.fetch,
-        now: io.now,
-        current,
-      })
-    : null;
+  let far = null;
+  if (configured)
+    far = offline
+      ? cachedSink(configured, cacheFolder(runDir, configured))
+      : await readSink(configured, {
+          cache: cacheFolder(runDir, configured),
+          exec,
+          env,
+          fetch: io.fetch,
+          now: io.now,
+          current,
+        });
   warnings.push(...(far?.warnings ?? []));
 
   const entries = [];
@@ -2151,34 +2183,58 @@ async function dashboard(args, io) {
   const lines = [...warnings, ...skipped.map((p) => `skipped ${p}: not a Run Record path`)];
   if (entries.length === 0)
     return {
-      code: 1,
-      out: `${lines.map((w) => `${w}\n`).join("")}no Run Records in ${recordsDir}${configured ? ` or in \`${sinkLabel(configured)}\`` : ""}: derive one at close-out (\`records.mjs derive <run-folder>\`)\n`,
+      problem: {
+        code: 1,
+        out: `${lines.map((w) => `${w}\n`).join("")}no Run Records in ${recordsDir}${configured ? ` or in \`${sinkLabel(configured)}\`` : ""}: derive one at close-out (\`records.mjs derive <run-folder>\`)\n`,
+      },
     };
 
   const namespaces = [...new Set(entries.map((e) => e.repository).filter(Boolean))].sort();
   if (only !== null && !namespaces.includes(only))
     return {
-      code: 1,
-      out: `${lines.map((w) => `${w}\n`).join("")}no Run Records for \`${only}\`. Repositories with records: ${namespaces.join(", ") || "none"}\n`,
+      problem: {
+        code: 1,
+        out: `${lines.map((w) => `${w}\n`).join("")}no Run Records for \`${only}\`. Repositories with records: ${namespaces.join(", ") || "none"}\n`,
+      },
     };
   const home = only ?? (namespaces.includes(current) ? current : null);
 
-  const { renderDashboard } = await import("./pages/dashboard.mjs");
   const script = fileURLToPath(import.meta.url);
   const shown = relative(cwd, script);
   const path = shown.startsWith("..") || isAbsolute(shown) ? script : shown;
   const node = `node ${/\s/.test(path) ? `"${path}"` : path} dashboard${only ? ` --repo ${only}` : ""}`;
   const slash = `/orchestrate --dashboard${only ? ` --repo ${only}` : ""}`;
   const builtAt = nowIso(io);
-  mkdirSync(runDir, { recursive: true });
   const common = {
     vocabulary: { causes: CAUSES, stepKinds: STEP_KINDS },
     builtAt,
     warnings,
     skipped,
     home,
-    sink: configured ? { name: sinkLabel(configured), read: far.read } : null,
+    sink: configured
+      ? { name: sinkLabel(configured), read: far.read, ...(offline ? { cached: true } : {}) }
+      : null,
   };
+
+  return { entries, common, lines, locals, configured, far, runDir, env, rebuild: { slash, node } };
+}
+
+async function dashboard(args, io) {
+  let localLogs = false;
+  let only = null;
+  for (let n = 0; n < args.length; n += 1) {
+    if (args[n] === "--local-logs" && !localLogs) localLogs = true;
+    else if (args[n] === "--repo" && only === null && args[n + 1] && !args[n + 1].startsWith("--"))
+      only = args[(n += 1)].toLowerCase();
+    else return { code: 2, out: DASHBOARD_USAGE };
+  }
+  if (only !== null && !REPO.test(only)) return { code: 2, out: DASHBOARD_USAGE };
+  const built = await buildDashboard(io, { only });
+  if (built.problem) return built.problem;
+  const { entries, common, lines, locals, configured, far, runDir, env } = built;
+  const { slash, node } = built.rebuild;
+  const { renderDashboard } = await import("./pages/dashboard.mjs");
+  mkdirSync(runDir, { recursive: true });
 
   const sharedFile = join(runDir, "dashboard.html");
   writeWhole(sharedFile, renderDashboard(entries, { ...common, rebuild: { slash, node } }));
@@ -2259,25 +2315,41 @@ function readText(path) {
   }
 }
 
-async function board(args, io) {
-  let folder = null;
-  let heartbeat = HEARTBEAT_MINUTES;
+/** `<run-folder> [--heartbeat <minutes|none>]`, and the flags `extra` names. Null on anything else. */
+function boardArgs(args, extra = []) {
+  const out = { folder: null, heartbeat: HEARTBEAT_MINUTES };
+  const seen = new Set();
   for (let n = 0; n < args.length; n += 1) {
-    if (args[n] === "--heartbeat" && args[n + 1] !== undefined && !args[n + 1].startsWith("--")) {
-      const given = args[(n += 1)];
-      if (given === "none") heartbeat = null;
-      else if (/^[1-9]\d{0,3}$/.test(given)) heartbeat = Number(given);
-      else return { code: 2, out: BOARD_USAGE };
-    } else if (folder === null && !args[n].startsWith("--")) folder = args[n];
-    else return { code: 2, out: BOARD_USAGE };
+    const flag = args[n];
+    const value = args[n + 1];
+    if (flag.startsWith("--")) {
+      if (value === undefined || value.startsWith("--") || seen.has(flag)) return null;
+      seen.add(flag);
+      n += 1;
+      if (flag === "--heartbeat" && value === "none") out.heartbeat = null;
+      else if (flag === "--heartbeat" && /^[1-9]\d{0,3}$/.test(value))
+        out.heartbeat = Number(value);
+      else if (extra.includes(flag)) out[flag.slice(2)] = value;
+      else return null;
+    } else if (out.folder === null) out.folder = flag;
+    else return null;
   }
-  if (folder === null) return { code: 2, out: BOARD_USAGE };
+  return out.folder === null ? null : out;
+}
+
+/**
+ * The board of a run folder as HTML: `{model, html}`, or `{problems}` with its events.
+ * `dashboard` is where a closed run's link goes, and `live` is set by the server alone.
+ */
+async function buildBoard(
+  runFolder,
+  io,
+  { heartbeat, dashboard = "../dashboard.html", live = null },
+) {
   const cwd = io.cwd ?? process.cwd();
   const env = io.env ?? process.env;
-  const runFolder = resolve(cwd, folder);
-  if (!existsSync(runFolder)) return { code: 2, out: `no run folder at \`${folder}\`\n` };
   const { events, problems } = readEvents(runFolder);
-  if (problems.length) return { code: 1, out: `${problems.join("\n")}\n` };
+  if (problems.length) return { problems };
 
   const opened = events.find((e) => e.kind === "run-opened");
   if (opened && !opened.repo) opened.repo = repoOf({ ...io, exec: io.exec ?? defaultExec });
@@ -2322,10 +2394,21 @@ async function board(args, io) {
       node: `node ${quote(scriptPath)} board ${quote(folderPath)}${heartbeat === HEARTBEAT_MINUTES ? "" : ` --heartbeat ${heartbeat ?? "none"}`}`,
     },
     logs,
-    dashboardHref: `../dashboard.html#/run/${runId}/summary`,
+    dashboardHref: `${dashboard}#/run/${runId}/summary`,
     sharedBoardHref,
     banner: "contains private prose from this machine, don't share this file",
+    live,
   });
+  return { model, html };
+}
+
+async function board(args, io) {
+  const given = boardArgs(args);
+  if (!given) return { code: 2, out: BOARD_USAGE };
+  const runFolder = resolve(io.cwd ?? process.cwd(), given.folder);
+  if (!existsSync(runFolder)) return { code: 2, out: `no run folder at \`${given.folder}\`\n` };
+  const { model, html, problems } = await buildBoard(runFolder, io, given);
+  if (problems) return { code: 1, out: `${problems.join("\n")}\n` };
   const file = join(runFolder, "board.html");
   writeWhole(file, html);
   const waits = model.open.length;
@@ -2333,6 +2416,181 @@ async function board(args, io) {
     code: 0,
     out: `wrote the board: ${plural(model.delegations.length, "Delegation")}, ${waits} ${waits === 1 ? "wait" : "waits"} on you${model.stale ? ", stale" : ""}\n${pathToFileURL(file).href}\n`,
   };
+}
+
+// --- The optional server of the live run board.
+//
+// It binds to 127.0.0.1 only, polls the run's events files and pushes each new
+// Run Event to the pages connected to it, over Server-Sent Events. It serves
+// the board of this one run folder and, at `/dashboard`, the dashboard built
+// from what is on this machine: it never reads a sink or the tracker. It
+// answers only a request made to its own address, so another web page cannot
+// reach it through a DNS name, and sends no CORS header, so no other origin
+// can read what it serves.
+
+/** How often the events files are read: a step shows within a second. */
+const POLL_MS = 500;
+
+/**
+ * A reader of the events appended to a run folder: each call returns the checked events of the
+ * whole lines written since the last one. A line still being written waits for its newline.
+ */
+function followEvents(runFolder) {
+  const taken = new Map();
+  return () => {
+    const fresh = [];
+    for (const file of eventFiles(runFolder)) {
+      const text = readText(file);
+      if (text === null) continue;
+      const lines = text.split("\n").slice(0, -1);
+      for (const line of lines.slice(taken.get(file) ?? 0)) {
+        try {
+          const event = JSON.parse(line);
+          if (checkEvent(event).length === 0) fresh.push(event);
+        } catch {
+          // Not JSON: the board names the line when it is next loaded.
+        }
+      }
+      taken.set(file, lines.length);
+    }
+    return fresh;
+  };
+}
+
+async function serve(args, io) {
+  const given = boardArgs(args, ["--port"]);
+  const port = given?.port ?? "0";
+  if (!given || !/^\d{1,5}$/.test(port) || Number(port) > 65535)
+    return { code: 2, out: SERVE_USAGE };
+  const runFolder = resolve(io.cwd ?? process.cwd(), given.folder);
+  if (!existsSync(runFolder)) return { code: 2, out: `no run folder at \`${given.folder}\`\n` };
+  const { renderDashboard } = await import("./pages/dashboard.mjs");
+  const { esc } = await import("./pages/shell.mjs");
+
+  // This server's own name: a page of an earlier one is told to reload.
+  const session = randomUUID();
+  const pushed = [];
+  const clients = new Set();
+  const follow = followEvents(runFolder);
+  follow(); // What is there already is on the page: only what comes next is pushed.
+  const send = (client, name, data) =>
+    client.write(`event: ${name}\ndata: ${JSON.stringify(data)}\n\n`);
+  const poll = () => {
+    try {
+      for (const event of follow()) {
+        pushed.push(event);
+        for (const client of clients) send(client, "run-event", event);
+      }
+    } catch {
+      // A folder or file that went away between the listing and the read: the next poll sees it.
+    }
+  };
+
+  const reply = (res, status, type, text) => {
+    res.writeHead(status, {
+      "content-type": `${type}; charset=utf-8`,
+      "cache-control": "no-store",
+      "x-content-type-options": "nosniff",
+    });
+    res.end(res.req.method === "HEAD" ? undefined : text);
+  };
+  const trouble = (res, status, text) =>
+    reply(
+      res,
+      status,
+      "text/html",
+      `<!doctype html>\n<meta charset="utf-8"><meta http-equiv="refresh" content="5"><title>Run board</title><pre>${esc(text)}</pre>\n`,
+    );
+
+  const events = (req, res, query) => {
+    res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store" });
+    if (req.method === "HEAD") return void res.end();
+    res.write(": connected\n\n");
+    poll();
+    if (query.has("session") && query.get("session") !== session) send(res, "reload", {});
+    else if (query.has("after"))
+      for (const event of pushed.slice(Number(query.get("after")) || 0))
+        send(res, "run-event", event);
+    clients.add(res);
+    res.on("close", () => clients.delete(res));
+  };
+
+  const answer = async (req, res) => {
+    const own = server.address().port;
+    if (![`127.0.0.1:${own}`, `localhost:${own}`].includes(req.headers.host))
+      return reply(res, 403, "text/plain", "this server answers its own address only\n");
+    if (req.method !== "GET" && req.method !== "HEAD")
+      return reply(res, 405, "text/plain", "this server is read-only\n");
+    const { pathname, searchParams } = new URL(req.url, "http://127.0.0.1");
+    if (pathname === "/events") return events(req, res, searchParams);
+    if (pathname === "/") {
+      // Read before the page is built, so an event appended meanwhile is pushed again, never lost.
+      poll();
+      const live = {
+        session,
+        seq: pushed.length,
+        file: pathToFileURL(join(runFolder, "board.html")).href,
+      };
+      const built = await buildBoard(runFolder, io, {
+        heartbeat: given.heartbeat,
+        dashboard: "/dashboard",
+        live,
+      });
+      if (built.problems) return trouble(res, 500, built.problems.join("\n"));
+      return reply(res, 200, "text/html", built.html);
+    }
+    if (pathname === "/dashboard") {
+      const built = await buildDashboard(io, { offline: true });
+      if (built.problem) return trouble(res, 404, built.problem.out);
+      const html = renderDashboard(built.entries, { ...built.common, rebuild: built.rebuild });
+      return reply(res, 200, "text/html", html);
+    }
+    return reply(
+      res,
+      404,
+      "text/plain",
+      "not found: the board is at /, the dashboard at /dashboard\n",
+    );
+  };
+
+  const server = createServer((req, res) => {
+    answer(req, res).catch((error) => {
+      if (res.headersSent) res.end();
+      else trouble(res, 500, String(error?.message ?? error));
+    });
+  });
+  const failed = await new Promise((done) => {
+    server.once("error", done);
+    server.listen(Number(port), "127.0.0.1", () => done(null));
+  });
+  if (failed)
+    return {
+      code: 1,
+      out:
+        failed.code === "EADDRINUSE"
+          ? `port ${port} is already in use: give another with --port, or none for a free one\n`
+          : `could not start the server: ${failed.message}\n`,
+    };
+
+  const timer = setInterval(poll, io.pollMs ?? POLL_MS);
+  // The served page falls back to board.html, so the run must have one. The Chief of Staff's own is left alone.
+  const file = join(runFolder, "board.html");
+  if (!existsSync(file)) {
+    const first = await buildBoard(runFolder, io, given);
+    if (!first.problems) writeWhole(file, first.html);
+  }
+  const { address, port: bound } = server.address();
+  io.listening?.({ address, port: bound, url: `http://${address}:${bound}/` });
+  await new Promise((done) => {
+    if (io.signal?.aborted) done();
+    else io.signal?.addEventListener("abort", done, { once: true });
+  });
+  clearInterval(timer);
+  await new Promise((done) => {
+    server.close(done);
+    server.closeAllConnections();
+  });
+  return { code: 0, out: "stopped serving the board\n" };
 }
 
 /** The real transport: a command run to the end, its output and its error text. `options.input` goes to its stdin. */
@@ -2355,7 +2613,7 @@ function defaultExec(command, args, options = {}) {
 
 /**
  * @param {string[]} argv the arguments after the script
- * @param {{now?: () => Date, cwd?: string, env?: Record<string, string | undefined>, exec?: (command: string, args: string[], options?: {input?: string}) => {code: number, out: string, err?: string}}} [io]
+ * @param {{now?: () => Date, cwd?: string, env?: Record<string, string | undefined>, exec?: (command: string, args: string[], options?: {input?: string}) => {code: number, out: string, err?: string}, signal?: AbortSignal, listening?: (at: {address: string, port: number, url: string}) => void, pollMs?: number}} [io]
  * @returns {Promise<{code: number, out: string}>}
  */
 export async function main(argv, io = {}) {
@@ -2367,6 +2625,7 @@ export async function main(argv, io = {}) {
   if (command === "prune") return prune(rest, io);
   if (command === "dashboard") return dashboard(rest, io);
   if (command === "board") return board(rest, io);
+  if (command === "serve") return serve(rest, io);
   return { code: 2, out: USAGE };
 }
 
@@ -2379,7 +2638,17 @@ const realOrSelf = (path) => {
 };
 
 if (process.argv[1] && realOrSelf(fileURLToPath(import.meta.url)) === realOrSelf(process.argv[1])) {
-  const { code, out } = await main(process.argv.slice(2));
+  const argv = process.argv.slice(2);
+  const io = {};
+  if (argv[0] === "serve") {
+    // The server runs until the human stops it.
+    const stop = new AbortController();
+    for (const name of ["SIGINT", "SIGTERM"]) process.once(name, () => stop.abort());
+    io.signal = stop.signal;
+    io.listening = ({ url }) =>
+      process.stdout.write(`serving the live board until stopped (Ctrl-C):\n${url}\n`);
+  }
+  const { code, out } = await main(argv, io);
   process.stdout.write(out);
   process.exitCode = code;
 }

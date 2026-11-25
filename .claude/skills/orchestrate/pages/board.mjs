@@ -9,6 +9,10 @@
  * seconds and holds no credential: prose comes in only through `logs` and
  * `ledger`, which the caller read from the local run folder.
  *
+ * With `live` set, the optional server is serving the page: instead of the
+ * timed reload it connects to the server, reloads on each pushed Run Event,
+ * and says where `board.html` is once the server stops.
+ *
  * Colour means `cause` and nothing else: a cause is a `c-<cause>` class, and
  * states are grey.
  */
@@ -554,6 +558,7 @@ const dataOf = (model) => ({
   open: model.open.length,
   builtAtMs: model.now,
   reloadSeconds: RELOAD_SECONDS,
+  waits: model.open.map((w) => ({ id: w.id, title: waitTitle(w), how: howText(w) })),
 });
 
 const BOARD_SCRIPT = `
@@ -587,22 +592,80 @@ const BOARD_SCRIPT = `
     const saved = JSON.parse(sessionStorage.getItem("orchestrate-board-scroll") || "null");
     if (saved) { window.scrollTo(0, saved.page); drawers.forEach((d) => { d.scrollTop = saved.drawer; }); sessionStorage.removeItem("orchestrate-board-scroll"); }
   } catch {}
-  setTimeout(() => {
+  const reload = () => {
     try { sessionStorage.setItem("orchestrate-board-scroll", JSON.stringify({ page: scrollY, drawer: document.querySelector(".drawer.on")?.scrollTop ?? 0 })); } catch {}
     location.reload();
-  }, data.reloadSeconds * 1000);
-})();
+  };
+__TAIL__})();
+`;
+
+/** The file's own way to stay fresh. */
+const FILE_TAIL = `  setTimeout(reload, data.reloadSeconds * 1000);
+`;
+
+/**
+ * The served page's way: it reloads on a pushed Run Event, and every 15 seconds for what no event
+ * carries (`board.md`, the Activity Logs), but only once the server answers, so a stopped server
+ * never leaves the browser on an error page. A wait not seen before raises a notification.
+ */
+const LIVE_TAIL = `  const live = JSON.parse(document.getElementById("board-live").textContent);
+  const button = document.getElementById("notify");
+  const can = "Notification" in window;
+  if (can && Notification.permission === "default") {
+    button.hidden = false;
+    button.addEventListener("click", () => Notification.requestPermission().then(() => { button.hidden = true; }));
+  }
+  try {
+    const key = "orchestrate-board-waits " + live.file;
+    const seen = JSON.parse(sessionStorage.getItem(key) || "null");
+    sessionStorage.setItem(key, JSON.stringify([...new Set([...(seen ?? []), ...data.waits.map((w) => w.id)])]));
+    if (seen && can && Notification.permission === "granted")
+      data.waits.filter((w) => !seen.includes(w.id)).forEach((w) => new Notification("Waiting on you: " + w.title, { body: w.how, tag: w.id }));
+  } catch {}
+  const stopped = document.querySelector(".server-stopped");
+  let due = null;
+  const refresh = () => {
+    due ??= setTimeout(async () => {
+      due = null;
+      try { if ((await fetch("/", { method: "HEAD", cache: "no-store" })).ok) reload(); } catch {}
+    }, 200);
+  };
+  const source = new EventSource("/events?session=" + encodeURIComponent(live.session) + "&after=" + live.seq);
+  source.addEventListener("run-event", refresh);
+  source.addEventListener("reload", refresh);
+  source.addEventListener("open", () => { stopped.hidden = true; });
+  source.addEventListener("error", () => { stopped.hidden = false; });
+  setInterval(refresh, data.reloadSeconds * 1000);
+`;
+
+const script = (live) => BOARD_SCRIPT.replace("__TAIL__", () => (live ? LIVE_TAIL : FILE_TAIL));
+
+/** What only the served page holds: the notify button, and what to say once the server stops. */
+const liveParts = (
+  live,
+) => `<p><button type="button" id="notify" hidden>Notify me of new waits</button></p>
+<div class="banner server-stopped" role="alert" hidden>The server stopped, so this page no longer updates. The file board keeps working: open <code id="file-board">${esc(live.file)}</code> <button type="button" data-copy="file-board">Copy</button> (a browser does not let a served page open a file).</div>
+<script type="application/json" id="board-live">${JSON.stringify(live).replaceAll("<", "\\u003c")}</script>
 `;
 
 /**
  * The board, whole.
  * @param {ReturnType<typeof boardModel>} model
- * @param {{builtAt: string, rebuild: {slash: string, node: string}, logs?: Record<string, string>, dashboardHref?: string | null, sharedBoardHref?: string | null, banner?: string | null}} options
+ * @param {{builtAt: string, rebuild: {slash: string, node: string}, logs?: Record<string, string>, dashboardHref?: string | null, sharedBoardHref?: string | null, banner?: string | null, live?: {session: string, seq: number, file: string} | null}} options
  *   `logs` is the Activity Logs by Delegation id (`run` for the Chief of Staff's), already redacted.
+ *   `live` is set by the server alone: its session, the events it has pushed, and `board.html`'s address.
  */
 export function renderBoard(
   model,
-  { builtAt, rebuild, logs = {}, dashboardHref = null, sharedBoardHref = null, banner: top = null },
+  {
+    builtAt,
+    rebuild,
+    logs = {},
+    dashboardHref = null,
+    sharedBoardHref = null,
+    banner: top = null,
+    live = null,
+  },
 ) {
   const { run, now } = model;
   const columns = COLUMNS.map((name) => {
@@ -631,7 +694,7 @@ export function renderBoard(
   const stale = model.stale
     ? `<div class="banner stale-warning" role="alert">${esc(staleText(model, duration((model.now - ms(model.lastEventAt)) / 1000)))}</div>`
     : "";
-  const body = `${stale}${banner(model)}
+  const body = `${stale}${live ? liveParts(live) : ""}${banner(model)}
 ${links(model, { dashboardHref, sharedBoardHref })}
 <div class="board-layout"><div class="kanban">${columns}</div>
 <div class="side">${feed}${rulings}</div></div>
@@ -649,7 +712,7 @@ ${runDrawer(model, logs)}
     home: "/",
     head: `<link rel="icon" href="${esc(FAVICON(count))}">`,
     mainAttributes: `data-late-text="${esc(staleText(model, "{ago}"))}"`,
-    script: BOARD_SCRIPT,
+    script: script(Boolean(live)),
     pages: [{ id: "/", html: `<section class="page" id="/">\n${body}\n</section>` }],
   });
 }
