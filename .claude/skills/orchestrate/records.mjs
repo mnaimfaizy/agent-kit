@@ -726,8 +726,8 @@ function build(events, runId, operator) {
   }
 
   // An open wait is held to the same rules as a closed one: it never becomes a step.
-  const opened = [...open.values()].map((o) => ({ ...o, kind: o.step_kind }));
-  for (const s of [...steps, ...opened]) {
+  const openWaits = [...open.values()].map((o) => ({ ...o, kind: o.step_kind }));
+  for (const s of [...steps, ...openWaits]) {
     if (["plan-approval", "close-out"].includes(s.kind) && s.cause !== "by-design")
       problems.push(`human_steps: a \`${s.kind}\` step must have cause \`by-design\``);
     if (s.cause === "harness-limit" && s.card === undefined)
