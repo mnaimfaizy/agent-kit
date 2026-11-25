@@ -62,6 +62,12 @@ const SCRIPT = `
   });
   document.addEventListener("change", (e) => {
     if (e.target.id === "repo-switch") location.hash = "#" + e.target.value;
+    const range = e.target.closest("select[data-range-select]");
+    if (range) {
+      range.closest("section").querySelectorAll(".ranged").forEach((d) => { d.hidden = d.dataset.range !== range.value; });
+      range.closest("section").querySelectorAll("select[data-range-select]").forEach((s) => { s.value = range.value; });
+      return;
+    }
     const select = e.target.closest("select[data-filter]");
     if (!select) return;
     const table = select.closest("section").querySelector("table[data-filterable]");

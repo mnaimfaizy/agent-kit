@@ -2915,6 +2915,437 @@ describe("dashboard: the Repository switcher and the pages", () => {
   });
 });
 
+// --- dashboard: People, Person pages and Spec pages (#432).
+
+const NS_G = "gitlab.example.com/acme/widgets";
+const HOST_A = "github.com";
+const HOST_G = "gitlab.example.com";
+const daysBefore = (days, seconds = 0) =>
+  new Date(Date.parse("2026-11-25T10:00:00Z") - days * DAY - seconds * 1000)
+    .toISOString()
+    .replace(/\.\d+Z$/, "Z");
+
+/** The stencil, made over as one run of one person: kind, spec, takeover, length, when it closed, its Delegations and steps. */
+function personRun(stencil, o) {
+  const record = JSON.parse(stencil);
+  const { run } = record;
+  run.id = o.id;
+  run.repo = o.repo;
+  run.operator = o.login;
+  run.kind = o.kind ?? "tickets";
+  if (o.spec === undefined) delete run.spec;
+  else run.spec = o.spec;
+  run.team = o.team ?? false;
+  run.took_over = o.tookOver ?? [];
+  run.outcome = o.outcome ?? "merged";
+  run.closed_at = daysBefore(o.closedAgo);
+  run.started_at = daysBefore(o.closedAgo, o.seconds);
+  run.duration_seconds = o.seconds;
+  if (o.harness) run.harness = o.harness;
+  if (o.authority) run.decision_authority = o.authority;
+  if (o.tickets) run.tickets = o.tickets;
+  if (o.delegations) record.delegations = record.delegations.slice(0, o.delegations);
+  for (const [id, change] of Object.entries(o.change ?? {}))
+    Object.assign(
+      record.delegations.find((d) => d.id === id),
+      change,
+    );
+  if (o.steps) record.human_steps.push(...o.steps);
+  if (o.qa) record.qa = [{ delegation: "d348", target: "stack", route: "brief", result: "pass" }];
+  return `${JSON.stringify(record, null, 2)}\n`;
+}
+
+/** A sink of three logins on two hosts: naim on both, lee on the first, sam on the second, and one team spec with a takeover and a wait on a teammate. */
+async function readyToTeam({ sink = {} } = {}) {
+  const dir = await readyToUpload({ config: SINK_CONFIG });
+  const stencil = readFileSync(recordPath(dir), "utf8");
+  const run = (o) => personRun(stencil, o);
+  const parked = {
+    at: "2026-11-19T04:00:00Z",
+    opened_at: "2026-11-19T02:30:00Z",
+    delegation: "d353",
+    kind: "teammate-blocker",
+    cause: "teammate-blocker",
+    avoidable: false,
+    actor: "chief-of-staff",
+    wait_id: "w20",
+    waited_seconds: 5400,
+    how: "github",
+    blocker: 355,
+    blocker_login: "lee",
+    covers: [],
+  };
+  const files = new Map(
+    [
+      [NS_A, "naim", { id: "2026-11-20-tickets-1", closedAgo: 5, seconds: 600, qa: true }],
+      [
+        NS_A,
+        "naim",
+        { id: "2026-10-01-spec-8", kind: "spec", spec: 8, closedAgo: 55, seconds: 7200 },
+      ],
+      [NS_A, "naim", { id: "2026-07-01-tickets-0", closedAgo: 140, seconds: 1200 }],
+      [
+        NS_A,
+        "lee",
+        {
+          id: "2026-11-02-team-77a",
+          kind: "team",
+          spec: 77,
+          team: true,
+          closedAgo: 20,
+          seconds: 3000,
+          outcome: "abandoned",
+          harness: "codex",
+          authority: "relay",
+          delegations: 3,
+          tickets: [348, 349, 355],
+          change: { d350: { issue: 355, model: "gpt-5" } },
+        },
+      ],
+      [
+        NS_A,
+        "naim",
+        {
+          id: "2026-11-05-team-77b",
+          kind: "team",
+          spec: 77,
+          team: true,
+          tookOver: ["2026-11-02-team-77a"],
+          closedAgo: 15,
+          seconds: 9000,
+          steps: [parked],
+          change: { d351: { model: "opus" } },
+        },
+      ],
+      [NS_G, "naim", { id: "2026-11-03-tickets-1", closedAgo: 22, seconds: 900 }],
+      [NS_G, "sam", { id: "2026-11-04-tickets-2", closedAgo: 21, seconds: 1800 }],
+    ].map(([repo, login, o]) => [sinkFile(repo, login, o.id), run({ ...o, repo, login })]),
+  );
+  files.set("records/stray.txt", "x");
+  const transport = fakeTransport({
+    remotes: ORIGIN,
+    repos: { "acme/run-records": { files, ...sink } },
+  });
+  rmSync(recordPath(dir));
+  return { dir, files, transport, stencil };
+}
+
+/** The part of a page section for one date range. */
+const inRange = (html, range) => {
+  const from = html.split(`data-range="${range}"`)[1];
+  return from.split(/data-range="/)[0];
+};
+const rowOf = (html, key) => html.split(`data-person="${key}"`)[1].split("</tr>")[0];
+const cell = (row, col) => row.split(`data-col="${col}"`)[1].split("</td>")[0];
+const plain = (html) =>
+  html
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&#39;/g, "'")
+    .replace(/\s+/g, " ");
+const text = (row, col) => plain(cell(row, col).replace(/^>/, "")).trim();
+const peopleOf = async () => {
+  const made = await readyToTeam();
+  const result = await build(made.dir, made.transport);
+  assert.equal(result.code, 0, result.out);
+  return { ...made, html: body(page(made.dir)) };
+};
+
+describe("dashboard: the People table", () => {
+  it("has a row per login on the Repository page, sorted by login, with every column", async () => {
+    const { html } = await peopleOf();
+    const repo = section(html, `/repo/${NS_A}`);
+    const table = inRange(repo, "90").split('data-table="people"')[1];
+    const head = [...table.split("</thead>")[0].matchAll(/<th>([^<]*)<\/th>/g)].map((m) => m[1]);
+    assert.deepEqual(head, [
+      "Login",
+      "Runs by kind",
+      "Outcomes",
+      "Median run length",
+      "Longest run",
+      "Waiting on the human",
+      "Human steps per Delegation",
+      "Avoidable",
+      "Top avoidable cause",
+      "Trend",
+      "Decision authority",
+      "QA",
+      "Harness",
+      "Model",
+      "Last record",
+    ]);
+    const logins = [...table.matchAll(/<tr data-person="[^"]*" data-login="([^"]*)"/g)].map(
+      (m) => m[1],
+    );
+    assert.deepEqual(logins, ["lee", "naim"]);
+  });
+
+  it("counts runs and run lengths per kind and never mixes kinds", async () => {
+    const { html } = await peopleOf();
+    const row = rowOf(inRange(section(html, `/repo/${NS_A}`), "90"), `${NS_A}/naim`);
+    const runs = cell(row, "runs");
+    for (const kind of ["tickets", "spec", "team"])
+      assert.match(runs, new RegExp(`data-kind="${kind}"[^>]*>[^<]*<b>1</b>`));
+    assert.match(cell(row, "median"), /data-kind="tickets"[^>]*>[^<]*10m 0s/);
+    assert.match(cell(row, "median"), /data-kind="spec"[^>]*>[^<]*2h 0m/);
+    assert.match(cell(row, "median"), /data-kind="team"[^>]*>[^<]*2h 30m/);
+    assert.match(cell(row, "longest"), /data-kind="team"[^>]*>[^<]*2h 30m/);
+    // No figure folds the kinds into one: the three medians are three elements.
+    assert.equal(cell(row, "median").match(/data-kind=/g).length, 3);
+  });
+
+  it("takes the median of an even number of runs and the longest from the same kind", async () => {
+    const { html } = await peopleOf();
+    const row = rowOf(inRange(section(html, `/repo/${NS_A}`), "all"), `${NS_A}/naim`);
+    assert.match(cell(row, "median"), /data-kind="tickets"[^>]*>[^<]*15m 0s/);
+    assert.match(cell(row, "longest"), /data-kind="tickets"[^>]*>[^<]*20m 0s/);
+    assert.match(cell(row, "runs"), /data-kind="tickets"[^>]*>[^<]*<b>2<\/b>/);
+  });
+
+  it("shows outcome mix, waiting, steps per Delegation, avoidable share, top cause, trend, authority, QA, harness, model and the last record", async () => {
+    const { html } = await peopleOf();
+    const repo = inRange(section(html, `/repo/${NS_A}`), "90");
+    const lee = rowOf(repo, `${NS_A}/lee`);
+    assert.match(text(lee, "outcomes"), /abandoned 1/);
+    // The stencil: 13 human steps and 6791 s waiting over 7 Delegations; lee's run has 3 Delegations.
+    assert.equal(text(lee, "waiting"), "1h 53m");
+    assert.equal(text(lee, "steps-per-delegation"), "4.3");
+    // 9 of 13 steps were avoidable: 69%, and the most common avoidable cause is the harness limit.
+    assert.equal(text(lee, "avoidable"), "69%");
+    assert.match(cell(lee, "top-cause"), /class="chip cause c-harness-limit"/);
+    assert.match(cell(lee, "trend"), /<svg[^>]*data-trend/);
+    assert.match(text(lee, "authority"), /relay 1/);
+    assert.equal(text(lee, "qa"), "0%");
+    assert.match(text(lee, "harness"), /codex 1/);
+    assert.match(cell(lee, "model"), /gpt-5/);
+    assert.equal(text(lee, "last"), "2026-11-05");
+    const naim = rowOf(repo, `${NS_A}/naim`);
+    // One of naim's three runs in range logged a QA result.
+    assert.equal(text(naim, "qa"), "33%");
+    assert.match(text(naim, "authority"), /autonomous 3/);
+    assert.equal(text(naim, "last"), "2026-11-20");
+    assert.equal(text(naim, "steps-per-delegation"), "1.9");
+  });
+
+  it("has a date-range filter of 30, 90 days and all, defaulting to 90", async () => {
+    const { html } = await peopleOf();
+    const repo = section(html, `/repo/${NS_A}`);
+    const select = repo.split("data-range-select")[1].split("</select>")[0];
+    assert.deepEqual(
+      [...select.matchAll(/<option value="([^"]*)"( selected)?/g)].map((m) => [m[1], !!m[2]]),
+      [
+        ["30", false],
+        ["90", true],
+        ["all", false],
+      ],
+    );
+    const hidden = [...repo.matchAll(/data-range="(30|90|all)"( hidden)?/g)].map((m) => [
+      m[1],
+      !!m[2],
+    ]);
+    assert.deepEqual(hidden.slice(0, 3), [
+      ["30", true],
+      ["90", false],
+      ["all", true],
+    ]);
+    const runsIn = (range) =>
+      Number(
+        inRange(repo, range)
+          .split(`data-person="${NS_A}/naim"`)[1]
+          .split("</tr>")[0]
+          .match(/data-col="runs"[\s\S]*?<\/td>/)[0]
+          .match(/<b>(\d+)<\/b>/g)
+          .reduce((n, b) => n + Number(b.replace(/\D/g, "")), 0),
+      );
+    // naim's runs closed 5, 15, 55 and 140 days before the build.
+    assert.deepEqual([runsIn("30"), runsIn("90"), runsIn("all")], [2, 3, 4]);
+  });
+
+  it("has no ranking, score, best or worst, no total row, and no config key to hide people", async () => {
+    const { html } = await peopleOf();
+    for (const text of [
+      section(html, "/"),
+      section(html, `/repo/${NS_A}`),
+      section(html, `/repo/${NS_A}/person/naim`),
+    ])
+      assert.doesNotMatch(
+        plain(text),
+        /\b(rank(ing|ed)?|score|best|worst|leaderboard|top performer)\b/i,
+      );
+    const table = inRange(section(html, `/repo/${NS_A}`), "90").split('data-table="people"')[1];
+    assert.doesNotMatch(table, /<tfoot|data-total/);
+    assert.match(section(html, `/repo/${NS_A}`), /sorted by login/i);
+  });
+
+  it("groups All repositories by host and login with a count of repositories, never merging hosts", async () => {
+    const { html } = await peopleOf();
+    const all = inRange(section(html, "/"), "90");
+    const people = all.split('data-table="people"')[1];
+    const keys = [...people.matchAll(/<tr data-person="([^"]*)"/g)].map((m) => m[1]);
+    assert.deepEqual(keys, [`${HOST_A}/lee`, `${HOST_A}/naim`, `${HOST_G}/naim`, `${HOST_G}/sam`]);
+    assert.equal(text(rowOf(all, `${HOST_A}/naim`), "repositories"), "1");
+    // The two naims are separate rows with separate runs: three here, one on the other host.
+    assert.match(cell(rowOf(all, `${HOST_A}/naim`), "runs"), /data-kind="team"/);
+    const gitlabNaim = cell(rowOf(all, `${HOST_G}/naim`), "runs");
+    assert.match(gitlabNaim, /data-kind="tickets"[^>]*>[^<]*<b>1<\/b>/);
+    assert.doesNotMatch(gitlabNaim, /data-kind="(spec|team)"/);
+    // Each row links to the person's runs in each namespace.
+    assert.match(rowOf(all, `${HOST_G}/naim`), new RegExp(`href="#/repo/${NS_G}/person/naim"`));
+    assert.doesNotMatch(
+      rowOf(all, `${HOST_G}/naim`),
+      new RegExp(`href="#/repo/${NS_A}/person/naim"`),
+    );
+  });
+});
+
+describe("dashboard: Person pages", () => {
+  it("has one page per (namespace, login), with the two hosts kept apart and no alias", async () => {
+    const { html } = await peopleOf();
+    const ids = [
+      ...html.matchAll(/<section class="page" id="(\/repo\/[^"]*\/person\/[^"]*)"/g),
+    ].map((m) => m[1]);
+    assert.deepEqual(ids.sort(), [
+      `/repo/${NS_A}/person/lee`,
+      `/repo/${NS_A}/person/naim`,
+      `/repo/${NS_G}/person/naim`,
+      `/repo/${NS_G}/person/sam`,
+    ]);
+    const github = section(html, `/repo/${NS_A}/person/naim`);
+    const gitlab = section(html, `/repo/${NS_G}/person/naim`);
+    assert.match(github, /2026-11-20-tickets-1/);
+    assert.doesNotMatch(github, /2026-11-03-tickets-1/);
+    assert.match(gitlab, /2026-11-03-tickets-1/);
+    assert.doesNotMatch(gitlab, /2026-11-20-tickets-1/);
+    assert.doesNotMatch(plain(section(html, `/repo/${NS_A}`)), /alias/i);
+  });
+
+  it("shows runs over time, run lengths, human steps by cause, the avoidable trend and links to Spec pages", async () => {
+    const { html } = await peopleOf();
+    const person = inRange(section(html, `/repo/${NS_A}/person/naim`), "90");
+    assert.match(person, /data-chart="runs-over-time"/);
+    assert.match(person, /data-table="run-lengths"/);
+    assert.match(person, /data-chart="steps-by-cause"[\s\S]*?class="bar c-harness-limit"/);
+    assert.match(person, /data-chart="avoidable-trend"/);
+    assert.match(person, new RegExp(`href="#/repo/${NS_A}/spec/77"`));
+    // Run lengths stay in their own kind.
+    const lengths = person.split('data-table="run-lengths"')[1];
+    assert.match(lengths, /data-kind="team"/);
+    assert.match(lengths, /data-kind="tickets"/);
+    // The 55-day run is outside 30 days, and inside 90.
+    assert.doesNotMatch(
+      inRange(section(html, `/repo/${NS_A}/person/naim`), "30"),
+      /2026-10-01-spec-8/,
+    );
+    assert.match(person, /2026-10-01-spec-8/);
+    assert.match(
+      inRange(section(html, `/repo/${NS_A}/person/naim`), "all"),
+      /2026-07-01-tickets-0/,
+    );
+  });
+
+  it("links the person from the People row and the page back to its repository", async () => {
+    const { html } = await peopleOf();
+    const row = rowOf(inRange(section(html, `/repo/${NS_A}`), "90"), `${NS_A}/lee`);
+    assert.match(row, new RegExp(`href="#/repo/${NS_A}/person/lee"`));
+    assert.match(section(html, `/repo/${NS_A}/person/lee`), new RegExp(`href="#/repo/${NS_A}"`));
+  });
+});
+
+describe("dashboard: Spec pages", () => {
+  const SPEC = `/repo/${NS_A}/spec/77`;
+
+  it("has a page per team spec only, linked from the Repository page", async () => {
+    const { html } = await peopleOf();
+    const ids = [...html.matchAll(/<section class="page" id="(\/repo\/[^"]*\/spec\/[^"]*)"/g)].map(
+      (m) => m[1],
+    );
+    assert.deepEqual(ids, [SPEC]);
+    assert.match(section(html, `/repo/${NS_A}`), new RegExp(`href="#${SPEC}"`));
+    assert.match(section(html, SPEC), /<h1>Spec #77<\/h1>/);
+  });
+
+  it("has a lane per run under each login, with harness and model per lane, on one clock", async () => {
+    const { html } = await peopleOf();
+    const spec = section(html, SPEC);
+    const lanes = [...spec.matchAll(/data-lane-login="([^"]*)" data-lane-run="([^"]*)"/g)].map(
+      (m) => [m[1], m[2]],
+    );
+    assert.deepEqual(lanes, [
+      ["lee", "2026-11-02-team-77a"],
+      ["naim", "2026-11-05-team-77b"],
+    ]);
+    const lee = spec.split('data-lane-login="lee"')[1].split("</tr>")[0];
+    assert.match(lee, /codex/);
+    assert.match(lee, /gpt-5/);
+    const naim = spec.split('data-lane-login="naim"')[1].split("</tr>")[0];
+    assert.match(naim, /claude-code-desktop/);
+    assert.match(naim, /opus/);
+    assert.match(spec, /<svg[^>]*data-chart="spec-lanes"/);
+  });
+
+  it("shows the tickets each teammate built", async () => {
+    const { html } = await peopleOf();
+    const spec = section(html, SPEC);
+    const built = spec.split('data-table="tickets-built"')[1].split("</table>")[0];
+    assert.match(built, /<td>lee<\/td>[^]*?#355/);
+    assert.match(built, /<td>naim<\/td>[^]*?#348[^]*?#353/);
+  });
+
+  it("shows the time parked on a teammate's ticket: how long, on whose ticket, and that it was unparked", async () => {
+    const { html } = await peopleOf();
+    const parked = section(html, SPEC).split('data-table="parked"')[1].split("</table>")[0];
+    const text = plain(parked);
+    assert.match(text, /#353/);
+    assert.match(text, /#355/);
+    assert.match(text, /lee/);
+    assert.match(text, /1h 30m/);
+    assert.match(text, /unparked 2026-11-19T04:00:00Z/);
+    assert.match(parked, /c-teammate-blocker/);
+  });
+
+  it("marks a takeover: the run taken over is superseded by the run that took over", async () => {
+    const { html } = await peopleOf();
+    const spec = section(html, SPEC);
+    assert.match(
+      plain(spec.split('data-lane-run="2026-11-02-team-77a"')[1].split("</tr>")[0]),
+      /superseded by 2026-11-05-team-77b/,
+    );
+    assert.match(
+      plain(spec.split('data-lane-run="2026-11-05-team-77b"')[1].split("</tr>")[0]),
+      /took over 2026-11-02-team-77a/,
+    );
+  });
+
+  it("totals the spec: first start to last close, human steps and tickets merged of those listed", async () => {
+    const { html } = await peopleOf();
+    const totals = plain(section(html, SPEC).split("data-totals")[1].split("</dl>")[0]);
+    assert.match(totals, /120h 50m/);
+    assert.match(totals, /26/);
+    assert.match(totals, /6 of 7 listed tickets merged/);
+  });
+
+  it("names the sink it read, says who is not shown, and points at --status --spec", async () => {
+    const { html } = await peopleOf();
+    const spec = plain(section(html, SPEC));
+    assert.ok(
+      spec.includes(
+        "Only runs uploaded to acme/run-records are here. Teammates who haven't uploaded, upload elsewhere, or have runs still open aren't shown.",
+      ),
+    );
+    assert.match(section(html, SPEC), /<code>acme\/run-records<\/code>/);
+    assert.match(section(html, SPEC), /<code>\/orchestrate --status --spec 77<\/code>/);
+    assert.match(spec, /logins found:? lee, naim/i);
+    assert.match(spec, /never reads the tracker/i);
+  });
+
+  it("never calls the tracker: only the sink is read", async () => {
+    const { transport } = await peopleOf();
+    assert.ok(
+      transport.calls.every((c) => !c.args.includes("issue") && !c.args.includes("pr")),
+      JSON.stringify(transport.calls.map((c) => c.args.slice(0, 2))),
+    );
+  });
+});
+
 // --- The s3 sink: SigV4 first, then the adapter against a fake S3.
 
 const VECTORS = JSON.parse(

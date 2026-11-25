@@ -20,6 +20,7 @@
  */
 
 import { esc, shell } from "./shell.mjs";
+import { peoplePanel, personPages, specPages, specRoute, specsOf } from "./teammates.mjs";
 
 /** What each cause means and how to remove it. By design causes have nothing to remove. */
 export const CAUSE_INFO = Object.freeze({
@@ -877,7 +878,7 @@ function namespaceTree(entries) {
     .join("")}</ul>`;
 }
 
-function allPage(entries, context, repositories) {
+function allPage(entries, context, repositories, kit) {
   const skipped = context.skipped ?? [];
   const where = context.sink
     ? context.sink.read
@@ -896,6 +897,7 @@ ${avoidableTrend(entries)}</div>
 <div class="panel"><h2>Repositories over time</h2>
 <p class="muted small">Human steps per run, by month. Each repository has its own dash pattern and label.</p>
 ${repositories.length ? repositoryChart(entries, repositories) : `<p class="muted">No run names its repository.</p>`}</div>
+${peoplePanel(kit, entries, context, { byHost: true })}
 <div class="panel"><h2>Recent runs</h2>${runsTable(
       entries
         .slice()
@@ -914,7 +916,21 @@ ${
   );
 }
 
-function repositoryPage(repository, entries, warnings) {
+function specList(repository, entries) {
+  const specs = specsOf(entries, repository);
+  return `<div class="panel" data-panel="specs"><h2>Spec pages</h2>${
+    specs.length
+      ? `<ul>${specs
+          .map(
+            (s) =>
+              `<li>${link(specRoute(repository, s.spec), `Spec #${s.spec}`)} <span class="muted small">${plural(s.runs, "Team Run")} by ${esc(s.logins.join(", "))}</span></li>`,
+          )
+          .join("")}</ul>`
+      : `<p class="muted">No Team Run over a spec in this repository.</p>`
+  }</div>`;
+}
+
+function repositoryPage(repository, entries, warnings, context, kit) {
   return page(
     repoRoute(repository),
     `<div class="crumbs"><a href="#/">All repositories</a> / ${esc(repository)}</div>
@@ -925,7 +941,9 @@ ${kpis(entries)}
 <div class="panel"><h2>Human steps per run</h2>
 <p class="muted small">One bar per run, oldest first, stacked by cause.</p>
 ${stackedChart(entries)}</div>
-<div class="panel"><h2>Runs</h2>${runsTable(entries, { withRepository: false, kind: "runs" })}</div>`,
+${peoplePanel(kit, entries, context, { byHost: false })}
+<div class="panel"><h2>Runs</h2>${runsTable(entries, { withRepository: false, kind: "runs" })}</div>
+${specList(repository, entries)}`,
   );
 }
 
@@ -948,7 +966,7 @@ function withSlugs(entries) {
  * @param {{record: object, repository?: string | null, login?: string | null, source?: "local" | "sink" | "both", notUploaded?: boolean}[]} entries
  *   `source` says where the record was read ("sink" only: never any prose); `notUploaded` is set on a
  *   local record the sink was read without.
- * @param {{vocabulary: {causes: Record<string, string>, stepKinds: readonly string[]}, logs?: Record<string, string> | null, warnings?: string[], skipped?: string[], home?: string | null, sink?: {name: string, read: boolean} | null}} context
+ * @param {{vocabulary: {causes: Record<string, string>, stepKinds: readonly string[]}, logs?: Record<string, string> | null, warnings?: string[], skipped?: string[], home?: string | null, sink?: {name: string, read: boolean} | null, builtAt?: string}} context
  *   `logs` (run id to prose) is set only for a local-only page; `null` or absent means no prose at all.
  *   `home` is the repository the page opens on.
  */
@@ -956,15 +974,34 @@ export function buildPages(entries, context) {
   checkVocabulary(context.vocabulary);
   entries = withSlugs(entries);
   const repositories = [...new Set(entries.map((e) => e.repository).filter(Boolean))].sort();
-  const pages = [allPage(entries, context, repositories)];
+  const kit = {
+    CAUSE_INFO,
+    CAUSE_LIST,
+    avoidableTrend,
+    chip,
+    code,
+    duration,
+    esc,
+    link,
+    one,
+    page,
+    plural,
+    runRoute,
+    state,
+    table,
+  };
+  const pages = [allPage(entries, context, repositories, kit)];
   for (const repository of repositories)
     pages.push(
       repositoryPage(
         repository,
         entries.filter((e) => e.repository === repository),
         context.warnings ?? [],
+        context,
+        kit,
       ),
     );
+  pages.push(...personPages(kit, entries, context), ...specPages(kit, entries, context));
   for (const entry of entries) {
     const { record } = entry;
     const lines = eventLines(record);
@@ -1017,7 +1054,7 @@ export function renderDashboard(
     sink = null,
   },
 ) {
-  const built = buildPages(entries, { vocabulary, logs, warnings, skipped, home, sink });
+  const built = buildPages(entries, { vocabulary, logs, warnings, skipped, home, sink, builtAt });
   return shell({
     title: "Run Records",
     builtAt,
