@@ -254,7 +254,29 @@ At close-out the Chief of Staff derives one **Run Record** from the events and w
 
 A wait is a `wait-opened` and a `wait-closed` sharing one id, so the record can say how many seconds a step waited on you and where you answer it (the chat, a card, GitHub). A wait that belongs to the run, such as plan approval, the review label, posting replies, the merge and close-out, has no Delegation. A card start the harness refused is a `harness-limit` wait with the card's id, and in a Team Run a ticket parked on a teammate's ticket is a by-design `teammate-blocker` wait with the blocker ticket and the teammate's login; it is measured, and never called avoidable. Rulings are recorded as events too, so the record counts those made, upheld and overturned. A wait never closed is reported as open at close-out.
 
-A safe-field check runs when the record is derived. A record with a field outside the schema, or a value that is free text such as issue text, a ticket title, command output or a reason in words, is refused with the field named, and nothing is written: it errors, and never strips. The record is local only, every run writes it, and a run with no `records` config behaves as before apart from it. Records start with the first run after this ships: there is no backfill. The script is `.claude/skills/orchestrate/records.mjs`, on Node built-ins and the tracker CLI alone.
+A safe-field check runs when the record is derived. A record with a field outside the schema, or a value that is free text such as issue text, a ticket title, command output or a reason in words, is refused with the field named, and nothing is written: it errors, and never strips. The record is local only unless you set a sink ([below](#uploading-run-records-to-a-sink)), every run writes it, and a run with no `records` config behaves as before apart from it. Records start with the first run after this ships: there is no backfill. The script is `.claude/skills/orchestrate/records.mjs`, on Node built-ins and the tracker CLI alone.
+
+#### Uploading Run Records to a sink
+
+Run Records stay on your machine unless you set a sink. In `orchestrate.config.yml`, point `records.sink` at a **private** GitHub repository you own or your team shares (`type: github`, `repo: owner/name`, or `host/owner/name` for GitHub Enterprise, and optionally `branch`):
+
+```yaml
+records:
+  sink:
+    type: github
+    repo: acme/run-records
+```
+
+At close-out, once the record is derived, the skill shows what the upload would do and asks, with the wording `orchestrate` always uses:
+
+> **Upload this run's Run Record?** To `acme/run-records` (private GitHub repository, 4 people with access) at `records/github.com/acme/widgets/naim/2026-11-19-spec-344.json`. It holds counts, ids, times, outcomes and 23 human steps with their kind and cause: no issue text, no command output, no prose. It is kept indefinitely (git cannot expire it). [Show the record] [Upload] [Not now]
+
+You can read the record first, upload it, or say "Not now": the local record stays, and `/orchestrate --upload <run>` uploads it later. Repeating it is safe. To be asked once rather than at every close-out, approve "upload the Run Record" as a routine write in the Dispatch Plan. `records.upload: never` turns the offer off.
+
+- **One sink, many repositories.** Each repository writes only into its own namespace, `records/<host>/<owner>/<repo>/<login>/<run-id>.json`, with every segment lowercased, so two repositories never collide, even with one run id or one login. The repository is read from the `origin` remote (or the only remote); `records.repository` pins a renamed or mirrored one. The login is your `gh` login, overridable only by the `ORCHESTRATE_OPERATOR` environment variable. With no login, nothing is uploaded.
+- **Create-only.** Nothing in the sink is ever overwritten. Identical bytes already there count as uploaded; different bytes stop the upload and are shown to you.
+- **Private only.** The skill checks the repository is private at every upload, and refuses one that is public (or `internal`), with no override.
+- **Access.** `gh` needs **Contents: write** on the sink repository to upload ([`sinks/github.md`](../.claude/skills/orchestrate/sinks/github.md)). Whoever can read the repository can read every record in it, and a git repository cannot expire a file, so the records are kept until someone deletes them by hand.
 
 ## Spec mode
 

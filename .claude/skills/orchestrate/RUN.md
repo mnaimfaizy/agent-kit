@@ -303,6 +303,39 @@ A **safe-field check** runs on every derive: a field outside the schema, or a va
 
 `run.operator` is the login of the tracker CLI (`gh api user`, or `glab api user`), and only `ORCHESTRATE_OPERATOR` overrides it; with no login it is `null`. `run.repo` is `host/owner/repo` from the `origin` remote, or the only remote. Records start with the first run that writes events: there is no backfill.
 
+### Uploading the Run Record
+
+The record is local until the human uploads it. With a `records.sink` in the config ([CONFIG.md](CONFIG.md#records)), the close-out offers the upload once the record is derived, unless `records.upload` is `never`; and `--upload <run>` uploads a closed run's record at any later time. Load [SINKS.md](SINKS.md), then the file of the sink's type under [sinks/](sinks/), before the first upload. Both go through the records script:
+
+```bash
+node "<skill>/records.mjs" upload <run>         # shows the disclosure, uploads nothing
+node "<skill>/records.mjs" upload <run> --yes   # shows it, then uploads
+```
+
+`<run>` is a run id, or the path of its run folder. Run the first form and print its output as the question. The human answers by choosing one of its three buttons:
+
+- **[Show the record]:** print the file the output names (`record: <path>`), then ask again.
+- **[Upload]:** run the `--yes` form, and say what it printed: `uploaded`, or `already uploaded`.
+- **[Not now]:** do nothing more. The record stays in `<run_dir>/records/`, and the human can run `--upload <run>` later.
+
+The disclosure is this, with the sink, path, count of people with access and number of human steps filled in by the script:
+
+> **Upload this run's Run Record?** To `acme/run-records` (private GitHub repository, 4 people with access) at `records/github.com/acme/widgets/naim/2026-11-19-spec-344.json`. It holds counts, ids, times, outcomes and 23 human steps with their kind and cause: no issue text, no command output, no prose. It is kept indefinitely (git cannot expire it). [Show the record] [Upload] [Not now]
+
+The count of people with access is left out when the sink cannot be read for it. The words are the script's; never reword them.
+
+**A routine write.** The Dispatch Plan may list "upload the Run Record" among the kinds of routine write, when the config sets a `records.sink`. Approved with the plan's "go", the close-out runs the `--yes` form without asking again; the script still prints the disclosure, and the close-out repeats it. `--upload <run>` is the human's own command: it asks as above.
+
+**What stops an upload**, each printed by the script and relayed whole, with nothing uploaded:
+
+- the sink is not private, or its visibility cannot be read: there is no override;
+- the record has no login (`run.operator` is `null`): sign in with `gh` or set `ORCHESTRATE_OPERATOR`, then derive again;
+- different bytes are already at the path: nothing is overwritten, and the clash is the human's to settle;
+- the safe-field check fails on the record;
+- exit code `3`: the repository cannot be told (several remotes and none is `origin`). Ask which one, and pin it as `records.repository`.
+
+**The path** is `records/<host>/<owner>/<repo>/<login>/<run-id>.json`, every segment lowercased. `<host>/<owner>/<repo>` is `records.repository`, or the record's own repository, read from the `origin` remote (or the only remote); `<login>` is `run.operator`. A run with no `records` keys writes the local record and offers nothing.
+
 ## Run Summary
 
 After the human has merged, the Chief of Staff may offer a Run Summary on the umbrella issue the run's issues share, if they share one. It lists each Delegation with its pull request, each decision the human made and where it was recorded, in an autonomous run each Ruling with its verdict, what was not delegated, and anything left open. Posting it is a write as the human: it is drafted, shown, and posted only on a yes.
