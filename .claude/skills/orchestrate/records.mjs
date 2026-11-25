@@ -23,6 +23,7 @@
  */
 
 import { execFileSync } from "node:child_process";
+import { createHash, createHmac } from "node:crypto";
 import {
   appendFileSync,
   existsSync,
@@ -870,14 +871,14 @@ function derive(args, io) {
   return { code: 0, out: `${lines.join("\n")}\n` };
 }
 
-// --- Sinks: one interface, `local`, `github` and `gitlab` behind it.
+// --- Sinks: one interface, `local`, `github`, `gitlab` and `s3` behind it.
 //
 //   list(prefix)          the paths under a prefix, as a sorted list
 //   read(path)            {status: "found", text} | {status: "missing"} | {status: "error", detail}
 //   create(path, text)    create-only: {status: "created"} | {status: "exists"} | {status: "conflict"} | {status: "error", detail}
 //   privacy()             {private, visibility}; both null when it cannot be read
 //   access()              how many people can read the sink, or null when it cannot be read
-//   kind                  what the disclosure calls the sink: "GitHub repository", "GitLab project"
+//   kind                  what the disclosure calls the sink: "GitHub repository", "GitLab project", "S3 bucket"
 //
 // `create` never overwrites: it reports `exists` and writes nothing. What a
 // caller does about an existing path (identical bytes count as uploaded,
@@ -893,13 +894,14 @@ const segmentOf = (value) => {
 /**
  * Open a sink by type.
  *
- * @param {"local" | "github" | "gitlab"} type
- * @param {{dir?: string, repo?: string, branch?: string | null, exec?: Function}} options
+ * @param {"local" | "github" | "gitlab" | "s3"} type
+ * @param {{dir?: string, repo?: string, branch?: string | null, exec?: Function, endpoint?: string, bucket?: string, region?: string, env?: Record<string, string | undefined>, fetch?: Function, now?: () => Date}} options
  */
 export function openSink(type, options = {}) {
   if (type === "local") return localSink(options.dir);
   if (type === "github") return githubSink(options);
   if (type === "gitlab") return gitlabSink(options);
+  if (type === "s3") return s3Sink(options);
   throw new Error(`unknown sink type \`${type}\``);
 }
 
@@ -949,6 +951,24 @@ function splitSinkRepo(repo, type = "github") {
   return parts.length === 3
     ? { host: parts[0], owner: parts[1], name: parts[2] }
     : { host: type === "gitlab" ? "gitlab.com" : "github.com", owner: parts[0], name: parts[1] };
+}
+
+/** What a configured sink is called to the human: `owner/name`, or `s3://bucket`. */
+const sinkLabel = (config) => (config.type === "s3" ? `s3://${config.bucket}` : config.repo);
+
+/** Open the sink `records.sink` configures, with the transports `io` injects. */
+function openConfigured(config, { exec, env, fetch, now }) {
+  return openSink(config.type, {
+    repo: config.repo,
+    branch: config.branch,
+    endpoint: config.endpoint,
+    bucket: config.bucket,
+    region: config.region,
+    exec,
+    env,
+    fetch,
+    now,
+  });
 }
 
 const NOT_FOUND = /HTTP 404|"status":\s*"404"/;
@@ -1132,6 +1152,230 @@ function gitlabSink({ repo, branch = null, exec = defaultExec }) {
   };
 }
 
+// --- SigV4, from `node:crypto`: what an S3-compatible store checks on every request.
+
+const sha256 = (data) => createHash("sha256").update(data).digest("hex");
+const hmac = (key, data) => createHmac("sha256", key).update(data).digest();
+/** RFC 3986 percent-encoding, as SigV4 wants it: only `A-Za-z0-9-_.~` stay as they are. */
+const uriEncode = (text) =>
+  encodeURIComponent(text).replace(
+    /[!'()*]/g,
+    (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+
+/**
+ * Sign one request with AWS Signature Version 4 and return the headers to send
+ * (never `host`: `fetch` sets it) with the pieces a test can check. The path is
+ * encoded once, as S3 and its compatibles expect; `s3: true` adds the
+ * `x-amz-content-sha256` header they require, and signs it.
+ *
+ * @param {{method: string, url: string, headers?: Record<string, string>, body?: string, region: string, service?: string, s3?: boolean, accessKeyId: string, secretAccessKey: string, now: Date}} request
+ */
+export function signRequest({
+  method,
+  url,
+  headers = {},
+  body = "",
+  region,
+  service = "s3",
+  s3 = true,
+  accessKeyId,
+  secretAccessKey,
+  now,
+}) {
+  const target = new URL(url);
+  const stamp = now.toISOString().replace(/[-:]|\.\d+/g, "");
+  const day = stamp.slice(0, 8);
+  const payload = sha256(body);
+  const all = { host: target.host, "x-amz-date": stamp };
+  for (const [name, value] of Object.entries(headers))
+    all[name.toLowerCase()] = String(value).trim().replace(/\s+/g, " ");
+  if (s3) all["x-amz-content-sha256"] = payload;
+  const names = Object.keys(all).sort();
+  const path = target.pathname
+    .split("/")
+    .map((segment) => uriEncode(decodeURIComponent(segment)))
+    .join("/");
+  const query = [...target.searchParams]
+    .map(([k, v]) => [uriEncode(k), uriEncode(v)])
+    .sort(([a, x], [b, y]) => (a === b ? (x < y ? -1 : x > y ? 1 : 0) : a < b ? -1 : 1))
+    .map(([k, v]) => `${k}=${v}`)
+    .join("&");
+  const signedHeaders = names.join(";");
+  const canonicalRequest = [
+    method,
+    path,
+    query,
+    ...names.map((name) => `${name}:${all[name]}`),
+    "",
+    signedHeaders,
+    payload,
+  ].join("\n");
+  const scope = `${day}/${region}/${service}/aws4_request`;
+  const stringToSign = ["AWS4-HMAC-SHA256", stamp, scope, sha256(canonicalRequest)].join("\n");
+  const key = [day, region, service, "aws4_request"].reduce(
+    (k, part) => hmac(k, part),
+    `AWS4${secretAccessKey}`,
+  );
+  const signature = createHmac("sha256", key).update(stringToSign).digest("hex");
+  const authorization = `AWS4-HMAC-SHA256 Credential=${accessKeyId}/${scope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
+  const { host: _host, ...send } = all;
+  return {
+    headers: { ...send, authorization },
+    authorization,
+    canonicalRequest,
+    stringToSign,
+    signature,
+  };
+}
+
+export const S3_KEY_ID = "ORCHESTRATE_S3_ACCESS_KEY_ID";
+export const S3_SECRET = "ORCHESTRATE_S3_SECRET_ACCESS_KEY";
+
+/** A `<Code>` from an S3 error body: what the store said, never the body itself. */
+const s3Code = (text) => /<Code>([A-Za-z0-9]+)<\/Code>/.exec(text)?.[1] ?? null;
+const xmlText = (text) =>
+  text
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, "&");
+
+/**
+ * An S3-compatible bucket, addressed path-style (`<endpoint>/<bucket>/<key>`,
+ * which every store accepts) and signed with SigV4. Credentials come only from
+ * the environment. Requests go through `fetch`, which a test replaces.
+ *
+ * `create` sends `If-None-Match: *`, so a store that honours it refuses an
+ * overwrite on its own; `createOnly` reads the path first for the stores that
+ * ignore it. Privacy has no single read on S3-compatible stores, so it is
+ * tested the way a stranger would: the bucket must answer a signed request and
+ * must refuse an unsigned listing.
+ */
+function s3Sink({
+  endpoint,
+  bucket,
+  region,
+  env = {},
+  fetch = globalThis.fetch,
+  now = () => new Date(),
+}) {
+  const accessKeyId = env[S3_KEY_ID];
+  const secretAccessKey = env[S3_SECRET];
+  const base = String(endpoint).replace(/\/+$/, "");
+  const url = (key, query = {}) => {
+    const path = `/${[bucket, ...(key ? key.split("/") : [])].map(uriEncode).join("/")}`;
+    const text = Object.entries(query)
+      .map(([k, v]) => `${uriEncode(k)}=${uriEncode(String(v))}`)
+      .join("&");
+    return `${base}${path}${text ? `?${text}` : ""}`;
+  };
+  const request = async (method, key, { query, headers = {}, body = "", signed = true } = {}) => {
+    const target = url(key, query);
+    let send = { ...headers };
+    if (signed)
+      send = signRequest({
+        method,
+        url: target,
+        headers,
+        body,
+        region,
+        accessKeyId,
+        secretAccessKey,
+        now: now(),
+      }).headers;
+    try {
+      const response = await fetch(target, {
+        method,
+        headers: send,
+        ...(body === "" ? {} : { body }),
+      });
+      return { status: response.status, text: String(response.text ?? "") };
+    } catch (error) {
+      return { status: 0, text: "", detail: String(error?.message ?? error) };
+    }
+  };
+  const detail = (r) =>
+    r.status === 0
+      ? `the request failed (${r.detail})`
+      : `HTTP ${r.status}${s3Code(r.text) ? ` ${s3Code(r.text)}` : ""}`;
+  const missing = !accessKeyId || !secretAccessKey;
+  return {
+    name: `s3://${bucket}`,
+    kind: "S3 bucket",
+    /** What to tell the human when the credentials are not in the environment, else null. */
+    problem: missing
+      ? `set ${S3_KEY_ID} and ${S3_SECRET} in the environment (they are read from nowhere else)`
+      : null,
+    async list(prefix = "") {
+      if (missing) return null;
+      const out = [];
+      let token = null;
+      for (let page = 1; page <= MAX_PAGES; page += 1) {
+        const r = await request("GET", "", {
+          query: {
+            "list-type": 2,
+            "encoding-type": "url",
+            prefix,
+            ...(token ? { "continuation-token": token } : {}),
+          },
+        });
+        if (r.status !== 200) return null;
+        for (const m of r.text.matchAll(/<Key>([\s\S]*?)<\/Key>/g))
+          out.push(decodeURIComponent(xmlText(m[1]).replace(/\+/g, " ")));
+        if (!/<IsTruncated>true<\/IsTruncated>/.test(r.text)) return out.sort();
+        token = /<NextContinuationToken>([\s\S]*?)<\/NextContinuationToken>/.exec(r.text)?.[1];
+        if (!token) return null;
+        token = xmlText(token);
+      }
+      return null;
+    },
+    async read(path) {
+      if (missing) return { status: "error", detail: this.problem };
+      const r = await request("GET", path);
+      if (r.status === 200) return { status: "found", text: r.text };
+      return r.status === 404 ? { status: "missing" } : { status: "error", detail: detail(r) };
+    },
+    async create(path, text) {
+      if (missing) return { status: "error", detail: this.problem };
+      const r = await request("PUT", path, {
+        headers: { "content-type": "application/json", "if-none-match": "*" },
+        body: text,
+      });
+      if (r.status >= 200 && r.status < 300) return { status: "created" };
+      if (r.status === 412) return { status: "exists" };
+      if (r.status === 409) return { status: "conflict" };
+      return { status: "error", detail: detail(r) };
+    },
+    async privacy() {
+      const unknown = { private: null, visibility: null };
+      if (missing) return unknown;
+      const head = await request("HEAD", "");
+      if (head.status !== 200) return unknown;
+      const stranger = await request("GET", "", {
+        query: { "list-type": 2, "max-keys": 1 },
+        signed: false,
+      });
+      if (stranger.status === 200) return { private: false, visibility: "public" };
+      return stranger.status === 401 || stranger.status === 403
+        ? { private: true, visibility: "private" }
+        : unknown;
+    },
+    async access() {
+      // S3 has no list of the people who can read a bucket: the disclosure leaves the count out.
+      return null;
+    },
+    /** The bucket's lifecycle rules as the store's XML: the seam raw-folder upload reads. */
+    async lifecycle() {
+      if (missing) return { status: "error", detail: this.problem };
+      const r = await request("GET", "", { query: { lifecycle: "" } });
+      if (r.status === 200) return { status: "found", xml: r.text };
+      return r.status === 404 ? { status: "missing" } : { status: "error", detail: detail(r) };
+    },
+  };
+}
+
 /** Every blob under a tree, read one level at a time. Null when a level cannot be read. */
 function walkTree(gh, base, sha, prefix = "") {
   const r = gh([`${base}/git/trees/${sha}`]);
@@ -1179,6 +1423,8 @@ async function createOnly(sink, path, text, tries = 4) {
 // --- Uploading a closed run's Run Record.
 
 const RECORD_KEPT = "It is kept indefinitely (git cannot expire it).";
+const RECORD_KEPT_S3 =
+  "It is kept until the bucket's own rule deletes it, and indefinitely when it has none.";
 
 /** The namespaced sink path: `records/<host>/<owner>/<repo>/<login>/<run-id>.json`, every segment lowercased. */
 function sinkPath(repository, login, runId) {
@@ -1261,14 +1507,16 @@ async function upload(args, io) {
       out: `\`${repository}\` is not a \`host/owner/repo\` name: nothing uploaded\n`,
     };
 
-  const sink = openSink(records.sink.type, {
-    repo: records.sink.repo,
-    branch: records.sink.branch,
+  const sink = openConfigured(records.sink, {
     exec,
+    env: io.env ?? process.env,
+    fetch: io.fetch,
+    now: io.now,
   });
+  const where = sinkLabel(records.sink);
+  if (sink.problem) return { code: 1, out: `\`${where}\`: ${sink.problem}: nothing uploaded\n` };
 
   // The privacy check, at every upload: visibility can change, and there is no override.
-  const where = records.sink.repo;
   const privacy = await sink.privacy();
   if (privacy.private === null)
     return {
@@ -1285,7 +1533,7 @@ async function upload(args, io) {
   const access =
     people === null ? "" : `, ${people} ${people === 1 ? "person" : "people"} with access`;
   const steps = record.summary.human_steps;
-  const disclosure = `**Upload this run's Run Record?** To \`${where}\` (private ${sink.kind}${access}) at \`${path}\`. It holds counts, ids, times, outcomes and ${steps} human ${steps === 1 ? "step" : "steps"} with their kind and cause: no issue text, no command output, no prose. ${RECORD_KEPT} [Show the record] [Upload] [Not now]\n`;
+  const disclosure = `**Upload this run's Run Record?** To \`${where}\` (private ${sink.kind}${access}) at \`${path}\`. It holds counts, ids, times, outcomes and ${steps} human ${steps === 1 ? "step" : "steps"} with their kind and cause: no issue text, no command output, no prose. ${records.sink.type === "s3" ? RECORD_KEPT_S3 : RECORD_KEPT} [Show the record] [Upload] [Not now]\n`;
   if (!yes) return { code: 0, out: `${disclosure}record: ${join(recordsDir, `${runId}.json`)}\n` };
 
   const done = await createOnly(sink, path, found.text);
@@ -1432,6 +1680,13 @@ export function parseSinkPath(path) {
 
 /** Where the dashboard keeps the records it fetched: a folder that mirrors the sink's paths. Null when the sink's name is not a safe folder name. */
 function cacheFolder(runDir, sinkConfig) {
+  if (sinkConfig.type === "s3") {
+    // One folder per store and bucket, never mixed with a git sink's.
+    const segments = [new URL(sinkConfig.endpoint).host.replace(/:/g, "_"), sinkConfig.bucket].map(
+      segmentOf,
+    );
+    return segments.every(Boolean) ? join(runDir, "records-cache", "s3", ...segments) : null;
+  }
   const { host, owner, name } = splitSinkRepo(sinkConfig.repo, sinkConfig.type);
   const segments = [host, owner, name].map(segmentOf);
   if (!segments.every(Boolean)) return null;
@@ -1455,10 +1710,16 @@ function checkedRecord(text) {
  * uses, and the paths it skipped. Reads only paths the cache does not hold.
  * A sink that cannot be read is one warning and no records.
  */
-async function readSink(sinkConfig, { cache, exec }) {
-  const where = sinkConfig.repo;
+async function readSink(sinkConfig, { cache, exec, env, fetch, now, current }) {
+  const where = sinkLabel(sinkConfig);
   const out = { read: false, found: new Map(), skipped: [], warnings: [] };
-  const sink = openSink(sinkConfig.type, { repo: where, branch: sinkConfig.branch, exec });
+  const sink = openConfigured(sinkConfig, { exec, env, fetch, now });
+  if (sink.problem) {
+    out.warnings.push(
+      `could not read \`${where}\`: ${sink.problem}. The page is built from the local records only`,
+    );
+    return out;
+  }
   // The privacy check runs before anything is listed or read; a sink turned public warns, and the read goes ahead.
   const privacy = await sink.privacy();
   if (privacy.private === null) {
@@ -1471,7 +1732,16 @@ async function readSink(sinkConfig, { cache, exec }) {
     out.warnings.push(
       `\`${where}\` is not private (${privacy.visibility}): its records are read anyway, but make it private`,
     );
-  const listed = await sink.list("records/");
+  let listed = await sink.list("records/");
+  if (listed === null && sinkConfig.type === "s3" && current) {
+    // A bucket policy may allow only this repository's prefix: retry with it, and say what is not seen.
+    const own = `records/${current}/`;
+    listed = await sink.list(own);
+    if (listed !== null)
+      out.warnings.push(
+        `could not list all of \`records/\` in \`${where}\`: only \`${own}\` was read. Other repositories in the bucket are not shown, and nothing is assumed about them`,
+      );
+  }
   if (listed === null) {
     out.warnings.push(
       `could not read \`${where}\`: its file list is not readable. The page is built from the local records only`,
@@ -1564,7 +1834,14 @@ async function dashboard(args, io) {
   // The configured sink, if any: one more place the same records may be.
   const configured = records.sink;
   const far = configured
-    ? await readSink(configured, { cache: cacheFolder(runDir, configured), exec })
+    ? await readSink(configured, {
+        cache: cacheFolder(runDir, configured),
+        exec,
+        env,
+        fetch: io.fetch,
+        now: io.now,
+        current,
+      })
     : null;
   warnings.push(...(far?.warnings ?? []));
 
@@ -1613,7 +1890,7 @@ async function dashboard(args, io) {
   if (entries.length === 0)
     return {
       code: 1,
-      out: `${lines.map((w) => `${w}\n`).join("")}no Run Records in ${recordsDir}${configured ? ` or in \`${configured.repo}\`` : ""}: derive one at close-out (\`records.mjs derive <run-folder>\`)\n`,
+      out: `${lines.map((w) => `${w}\n`).join("")}no Run Records in ${recordsDir}${configured ? ` or in \`${sinkLabel(configured)}\`` : ""}: derive one at close-out (\`records.mjs derive <run-folder>\`)\n`,
     };
 
   const namespaces = [...new Set(entries.map((e) => e.repository).filter(Boolean))].sort();
@@ -1638,7 +1915,7 @@ async function dashboard(args, io) {
     warnings,
     skipped,
     home,
-    sink: configured ? { name: configured.repo, read: far.read } : null,
+    sink: configured ? { name: sinkLabel(configured), read: far.read } : null,
   };
 
   const sharedFile = join(runDir, "dashboard.html");
@@ -1665,7 +1942,7 @@ async function dashboard(args, io) {
     links.push(pathToFileURL(localFile).href);
   }
 
-  const from = far?.read ? ` (local and \`${configured.repo}\`)` : "";
+  const from = far?.read ? ` (local and \`${sinkLabel(configured)}\`)` : "";
   return {
     code: 0,
     out: `${lines.map((w) => `${w}\n`).join("")}built the dashboard from ${plural(entries.length, "Run Record")}${from}${localLogs ? "; the prose is only in the .local file, which holds private prose from this machine: do not share it" : ""}\n${links.join("\n")}\n`,

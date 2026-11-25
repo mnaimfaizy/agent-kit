@@ -36,6 +36,7 @@ import {
   main,
   openSink,
   repoFromRemote,
+  signRequest,
 } from "./records.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -1420,11 +1421,13 @@ describe("upload: when there is nothing to upload", () => {
   });
 
   it("names a config problem and uploads nothing", async () => {
-    const dir = await readyToUpload({ config: "records:\n  sink:\n    type: s3\n    repo: a/b\n" });
+    const dir = await readyToUpload({
+      config: "records:\n  sink:\n    type: azure\n    repo: a/b\n",
+    });
     const transport = fakeTransport();
     const result = await upload(dir, transport);
     assert.equal(result.code, 1);
-    assert.match(result.out, /unknown sink type `s3`/);
+    assert.match(result.out, /unknown sink type `azure`/);
     assert.equal(transport.calls.length, 0);
   });
 
@@ -2908,5 +2911,571 @@ describe("dashboard: the Repository switcher and the pages", () => {
     const sinkLog = html.split('id="/run/2026-11-02-tickets-2/log"')[1].split("</section>")[0];
     assert.doesNotMatch(sinkLog, new RegExp(PROSE));
     assert.doesNotMatch(page(dir), new RegExp(PROSE));
+  });
+});
+
+// --- The s3 sink: SigV4 first, then the adapter against a fake S3.
+
+const VECTORS = JSON.parse(
+  readFileSync(join(here, "fixtures", "sigv4", "aws-vectors.json"), "utf8"),
+).vectors;
+/** `Credential=..., SignedHeaders=..., Signature=...`, with or without a space after each comma. */
+const tidy = (text) => text.replace(/,\s+/g, ",");
+
+describe("SigV4: the signer matches AWS's published vectors", () => {
+  for (const v of VECTORS) {
+    it(`${v.name}`, () => {
+      const signed = signRequest({
+        method: v.method,
+        url: v.url,
+        headers: v.headers,
+        body: v.body,
+        region: v.region,
+        service: v.service,
+        s3: v.s3,
+        accessKeyId: v.accessKeyId,
+        secretAccessKey: v.secretAccessKey,
+        now: new Date(
+          v.date.replace(/^(\d{4})(\d\d)(\d\d)T(\d\d)(\d\d)(\d\d)Z$/, "$1-$2-$3T$4:$5:$6Z"),
+        ),
+      });
+      assert.equal(tidy(signed.authorization), tidy(v.authorization));
+      if (v.canonicalRequest) assert.equal(signed.canonicalRequest, v.canonicalRequest.trimEnd());
+      if (v.stringToSign) assert.equal(signed.stringToSign, v.stringToSign.trimEnd());
+    });
+  }
+
+  it("never sends the secret, and sends no host header (fetch sets it)", () => {
+    const signed = signRequest({
+      method: "GET",
+      url: "https://example.com/bucket/key",
+      region: "auto",
+      accessKeyId: "AKIDEXAMPLE",
+      secretAccessKey: "SECRETSECRETSECRETSECRET",
+      now: new Date("2026-11-25T10:00:00Z"),
+    });
+    assert.ok(!JSON.stringify(signed).includes("SECRETSECRET"));
+    assert.ok(!("host" in signed.headers) && !("Host" in signed.headers));
+    assert.equal(signed.headers["x-amz-date"], "20261125T100000Z");
+  });
+});
+
+// --- The s3 adapter, through `main(argv, io)` against a fake S3.
+
+const S3_CONFIG = [
+  "records:",
+  "  sink:",
+  "    type: s3",
+  "    endpoint: https://s3.example.test",
+  "    bucket: acme-run-records",
+  "    region: us-east-1",
+  "",
+].join("\n");
+const S3_KEY = "AKIDEXAMPLE";
+const S3_SECRET_VALUE = "EXAMPLEsecretVALUEforTESTSonly0123456789ab";
+const S3_ENV = {
+  ORCHESTRATE_S3_ACCESS_KEY_ID: S3_KEY,
+  ORCHESTRATE_S3_SECRET_ACCESS_KEY: S3_SECRET_VALUE,
+};
+const xml = (text) => text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+/**
+ * A fake S3-compatible store, path-style, that checks every signature by
+ * signing the same request again with the key it knows. `buckets` maps a name
+ * to `{objects, pageSize, refuse, only, publicList, conflicts, ignoreIfNoneMatch,
+ * racer, lifecycle}`. Every request is recorded, and nothing touches the network.
+ */
+function fakeS3({ buckets = {}, region = "us-east-1" } = {}) {
+  const calls = [];
+  const state = {
+    calls,
+    buckets: Object.fromEntries(
+      Object.entries({ "acme-run-records": {}, ...buckets }).map(([name, bucket]) => [
+        name,
+        { objects: new Map(), pageSize: 1000, ...bucket },
+      ]),
+    ),
+    puts: () => calls.filter((c) => c.method === "PUT"),
+    gets: () => calls.filter((c) => c.method === "GET" && c.key !== ""),
+    lists: () =>
+      calls.filter(
+        (c) =>
+          c.method === "GET" && c.key === "" && c.query.has("list-type") && c.headers.authorization,
+      ),
+  };
+  const reply = (status, text = "", code = null) => ({
+    status,
+    text: code
+      ? `<?xml version="1.0"?><Error><Code>${code}</Code><Message>no</Message></Error>`
+      : text,
+  });
+  state.fetch = async (url, { method = "GET", headers = {}, body } = {}) => {
+    const target = new URL(url);
+    const [, name, ...keyParts] = target.pathname.split("/");
+    const key = keyParts.map(decodeURIComponent).join("/");
+    const call = { url, method, headers, body, key, query: target.searchParams, bucket: name };
+    calls.push(call);
+    const bucket = state.buckets[name];
+    if (!bucket) return reply(404, "", "NoSuchBucket");
+    // The signature: recompute it from what was sent, with the key this store knows.
+    const sent = Object.fromEntries(Object.entries(headers).map(([k, v]) => [k.toLowerCase(), v]));
+    const signed = Boolean(sent.authorization);
+    if (signed) {
+      const stamp = sent["x-amz-date"].replace(
+        /^(\d{4})(\d\d)(\d\d)T(\d\d)(\d\d)(\d\d)Z$/,
+        "$1-$2-$3T$4:$5:$6Z",
+      );
+      const { authorization, ...rest } = sent;
+      const again = signRequest({
+        method,
+        url,
+        headers: Object.fromEntries(
+          Object.entries(rest).filter(([k]) => !["x-amz-date", "x-amz-content-sha256"].includes(k)),
+        ),
+        body: body ?? "",
+        region,
+        accessKeyId: S3_KEY,
+        secretAccessKey: S3_SECRET_VALUE,
+        now: new Date(stamp),
+      });
+      if (again.authorization !== authorization) return reply(403, "", "SignatureDoesNotMatch");
+    }
+    if (method === "HEAD" && key === "") return signed ? reply(200) : reply(403);
+    if (key === "" && target.searchParams.has("lifecycle"))
+      return !signed
+        ? reply(403, "", "AccessDenied")
+        : bucket.lifecycle
+          ? reply(200, bucket.lifecycle)
+          : reply(404, "", "NoSuchLifecycleConfiguration");
+    if (key === "" && target.searchParams.has("list-type")) {
+      if (!signed)
+        return bucket.publicList
+          ? reply(200, "<ListBucketResult/>")
+          : reply(403, "", "AccessDenied");
+      const prefix = target.searchParams.get("prefix") ?? "";
+      if (bucket.refuse && prefix === "records/") return reply(403, "", "AccessDenied");
+      if (bucket.only && !prefix.startsWith(bucket.only)) return reply(403, "", "AccessDenied");
+      const keys = [...bucket.objects.keys()].filter((k) => k.startsWith(prefix)).sort();
+      const token = target.searchParams.get("continuation-token");
+      const start = token ? Number(atob(token.replace(/\/\+$/, "")).slice(1)) : 0;
+      const page = keys.slice(start, start + bucket.pageSize);
+      const more = start + bucket.pageSize < keys.length;
+      return reply(
+        200,
+        `<?xml version="1.0"?><ListBucketResult><Prefix>${xml(prefix)}</Prefix>` +
+          `<IsTruncated>${more}</IsTruncated>` +
+          (more
+            ? `<NextContinuationToken>${xml(btoa(`n${start + bucket.pageSize}`) + "/+")}</NextContinuationToken>`
+            : "") +
+          page
+            .map(
+              (k) =>
+                `<Contents><Key>${xml(encodeURIComponent(k).replace(/%2F/g, "/"))}</Key></Contents>`,
+            )
+            .join("") +
+          "</ListBucketResult>",
+      );
+    }
+    if (!signed) return reply(403, "", "AccessDenied");
+    if (bucket.only && !key.startsWith(bucket.only)) return reply(403, "", "AccessDenied");
+    if (method === "GET")
+      return bucket.objects.has(key)
+        ? reply(200, bucket.objects.get(key))
+        : reply(404, "", "NoSuchKey");
+    if (method === "PUT") {
+      if (bucket.conflicts > 0) {
+        bucket.conflicts -= 1;
+        return reply(409, "", "OperationAborted");
+      }
+      if (bucket.racer !== undefined) {
+        bucket.objects.set(key, bucket.racer);
+        delete bucket.racer;
+        return reply(412, "", "PreconditionFailed");
+      }
+      if (sent["if-none-match"] === "*" && !bucket.ignoreIfNoneMatch && bucket.objects.has(key))
+        return reply(412, "", "PreconditionFailed");
+      bucket.objects.set(key, body);
+      bucket.lastPut = { headers: sent };
+      return reply(200);
+    }
+    return reply(405, "", "MethodNotAllowed");
+  };
+  return state;
+}
+
+/** A root with the s3 config and a derived record. `s3` is the fake store. */
+const readyToUploadS3 = (options = {}) => readyToUpload({ config: S3_CONFIG, ...options });
+const gitExec = fakeTransport({ remotes: ORIGIN }).exec;
+const uploadS3 = (dir, s3, args = [RUN, "--yes"], env = S3_ENV) =>
+  main(["upload", ...args], { cwd: dir, env, exec: gitExec, fetch: s3.fetch, now: BUILT_AT });
+const BUCKET_OF = (s3) => s3.buckets["acme-run-records"].objects;
+
+describe("upload: create-only writes to an s3 sink", () => {
+  it("shows the disclosure for a private bucket, with no people count, and writes nothing without a yes", async () => {
+    const dir = await readyToUploadS3();
+    const s3 = fakeS3();
+    const result = await uploadS3(dir, s3, [RUN]);
+    assert.equal(result.code, 0, result.out);
+    assert.match(result.out, /To `s3:\/\/acme-run-records` \(private S3 bucket\) at `records\//);
+    assert.doesNotMatch(result.out, /people with access/);
+    assert.match(result.out, /deletes it|bucket's own rule/);
+    assert.equal(s3.puts().length, 0);
+  });
+
+  it("checks privacy first: a signed look at the bucket, then an unsigned listing that must be refused", async () => {
+    const dir = await readyToUploadS3();
+    const s3 = fakeS3();
+    await uploadS3(dir, s3);
+    const [head, stranger, ...rest] = s3.calls;
+    assert.equal(head.method, "HEAD");
+    assert.ok(head.headers.authorization);
+    assert.equal(stranger.method, "GET");
+    assert.equal(stranger.headers.authorization, undefined);
+    assert.ok(rest.length > 0 && s3.calls.indexOf(s3.puts()[0]) > 1);
+  });
+
+  it("reads the path first, then creates it with the record's exact bytes, signed, and create-only", async () => {
+    const dir = await readyToUploadS3();
+    const s3 = fakeS3();
+    const result = await uploadS3(dir, s3);
+    assert.equal(result.code, 0, result.out);
+    assert.match(
+      result.out,
+      new RegExp(`uploaded \`${SINK_PATH.replaceAll(".", "\\.")}\` to \`s3://acme-run-records\``),
+    );
+    assert.equal(BUCKET_OF(s3).get(SINK_PATH), readFileSync(recordPath(dir), "utf8"));
+    const [put] = s3.puts();
+    assert.equal(put.headers["if-none-match"], "*");
+    assert.match(
+      put.headers.authorization,
+      /^AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE\/\d{8}\/us-east-1\/s3\/aws4_request/,
+    );
+    assert.equal(put.url, `https://s3.example.test/acme-run-records/${SINK_PATH}`);
+    assert.ok(
+      s3.calls.indexOf(s3.gets()[0]) < s3.calls.indexOf(put),
+      "the path is read before it is created",
+    );
+  });
+
+  it("counts identical bytes already there as uploaded, and repeating is safe", async () => {
+    const dir = await readyToUploadS3();
+    const s3 = fakeS3();
+    assert.equal((await uploadS3(dir, s3)).code, 0);
+    const again = await uploadS3(dir, s3);
+    assert.equal(again.code, 0, again.out);
+    assert.match(again.out, /already uploaded/);
+    assert.equal(s3.puts().length, 1);
+  });
+
+  it("stops when different bytes are already at the path, and overwrites nothing", async () => {
+    const dir = await readyToUploadS3();
+    const s3 = fakeS3({
+      buckets: { "acme-run-records": { objects: new Map([[SINK_PATH, '{"someone":"else"}']]) } },
+    });
+    const result = await uploadS3(dir, s3);
+    assert.equal(result.code, 1);
+    assert.match(result.out, /different bytes are already at `records\//);
+    assert.equal(s3.puts().length, 0);
+    assert.equal(BUCKET_OF(s3).get(SINK_PATH), '{"someone":"else"}');
+  });
+
+  it("stops on different bytes even from a store that ignores If-None-Match", async () => {
+    const dir = await readyToUploadS3();
+    const s3 = fakeS3({
+      buckets: {
+        "acme-run-records": { ignoreIfNoneMatch: true, objects: new Map([[SINK_PATH, "{}"]]) },
+      },
+    });
+    assert.equal((await uploadS3(dir, s3)).code, 1);
+    assert.equal(BUCKET_OF(s3).get(SINK_PATH), "{}");
+  });
+
+  it("reads again after a 412 from a parallel writer: identical bytes there count as uploaded", async () => {
+    const dir = await readyToUploadS3();
+    const s3 = fakeS3({
+      buckets: { "acme-run-records": { racer: readFileSync(recordPath(dir), "utf8") } },
+    });
+    const result = await uploadS3(dir, s3);
+    assert.equal(result.code, 0, result.out);
+    assert.match(result.out, /already uploaded/);
+  });
+
+  it("retries a 409, and gives up saying so", async () => {
+    const dir = await readyToUploadS3();
+    const some = fakeS3({ buckets: { "acme-run-records": { conflicts: 2 } } });
+    assert.equal((await uploadS3(dir, some)).code, 0);
+    assert.equal(some.puts().length, 3);
+    const never = fakeS3({ buckets: { "acme-run-records": { conflicts: 99 } } });
+    const failed = await uploadS3(dir, never);
+    assert.equal(failed.code, 1);
+    assert.match(failed.out, /409 conflict after 4 tries/);
+  });
+
+  it("refuses a bucket that lists to a stranger, with no override", async () => {
+    const dir = await readyToUploadS3();
+    const s3 = fakeS3({ buckets: { "acme-run-records": { publicList: true } } });
+    const result = await uploadS3(dir, s3);
+    assert.equal(result.code, 1);
+    assert.match(result.out, /`s3:\/\/acme-run-records` is not private \(public\).*no override/);
+    assert.equal(s3.puts().length, 0);
+  });
+
+  it("uploads nothing when the bucket cannot be read: no such bucket, or a signature it refuses", async () => {
+    const dir = await readyToUploadS3();
+    const gone = await uploadS3(dir, fakeS3({ region: "eu-west-1" }));
+    assert.equal(gone.code, 1);
+    assert.match(
+      gone.out,
+      /cannot read whether `s3:\/\/acme-run-records` is private: nothing uploaded/,
+    );
+    const other = readFileSync(join(dir, "orchestrate.config.yml"), "utf8").replace(
+      "acme-run-records",
+      "other-bucket",
+    );
+    writeFileSync(join(dir, "orchestrate.config.yml"), other);
+    const s3 = fakeS3();
+    assert.equal((await uploadS3(dir, s3)).code, 1);
+    assert.equal(s3.puts().length, 0);
+  });
+});
+
+describe("s3 credentials come only from the injected environment", () => {
+  for (const missing of ["ORCHESTRATE_S3_ACCESS_KEY_ID", "ORCHESTRATE_S3_SECRET_ACCESS_KEY"]) {
+    it(`names ${missing} when it is not set, and makes no request`, async () => {
+      const dir = await readyToUploadS3();
+      const s3 = fakeS3();
+      const { [missing]: _gone, ...env } = S3_ENV;
+      const result = await uploadS3(dir, s3, [RUN, "--yes"], env);
+      assert.equal(result.code, 1);
+      assert.match(result.out, /ORCHESTRATE_S3_ACCESS_KEY_ID and ORCHESTRATE_S3_SECRET_ACCESS_KEY/);
+      assert.equal(s3.calls.length, 0);
+    });
+  }
+
+  it("does not fall back to the process environment, or to other AWS variables", async () => {
+    const dir = await readyToUploadS3();
+    const s3 = fakeS3();
+    const saved = { ...process.env };
+    Object.assign(process.env, S3_ENV);
+    try {
+      const result = await uploadS3(dir, s3, [RUN, "--yes"], {
+        AWS_ACCESS_KEY_ID: S3_KEY,
+        AWS_SECRET_ACCESS_KEY: S3_SECRET_VALUE,
+      });
+      assert.equal(result.code, 1);
+      assert.equal(s3.calls.length, 0);
+    } finally {
+      for (const key of Object.keys(S3_ENV)) {
+        if (saved[key] === undefined) delete process.env[key];
+        else process.env[key] = saved[key];
+      }
+    }
+  });
+
+  it("never puts the secret in a request, the output or the page", async () => {
+    const dir = await readyToUploadS3();
+    const s3 = fakeS3();
+    const result = await uploadS3(dir, s3);
+    assert.ok(!JSON.stringify(s3.calls).includes(S3_SECRET_VALUE));
+    assert.ok(!result.out.includes(S3_SECRET_VALUE));
+  });
+});
+
+// The dashboard's read path: the same adapter, the same cache.
+
+const S3_LAYOUT = (bytes) => [
+  [
+    sinkFile(NS_A, "naim", "2026-11-01-tickets-1"),
+    bytes({ repo: NS_A, login: "naim", id: "2026-11-01-tickets-1" }),
+  ],
+  [
+    sinkFile(NS_A, "lee", "2026-11-02-tickets-2"),
+    bytes({ repo: NS_A, login: "lee", id: "2026-11-02-tickets-2", outcome: "abandoned" }),
+  ],
+  [
+    sinkFile(NS_B, "naim", "2026-11-03-spec-9"),
+    bytes({ repo: NS_B, login: "naim", id: "2026-11-03-spec-9" }),
+  ],
+  [
+    sinkFile(NS_B, "lee", "2026-11-01-tickets-1"),
+    bytes({ repo: NS_B, login: "lee", id: "2026-11-01-tickets-1" }),
+  ],
+  ["records/stray.txt", "x"],
+  ["raw/github.com/acme/widgets/naim/2026-11-03-spec-9/events.jsonl", "private"],
+];
+
+async function readyToReadS3(bucket = {}) {
+  const dir = await readyToUploadS3();
+  const stencil = readFileSync(recordPath(dir), "utf8");
+  const bytes = (spec) => recordBytes(stencil, spec);
+  const objects = new Map(S3_LAYOUT(bytes));
+  const s3 = fakeS3({ buckets: { "acme-run-records": { objects, ...bucket } } });
+  rmSync(recordPath(dir));
+  return { dir, s3, objects, bytes };
+}
+const buildS3 = (dir, s3, args = [], env = S3_ENV) =>
+  main(["dashboard", ...args], { cwd: dir, now: BUILT_AT, env, exec: gitExec, fetch: s3.fetch });
+
+describe("the dashboard reads an s3 sink", () => {
+  it("lists `records/` with ListObjectsV2 over several pages, and builds the page from every namespace", async () => {
+    const { dir, s3 } = await readyToReadS3({ pageSize: 2 });
+    const result = await buildS3(dir, s3);
+    assert.equal(result.code, 0, result.out);
+    assert.match(result.out, /built the dashboard from 4 Run Records/);
+    assert.match(result.out, /skipped records\/stray\.txt/);
+    const html = body(page(dir));
+    for (const ns of [NS_A, NS_B]) assert.match(html, new RegExp(`id="/repo/${ns}"`));
+    const lists = s3.lists();
+    assert.ok(lists.length >= 3, `${lists.length} list calls for 5 keys at 2 a page`);
+    for (const call of lists) {
+      assert.equal(call.query.get("list-type"), "2");
+      assert.equal(call.query.get("prefix"), "records/");
+    }
+    assert.ok(lists.slice(1).every((c) => c.query.get("continuation-token")));
+  });
+
+  it("never lists or reads raw/, and fetches only the paths the cache lacks", async () => {
+    const { dir, s3, objects, bytes } = await readyToReadS3();
+    await buildS3(dir, s3);
+    assert.equal(s3.gets().length, 4);
+    assert.ok(s3.calls.every((c) => !c.key.startsWith("raw/")));
+    s3.calls.length = 0;
+    const again = await buildS3(dir, s3);
+    assert.equal(again.code, 0, again.out);
+    assert.equal(s3.gets().length, 0);
+    objects.set(
+      sinkFile(NS_A, "naim", "2026-11-09-tickets-5"),
+      bytes({ repo: NS_A, login: "naim", id: "2026-11-09-tickets-5" }),
+    );
+    s3.calls.length = 0;
+    assert.match((await buildS3(dir, s3)).out, /5 Run Records/);
+    assert.equal(s3.gets().length, 1);
+  });
+
+  it("checks privacy before it lists, and warns about a bucket that lists to a stranger, then reads anyway", async () => {
+    const { dir, s3 } = await readyToReadS3({ publicList: true });
+    const result = await buildS3(dir, s3);
+    assert.equal(result.code, 0, result.out);
+    assert.match(result.out, /`s3:\/\/acme-run-records` is not private \(public\)/);
+    assert.match(result.out, /4 Run Records/);
+    assert.equal(s3.calls[0].method, "HEAD");
+  });
+
+  it("retries a refused list of `records/` with the current repository's prefix, and says what it could not see", async () => {
+    const { dir, s3 } = await readyToReadS3({ refuse: true, only: `records/${NS_A}/` });
+    const result = await buildS3(dir, s3);
+    assert.equal(result.code, 0, result.out);
+    assert.match(result.out, /built the dashboard from 2 Run Records/);
+    assert.match(
+      result.out,
+      new RegExp(
+        `could not list all of \`records/\` in \`s3://acme-run-records\`.*records/${NS_A}/`,
+      ),
+    );
+    const prefixes = s3.lists().map((c) => c.query.get("prefix"));
+    assert.deepEqual(prefixes.slice(0, 2), ["records/", `records/${NS_A}/`]);
+    const html = body(page(dir));
+    assert.match(html, new RegExp(`id="/repo/${NS_A}"`));
+    assert.doesNotMatch(html, new RegExp(`id="/repo/${NS_B}"`));
+    assert.match(html, /could not list all of/);
+  });
+
+  it("is one warning when the fallback is refused too, and builds from local", async () => {
+    const { dir, s3, bytes } = await readyToReadS3({ refuse: true, only: "nothing/" });
+    addLocal(
+      dir,
+      "2026-11-12-tickets-3",
+      bytes({ repo: NS_A, login: "naim", id: "2026-11-12-tickets-3" }),
+    );
+    const result = await buildS3(dir, s3);
+    assert.equal(result.code, 0, result.out);
+    assert.equal((result.out.match(/s3:\/\/acme-run-records/g) ?? []).length, 1, result.out);
+    assert.match(result.out, /could not read `s3:\/\/acme-run-records`/);
+    assert.match(result.out, /1 Run Record\b/);
+    assert.match(body(page(dir)), /<div class="warn">[^<]*could not read/);
+    assert.equal(s3.gets().length, 0);
+  });
+
+  it("is one warning when the bucket cannot be reached, or the credentials are missing", async () => {
+    const { dir, s3, bytes } = await readyToReadS3();
+    addLocal(
+      dir,
+      "2026-11-12-tickets-3",
+      bytes({ repo: NS_A, login: "naim", id: "2026-11-12-tickets-3" }),
+    );
+    const unset = await buildS3(dir, s3, [], {});
+    assert.equal(unset.code, 0, unset.out);
+    assert.match(
+      unset.out,
+      /could not read `s3:\/\/acme-run-records`.*ORCHESTRATE_S3_ACCESS_KEY_ID/s,
+    );
+    assert.equal(s3.calls.length, 0);
+    const down = await main(["dashboard"], {
+      cwd: dir,
+      now: BUILT_AT,
+      env: S3_ENV,
+      exec: gitExec,
+      fetch: async () => {
+        throw new Error("ECONNREFUSED");
+      },
+    });
+    assert.equal(down.code, 0, down.out);
+    assert.equal((down.out.match(/could not read/g) ?? []).length, 1, down.out);
+  });
+
+  it("keeps a cache folder of its own per bucket, never mixed with a git sink's", async () => {
+    const { dir, s3 } = await readyToReadS3();
+    await buildS3(dir, s3);
+    const cache = join(dir, "tmp", "orchestrate", "records-cache");
+    assert.deepEqual(readdirSync(cache), ["s3"]);
+    assert.ok(
+      existsSync(
+        join(
+          cache,
+          "s3",
+          "s3.example.test",
+          "acme-run-records",
+          "records",
+          NS_A,
+          "naim",
+          "2026-11-01-tickets-1.json",
+        ),
+      ),
+    );
+  });
+});
+
+describe("the s3 adapter", () => {
+  const open = (s3, env = S3_ENV) =>
+    openSink("s3", {
+      endpoint: "https://s3.example.test",
+      bucket: "acme-run-records",
+      region: "us-east-1",
+      env,
+      fetch: s3.fetch,
+    });
+
+  it("reads the bucket's lifecycle as the store's XML, for raw-folder upload to use", async () => {
+    const rules =
+      "<LifecycleConfiguration><Rule><Prefix>raw/</Prefix></Rule></LifecycleConfiguration>";
+    const found = await open(
+      fakeS3({ buckets: { "acme-run-records": { lifecycle: rules } } }),
+    ).lifecycle();
+    assert.deepEqual(found, { status: "found", xml: rules });
+    assert.deepEqual(await open(fakeS3()).lifecycle(), { status: "missing" });
+    const sink = open(fakeS3());
+    assert.equal(sink.name, "s3://acme-run-records");
+    assert.equal(await sink.access(), null);
+  });
+
+  it("decodes listed keys, and reads and writes keys with awkward characters", async () => {
+    const s3 = fakeS3();
+    const sink = open(s3);
+    const path = "records/gh/a b/ü+x/run #1.json";
+    assert.equal((await sink.create(path, "{}")).status, "created");
+    assert.deepEqual(await sink.list("records/"), [path]);
+    assert.deepEqual(await sink.read(path), { status: "found", text: "{}" });
+    assert.deepEqual(await sink.read("records/none.json"), { status: "missing" });
+    assert.equal((await sink.create(path, "{}")).status, "exists");
   });
 });
