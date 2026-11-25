@@ -106,7 +106,6 @@ export function parseLedger(text) {
       id: named[1],
       question: named[2],
       delegation: one("delegation").split(/[,\s]/)[0] ?? "",
-      detail: one("question"),
       options,
       choice: one("choice"),
       evidence: one("evidence"),
@@ -147,7 +146,7 @@ export function boardModel({ events, now, states = {}, ledger = null, heartbeatM
     if (!delegations.has(id))
       delegations.set(id, {
         id,
-        issue: /^d(\d+)/.exec(id)?.[1] ? Number(/^d(\d+)/.exec(id)[1]) : null,
+        issue: Number(/^d(\d+)/.exec(id)?.[1]) || null,
         facts: {},
         states: [{ state: "planned", at }],
         state: "planned",
@@ -562,7 +561,7 @@ const BOARD_SCRIPT = `
   const data = JSON.parse(document.getElementById("board-data").textContent);
   const drawers = [...document.querySelectorAll(".drawer")];
   const show = () => {
-    const wanted = /^open=(.+)$/.exec(decodeURIComponent(location.hash.slice(1)))?.[1];
+    const wanted = /^open=(.+)$/.exec((() => { try { return decodeURIComponent(location.hash.slice(1)); } catch { return ""; } })())?.[1];
     drawers.forEach((d) => d.classList.toggle("on", d.dataset.open === wanted));
     document.body.classList.toggle("drawer-open", drawers.some((d) => d.classList.contains("on")));
   };
@@ -625,11 +624,7 @@ export function renderBoard(
         }<p class="muted small">Read-only: verdicts stay in the Chief of Staff chat.</p></section>`
       : "";
 
-  const feed = `<section class="panel feed"><h2>Recent Run Events</h2>${
-    model.feed.length
-      ? `<ul class="events">${model.feed.map((e) => `<li>${stamp(e.at)} ${esc(eventText(e))}</li>`).join("")}</ul>`
-      : `<p class="muted">No Run Events yet.</p>`
-  }</section>`;
+  const feed = `<section class="panel feed"><h2>Recent Run Events</h2>${eventList(model.feed)}</section>`;
 
   const count = model.open.length;
   const title = `${count ? `(${count}) ` : ""}Run ${run.id ?? ""}`.trim();

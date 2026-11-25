@@ -2298,10 +2298,10 @@ async function board(args, io) {
   // Prose comes only from this run folder, never leaves it, and has no credential in it.
   const logs = {};
   const own = readText(join(runFolder, "activity.md"));
-  if (own !== null) logs.run = redact(own.slice(-LOG_CHARS), env);
+  if (own !== null) logs.run = redact(own, env).slice(-LOG_CHARS);
   for (const d of model.delegations) {
     const text = readText(join(runFolder, "delegations", d.id, "activity.md"));
-    if (text !== null) logs[d.id] = redact(text.slice(-LOG_CHARS), env);
+    if (text !== null) logs[d.id] = redact(text, env).slice(-LOG_CHARS);
   }
 
   // The Shared Board is the spec issue's comments: the board links to it, never copies it.
