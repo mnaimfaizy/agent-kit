@@ -1424,6 +1424,17 @@ test("with Places turned off, items are untagged and all count as held", () => {
   );
 });
 
+test("with Places off, an item whose text starts with a bracket composes and parses back", () => {
+  for (const text of ["[the docs](docs/x.html) say 30 days", "[WIP] read docs/x.html"]) {
+    const { body, problems } = reportComment(withReviews(`- Review, for a person: ${text}`), {
+      places: null,
+    });
+    assert.deepEqual(problems, []);
+    assert.ok(body.includes(`- ${text}\n`));
+    assert.deepEqual(parseSummary(body, { places: null }).problems, []);
+  }
+});
+
 test("a Review line with no Place, from a plan made before Places, goes to the first Place that holds", () => {
   const { body, problems } = reportComment(
     withReviews("- Review, for a person: docs/x.html says 30 days"),

@@ -1282,6 +1282,33 @@ test("`--host` for a name `run.hosts` lacks is a usage error", () => {
   assert.equal(main(["check", "--for", "run", "--host", "nope"], io).code, 2);
 });
 
+test("`--host` confirms a `run.hosts` entry that only the `--answers` file carries", () => {
+  const config = HOSTS_CONFIG.split("\n")
+    .filter((line) => !line.includes("billing"))
+    .join("\n");
+  const answers = {
+    run: {
+      hosts: [{ name: "billing", url: "https://billing.staging.example.com" }],
+    },
+  };
+  const repo = answersRepo({ "qa.config.yml": config, [ANSWERS_FILE]: answers });
+  const unconfirmed = checkRun(repo, "--answers", ANSWERS_FILE);
+  assert.equal(unconfirmed.code, 0);
+  const confirmed = checkRun(
+    repo,
+    "--answers",
+    ANSWERS_FILE,
+    "--host",
+    "billing=billing.staging.example.com",
+  );
+  assert.equal(confirmed.code, 0);
+  assert.notDeepEqual(confirmed.result.readiness.hosts, unconfirmed.result.readiness.hosts);
+  // A name neither the config nor the answers carry is still a usage error.
+  const nope = checkRun(repo, "--answers", ANSWERS_FILE, "--host", "nope=x.example.com");
+  assert.equal(nope.code, 2);
+  assert.match(nope.result, /no `run.hosts` entry named `nope`/);
+});
+
 test("`run.hosts` is read only for a `url` target", () => {
   const config = HOSTS_CONFIG.replace("target: url", "target: stack");
   const { out } = checkHosts(GOOD_PLAN, [], config);

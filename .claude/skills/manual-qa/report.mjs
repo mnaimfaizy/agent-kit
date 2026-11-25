@@ -273,7 +273,7 @@ export function parseSummary(body, { places } = {}) {
     const ruling = / \(checked under (R[1-9]\d*)\)$/.exec(raw)?.[1] ?? null;
     const rest = ruling ? raw.slice(0, raw.lastIndexOf(" (checked under")) : raw;
     if (configured === null) {
-      if (/^\[[^\]]*\]/.test(rest))
+      if (TEXT_PLACE.test(rest))
         problems.push(`${at}: Places are off, so an item carries no Place`);
       else items.push({ place: null, text: rest, ruling });
       return;

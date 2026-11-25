@@ -1483,8 +1483,11 @@ const REVIEW_PLACE = /^\[([^\]\s]*)\](?:\s|$)/;
  */
 function placeProblem(place, text, places) {
   if (places === undefined) return null;
+  // Off, only a Place-shaped tag is a Place: `[the docs](x) say …` and `[WIP] …` are text.
   if (places === null)
-    return place === null ? null : "Places are off: write the box with no Place, `Review: <text>`";
+    return place === null || !PLACE_NAME.test(place)
+      ? null
+      : "Places are off: write the box with no Place, `Review: <text>`";
   const names = places.map((p) => p.name);
   // A box with no Place is read as the first Place that holds a merge: a plan made before Places still runs.
   if (place === null) return null;
@@ -3059,30 +3062,50 @@ function whichCopyCommand(argv, io) {
 }
 
 /**
- * The hosts the QA person typed, from each `--host <name>=<host>`: a `run.hosts` entry's
- * name and the host as they typed it. A string is the usage problem.
+ * The hosts the QA person typed, from each `--host <name>=<host>`, as [name, host]
+ * pairs. A string is the usage problem.
  *
  * @param {string[]} argv
- * @param {Record<string, any>} config
- * @returns {Record<string, string> | string}
+ * @returns {[string, string][] | string}
  */
-function typedHosts(argv, config) {
-  /** @type {Record<string, string>} */
-  const typed = {};
-  const named = new Set(
-    (Array.isArray(config.run?.hosts) ? config.run.hosts : []).flatMap((entry) =>
-      isMapping(entry) && typeof entry.name === "string" ? [entry.name] : [],
-    ),
-  );
+function typedHostArgs(argv) {
+  /** @type {[string, string][]} */
+  const pairs = [];
   for (const [n, arg] of argv.entries()) {
     if (arg !== "--host" || argv[n + 1] === undefined) continue;
     const text = argv[n + 1];
     const at = text.indexOf("=");
     if (at < 1 || at === text.length - 1)
       return `--host expects <name>=<host the QA person typed>, not \`${text}\``;
-    const name = text.slice(0, at);
+    pairs.push([text.slice(0, at), text.slice(at + 1)]);
+  }
+  return pairs;
+}
+
+/** The names of `config`'s `run.hosts` entries. */
+function hostNames(config) {
+  return new Set(
+    (Array.isArray(config.run?.hosts) ? config.run.hosts : []).flatMap((entry) =>
+      isMapping(entry) && typeof entry.name === "string" ? [entry.name] : [],
+    ),
+  );
+}
+
+/**
+ * The typed hosts by `run.hosts` entry name, each name checked against `config`
+ * (with any answers already merged). A string is the usage problem.
+ *
+ * @param {[string, string][]} pairs from `typedHostArgs`
+ * @param {Record<string, any>} config
+ * @returns {Record<string, string> | string}
+ */
+function typedHosts(pairs, config) {
+  /** @type {Record<string, string>} */
+  const typed = {};
+  const named = hostNames(config);
+  for (const [name, host] of pairs) {
     if (!named.has(name)) return `no \`run.hosts\` entry named \`${name}\` for --host to confirm`;
-    typed[name] = text.slice(at + 1);
+    typed[name] = host;
   }
   return typed;
 }
@@ -3172,10 +3195,10 @@ const baseName = (ref) => ref.replace(/^refs\/heads\//, "").replace(/^origin\//,
  * @param {string[]} argv
  * @param {string} repo
  * @param {{path: string | null, config: Record<string, any>, runProblems: string[]}} loaded
- * @param {{plan: {plan: any, problems: string[]} | null, tools: () => {chromium: boolean, ffmpeg: boolean}, typed: Record<string, string>}} given
+ * @param {{plan: {plan: any, problems: string[]} | null, tools: () => {chromium: boolean, ffmpeg: boolean}, typedPairs: [string, string][]}} given
  * @returns {{code: number, out: string} | null} null on bad usage
  */
-function checkRunAnswers(argv, repo, loaded, { plan: planned, tools, typed }) {
+function checkRunAnswers(argv, repo, loaded, { plan: planned, tools, typedPairs }) {
   const file = option(argv, "--answers")[0];
   if (file === undefined || file.startsWith("--")) return null;
   const [answersBase] = option(argv, "--answers-base");
@@ -3184,7 +3207,10 @@ function checkRunAnswers(argv, repo, loaded, { plan: planned, tools, typed }) {
     if (argv.includes(flag) && (option(argv, flag)[0] ?? "--").startsWith("--")) return null;
   const json = (value) => `${JSON.stringify(value, null, 2)}\n`;
   const planProblems = planned ? { planProblems: planned.problems } : {};
-  const readiness = (config, problems) =>
+  // Before the answers are merged, a name the config lacks is left out, not refused.
+  const lenient = (config) =>
+    Object.fromEntries(typedPairs.filter(([name]) => hostNames(config).has(name)));
+  const readiness = (config, problems, typed = lenient(config)) =>
     runReadiness(
       { path: loaded.path, config, runProblems: problems },
       planned?.problems.length ? null : planned?.plan,
@@ -3229,6 +3255,8 @@ function checkRunAnswers(argv, repo, loaded, { plan: planned, tools, typed }) {
     throw error;
   }
   const merged = mergeAnswers(loaded.config, read.answers);
+  const typed = typedHosts(typedPairs, merged);
+  if (typeof typed === "string") return { code: 2, out: `check: ${typed}\n` };
   const problems = runProblems(merged).map((p) => `the answers: ${p}`);
   if (problems.length)
     return {
@@ -3238,7 +3266,7 @@ function checkRunAnswers(argv, repo, loaded, { plan: planned, tools, typed }) {
         problems,
         ...planProblems,
         effective: null,
-        readiness: readiness(merged, problems),
+        readiness: readiness(merged, problems, typed),
       }),
     };
   const effective = effectiveConfig(merged);
@@ -3251,7 +3279,7 @@ function checkRunAnswers(argv, repo, loaded, { plan: planned, tools, typed }) {
       problems: [],
       ...planProblems,
       effective: { working_dir: effective.working_dir, run: effective.run },
-      readiness: readiness(merged, []),
+      readiness: readiness(merged, [], typed),
       answers: { file, used: true, reused: reusedAnswersLine(file, read.answers, "Run") },
     }),
   };
@@ -3270,7 +3298,12 @@ export function main(argv, io = {}) {
   const stdin = io.stdin ?? readStdin;
   const json = (value) => `${JSON.stringify(value, null, 2)}\n`;
   const loaded = readQaConfig(read);
-  const typed = typedHosts(argv, loaded.config);
+  const typedPairs = typedHostArgs(argv);
+  if (typeof typedPairs === "string") return { code: 2, out: `check: ${typedPairs}\n` };
+  // With `--answers`, the names are checked against the config the answers are merged
+  // into (`checkRunAnswers`): the answers may be what carries `run.hosts`.
+  const withAnswers = argv.includes("--answers");
+  const typed = withAnswers ? {} : typedHosts(typedPairs, loaded.config);
   if (typeof typed === "string") return { code: 2, out: `check: ${typed}\n` };
   const usage = {
     code: 2,
@@ -3352,7 +3385,7 @@ export function main(argv, io = {}) {
           checkRunAnswers(argv, repo, loaded, {
             plan: planned,
             tools: io.tools ?? detectWebTools(repo),
-            typed,
+            typedPairs,
           }) ?? usage
         );
       const readiness = runReadiness(

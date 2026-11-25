@@ -2071,6 +2071,11 @@ test("with Places turned off, a `Review:` box carries no Place", () => {
   );
 });
 
+test("with Places off, a `Review:` box whose text starts with a bracket is text, not a Place", () => {
+  assert.equal(placeProblems("- [ ] Review: [WIP] docs/x.html says 30 days", null), "");
+  assert.equal(placeProblems("- [ ] Review: [the docs](docs/x.html) say 30 days", null), "");
+});
+
 test("a plan checked with no Places given reads any tag as a Place and demands none", () => {
   assert.deepEqual(problemsOf(withReview("- [ ] Review: docs/x.html says 30 days")), []);
   assert.deepEqual(problemsOf(withReview("- [ ] Review: [anywhere] docs/x.html says 30 days")), []);
