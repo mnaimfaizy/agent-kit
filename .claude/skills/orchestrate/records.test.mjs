@@ -1905,8 +1905,8 @@ describe("GitLab subgroups: a project at host/group/sub/project (F2)", () => {
 
   it("still refuses a repository with no owner", () => {
     assert.ok(
-      checkRecord({ run: { repo: "gitlab.com/proj" } }).includes(
-        "run.repo: must be host/owner/repo",
+      checkRecord({ run: { repo: "gitlab.com/proj" } }).some((p) =>
+        p.startsWith("run.repo: must be host/owner/repo"),
       ),
     );
   });
@@ -1924,6 +1924,13 @@ describe("GitLab subgroups: a project at host/group/sub/project (F2)", () => {
       id: RUN,
     });
     assert.equal(parseSinkPath(`records/github.com/acme/naim/${RUN}.json`), null);
+    // GitHub has no subgroups: a deeper github.com namespace is refused, in a path and in a record.
+    assert.equal(parseSinkPath(`records/github.com/acme/sub/widgets/naim/${RUN}.json`), null);
+    assert.ok(
+      checkRecord({ run: { repo: "github.com/acme/sub/widgets" } }).some((p) =>
+        p.startsWith("run.repo: must be host/owner/repo"),
+      ),
+    );
     assert.equal(parseSinkPath(`records/github.com/acme/../naim/${RUN}.json`), null);
   });
 

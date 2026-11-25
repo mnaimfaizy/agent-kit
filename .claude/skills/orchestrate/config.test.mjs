@@ -1943,6 +1943,10 @@ test("a GitLab project in a subgroup can be pinned and can be a `gitlab` sink (F
     /`records\.sink\.repo`: expected `owner\/name` or `host\/owner\/name`/,
   );
   assert.match(
+    problems("  repository: github.com/acme/sub/widgets"),
+    /`records\.repository`: expected `host\/owner\/repo`/,
+  );
+  assert.match(
     problems("  repository: gitlab.com/proj"),
     /`records\.repository`: expected `host\/owner\/repo`/,
   );

@@ -133,6 +133,9 @@ const LOGIN = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,38}$/;
 /** `host/owner/repo`, or `host/<group>/…/<project>` for a GitLab project in a subgroup. */
 const REPO = /^[a-z0-9][a-z0-9.-]*(?:\/[a-z0-9][\w.-]*){1,20}\/[\w.-]+$/;
 const SHA = /^[0-9a-f]{7,64}$/;
+/** A repository name REPO takes, where a `github.com` one has exactly `host/owner/repo`: GitHub has no subgroups. */
+const plainRepository = (value) =>
+  REPO.test(value) && (!value.startsWith("github.com/") || value.split("/").length === 3);
 
 const t = {
   int: { type: "int" },
@@ -171,7 +174,9 @@ function violates(type, value) {
     case "sha":
       return typeof value === "string" && SHA.test(value) ? null : "must be a git SHA";
     case "repo":
-      return typeof value === "string" && REPO.test(value) ? null : "must be host/owner/repo";
+      return typeof value === "string" && plainRepository(value)
+        ? null
+        : "must be host/owner/repo, or host/group/…/project for a GitLab subgroup";
     case "login":
       return typeof value === "string" && LOGIN.test(value) ? null : "must be a tracker login";
     case "enum":
@@ -1961,7 +1966,7 @@ export function parseSinkPath(path) {
   const id = file.slice(0, -".json".length);
   const named = [...namespace, login].every((s) => segmentOf(s) === s);
   const repository = namespace.join("/");
-  if (!named || !REPO.test(repository) || !LOGIN.test(login) || !ID.test(id) || DOTS.test(id))
+  if (!named || !plainRepository(repository) || !LOGIN.test(login) || !ID.test(id) || DOTS.test(id))
     return null;
   return { repository, login, id };
 }

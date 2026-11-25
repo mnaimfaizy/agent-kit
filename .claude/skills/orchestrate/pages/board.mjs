@@ -228,7 +228,8 @@ export function boardModel({ events, now, states = {}, ledger = null, heartbeatM
         d.waits.push(wait);
         // A Delegation that is working and stops on a wait is `waiting`; one not yet started stays `planned`.
         // A wait on a teammate's ticket waits on nobody here: it parks the Delegation instead.
-        const parks = wait.cause === "teammate-blocker";
+        // A teammate wait on a Delegation not started yet leaves it `planned`; its card still shows it.
+        const parks = onTeammate(wait);
         if (d.state === "running" || d.state === "sent back") {
           d.before = d.state;
           track(d, parks ? "parked" : "waiting", e.at);
@@ -345,7 +346,7 @@ const onTeammate = (w) => w.cause === "teammate-blocker";
 /** Where the human answers a wait, in words. */
 function howText(w) {
   if (onTeammate(w))
-    return `Waits for #${w.blocker} to merge${w.blockerLogin ? ` (@${w.blockerLogin}'s ticket)` : ""}: nothing to answer`;
+    return `Waits for ${w.blocker ? `#${w.blocker}` : "a teammate's ticket"} to merge${w.blockerLogin ? ` (@${w.blockerLogin}'s ticket)` : ""}: nothing to answer`;
   if (w.how === "card")
     return `Click the New task card${w.card ? ` ${w.card}` : ""} in the Chief of Staff session`;
   if (w.how === "github") return "Answer on GitHub";
@@ -380,8 +381,8 @@ export function eventText(e) {
     case "ruling-verdict":
       return `${e.ruling} ${e.verdict}`;
     case "wait-opened":
-      if (e.cause === "teammate-blocker")
-        return `${who}parked on #${e.blocker}${e.blocker_login ? ` (@${e.blocker_login})` : ""}`;
+      if (onTeammate(e))
+        return `${who}parked on ${e.blocker ? `#${e.blocker}` : "a teammate's ticket"}${e.blocker_login ? ` (@${e.blocker_login})` : ""}`;
       return `${who}waiting on you: ${stepName(e.step_kind)} (${words(e.cause)}), ${e.how}`;
     case "wait-closed":
       return `wait ${e.wait_id} closed`;

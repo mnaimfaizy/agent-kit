@@ -1115,7 +1115,8 @@ export const SECTIONS = {
     unknownKeys(sink, value, "records", RECORDS_KEYS);
     if (
       given(sink, value, "repository", "records.repository") &&
-      !plainRepo(REPOSITORY, value.repository)
+      (!plainRepo(REPOSITORY, value.repository) ||
+        (/^github\.com\//i.test(value.repository) && value.repository.split("/").length !== 3))
     )
       sink.add(
         "records.repository",
