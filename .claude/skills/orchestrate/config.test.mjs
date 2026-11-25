@@ -171,6 +171,7 @@ test("each key's default, with an empty config", () => {
     spec: { landing: "ask", integration_branch: "orchestrate/spec-<n>" },
     tracker: "detect",
     records: { repository: null, upload: "offer", sink: null },
+    prune: { after_days: null },
     team: {
       labels: {
         planned: "team: planned",
@@ -780,7 +781,7 @@ test("JSON: each problem is named with its line, like YAML's", () => {
     "}",
   ].join("\n");
   assert.deepEqual(json(text).problems, [
-    "line 3: `routs`: unknown key (CONFIG.md documents: run_dir, read_first, routes, regate, skills, triage_labels, models, harness, executors, limits, decisions, ready_to_merge, spec, tracker, team, records)",
+    "line 3: `routs`: unknown key (CONFIG.md documents: run_dir, read_first, routes, regate, skills, triage_labels, models, harness, executors, limits, decisions, ready_to_merge, spec, tracker, team, records, prune)",
     "line 10: `read_first[1]`: expected a relative path inside the repository",
     "line 6: `routes.push`: unknown key (CONFIG.md documents: commit, pull_request, merge)",
     "line 5: `routes.commit`: expected a non-empty string",
@@ -1990,4 +1991,47 @@ test("CONFIG.md's `records` example reads with no problems", () => {
     upload: "offer",
     sink: { type: "github", repo: "acme/run-records", branch: "main" },
   });
+});
+
+// ── Pruning: `prune` ────────────────────────────────────────────────────────
+
+test("`prune.after_days` reads the same in YAML and JSON, and unset means no pruning", () => {
+  const fromYaml = yaml("prune:", "  after_days: 90");
+  const fromJson = json('{"prune": {"after_days": 90}}');
+  assert.deepEqual([fromYaml.problems, fromJson.problems], [[], []]);
+  assert.deepEqual(effectiveConfig(fromYaml.config).prune, { after_days: 90 });
+  assert.deepEqual(effectiveConfig(fromJson.config).prune, { after_days: 90 });
+  assert.deepEqual(effectiveConfig(yaml("prune: {}").config).prune, { after_days: null });
+  assert.deepEqual(effectiveConfig({}).prune, { after_days: null });
+});
+
+test("`prune` problems, each with its line, in YAML", () => {
+  const problems = (...lines) => yaml("prune:", ...lines).problems.join("\n");
+  assert.match(problems("  keep: 3"), /^line 2: `prune\.keep`: unknown key/);
+  for (const bad of ["0", "-5", "1.5", "ninety", "true"])
+    assert.match(
+      problems(`  after_days: ${bad}`),
+      /line 2: `prune\.after_days`: expected a whole number of 1 or more/,
+    );
+  assert.match(yaml("prune: 90").problems.join("\n"), /`prune`: expected a mapping/);
+  assert.match(problems("  after_days:"), /`prune\.after_days`: .*no value|missing|empty/i);
+});
+
+test("`prune` problems, in JSON, name their lines too", () => {
+  const read = json('{\n  "prune": {\n    "after_days": 0\n  }\n}');
+  assert.deepEqual(read.problems, [
+    "line 3: `prune.after_days`: expected a whole number of 1 or more",
+  ]);
+  assert.deepEqual(json('{"prune": {"after_days": 1.5}}').problems.length, 1);
+  assert.deepEqual(json('{"prune": {"after_days": "30"}}').problems, []);
+});
+
+test("CONFIG.md's `prune` example reads with no problems", () => {
+  const block = CONFIG_MD.split("\n```yaml\n")
+    .slice(1)
+    .map((part) => part.split("\n```")[0])
+    .find((text) => text.startsWith("prune:"));
+  const read = parseConfig("orchestrate.config.yml", block);
+  assert.deepEqual(read.problems, []);
+  assert.deepEqual(effectiveConfig(read.config).prune, { after_days: 90 });
 });

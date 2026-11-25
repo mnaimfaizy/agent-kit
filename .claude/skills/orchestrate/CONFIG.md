@@ -70,6 +70,7 @@ Tabs, anchors, aliases, multi-line scalars, flow collections that span lines, a 
 | `tracker`        | `detect`            | The issue tracker a Team Run (`--spec <n> --team`) reads its tickets from. See below.                                                                                                                                     |
 | `team`           | see below           | A Team Run's state labels, and how much a Shared Board row keeps. Only a Team Run reads it.                                                                                                                               |
 | `records`        | local only          | Where Run Records are kept off the machine, and whether close-out offers the upload. See below.                                                                                                                           |
+| `prune`          | no pruning          | Whether old, closed-out run folders are deleted from this machine. See below.                                                                                                                                             |
 
 A value in any route, command or skill name is free text: the brief carries it as written, so a route can be a command, a skill to use, or a sentence of convention.
 
@@ -277,3 +278,18 @@ With no config, or one that leaves out what the run needs, the skill asks. The a
 ```
 
 They are laid over the config: a mapping answered for a mapping is merged key by key (`routes.commit` replaces only that route), and anything else replaces the config's value. A problem in an answer is named with the answers file and its line. The answers file must be inside `run_dir` (its merged value, since an answer may set it), so it is never committed and `--resume` finds it again. Writing the answers into the config file is a separate step, taken only on the human's yes.
+
+### `prune`
+
+Read by the close-out ([SKILL.md](SKILL.md#10-close-out)) and by `node records.mjs prune`. A run with no `prune` key deletes nothing.
+
+| Key          | Default          | Meaning                                                                                                                                                                     |
+| ------------ | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `after_days` | none: no pruning | A whole number of 1 or more. Closed-out run folders whose Run Record closed more than this many days ago are deleted from `<run_dir>`. Setting it is the consent to delete. |
+
+```yaml
+prune:
+  after_days: 90 # unset: no pruning; setting it is the consent
+```
+
+Only a **closed-out** run folder is deleted: one with a Run Record beside it in `<run_dir>/records/`, whose `closed_at` is older than `after_days`. An open run (no Run Record yet), a closed run newer than the setting, and `<run_dir>/records/` with every record in it are never touched. With no `prune` key, the close-out asks once whether to prune at 90 days, and writes `prune.after_days: 90` into the config only on a yes. A "no" is remembered in `<run_dir>/prune-declined` on this machine, and is not asked again.

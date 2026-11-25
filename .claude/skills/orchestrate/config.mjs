@@ -240,6 +240,8 @@ export const RECORDS_UPLOADS = /** @type {const} */ (["offer", "never"]);
 /** The Run Record sink types this reader knows. `gitlab` and `s3` arrive with their own sink files. */
 export const SINK_TYPES = /** @type {const} */ (["github"]);
 export const SINK_KEYS = /** @type {const} */ (["type", "repo", "branch"]);
+/** `prune`'s keys (CONFIG.md): local pruning of closed-out run folders, off until `after_days` is set. */
+export const PRUNE_KEYS = /** @type {const} */ (["after_days"]);
 /** A Team Run's six coarse states, each mirrored by one state label on a ticket. */
 export const TEAM_STATES = /** @type {const} */ ([
   "planned",
@@ -1006,6 +1008,12 @@ export const SECTIONS = {
     if (given(sink, s, "branch", "records.sink.branch") && !validBranch(s.branch))
       sink.add("records.sink.branch", "expected a valid git branch name");
   },
+  prune(sink, value) {
+    if (!isMapping(value)) return sink.add("prune", "expected a mapping");
+    unknownKeys(sink, value, "prune", PRUNE_KEYS);
+    if (given(sink, value, "after_days", "prune.after_days") && !isCount(value.after_days))
+      sink.add("prune.after_days", "expected a whole number of 1 or more");
+  },
 };
 
 /**
@@ -1204,6 +1212,7 @@ export function effectiveConfig(config) {
   const spec = section("spec");
   const team = section("team");
   const records = section("records");
+  const prune = section("prune");
   const sinkValue = isMapping(records.sink) ? records.sink : null;
   return {
     run_dir: config.run_dir ?? DEFAULTS.run_dir,
@@ -1242,6 +1251,9 @@ export function effectiveConfig(config) {
             branch: sinkValue.branch ?? null,
           }
         : null,
+    },
+    prune: {
+      after_days: prune.after_days === undefined ? null : Number(prune.after_days),
     },
     team: {
       // Trimmed, as the tracker trims a label name, so a run names and compares it as `check` did.
