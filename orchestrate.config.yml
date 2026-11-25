@@ -29,8 +29,8 @@ regate:
     - "node --test --test-skip-pattern='denies an out-of-tree read with the staged hook|exits non-zero from the command line on an unexpected key' scripts/*.test.mjs .claude/skills/*/*.test.mjs"
     - uv run ruff check .
     - uv run ruff format --check .
-    - uv run pre-commit run --all-files
     - npm ci
+    - uv run pre-commit run --all-files
     - npx prettier --check .
   allowed_failures:
     - test: test_the_check_refuses_a_bad_model_or_limit_and_a_sum_past_the_timeout

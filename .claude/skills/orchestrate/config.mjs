@@ -1608,12 +1608,9 @@ function landCommand(rest, io) {
     git(repo, ["diff", "--name-only", "--no-renames", "-z", from, head])
       .split("\0")
       .filter(Boolean);
-  let paths = changed(cut);
-  // After the integration branch was merged in, what it already holds is not this ticket's change.
-  if (old !== cut && isAncestor(repo, old, head)) {
-    const fresh = new Set(changed(old));
-    paths = paths.filter((path) => fresh.has(path));
-  }
+  // With the integration branch an ancestor, the move changes exactly diff(old, head): that is
+  // what the fence must hold, whatever the merge resolved. Otherwise the move is refused below.
+  const paths = isAncestor(repo, old, head) ? changed(old) : changed(cut);
   const fence = options["--fence"].map(globToRegExp);
   const outside = paths.filter((path) => !fence.some((re) => re.test(path))).sort();
   if (outside.length)

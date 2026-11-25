@@ -409,6 +409,23 @@ describe("land", () => {
     assert.equal(ref(dir, "orchestrate/spec-1"), ref(dir, "ticket"));
   });
 
+  test("a merge that reverts an earlier ticket's path outside the fence is refused: the move changes it", () => {
+    const { dir, cut } = landing({ "src/a.txt": "a\n" });
+    // An earlier ticket lands lib/earlier.txt, outside this ticket's fence.
+    git(dir, "switch", "-q", "-C", "earlier", "orchestrate/spec-1");
+    commit(dir, { "lib/earlier.txt": "e\n" }, "an earlier ticket");
+    git(dir, "update-ref", "refs/heads/orchestrate/spec-1", "earlier");
+    // This ticket merges it in, then resolves the path back to its cut content (absent).
+    git(dir, "switch", "-q", "ticket");
+    git(dir, "merge", "-q", "--no-edit", "orchestrate/spec-1");
+    git(dir, "rm", "-q", "lib/earlier.txt");
+    commit(dir, {}, "revert the earlier ticket's file");
+    git(dir, "switch", "-q", "main");
+    const before = ref(dir, "orchestrate/spec-1");
+    const body = refused(land(dir, cut, ...FENCE), "outside-fence", dir, before);
+    assert.deepEqual(body.paths, ["lib/earlier.txt"]);
+  });
+
   test("--fence takes several globs after it, or the flag repeated", () => {
     const { dir, cut } = landing({ "src/a.txt": "a\n", "docs/b.md": "b\n" });
     assert.equal(land(dir, cut, "--fence", "src/**", "--fence", "docs/*.md").code, 0);

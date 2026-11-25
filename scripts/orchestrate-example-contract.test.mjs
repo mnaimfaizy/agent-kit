@@ -144,5 +144,10 @@ describe("orchestrate.config.yml: this repository's allowed failures", () => {
     const { regate } = config.effectiveConfig(own.config);
     assert.ok(regate.includes("uv run pytest"));
     assert.ok(regate.includes("uv run pre-commit run --all-files"));
+    // Its local prettier hook needs the node_modules `npm ci` installs.
+    assert.ok(
+      regate.indexOf("uv run pre-commit run --all-files") > regate.indexOf("npm ci"),
+      "pre-commit runs after npm ci",
+    );
   });
 });
