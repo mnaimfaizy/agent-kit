@@ -469,11 +469,13 @@ function pairs(args) {
 const EVENT_USAGE =
   "usage: node records.mjs event --file <events.jsonl> --kind <kind> --actor <human|chief-of-staff|delegation> [--<field> <value>]...\n";
 const DERIVE_USAGE = "usage: node records.mjs derive <run-folder>\n";
+const UPLOAD_RAW_USAGE =
+  "usage: node records.mjs upload-raw <run id or run folder> [--list] [--yes]\n";
 const UPLOAD_USAGE = "usage: node records.mjs upload <run id or run folder> [--yes]\n";
 const PRUNE_USAGE = "usage: node records.mjs prune [--declined]\n";
 const DASHBOARD_USAGE =
   "usage: node records.mjs dashboard [--repo <host/owner/repo>] [--local-logs]\n";
-const USAGE = `${EVENT_USAGE}${DERIVE_USAGE}${UPLOAD_USAGE}${PRUNE_USAGE}${DASHBOARD_USAGE}`;
+const USAGE = `${EVENT_USAGE}${DERIVE_USAGE}${UPLOAD_USAGE}${UPLOAD_RAW_USAGE}${PRUNE_USAGE}${DASHBOARD_USAGE}`;
 
 function appendEvent(args, io) {
   const given = pairs(args);
@@ -1346,10 +1348,10 @@ function s3Sink({
       if (r.status === 200) return { status: "found", text: r.text };
       return r.status === 404 ? { status: "missing" } : { status: "error", detail: detail(r) };
     },
-    async create(path, text) {
+    async create(path, text, { contentType = "application/json" } = {}) {
       if (missing) return { status: "error", detail: this.problem };
       const r = await request("PUT", path, {
-        headers: { "content-type": "application/json", "if-none-match": "*" },
+        headers: { "content-type": contentType, "if-none-match": "*" },
         body: text,
       });
       if (r.status >= 200 && r.status < 300) return { status: "created" };
@@ -1412,13 +1414,13 @@ function walkTree(gh, base, sha, prefix = "") {
  * already uploaded, different bytes stop the upload, and a conflict from
  * parallel writes is retried (the next read decides again).
  */
-async function createOnly(sink, path, text, tries = 4) {
+async function createOnly(sink, path, text, tries = 4, options = undefined) {
   let last = "";
   for (let n = 0; n < tries; n += 1) {
     const there = await sink.read(path);
     if (there.status === "error") return { status: "error", detail: there.detail };
     if (there.status === "found") return { status: there.text === text ? "already" : "different" };
-    const made = await sink.create(path, text);
+    const made = await sink.create(path, text, options);
     if (made.status === "created") return { status: "created" };
     if (made.status === "error") return { status: "error", detail: made.detail };
     last = made.status;
@@ -1555,6 +1557,248 @@ async function upload(args, io) {
     };
   const verb = done.status === "already" ? "already uploaded" : "uploaded";
   return { code: 0, out: `${disclosure}${verb} \`${path}\` to \`${where}\`\n` };
+}
+
+// --- Uploading a closed run's raw run folder, only to an `s3` bucket that expires it.
+
+const RAW_ROOT = "raw/";
+
+/**
+ * The days after which the bucket's own lifecycle deletes everything under
+ * `raw/`, read from the store's XML; null when no rule does. A rule counts
+ * only when it is enabled, expires by age (`Expiration` with `Days`), and
+ * covers all of `raw/`: no prefix, or a prefix `raw/` starts with, in the
+ * legacy `Prefix`, `Filter/Prefix` or `Filter/And/Prefix` form. A rule with a
+ * tag or size filter reaches only some objects, so it does not count. Of
+ * several covering rules the shortest is quoted: that is when the folder is
+ * surely gone.
+ *
+ * @param {string} xml
+ * @returns {{days: number} | null}
+ */
+export function rawExpiry(xml) {
+  let days = null;
+  for (const [, rule] of String(xml).matchAll(/<Rule>([\s\S]*?)<\/Rule>/g)) {
+    if (!/<Status>\s*Enabled\s*<\/Status>/.test(rule)) continue;
+    const after = /<Expiration>[\s\S]*?<Days>\s*(\d+)\s*<\/Days>[\s\S]*?<\/Expiration>/.exec(rule);
+    const n = after ? Number(after[1]) : 0;
+    if (!(n >= 1)) continue;
+    const filter = /<Filter>([\s\S]*?)<\/Filter>/.exec(rule)?.[1] ?? null;
+    if (filter !== null && /<Tag>|<ObjectSize/.test(filter)) continue;
+    const prefix =
+      /<Prefix>([\s\S]*?)<\/Prefix>/.exec(
+        filter ?? rule.replace(/<Expiration>[\s\S]*?<\/Expiration>/, ""),
+      )?.[1] ?? "";
+    if (!RAW_ROOT.startsWith(xmlText(prefix))) continue;
+    days = days === null ? n : Math.min(days, n);
+  }
+  return days === null ? null : { days };
+}
+
+/** The namespaced raw prefix: `raw/<host>/<owner>/<repo>/<login>/<run-id>/`, every segment lowercased. */
+function rawPrefix(repository, login, runId) {
+  const segments = [...repository.split("/"), login, runId].map(segmentOf);
+  return repository.split("/").length === 3 && segments.every(Boolean)
+    ? `${RAW_ROOT}${segments.join("/")}/`
+    : null;
+}
+
+/** `1.8 MB`, `9.1 kB`, `12 B`: decimal units, one place. */
+function sizeText(bytes) {
+  if (bytes < 1000) return `${bytes} B`;
+  return bytes < 1_000_000
+    ? `${(bytes / 1000).toFixed(1)} kB`
+    : `${(bytes / 1_000_000).toFixed(1)} MB`;
+}
+
+/**
+ * Every regular file under a run folder, with its text, in path order. A link
+ * is never followed (it could lead out of the folder) and is named instead.
+ * A file that is not UTF-8 text is named too: the upload sends text only.
+ */
+function folderFiles(folder) {
+  const files = [];
+  const links = [];
+  const binary = [];
+  const walk = (dir, rel) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true }).sort((a, b) =>
+      a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
+    )) {
+      const path = `${rel}${entry.name}`;
+      if (entry.isSymbolicLink()) links.push(path);
+      else if (entry.isDirectory()) walk(join(dir, entry.name), `${path}/`);
+      else if (entry.isFile()) {
+        const bytes = readFileSync(join(dir, entry.name));
+        const text = bytes.toString("utf8");
+        if (Buffer.from(text, "utf8").equals(bytes)) files.push({ path, text, size: bytes.length });
+        else binary.push(path);
+      }
+    }
+  };
+  walk(folder, "");
+  return { files, links, binary };
+}
+
+const listed = (names) => names.map((name) => `\`${name}\``).join(", ");
+
+/**
+ * `upload-raw <run> [--list] [--yes]`: the raw run folder, to the `s3` bucket
+ * `records.raw.sink` names, and only when that bucket's own lifecycle expires
+ * `raw/`. It reads the lifecycle and never writes it. Without `--yes` it
+ * shows the disclosure line and writes nothing; the yes is the human's, given
+ * at every close-out (never a routine write).
+ */
+async function uploadRaw(args, io) {
+  const yes = args.includes("--yes");
+  const list = args.includes("--list");
+  const rest = args.filter((a) => a !== "--yes" && a !== "--list");
+  if (rest.length !== 1 || rest[0].startsWith("--")) return { code: 2, out: UPLOAD_RAW_USAGE };
+  const cwd = io.cwd ?? process.cwd();
+  const read = (path) => {
+    try {
+      return readFileSync(resolve(cwd, path), "utf8");
+    } catch {
+      return null;
+    }
+  };
+  const loaded = readConfig(read);
+  if (loaded.problems.length) return { code: 1, out: `${loaded.problems.join("\n")}\n` };
+  const { records, run_dir: runDir } = effectiveConfig(loaded.config);
+  const target = records.raw.sink;
+  if (target === null)
+    return {
+      code: 1,
+      out: "no `records.raw.sink` in the config: raw run folders are never offered, and nothing is uploaded\n",
+    };
+
+  // The Run Record comes first: it names the login and the repository, and the close-out has already shown it.
+  const arg = rest[0];
+  const asPath = arg.includes("/");
+  const runId = asPath ? basename(resolve(cwd, arg)) : arg;
+  const folder = asPath ? resolve(cwd, arg) : resolve(cwd, runDir, runId);
+  const recordsDir = asPath ? join(dirname(folder), "records") : resolve(cwd, runDir, "records");
+  const found = ID.test(runId)
+    ? await openSink("local", { dir: recordsDir }).read(`${runId}.json`)
+    : { status: "missing" };
+  if (found.status !== "found")
+    return {
+      code: 1,
+      out: `no Run Record for \`${runId}\` in ${recordsDir}: derive it at close-out (\`records.mjs derive <run-folder>\`)\n`,
+    };
+  let record;
+  try {
+    record = JSON.parse(found.text);
+  } catch {
+    return { code: 1, out: `the Run Record for \`${runId}\` is not JSON: nothing uploaded\n` };
+  }
+  const login = record?.run?.operator ?? null;
+  if (login === null)
+    return {
+      code: 1,
+      out: "no tracker login: nothing is uploaded under no name. Sign in with `gh`, or set ORCHESTRATE_OPERATOR, and derive the record again\n",
+    };
+  const exec = io.exec ?? defaultExec;
+  const repository = (
+    records.repository ??
+    record.run.repo ??
+    repoOf({ ...io, exec })
+  )?.toLowerCase();
+  if (!repository)
+    return {
+      code: 3,
+      out: "cannot tell which repository this run belongs to: there are several remotes and none is `origin`, or there is no remote. Ask which one, then pin it as `records.repository`\n",
+    };
+  const prefix = rawPrefix(repository, login, record.run.id);
+  if (prefix === null)
+    return {
+      code: 1,
+      out: `\`${repository}\` is not a \`host/owner/repo\` name: nothing uploaded\n`,
+    };
+
+  let tree;
+  try {
+    tree = folderFiles(folder);
+  } catch {
+    return { code: 1, out: `no run folder at ${folder}: nothing uploaded\n` };
+  }
+  if (tree.binary.length)
+    return {
+      code: 1,
+      out: `${listed(tree.binary)} ${tree.binary.length === 1 ? "is" : "are"} not UTF-8 text: raw upload sends text files only. Nothing uploaded\n`,
+    };
+  const { files, links } = tree;
+
+  const sink = openConfigured(target, {
+    exec,
+    env: io.env ?? process.env,
+    fetch: io.fetch,
+    now: io.now,
+  });
+  const where = sinkLabel(target);
+  if (sink.problem) return { code: 1, out: `\`${where}\`: ${sink.problem}: nothing uploaded\n` };
+  const privacy = await sink.privacy();
+  if (privacy.private === null)
+    return { code: 1, out: `cannot read whether \`${where}\` is private: nothing uploaded\n` };
+  if (!privacy.private)
+    return {
+      code: 1,
+      out: `\`${where}\` is not private (${privacy.visibility}): a raw run folder is never uploaded to it, and there is no override. Nothing uploaded\n`,
+    };
+
+  // The gate: the bucket's own rule must expire `raw/`. This only reads; the skill never writes bucket configuration.
+  const lifecycle = await sink.lifecycle();
+  if (lifecycle.status === "error")
+    return {
+      code: 1,
+      out: `cannot read the lifecycle of \`${where}\`: ${lifecycle.detail}. A raw run folder is uploaded only to a bucket whose rule expires \`raw/\`: nothing uploaded\n`,
+    };
+  if (lifecycle.status === "missing")
+    return {
+      code: 1,
+      out: `\`${where}\` has no lifecycle rule. A raw run folder is uploaded only to a bucket whose rule expires \`raw/\`: set one on the bucket (the skill never writes it). Nothing uploaded\n`,
+    };
+  const expiry = rawExpiry(lifecycle.xml);
+  if (expiry === null)
+    return {
+      code: 1,
+      out: `no enabled rule expires \`raw/\` in the lifecycle of \`${where}\`. A raw run folder is uploaded only to a bucket whose rule expires \`raw/\`: set one on the bucket (the skill never writes it). Nothing uploaded\n`,
+    };
+
+  const total = files.reduce((sum, file) => sum + file.size, 0);
+  const count = `${files.length} ${files.length === 1 ? "file" : "files"}`;
+  const disclosure = `**Also upload the raw run folder?** ${count}, ${sizeText(total)}, to bucket \`${target.bucket}\` at \`${prefix}\`. It **may quote private issue text, command output and file contents**. The bucket's own rule deletes it after about ${expiry.days} days. [List the files] [Upload] [Not now]\n`;
+  const skipped = links.length
+    ? `skipped ${links.length} ${links.length === 1 ? "link" : "links"}: ${listed(links)} (a link is never followed)\n`
+    : "";
+  if (list)
+    return { code: 0, out: `${disclosure}${files.map((f) => f.path).join("\n")}\n${skipped}` };
+  if (!yes) return { code: 0, out: `${disclosure}${skipped}` };
+
+  let created = 0;
+  let already = 0;
+  for (const file of files) {
+    const key = `${prefix}${file.path}`;
+    const done = await createOnly(sink, key, file.text, 4, {
+      contentType: "application/octet-stream",
+    });
+    if (done.status === "error")
+      return {
+        code: 1,
+        out: `${disclosure}upload failed at \`${key}\`: ${done.detail} (${created + already} of ${files.length} done)\n`,
+      };
+    if (done.status === "different")
+      return {
+        code: 1,
+        out: `${disclosure}different bytes are already at \`${key}\` in \`${where}\`: the upload stopped and nothing was overwritten (${created + already} of ${files.length} done)\n`,
+      };
+    if (done.status === "already") already += 1;
+    else created += 1;
+  }
+  const verb =
+    created === 0
+      ? `already uploaded ${count}`
+      : `uploaded ${created} ${created === 1 ? "file" : "files"}${already ? `, ${already} already there` : ""}`;
+  return { code: 0, out: `${disclosure}${verb} to \`${where}\` at \`${prefix}\`\n${skipped}` };
 }
 
 // --- Pruning closed-out run folders, on opt-in.
@@ -1993,6 +2237,7 @@ export async function main(argv, io = {}) {
   if (command === "event") return appendEvent(rest, io);
   if (command === "derive") return derive(rest, io);
   if (command === "upload") return upload(rest, io);
+  if (command === "upload-raw") return uploadRaw(rest, io);
   if (command === "prune") return prune(rest, io);
   if (command === "dashboard") return dashboard(rest, io);
   return { code: 2, out: USAGE };

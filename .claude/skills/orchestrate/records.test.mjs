@@ -35,6 +35,7 @@ import {
   checkRecord,
   main,
   openSink,
+  rawExpiry,
   repoFromRemote,
   signRequest,
 } from "./records.mjs";
@@ -3490,5 +3491,321 @@ describe("the s3 adapter", () => {
     assert.deepEqual(await sink.read(path), { status: "found", text: "{}" });
     assert.deepEqual(await sink.read("records/none.json"), { status: "missing" });
     assert.equal((await sink.create(path, "{}")).status, "exists");
+  });
+});
+
+// --- Raw run folders: only to an `s3` bucket whose own rule expires `raw/`.
+
+const RAW_CONFIG = [
+  "records:",
+  "  raw:",
+  "    sink:",
+  "      type: s3",
+  "      endpoint: https://s3.example.test",
+  "      bucket: acme-run-records",
+  "      region: us-east-1",
+  "",
+].join("\n");
+const rule = (inner, status = "Enabled") =>
+  `<?xml version="1.0"?><LifecycleConfiguration><Rule><ID>r</ID><Status>${status}</Status>${inner}</Rule></LifecycleConfiguration>`;
+const RAW_30 = rule(
+  "<Filter><Prefix>raw/</Prefix></Filter><Expiration><Days>30</Days></Expiration>",
+);
+const RAW_FILES = (() => {
+  const out = [];
+  const walk = (dir, rel = "") => {
+    for (const entry of readdirSync(dir, { withFileTypes: true }))
+      entry.isDirectory()
+        ? walk(join(dir, entry.name), `${rel}${entry.name}/`)
+        : out.push(`${rel}${entry.name}`);
+  };
+  walk(FIXTURE);
+  return out.sort();
+})();
+const RAW_PREFIX = `raw/github.com/mnaimfaizy/agent-kit/naim/${RUN}/`;
+const rawBucket = (lifecycle) => ({ buckets: { "acme-run-records": { lifecycle } } });
+const readyToRaw = (options = {}) => readyToUpload({ config: RAW_CONFIG, ...options });
+const uploadRaw = (dir, s3, args = [RUN, "--yes"], env = S3_ENV) =>
+  main(["upload-raw", ...args], { cwd: dir, env, exec: gitExec, fetch: s3.fetch, now: BUILT_AT });
+
+describe("rawExpiry: does a lifecycle rule expire everything under `raw/`", () => {
+  const days = (xml) => rawExpiry(xml)?.days ?? null;
+  it("takes an enabled rule on `raw/`, in the filter, the legacy prefix and the `And` forms", () => {
+    assert.equal(days(RAW_30), 30);
+    assert.equal(days(rule("<Prefix>raw/</Prefix><Expiration><Days>14</Days></Expiration>")), 14);
+    assert.equal(
+      days(
+        rule(
+          "<Filter><And><Prefix>raw/</Prefix></And></Filter><Expiration><Days>7</Days></Expiration>",
+        ),
+      ),
+      7,
+    );
+  });
+  it("takes a rule on a shorter prefix, or the whole bucket, since it covers `raw/` too", () => {
+    assert.equal(
+      days(rule("<Filter><Prefix></Prefix></Filter><Expiration><Days>90</Days></Expiration>")),
+      90,
+    );
+    assert.equal(days(rule("<Filter/><Expiration><Days>90</Days></Expiration>")), 90);
+    assert.equal(days(rule("<Prefix/><Expiration><Days>90</Days></Expiration>")), 90);
+    assert.equal(
+      days(rule("<Filter><Prefix>ra</Prefix></Filter><Expiration><Days>5</Days></Expiration>")),
+      5,
+    );
+  });
+  it("quotes the shortest of several covering rules", () => {
+    const two = `<LifecycleConfiguration>${RAW_30.match(/<Rule>[\s\S]*<\/Rule>/)[0]}<Rule><Status>Enabled</Status><Filter><Prefix>raw/</Prefix></Filter><Expiration><Days>10</Days></Expiration></Rule></LifecycleConfiguration>`;
+    assert.equal(days(two), 10);
+  });
+  it("refuses everything that does not expire all of `raw/` by age", () => {
+    const no = [
+      rule(
+        "<Filter><Prefix>raw/</Prefix></Filter><Expiration><Days>30</Days></Expiration>",
+        "Disabled",
+      ),
+      rule("<Filter><Prefix>records/</Prefix></Filter><Expiration><Days>30</Days></Expiration>"),
+      rule(
+        "<Filter><Prefix>raw/github.com/</Prefix></Filter><Expiration><Days>30</Days></Expiration>",
+      ),
+      rule("<Filter><Prefix>rawer/</Prefix></Filter><Expiration><Days>30</Days></Expiration>"),
+      rule(
+        "<Filter><Tag><Key>a</Key><Value>b</Value></Tag></Filter><Expiration><Days>30</Days></Expiration>",
+      ),
+      rule(
+        "<Filter><And><Prefix>raw/</Prefix><Tag><Key>a</Key><Value>b</Value></Tag></And></Filter><Expiration><Days>30</Days></Expiration>",
+      ),
+      rule(
+        "<Filter><ObjectSizeGreaterThan>5</ObjectSizeGreaterThan></Filter><Expiration><Days>30</Days></Expiration>",
+      ),
+      rule(
+        "<Filter><Prefix>raw/</Prefix></Filter><Expiration><Date>2030-01-01T00:00:00Z</Date></Expiration>",
+      ),
+      rule(
+        "<Filter><Prefix>raw/</Prefix></Filter><Transition><Days>30</Days><StorageClass>GLACIER</StorageClass></Transition>",
+      ),
+      rule(
+        "<Filter><Prefix>raw/</Prefix></Filter><NoncurrentVersionExpiration><NoncurrentDays>30</NoncurrentDays></NoncurrentVersionExpiration>",
+      ),
+      rule("<Filter><Prefix>raw/</Prefix></Filter><Expiration><Days>0</Days></Expiration>"),
+      "<LifecycleConfiguration/>",
+      "not xml at all",
+    ];
+    for (const xml of no) assert.equal(rawExpiry(xml), null, xml);
+  });
+});
+
+describe("upload-raw: the lifecycle gate", () => {
+  it("uploads nothing when the bucket has no lifecycle at all", async () => {
+    const dir = await readyToRaw();
+    const s3 = fakeS3();
+    const result = await uploadRaw(dir, s3);
+    assert.equal(result.code, 1);
+    assert.match(result.out, /no lifecycle rule/);
+    assert.match(result.out, /nothing uploaded/);
+    assert.equal(s3.puts().length, 0);
+  });
+
+  it("uploads nothing when no enabled rule expires `raw/`", async () => {
+    const dir = await readyToRaw();
+    const s3 = fakeS3(
+      rawBucket(
+        rule("<Filter><Prefix>records/</Prefix></Filter><Expiration><Days>30</Days></Expiration>"),
+      ),
+    );
+    const result = await uploadRaw(dir, s3);
+    assert.equal(result.code, 1);
+    assert.match(result.out, /no enabled rule expires `raw\/`/);
+    assert.equal(s3.puts().length, 0);
+  });
+
+  it("uploads nothing when the lifecycle cannot be read", async () => {
+    const dir = await readyToRaw();
+    const s3 = fakeS3(rawBucket(RAW_30));
+    const base = s3.fetch;
+    s3.fetch = async (url, init) =>
+      new URL(url).searchParams.has("lifecycle")
+        ? { status: 403, text: "<Error><Code>AccessDenied</Code></Error>" }
+        : base(url, init);
+    const result = await uploadRaw(dir, s3);
+    assert.equal(result.code, 1);
+    assert.match(
+      result.out,
+      /cannot read the lifecycle of `s3:\/\/acme-run-records`: HTTP 403 AccessDenied/,
+    );
+    assert.equal(s3.puts().length, 0);
+  });
+
+  it("never writes bucket configuration: its only requests are reads and object puts", async () => {
+    const dir = await readyToRaw();
+    const s3 = fakeS3(rawBucket(RAW_30));
+    assert.equal((await uploadRaw(dir, s3)).code, 0);
+    for (const call of s3.calls) {
+      if (call.method === "PUT") assert.ok(call.key.startsWith("raw/"), call.url);
+      else assert.ok(["GET", "HEAD"].includes(call.method), call.method);
+    }
+  });
+});
+
+describe("upload-raw: the upload", () => {
+  it("puts every file of the folder, one object each, under the lowercased namespace", async () => {
+    const dir = await readyToRaw();
+    const s3 = fakeS3(rawBucket(RAW_30));
+    const result = await uploadRaw(dir, s3);
+    assert.equal(result.code, 0, result.out);
+    assert.deepEqual(
+      [...BUCKET_OF(s3).keys()].sort(),
+      RAW_FILES.map((file) => `${RAW_PREFIX}${file}`),
+    );
+    for (const file of RAW_FILES)
+      assert.equal(
+        BUCKET_OF(s3).get(`${RAW_PREFIX}${file}`),
+        readFileSync(join(FIXTURE, file), "utf8"),
+      );
+    assert.match(result.out, new RegExp(`uploaded ${RAW_FILES.length} files`));
+  });
+
+  it("lowercases every namespace segment, and leaves the file path as it is", async () => {
+    const dir = await readyToRaw({ operator: "Naim" });
+    writeFileSync(join(runFolder(dir), "Notes.MD"), "x\n");
+    const s3 = fakeS3(rawBucket(RAW_30));
+    const result = await uploadRaw(dir, s3, [RUN, "--yes"], S3_ENV);
+    assert.equal(result.code, 0, result.out);
+    assert.ok(BUCKET_OF(s3).has(`${RAW_PREFIX}Notes.MD`), [...BUCKET_OF(s3).keys()].join("\n"));
+    for (const key of BUCKET_OF(s3).keys())
+      assert.ok(key.startsWith(RAW_PREFIX), `${key} is outside ${RAW_PREFIX}`);
+  });
+
+  it("uploads nothing without a yes, and says so", async () => {
+    const dir = await readyToRaw();
+    const s3 = fakeS3(rawBucket(RAW_30));
+    const result = await uploadRaw(dir, s3, [RUN]);
+    assert.equal(result.code, 0, result.out);
+    assert.equal(s3.puts().length, 0);
+  });
+
+  it("is create-only: a second run finds every object already there, and different bytes stop it", async () => {
+    const dir = await readyToRaw();
+    const s3 = fakeS3(rawBucket(RAW_30));
+    assert.equal((await uploadRaw(dir, s3)).code, 0);
+    const again = await uploadRaw(dir, s3);
+    assert.equal(again.code, 0, again.out);
+    assert.match(again.out, new RegExp(`already uploaded ${RAW_FILES.length} files`));
+    assert.equal(s3.puts().length, RAW_FILES.length);
+    appendFileSync(join(runFolder(dir), RAW_FILES[0]), "more\n");
+    const changed = await uploadRaw(dir, s3);
+    assert.equal(changed.code, 1);
+    assert.match(changed.out, /different bytes are already at/);
+    assert.match(changed.out, /nothing was overwritten/);
+  });
+
+  it("refuses a bucket that lists to a stranger, as for the record", async () => {
+    const dir = await readyToRaw();
+    const s3 = fakeS3({ buckets: { "acme-run-records": { lifecycle: RAW_30, publicList: true } } });
+    const result = await uploadRaw(dir, s3);
+    assert.equal(result.code, 1);
+    assert.match(result.out, /is not private/);
+    assert.equal(s3.puts().length, 0);
+  });
+
+  it("stops on a file that is not text, before it uploads any", async () => {
+    const dir = await readyToRaw();
+    writeFileSync(join(runFolder(dir), "shot.png"), Buffer.from([0x89, 0x50, 0xff, 0xfe, 0x00]));
+    const s3 = fakeS3(rawBucket(RAW_30));
+    const result = await uploadRaw(dir, s3);
+    assert.equal(result.code, 1);
+    assert.match(result.out, /`shot\.png` is not UTF-8 text/);
+    assert.equal(s3.puts().length, 0);
+  });
+
+  it("does not follow a link out of the run folder", async () => {
+    const dir = await readyToRaw();
+    writeFileSync(join(dir, "secret.txt"), "private\n");
+    symlinkSync(join(dir, "secret.txt"), join(runFolder(dir), "link.txt"));
+    const s3 = fakeS3(rawBucket(RAW_30));
+    const result = await uploadRaw(dir, s3);
+    assert.equal(result.code, 0, result.out);
+    assert.ok(![...BUCKET_OF(s3).keys()].some((key) => key.endsWith("link.txt")));
+    assert.match(result.out, /skipped 1 link: `link\.txt`/);
+  });
+
+  it("is a no-op with no `records.raw`: raw folders are never offered", async () => {
+    const dir = await readyToUploadS3();
+    const s3 = fakeS3(rawBucket(RAW_30));
+    const result = await uploadRaw(dir, s3);
+    assert.equal(result.code, 1);
+    assert.match(result.out, /no `records\.raw\.sink`/);
+    assert.equal(s3.calls.length, 0);
+  });
+
+  it("needs the Run Record first, for the login and the repository", async () => {
+    const dir = root();
+    writeFileSync(join(dir, "orchestrate.config.yml"), RAW_CONFIG);
+    const s3 = fakeS3(rawBucket(RAW_30));
+    const result = await uploadRaw(dir, s3);
+    assert.equal(result.code, 1);
+    assert.match(result.out, /no Run Record for/);
+    assert.equal(s3.calls.length, 0);
+  });
+
+  it("names the credentials when they are not in the environment, and makes no request", async () => {
+    const dir = await readyToRaw();
+    const s3 = fakeS3(rawBucket(RAW_30));
+    const result = await uploadRaw(dir, s3, [RUN, "--yes"], {});
+    assert.equal(result.code, 1);
+    assert.match(result.out, /ORCHESTRATE_S3_ACCESS_KEY_ID and ORCHESTRATE_S3_SECRET_ACCESS_KEY/);
+    assert.equal(s3.calls.length, 0);
+  });
+
+  it("names a config problem and uploads nothing", async () => {
+    const dir = await readyToRaw({ config: RAW_CONFIG.replace("type: s3", "type: github") });
+    const s3 = fakeS3(rawBucket(RAW_30));
+    const result = await uploadRaw(dir, s3);
+    assert.equal(result.code, 1);
+    assert.match(result.out, /records\.raw\.sink\.type/);
+    assert.equal(s3.calls.length, 0);
+  });
+});
+
+describe("upload-raw: the disclosure line", () => {
+  it("is the approved wording, with the file count, the size, the bucket, the path and the rule's days", async () => {
+    const dir = await readyToRaw();
+    const s3 = fakeS3(rawBucket(RAW_30));
+    const result = await uploadRaw(dir, s3, [RUN]);
+    assert.equal(
+      result.out.split("\n")[0],
+      `**Also upload the raw run folder?** ${RAW_FILES.length} files, 9.1 kB, to bucket \`acme-run-records\` at \`${RAW_PREFIX}\`. It **may quote private issue text, command output and file contents**. The bucket's own rule deletes it after about 30 days. [List the files] [Upload] [Not now]`,
+    );
+  });
+
+  it("quotes the days of the rule it found, and the singular for one file", async () => {
+    const dir = await readyToRaw();
+    const only = join(runFolder(dir), "delegations");
+    rmSync(only, { recursive: true });
+    rmSync(join(runFolder(dir), "events.jsonl"));
+    writeFileSync(join(runFolder(dir), "one.md"), "x");
+    const s3 = fakeS3(
+      rawBucket(
+        rule("<Filter><Prefix>raw/</Prefix></Filter><Expiration><Days>14</Days></Expiration>"),
+      ),
+    );
+    const result = await uploadRaw(dir, s3, [RUN]);
+    assert.match(result.out, /^\*\*Also upload the raw run folder\?\*\* 1 file, 1 B, to bucket/);
+    assert.match(result.out, /deletes it after about 14 days\./);
+  });
+
+  it("lists the files, one path per line, on `--list`, and uploads nothing", async () => {
+    const dir = await readyToRaw();
+    const s3 = fakeS3(rawBucket(RAW_30));
+    const result = await uploadRaw(dir, s3, [RUN, "--list"]);
+    assert.equal(result.code, 0, result.out);
+    for (const file of RAW_FILES) assert.ok(result.out.split("\n").includes(file), file);
+    assert.equal(s3.puts().length, 0);
+  });
+
+  it("shows no offer where the upload is refused", async () => {
+    const dir = await readyToRaw();
+    const result = await uploadRaw(dir, fakeS3(), [RUN]);
+    assert.doesNotMatch(result.out, /\[Upload\]/);
   });
 });
