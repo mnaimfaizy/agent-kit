@@ -441,3 +441,42 @@ describe("uploading the Run Record to a sink", () => {
     );
   });
 });
+
+describe("pruning closed-out run folders, on opt-in", () => {
+  it("makes the close-out prune only with the key, never records/ or an open run", () => {
+    const text = flat(section(SKILL, "### 10. Close out"));
+    assert.match(
+      text,
+      /With `prune\.after_days` set in the config, run `node "<skill>\/records\.mjs" prune` once the record is derived: it deletes the closed-out run folders older than that many days, never `records\/` and never an open run/,
+    );
+  });
+
+  it("asks once with no key, writes the key only on a yes, and does not ask again after a no", () => {
+    const text = flat(section(SKILL, "### 10. Close out"));
+    assert.match(
+      text,
+      /With no `prune` key, ask once whether to prune at 90 days, and write `prune\.after_days: 90` into the config only on a yes\. On a no, run `node "<skill>\/records\.mjs" prune --declined` and write nothing to the config: a "no" is not asked again\. Do not ask when the `prune` key is there, or when `<run_dir>\/prune-declined` is\./,
+    );
+    const run = flat(section(RUN, "### Pruning old run folders"));
+    assert.match(run, /The key is written only on a yes\./);
+    assert.match(run, /A bad config, or no `prune` key, deletes nothing\./);
+    assert.match(run, /`<run_dir>\/records\/`, and every record in it, always stays/);
+  });
+
+  it("CONFIG.md, the docs page and DESIGN.md say what prune.after_days does", () => {
+    const config = flat(read(`${SKILL_DIR}/CONFIG.md`));
+    assert.match(config, /### `prune`/);
+    assert.match(config, /Setting it is the consent to delete\./);
+    assert.match(
+      config,
+      /With no `prune` key, the close-out asks once whether to prune at 90 days, and writes `prune\.after_days: 90` into the config only on a yes\./,
+    );
+    const docs = flat(DOCS);
+    assert.match(docs, /Local pruning is \*\*off\*\* until you set `prune\.after_days`/);
+    assert.match(docs, /\| `prune` \| `after_days`/);
+    assert.match(
+      flat(DESIGN),
+      /Pruning local run folders is opt-in and is the one setting that deletes data/,
+    );
+  });
+});

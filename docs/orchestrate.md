@@ -278,6 +278,17 @@ You can read the record first, upload it, or say "Not now": the local record sta
 - **Private only.** The skill checks the repository is private at every upload, and refuses one that is public (or `internal`), with no override.
 - **Access.** `gh` needs **Contents: write** on the sink repository to upload ([`sinks/github.md`](../.claude/skills/orchestrate/sinks/github.md)). Whoever can read the repository can read every record in it, and a git repository cannot expire a file, so the records are kept until someone deletes them by hand.
 
+#### Pruning old run folders
+
+Run folders pile up under `tmp/orchestrate/`. Local pruning is **off** until you set `prune.after_days` in the config: setting it is the consent to delete. A run with no `prune` key deletes nothing, and asks once at close-out whether to prune at 90 days. Answer yes and the Chief of Staff writes `prune.after_days: 90` into the config; answer no and it is not asked again (the answer is remembered on your machine, in `<run_dir>/prune-declined`).
+
+```yaml
+prune:
+  after_days: 90 # unset: no pruning; setting it is the consent
+```
+
+Only **closed-out** run folders older than the setting are deleted: those with a Run Record in `<run_dir>/records/` that closed more than `after_days` days ago. An open run, a closed run newer than the setting, and `<run_dir>/records/` with every record in it always stay. Why: [DESIGN.md](../.claude/skills/orchestrate/DESIGN.md#run-events-and-the-run-record).
+
 ## Spec mode
 
 `/orchestrate --spec <n>` reads the spec issue and decides its shape:
@@ -428,6 +439,7 @@ The repository's facts live in one file at its root: `orchestrate.config.yml`, `
 | `spec`           | `landing`: `ask` (default), `integration-branch` or `per-ticket`. `integration_branch`: the branch name, default `orchestrate/spec-<n>`.                                                                                                                   |
 | `tracker`        | Read only by a Team Run: `detect` (default, from the git remote's host), `github` or `gitlab`. Pin it for any host but `github.com` or `gitlab.com`.                                                                                                       |
 | `team`           | Read only by a Team Run. `labels`: the label for each of the six states (default `team: planned` and so on). `recent_activity`: milestones a Shared Board row keeps (default 5).                                                                           |
+| `prune`          | `after_days`: delete closed-out run folders older than this many days, never `records/` or an open run (default unset: no pruning). Without it, the close-out asks once whether to prune at 90 days.                                                       |
 
 A route, command or skill name is free text: the brief carries it as written, so a route can be a command, a skill to use, or a sentence of convention.
 

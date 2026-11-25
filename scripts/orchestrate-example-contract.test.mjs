@@ -92,6 +92,25 @@ describe("examples/orchestrate.config.yml", () => {
     );
   });
 
+  it("shows the `prune` key as a commented block that reads with no problems once uncommented", () => {
+    const lines = EXAMPLE.split("\n");
+    const start = lines.findIndex((line) => line === "# prune:");
+    assert.ok(start >= 0, "a commented `prune:` block");
+    const block = [];
+    for (const line of lines.slice(start)) {
+      if (!line.startsWith("# ")) break;
+      block.push(line.slice(2));
+    }
+    const { config: parsed, problems } = config.parseConfig(FILE, block.join("\n"));
+    assert.deepEqual(problems, []);
+    assert.deepEqual(keyPaths(parsed).sort(), ["prune", "prune.after_days"]);
+    // A repository that copies the example prunes nothing until it uncomments the block.
+    assert.equal(
+      config.effectiveConfig(config.parseConfig(FILE, EXAMPLE).config).prune.after_days,
+      null,
+    );
+  });
+
   it("shows every key config.mjs accepts", () => {
     const { config: parsed } = config.parseConfig(FILE, EXAMPLE);
     // `records` is shown commented out, and checked by the test above.
@@ -99,6 +118,8 @@ describe("examples/orchestrate.config.yml", () => {
       ...keyPaths(parsed),
       ...config.RECORDS_KEYS.map((k) => `records.${k}`),
       "records",
+      ...config.PRUNE_KEYS.map((k) => `prune.${k}`),
+      "prune",
     ]);
     const sub = (section, keys) => keys.map((k) => `${section}.${k}`);
     const accepted = [

@@ -336,6 +336,18 @@ The count of people with access is left out when the sink cannot be read for it.
 
 **The path** is `records/<host>/<owner>/<repo>/<login>/<run-id>.json`, every segment lowercased. `<host>/<owner>/<repo>` is `records.repository`, or the record's own repository, read from the `origin` remote (or the only remote); `<login>` is `run.operator`. A run with no `records` keys writes the local record and offers nothing.
 
+### Pruning old run folders
+
+Local pruning is off until the config sets `prune.after_days` ([CONFIG.md](CONFIG.md#prune)); setting it is the consent to delete. The close-out runs it after deriving the record:
+
+```bash
+node "<skill>/records.mjs" prune
+```
+
+It deletes a run folder only when the run is **closed out**: its Run Record is in `<run_dir>/records/<run-id>.json` and names that run, and the record's `closed_at` is more than `after_days` days ago. An open run has no record, so it stays, however old. A closed run newer than the setting stays. `<run_dir>/records/`, and every record in it, always stays, and so does anything in `<run_dir>` that is not a run folder. A bad config, or no `prune` key, deletes nothing.
+
+**The ask, once.** With no `prune` key, the close-out asks: "Prune closed-out run folders older than 90 days from now on? Run Records are never deleted." On a yes, write `prune.after_days: 90` into the config file the run read (create `orchestrate.config.yml` if there is none), and run `prune`. On a no, run `node "<skill>/records.mjs" prune --declined`, which writes `<run_dir>/prune-declined` and nothing else, and does not ask again. The key is written only on a yes.
+
 ## Run Summary
 
 After the human has merged, the Chief of Staff may offer a Run Summary on the umbrella issue the run's issues share, if they share one. It lists each Delegation with its pull request, each decision the human made and where it was recorded, in an autonomous run each Ruling with its verdict, what was not delegated, and anything left open. Posting it is a write as the human: it is drafted, shown, and posted only on a yes.

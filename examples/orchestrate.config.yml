@@ -100,3 +100,9 @@ team: # read only by a Team Run
 #     type: github # github
 #     repo: acme/run-records # a private repository: owner/name or host/owner/name
 #     branch: main # default: that repo's default branch
+
+# Local pruning is off. To delete closed-out run folders older than N days from
+# this machine at close-out (never the Run Records, never an open run),
+# uncomment this. Without it, the close-out asks once whether to prune at 90 days.
+# prune:
+#   after_days: 90 # unset: no pruning; setting it is the consent
