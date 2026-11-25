@@ -67,7 +67,11 @@ describe("RUN.md: the past-runs dashboard", () => {
     assert.match(text, /node "<skill>\/records\.mjs" dashboard --local-logs/);
     assert.match(text, /node "<skill>\/records\.mjs" dashboard --repo <host\/owner\/repo>/);
     assert.match(text, /It never launches a browser/);
-    assert.match(text, /the page is never hosted/);
+    assert.match(text, /the skill never hosts the page/);
+    assert.match(
+      text,
+      /A team may host `dashboard\.html` itself \(never `dashboard\.local\.html`\), behind its own access control: it holds every record it was built from/,
+    );
   });
 
   it("reads the sink through the upload's operations, caches forever, and treats an unreadable sink as a warning", () => {
@@ -216,7 +220,11 @@ describe("DESIGN.md and docs/orchestrate.md say what it does and why", () => {
       /`--dashboard` takes nothing but `--repo <host\/owner\/repo>` and `--local-logs`, each once\./,
     );
     const text = flat(section(DOCS, "#### The past-runs dashboard"));
-    assert.match(text, /the skill never launches a browser, and the page is never hosted/);
+    assert.match(text, /the skill never launches a browser, and never hosts the page/);
+    assert.match(
+      text,
+      /your team may host `dashboard\.html` \(never `dashboard\.local\.html`\) itself, behind its own access control\. It holds every record it was built from/,
+    );
     assert.match(
       text,
       /Without `--local-logs` the page holds no prose, because a Run Record holds none/,
