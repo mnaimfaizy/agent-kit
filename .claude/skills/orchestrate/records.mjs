@@ -870,13 +870,14 @@ function derive(args, io) {
   return { code: 0, out: `${lines.join("\n")}\n` };
 }
 
-// --- Sinks: one interface, `local` and `github` behind it.
+// --- Sinks: one interface, `local`, `github` and `gitlab` behind it.
 //
 //   list(prefix)          the paths under a prefix, as a sorted list
 //   read(path)            {status: "found", text} | {status: "missing"} | {status: "error", detail}
 //   create(path, text)    create-only: {status: "created"} | {status: "exists"} | {status: "conflict"} | {status: "error", detail}
 //   privacy()             {private, visibility}; both null when it cannot be read
 //   access()              how many people can read the sink, or null when it cannot be read
+//   kind                  what the disclosure calls the sink: "GitHub repository", "GitLab project"
 //
 // `create` never overwrites: it reports `exists` and writes nothing. What a
 // caller does about an existing path (identical bytes count as uploaded,
@@ -892,12 +893,13 @@ const segmentOf = (value) => {
 /**
  * Open a sink by type.
  *
- * @param {"local" | "github"} type
+ * @param {"local" | "github" | "gitlab"} type
  * @param {{dir?: string, repo?: string, branch?: string | null, exec?: Function}} options
  */
 export function openSink(type, options = {}) {
   if (type === "local") return localSink(options.dir);
   if (type === "github") return githubSink(options);
+  if (type === "gitlab") return gitlabSink(options);
   throw new Error(`unknown sink type \`${type}\``);
 }
 
@@ -942,11 +944,11 @@ function localSink(dir) {
 }
 
 /** `owner/name` or `host/owner/name`, as the config reader checked it. */
-function splitSinkRepo(repo) {
+function splitSinkRepo(repo, type = "github") {
   const parts = repo.split("/");
   return parts.length === 3
     ? { host: parts[0], owner: parts[1], name: parts[2] }
-    : { host: "github.com", owner: parts[0], name: parts[1] };
+    : { host: type === "gitlab" ? "gitlab.com" : "github.com", owner: parts[0], name: parts[1] };
 }
 
 const NOT_FOUND = /HTTP 404|"status":\s*"404"/;
@@ -963,6 +965,7 @@ function githubSink({ repo, branch = null, exec = defaultExec }) {
   const detail = (r) => (r.err || r.out || `exit ${r.code}`).trim().split("\n")[0];
   return {
     name: repo,
+    kind: "GitHub repository",
     async list(prefix = "") {
       const first = gh([`${base}/git/trees/${branch ?? "HEAD"}?recursive=1`]);
       if (first.code !== 0) return null;
@@ -1011,6 +1014,120 @@ function githubSink({ repo, branch = null, exec = defaultExec }) {
     async access() {
       const r = gh(["--paginate", "--jq", ".[].login", `${base}/collaborators`]);
       return r.code === 0 ? r.out.split(/\r?\n/).filter(Boolean).length : null;
+    },
+  };
+}
+
+/** A GitLab 404: `glab api` prints the status in its message, or the body's own. */
+const GITLAB_NOT_FOUND = /\b404\b/;
+/** The most pages a listing follows: a stop for a server that never runs out. */
+const MAX_PAGES = 1000;
+
+/**
+ * A private GitLab project, written with `glab api` Repository Files calls.
+ * GitLab does not document create-only, so `createOnly` reads the path before
+ * every create. Pages are followed by hand until one comes back empty, since a
+ * server may cap `per_page` below what was asked.
+ */
+function gitlabSink({ repo, branch = null, exec = defaultExec }) {
+  const { host, owner, name } = splitSinkRepo(repo, "gitlab");
+  const glab = (args, options) =>
+    exec("glab", ["api", ...(host === "gitlab.com" ? [] : ["--hostname", host]), ...args], options);
+  const project = `projects/${encodeURIComponent(`${owner}/${name}`)}`;
+  const file = (path) => `${project}/repository/files/${encodeURIComponent(path)}`;
+  const detail = (r) => (r.err || r.out || `exit ${r.code}`).trim().split("\n")[0];
+  const json = (r) => {
+    if (r.code !== 0) return null;
+    try {
+      return JSON.parse(r.out);
+    } catch {
+      return null;
+    }
+  };
+  /** Every item of a paginated list endpoint, or null when a page cannot be read. */
+  const pages = (endpoint) => {
+    const items = [];
+    for (let page = 1; page <= MAX_PAGES; page += 1) {
+      const body = json(
+        glab([`${endpoint}${endpoint.includes("?") ? "&" : "?"}per_page=100&page=${page}`]),
+      );
+      if (!Array.isArray(body)) return null;
+      if (body.length === 0) return items;
+      items.push(...body);
+    }
+    return null;
+  };
+  // The Files API always wants a ref: the configured branch, else the project's default.
+  let defaultBranch;
+  const refOf = () => {
+    if (branch) return branch;
+    if (defaultBranch === undefined) defaultBranch = json(glab([project]))?.default_branch ?? null;
+    return defaultBranch;
+  };
+  return {
+    name: repo,
+    kind: "GitLab project",
+    async list(prefix = "") {
+      const ref = refOf();
+      if (ref === null) return null;
+      const folder = prefix.includes("/") ? prefix.slice(0, prefix.lastIndexOf("/")) : "";
+      const query = `?recursive=true&ref=${encodeURIComponent(ref)}${folder ? `&path=${encodeURIComponent(folder)}` : ""}`;
+      const tree = `${project}/repository/tree${query}`;
+      let entries = pages(tree);
+      if (entries === null) {
+        // A folder that is not there yet is an empty listing, when the project itself can be read.
+        const first = glab([`${tree}&per_page=100&page=1`]);
+        if (!GITLAB_NOT_FOUND.test(`${first.err}${first.out}`) || json(glab([project])) === null)
+          return null;
+        entries = [];
+      }
+      return entries
+        .filter((entry) => entry.type === "blob" && entry.path.startsWith(prefix))
+        .map((entry) => entry.path)
+        .sort();
+    },
+    async read(path) {
+      const ref = refOf();
+      if (ref === null)
+        return { status: "error", detail: "the project's default branch cannot be read" };
+      const r = glab([`${file(path)}/raw?ref=${encodeURIComponent(ref)}`]);
+      if (r.code === 0) return { status: "found", text: r.out };
+      return GITLAB_NOT_FOUND.test(`${r.err}${r.out}`)
+        ? { status: "missing" }
+        : { status: "error", detail: detail(r) };
+    },
+    async create(path, text) {
+      const ref = refOf();
+      if (ref === null)
+        return { status: "error", detail: "the project's default branch cannot be read" };
+      const body = {
+        branch: ref,
+        commit_message: `Add Run Record ${basename(path, ".json")}`,
+        encoding: "base64",
+        content: Buffer.from(text, "utf8").toString("base64"),
+      };
+      const r = glab(
+        ["-X", "POST", "-H", "Content-Type: application/json", file(path), "--input", "-"],
+        {
+          input: JSON.stringify(body),
+        },
+      );
+      if (r.code === 0) return { status: "created" };
+      const said = `${r.err}${r.out}`;
+      if (/already exists/i.test(said)) return { status: "exists" };
+      if (/\b409\b/.test(said)) return { status: "conflict" };
+      return { status: "error", detail: detail(r) };
+    },
+    async privacy() {
+      const body = json(glab([project]));
+      const visibility = typeof body?.visibility === "string" ? body.visibility : "";
+      return visibility === ""
+        ? { private: null, visibility: null }
+        : { private: visibility === "private", visibility };
+    },
+    async access() {
+      const members = pages(`${project}/members/all`);
+      return members === null ? null : members.length;
     },
   };
 }
@@ -1168,7 +1285,7 @@ async function upload(args, io) {
   const access =
     people === null ? "" : `, ${people} ${people === 1 ? "person" : "people"} with access`;
   const steps = record.summary.human_steps;
-  const disclosure = `**Upload this run's Run Record?** To \`${where}\` (private GitHub repository${access}) at \`${path}\`. It holds counts, ids, times, outcomes and ${steps} human ${steps === 1 ? "step" : "steps"} with their kind and cause: no issue text, no command output, no prose. ${RECORD_KEPT} [Show the record] [Upload] [Not now]\n`;
+  const disclosure = `**Upload this run's Run Record?** To \`${where}\` (private ${sink.kind}${access}) at \`${path}\`. It holds counts, ids, times, outcomes and ${steps} human ${steps === 1 ? "step" : "steps"} with their kind and cause: no issue text, no command output, no prose. ${RECORD_KEPT} [Show the record] [Upload] [Not now]\n`;
   if (!yes) return { code: 0, out: `${disclosure}record: ${join(recordsDir, `${runId}.json`)}\n` };
 
   const done = await createOnly(sink, path, found.text);
@@ -1315,7 +1432,7 @@ export function parseSinkPath(path) {
 
 /** Where the dashboard keeps the records it fetched: a folder that mirrors the sink's paths. Null when the sink's name is not a safe folder name. */
 function cacheFolder(runDir, sinkConfig) {
-  const { host, owner, name } = splitSinkRepo(sinkConfig.repo);
+  const { host, owner, name } = splitSinkRepo(sinkConfig.repo, sinkConfig.type);
   const segments = [host, owner, name].map(segmentOf);
   if (!segments.every(Boolean)) return null;
   if (sinkConfig.branch) segments.push(`@${encodeURIComponent(sinkConfig.branch)}`);

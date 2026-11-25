@@ -1522,6 +1522,352 @@ describe("sinks: one interface, local and github behind it", () => {
   });
 });
 
+// ── The gitlab sink ─────────────────────────────────────────────────────────
+
+const GITLAB_CONFIG = SINK_CONFIG.replace("github", "gitlab");
+
+/**
+ * A fake `glab`: the projects it holds and every call it was given. Pages hold
+ * at most `pageSize` entries whatever `per_page` asks, as a server may cap them.
+ * `projects` maps `owner/name` (or `host/owner/name`) to its visibility,
+ * members, default branch and files.
+ */
+function fakeGitlab({ projects = {}, conflicts = 0, pageSize = 100 } = {}) {
+  const calls = [];
+  const state = {
+    calls,
+    conflicts,
+    repos: Object.fromEntries(
+      Object.entries({ "acme/run-records": {}, ...projects }).map(([name, project]) => [
+        name,
+        {
+          visibility: "private",
+          default_branch: "main",
+          members: ["a", "b", "c", "d"],
+          files: new Map(),
+          ...project,
+        },
+      ]),
+    ),
+    puts: () => calls.filter((c) => c.args.includes("POST")),
+    files: () => calls.filter((c) => c.args.some((a) => /\/repository\/files\//.test(a))),
+  };
+  const fail = (code, said) => ({ code: 1, out: "", err: `glab: ${said} (HTTP ${code})` });
+  state.exec = (command, args, options = {}) => {
+    calls.push({ command, args, input: options.input });
+    if (command === "git") return { code: 2, out: "" };
+    if (command !== "glab" || args[0] !== "api") return { code: 127, out: "" };
+    const host = args.includes("--hostname") ? args[args.indexOf("--hostname") + 1] : "gitlab.com";
+    const endpoint = args.find((a) => /^projects\//.test(a));
+    const [route, query = ""] = endpoint.split("?");
+    const [, id, ...rest] = route.split("/");
+    const params = new URLSearchParams(query);
+    const name = decodeURIComponent(id);
+    const project = state.repos[host === "gitlab.com" ? name : `${host}/${name}`];
+    if (!project) return fail(404, "404 Project Not Found");
+    if (project.forbidden) return fail(403, "403 Forbidden");
+    const pageOf = (items) => {
+      const page = Number(params.get("page") ?? 1);
+      return items.slice((page - 1) * pageSize, page * pageSize);
+    };
+    if (rest.length === 0)
+      return {
+        code: 0,
+        out: JSON.stringify({
+          visibility: project.visibility,
+          default_branch: project.default_branch,
+        }),
+      };
+    if (rest[0] === "members" && rest[1] === "all")
+      return project.members
+        ? {
+            code: 0,
+            out: JSON.stringify(pageOf(project.members.map((username) => ({ username })))),
+          }
+        : fail(403, "403 Forbidden");
+    const ref = params.get("ref");
+    if (ref !== null && ref !== (project.branch ?? project.default_branch))
+      return fail(404, "404 Ref Not Found");
+    if (rest[0] === "repository" && rest[1] === "tree") {
+      const where = params.get("path") ?? "";
+      const paths = [...project.files.keys()].filter((p) => p.startsWith(where ? `${where}/` : ""));
+      if (where && paths.length === 0) return fail(404, "404 Tree Not Found");
+      const entries = [];
+      const seen = new Set();
+      for (const path of paths) {
+        const parts = path.split("/");
+        for (let n = 1; n < parts.length; n += 1) {
+          const dir = parts.slice(0, n).join("/");
+          if (!seen.has(dir) && dir.length > where.length) {
+            seen.add(dir);
+            entries.push({ path: dir, type: "tree" });
+          }
+        }
+        entries.push({ path, type: "blob" });
+      }
+      return { code: 0, out: JSON.stringify(pageOf(entries)) };
+    }
+    if (rest[0] !== "repository" || rest[1] !== "files") return fail(404, "404 Not Found");
+    const path = decodeURIComponent(rest[2]);
+    if (args.includes("POST")) {
+      if (state.conflicts > 0) {
+        state.conflicts -= 1;
+        return fail(409, "409 Conflict: file is locked");
+      }
+      const body = JSON.parse(options.input);
+      if (project.files.has(path))
+        return fail(400, "400 Bad Request: A file with this name already exists");
+      project.files.set(path, Buffer.from(body.content, "base64").toString("utf8"));
+      project.lastPost = body;
+      return { code: 0, out: "{}" };
+    }
+    if (rest[3] !== "raw") return fail(404, "404 Not Found");
+    return project.files.has(path)
+      ? { code: 0, out: project.files.get(path) }
+      : fail(404, "404 File Not Found");
+  };
+  return state;
+}
+
+const uploadGitlab = (dir, transport, args = [RUN, "--yes"]) =>
+  main(["upload", ...args], { cwd: dir, env: {}, exec: transport.exec });
+
+describe("upload: create-only writes to a gitlab sink", () => {
+  it("shows the disclosure for a private GitLab project, with the member count", async () => {
+    const dir = await readyToUpload({ config: GITLAB_CONFIG });
+    const transport = fakeGitlab();
+    const result = await uploadGitlab(dir, transport, [RUN]);
+    assert.equal(result.code, 0, result.out);
+    assert.match(
+      result.out,
+      /To `acme\/run-records` \(private GitLab project, 4 people with access\) at `records\//,
+    );
+    assert.equal(transport.puts().length, 0);
+  });
+
+  it("reads the path first, then creates it with the record's exact bytes, on the default branch", async () => {
+    const dir = await readyToUpload({ config: GITLAB_CONFIG });
+    const transport = fakeGitlab();
+    const result = await uploadGitlab(dir, transport);
+    assert.equal(result.code, 0, result.out);
+    assert.match(
+      result.out,
+      new RegExp(`uploaded \`${SINK_PATH.replaceAll(".", "\\.")}\` to \`acme/run-records\``),
+    );
+    const project = transport.repos["acme/run-records"];
+    assert.equal(project.files.get(SINK_PATH), readFileSync(recordPath(dir), "utf8"));
+    assert.equal(project.lastPost.branch, "main");
+    assert.equal(project.lastPost.encoding, "base64");
+    const files = transport.files();
+    assert.ok(
+      files[0].args.some((a) => a.includes("/raw")),
+      "the first file call reads",
+    );
+    assert.deepEqual(files[1].args.slice(0, 3), ["api", "-X", "POST"]);
+    assert.ok(
+      files[1].args.includes(
+        `projects/acme%2Frun-records/repository/files/${encodeURIComponent(SINK_PATH)}`,
+      ),
+    );
+  });
+
+  it("counts identical bytes already there as uploaded, and repeating is safe", async () => {
+    const dir = await readyToUpload({ config: GITLAB_CONFIG });
+    const transport = fakeGitlab();
+    assert.equal((await uploadGitlab(dir, transport)).code, 0);
+    const again = await uploadGitlab(dir, transport);
+    assert.equal(again.code, 0, again.out);
+    assert.match(again.out, /already uploaded/);
+    assert.equal(transport.puts().length, 1);
+  });
+
+  it("stops when different bytes are already at the path, and overwrites nothing", async () => {
+    const dir = await readyToUpload({ config: GITLAB_CONFIG });
+    const transport = fakeGitlab({
+      projects: { "acme/run-records": { files: new Map([[SINK_PATH, '{"someone":"else"}']]) } },
+    });
+    const result = await uploadGitlab(dir, transport);
+    assert.equal(result.code, 1);
+    assert.match(result.out, /different bytes are already at `records\//);
+    assert.equal(transport.puts().length, 0);
+    assert.equal(transport.repos["acme/run-records"].files.get(SINK_PATH), '{"someone":"else"}');
+  });
+
+  it("retries a 409, reading the path again each time, and gives up saying so", async () => {
+    const dir = await readyToUpload({ config: GITLAB_CONFIG });
+    const some = fakeGitlab({ conflicts: 2 });
+    assert.equal((await uploadGitlab(dir, some)).code, 0);
+    assert.equal(some.puts().length, 3);
+    const all = fakeGitlab({ conflicts: 99 });
+    const result = await uploadGitlab(dir, all);
+    assert.equal(result.code, 1);
+    assert.match(result.out, /409/);
+    assert.equal(all.repos["acme/run-records"].files.size, 0);
+  });
+
+  it("counts a path created between the read and the write as uploaded when identical, and a clash as exists", async () => {
+    const dir = await readyToUpload({ config: GITLAB_CONFIG });
+    const bytes = readFileSync(recordPath(dir), "utf8");
+    const transport = fakeGitlab();
+    const exec = transport.exec;
+    transport.exec = (command, args, options) => {
+      // Another writer lands the same file just before our POST.
+      if (args.includes("POST")) transport.repos["acme/run-records"].files.set(SINK_PATH, bytes);
+      return exec(command, args, options);
+    };
+    const result = await uploadGitlab(dir, transport);
+    assert.equal(result.code, 0, result.out);
+    assert.match(result.out, /already uploaded/);
+  });
+
+  it("writes to the configured branch, and reads from it", async () => {
+    const dir = await readyToUpload({ config: `${GITLAB_CONFIG}    branch: records\n` });
+    const transport = fakeGitlab({ projects: { "acme/run-records": { branch: "records" } } });
+    assert.equal((await uploadGitlab(dir, transport)).code, 0);
+    assert.equal(transport.repos["acme/run-records"].lastPost.branch, "records");
+    assert.ok(
+      transport.files().every((c) => c.args.some((a) => a.includes("ref=records") || a === "POST")),
+    );
+  });
+
+  it("uses the sink's own host for host/owner/name, and gitlab.com otherwise", async () => {
+    const dir = await readyToUpload({
+      config: GITLAB_CONFIG.replace("acme/run-records", "gitlab.acme.dev/acme/run-records"),
+    });
+    const transport = fakeGitlab({ projects: { "gitlab.acme.dev/acme/run-records": {} } });
+    const result = await uploadGitlab(dir, transport);
+    assert.equal(result.code, 0, result.out);
+    assert.ok(
+      transport.calls.every((c) => c.command !== "glab" || c.args.includes("gitlab.acme.dev")),
+    );
+    assert.ok(transport.repos["gitlab.acme.dev/acme/run-records"].files.has(SINK_PATH));
+    const home = fakeGitlab();
+    await uploadGitlab(await readyToUpload({ config: GITLAB_CONFIG }), home);
+    assert.ok(home.calls.every((c) => !c.args.includes("--hostname")));
+  });
+
+  for (const visibility of ["public", "internal"])
+    it(`refuses a ${visibility} project at every upload, with no override, before any read or write`, async () => {
+      const dir = await readyToUpload({ config: GITLAB_CONFIG });
+      const transport = fakeGitlab({ projects: { "acme/run-records": { visibility } } });
+      for (const args of [[RUN], [RUN, "--yes"]]) {
+        const result = await uploadGitlab(dir, transport, args);
+        assert.notEqual(result.code, 0);
+        assert.doesNotMatch(result.out, /Upload this run's Run Record\?/);
+        assert.match(result.out, new RegExp(`is not private \\(${visibility}\\)`));
+      }
+      assert.equal(transport.files().length, 0);
+      assert.equal((await uploadGitlab(dir, transport, [RUN, "--yes", "--force"])).code, 2);
+    });
+
+  it("refuses when the visibility cannot be read", async () => {
+    const dir = await readyToUpload({ config: GITLAB_CONFIG });
+    const transport = fakeGitlab();
+    delete transport.repos["acme/run-records"];
+    const result = await uploadGitlab(dir, transport);
+    assert.equal(result.code, 1);
+    assert.match(result.out, /cannot read whether `acme\/run-records` is private/);
+    assert.equal(transport.files().length, 0);
+  });
+
+  it("leaves the member count out when it cannot be read, and counts every page of members", async () => {
+    const dir = await readyToUpload({ config: GITLAB_CONFIG });
+    const none = await uploadGitlab(
+      dir,
+      fakeGitlab({ projects: { "acme/run-records": { members: null } } }),
+      [RUN],
+    );
+    assert.match(none.out, /\(private GitLab project\) at `records\//);
+    const paged = await uploadGitlab(dir, fakeGitlab({ pageSize: 2 }), [RUN]);
+    assert.match(paged.out, /4 people with access/);
+  });
+});
+
+describe("sinks: the gitlab adapter behind the same interface", () => {
+  const open = (transport, options = {}) =>
+    openSink("gitlab", { repo: "acme/run-records", exec: transport.exec, ...options });
+
+  it("checks, reads and lists a project through glab api", async () => {
+    const transport = fakeGitlab({
+      projects: {
+        "acme/run-records": {
+          files: new Map([
+            ["records/a/b.json", "{}"],
+            ["raw/x", "{}"],
+          ]),
+        },
+      },
+    });
+    const sink = open(transport);
+    assert.deepEqual(await sink.privacy(), { private: true, visibility: "private" });
+    assert.equal(await sink.access(), 4);
+    assert.deepEqual(await sink.read("records/a/b.json"), { status: "found", text: "{}" });
+    assert.deepEqual(await sink.read("records/a/c.json"), { status: "missing" });
+    assert.deepEqual(await sink.list("records/"), ["records/a/b.json"]);
+    assert.deepEqual(await sink.list(""), ["raw/x", "records/a/b.json"]);
+    assert.deepEqual(await sink.list("nothing/"), []);
+  });
+
+  it("follows every page of the recursive tree, 2 at a time, and asks for a recursive listing of records", async () => {
+    const paths = Array.from({ length: 7 }, (_, n) => `records/h/o/r/naim/run-${n}.json`);
+    const transport = fakeGitlab({
+      pageSize: 2,
+      projects: { "acme/run-records": { files: new Map(paths.map((p) => [p, "{}"])) } },
+    });
+    assert.deepEqual(await open(transport).list("records/"), paths);
+    const trees = transport.calls.filter((c) => c.args.some((a) => /repository\/tree/.test(a)));
+    assert.ok(trees.length >= 4, "more than one page");
+    assert.ok(
+      trees.every((c) => c.args.some((a) => /recursive=true/.test(a) && /path=records/.test(a))),
+    );
+  });
+
+  it("returns null for a list it cannot read, and [] for a missing records folder", async () => {
+    const transport = fakeGitlab();
+    assert.equal(
+      await openSink("gitlab", { repo: "acme/nowhere", exec: transport.exec }).list(""),
+      null,
+    );
+    assert.deepEqual(await open(transport).list("records/"), []);
+    transport.repos["acme/run-records"].forbidden = true;
+    assert.equal(await open(transport).list("records/"), null);
+  });
+
+  it("reports a failed read or create as an error with its first line", async () => {
+    const transport = fakeGitlab();
+    transport.repos["acme/run-records"].forbidden = true;
+    const sink = open(transport);
+    assert.equal((await sink.read("records/x.json")).status, "error");
+    assert.equal((await sink.create("records/x.json", "{}")).status, "error");
+  });
+});
+
+describe("the dashboard reads a gitlab sink", () => {
+  it("lists records over several pages, reads only the paths its cache lacks, and builds the page", async () => {
+    const { dir, files } = await readyToRead({ config: GITLAB_CONFIG });
+    const transport = fakeGitlab({ pageSize: 3, projects: { "acme/run-records": { files } } });
+    const first = await build(dir, transport);
+    assert.equal(first.code, 0, first.out);
+    assert.match(first.out, /built the dashboard from 4 Run Records/);
+    assert.match(first.out, /skipped records\/stray\.txt/);
+    const html = body(page(dir));
+    for (const ns of [NS_A, NS_B]) assert.match(html, new RegExp(`id="/repo/${ns}"`));
+    const raw = () => transport.calls.filter((c) => c.args.some((a) => /\/raw/.test(a))).length;
+    const fetched = raw();
+    assert.ok(fetched >= 4);
+    await build(dir, transport);
+    assert.equal(raw(), fetched, "the cache held every record");
+  });
+
+  it("warns, and builds from local records only, when the project cannot be read", async () => {
+    const { dir } = await readyToRead({ config: GITLAB_CONFIG });
+    const transport = fakeGitlab({ projects: { "acme/run-records": { forbidden: true } } });
+    const result = await build(dir, transport);
+    assert.equal(result.code, 1, "nothing is local, so there is nothing to build");
+    assert.match(result.out, /could not read `acme\/run-records`/);
+  });
+});
+
 describe("the command line", () => {
   it("exits 2 with the usage on an unknown command or a missing run folder", async () => {
     assert.equal((await main([])).code, 2);
