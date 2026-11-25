@@ -64,9 +64,41 @@ describe("examples/orchestrate.config.yml", () => {
     assert.match(problems, /triage_labels/);
   });
 
+  it("shows the `records` keys as a commented block that reads with no problems once uncommented", () => {
+    const lines = EXAMPLE.split("\n");
+    const start = lines.findIndex((line) => line === "# records:");
+    assert.ok(start >= 0, "a commented `records:` block");
+    const block = [];
+    for (const line of lines.slice(start)) {
+      if (!line.startsWith("# ")) break;
+      block.push(line.slice(2));
+    }
+    const { config: parsed, problems } = config.parseConfig(FILE, block.join("\n"));
+    assert.deepEqual(problems, []);
+    assert.deepEqual(keyPaths(parsed).sort(), [
+      "records",
+      "records.repository",
+      "records.sink",
+      "records.sink.branch",
+      "records.sink.repo",
+      "records.sink.type",
+      "records.upload",
+    ]);
+    // A repository that copies the example gets no sink until it uncomments the block.
+    assert.equal(
+      config.effectiveConfig(config.parseConfig(FILE, EXAMPLE).config).records.sink,
+      null,
+    );
+  });
+
   it("shows every key config.mjs accepts", () => {
     const { config: parsed } = config.parseConfig(FILE, EXAMPLE);
-    const shown = new Set(keyPaths(parsed));
+    // `records` is shown commented out, and checked by the test above.
+    const shown = new Set([
+      ...keyPaths(parsed),
+      ...config.RECORDS_KEYS.map((k) => `records.${k}`),
+      "records",
+    ]);
     const sub = (section, keys) => keys.map((k) => `${section}.${k}`);
     const accepted = [
       ...Object.keys(config.SECTIONS),

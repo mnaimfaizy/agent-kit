@@ -342,3 +342,102 @@ describe("waits and Ruling events: when each is written", () => {
     assert.match(text, /A wait never closed is reported as open at close-out/);
   });
 });
+
+// ── Upload to a private sink (issue #425) ───────────────────────────────────
+
+const APPROVED_DISCLOSURE =
+  "**Upload this run's Run Record?** To `acme/run-records` (private GitHub repository, 4 people with access) at `records/github.com/acme/widgets/naim/2026-11-19-spec-344.json`. It holds counts, ids, times, outcomes and 23 human steps with their kind and cause: no issue text, no command output, no prose. It is kept indefinitely (git cannot expire it). [Show the record] [Upload] [Not now]";
+
+describe("uploading the Run Record to a sink", () => {
+  const uploading = flat(section(RUN, "### Uploading the Run Record"));
+
+  it("RUN.md carries the approved disclosure wording, word for word", () => {
+    assert.ok(
+      uploading.includes(`> ${APPROVED_DISCLOSURE}`),
+      "the disclosure's record line is the approved wording",
+    );
+  });
+
+  it("docs/orchestrate.md carries the same wording", () => {
+    assert.ok(flat(DOCS).includes(`> ${APPROVED_DISCLOSURE}`));
+  });
+
+  it("leaves the access count out when it cannot be read, and never rewords the line", () => {
+    assert.match(
+      uploading,
+      /The count of people with access is left out when the sink cannot be read for it\./,
+    );
+    assert.match(uploading, /The words are the script's; never reword them\./);
+  });
+
+  it("answers the three buttons: show the record, upload, and Not now leaves the local record for `--upload <run>`", () => {
+    assert.match(uploading, /\*\*\[Show the record\]:\*\* print the file the output names/);
+    assert.match(uploading, /\*\*\[Upload\]:\*\* run the `--yes` form/);
+    assert.match(
+      uploading,
+      /\*\*\[Not now\]:\*\* do nothing more\. The record stays in `<run_dir>\/records\/`, and the human can run `--upload <run>` later\./,
+    );
+  });
+
+  it("makes 'upload the Run Record' a routine write the Dispatch Plan may list, approved once at go", () => {
+    assert.match(
+      uploading,
+      /The Dispatch Plan may list "upload the Run Record" among the kinds of routine write, when the config sets a `records\.sink`\. Approved with the plan's "go", the close-out runs the `--yes` form without asking again/,
+    );
+    assert.match(flat(SKILL), /\*\*uploading the Run Record\*\* at close-out/);
+  });
+
+  it("SKILL.md admits `--upload <run>` in its invocation list, hint and grammar", () => {
+    assert.match(SKILL, /argument-hint: ".*\| --upload <run> \|.*"/);
+    assert.match(
+      flat(SKILL),
+      /- `\/orchestrate --upload <run>`: upload a closed run's Run Record to the sink the config's `records\.sink` names, after showing the disclosure/,
+    );
+    assert.match(
+      flat(SKILL),
+      /`--upload <run>` takes exactly one run name and nothing else, and `--upload` comes first\./,
+    );
+  });
+
+  it("makes the close-out offer the upload after the derive, and only with a sink", () => {
+    const text = flat(section(SKILL, "### 10. Close out"));
+    assert.match(
+      text,
+      /With a `records\.sink` and `records\.upload` not `never`, then \*\*upload it\*\* as \[RUN\.md\]\(RUN\.md#uploading-the-run-record\) says: show the disclosure, and upload on the human's "Upload", or without asking when the Dispatch Plan's routine write "upload the Run Record" was approved\. Without a `records\.sink`, the record stays local and nothing is offered\./,
+    );
+  });
+
+  it("lists what stops an upload, and gives no override", () => {
+    assert.match(
+      uploading,
+      /the sink is not private, or its visibility cannot be read: there is no override/,
+    );
+    assert.match(uploading, /different bytes are already at the path: nothing is overwritten/);
+    assert.match(uploading, /exit code `3`: the repository cannot be told/);
+  });
+
+  it("the sink file states the writer's access, and mirrors the tracker files", () => {
+    const sink = flat(read(`${SKILL_DIR}/sinks/github.md`));
+    assert.match(sink, /^# GitHub - \*\*Id:\*\* `github` - \*\*Support Level:\*\* `documented`/);
+    assert.match(sink, /- \*\*Facts from:\*\*/);
+    assert.match(sink, /\*\*The writer\*\* needs \*\*Contents: write\*\* on the sink repository/);
+    for (const op of ["visibility", "access", "read", "create", "list"])
+      assert.match(sink, new RegExp(`### \`${op}\``), op);
+    assert.match(sink, /## Check before use/);
+    const index = flat(read(`${SKILL_DIR}/SINKS.md`));
+    for (const op of ["visibility", "access", "read", "create", "list"])
+      assert.match(index, new RegExp(`\\| \`${op}\``), op);
+  });
+
+  it("CONFIG.md documents the records keys, and the path and login rules", () => {
+    const config = flat(read(`${SKILL_DIR}/CONFIG.md`));
+    assert.match(
+      config,
+      /A record's path in the sink is `records\/<host>\/<owner>\/<repo>\/<login>\/<run-id>\.json`, every segment lowercased/,
+    );
+    assert.match(
+      config,
+      /overridable only by the `ORCHESTRATE_OPERATOR` environment variable, and with none, nothing uploads/,
+    );
+  });
+});
