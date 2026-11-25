@@ -1224,7 +1224,8 @@ function prune(args, io) {
     };
   if (!existsSync(base)) return { code: 0, out: "nothing to prune\n" };
 
-  const cutoff = Date.parse(nowIso(io)) - setting.after_days * DAY_MS;
+  const now = new Date(io.now ? io.now() : Date.now()).getTime();
+  const cutoff = now - setting.after_days * DAY_MS;
   if (!Number.isFinite(cutoff)) return { code: 1, out: "cannot read the clock: nothing deleted\n" };
   const deleted = [];
   let failed = null;
