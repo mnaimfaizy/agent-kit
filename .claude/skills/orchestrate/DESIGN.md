@@ -1,6 +1,6 @@
 # Orchestrate design
 
-Why the skill is shaped the way it is. The skill carries this file so its rules keep their reasons in any repository it is copied into. Load it when changing the skill, or when a rule in [SKILL.md](SKILL.md), [SPEC.md](SPEC.md), [TEAM.md](TEAM.md), [BRIEF.md](BRIEF.md), [RUN.md](RUN.md), [HARNESSES.md](HARNESSES.md) or [CONFIG.md](CONFIG.md) needs its reason.
+Why the skill is shaped the way it is. The skill carries this file so its rules keep their reasons in any repository it is copied into. Load it when changing the skill, or when a rule in [SKILL.md](SKILL.md), [SPEC.md](SPEC.md), [TEAM.md](TEAM.md), [BRIEF.md](BRIEF.md), [RUN.md](RUN.md), [HARNESSES.md](HARNESSES.md), [TRACKERS.md](TRACKERS.md), [SINKS.md](SINKS.md) and the files under [sinks/](sinks/), or [CONFIG.md](CONFIG.md) needs its reason.
 
 ## Glossary
 
