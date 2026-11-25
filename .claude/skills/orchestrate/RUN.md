@@ -289,7 +289,7 @@ Every event carries an `actor`: `human`, `chief-of-staff` or `delegation`. `gh` 
 | `by-design`          | by design | An expected step: the plan's approval, the merge, the close-out.        |
 | `teammate-blocker`   | by design | Waiting on a teammate's ticket in a Team Run.                           |
 
-The plan's approval and the close-out are always `by-design`.
+The plan's approval and the close-out are always `by-design`, and derive refuses a step of either kind with another cause.
 
 **At close-out** the Chief of Staff writes `run-closed`, then derives the record:
 
