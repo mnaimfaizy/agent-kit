@@ -64,7 +64,13 @@ export const CONFIG_FILES = /** @type {const} */ ([
   "qa.config.json",
 ]);
 
-export const TOP_KEYS = /** @type {const} */ (["working_dir", "plan", "hazards", "run"]);
+export const TOP_KEYS = /** @type {const} */ (["working_dir", "plan", "hazards", "run", "report"]);
+export const REPORT_KEYS = /** @type {const} */ (["places", "holds"]);
+/** The Places a repository starts with: `local` holds a merge, the others are deferred (ADR 0033). */
+export const DEFAULT_PLACES = Object.freeze(["local", "staging", "production"]);
+export const DEFAULT_HOLDS = Object.freeze(["local"]);
+/** A Place's name: one lowercase word, so `[<place>]` reads back. */
+export const PLACE_NAME = /^[a-z0-9][a-z0-9-]*$/;
 export const PLAN_KEYS = /** @type {const} */ (["base_ref", "suites", "publish", "tracker"]);
 export const SUITE_KEYS = /** @type {const} */ ([
   "name",
@@ -85,11 +91,16 @@ export const RUN_KEYS = /** @type {const} */ ([
   "target",
   "surface",
   "stack",
+  "hosts",
   "accounts",
   "version_endpoint",
   "evidence",
 ]);
+/** What each `run.hosts` entry may hold: the candidate's name, address and optional surface. */
+export const HOST_KEYS = /** @type {const} */ (["name", "url", "surface"]);
 export const STACK_KEYS = /** @type {const} */ (["up", "migrate", "seed", "down"]);
+/** What `run.stack` may hold: the four commands, and the optional local address. */
+export const STACK_CONFIG_KEYS = /** @type {const} */ ([...STACK_KEYS, "address"]);
 export const ACCOUNT_KEYS = /** @type {const} */ (["print", "restore", "roles"]);
 export const ROLE_KEYS = /** @type {const} */ (["id", "purpose"]);
 export const EVIDENCE_KEYS = /** @type {const} */ (["upload"]);
@@ -448,6 +459,63 @@ function sharedProblems(sink, config) {
   const workingDir = config.working_dir;
   if (present(workingDir) && !isRepoPath(workingDir))
     sink.add("working_dir", "expected a relative path inside the repository");
+  reportProblems(sink, config.report);
+}
+
+/** `report:`, the Places a posted QA Report tags its Left for a person items with (ADR 0033). */
+function reportProblems(sink, report) {
+  if (!present(report)) return;
+  if (!isMapping(report)) return sink.add("report", "expected a mapping");
+  unknownKeys(sink, report, "report", REPORT_KEYS);
+  const { places, holds } = report;
+  const off = places === "none";
+  let named = DEFAULT_PLACES;
+  if (present(places) && !off) {
+    if (!Array.isArray(places) || !places.length)
+      sink.add("report.places", "expected a list of Places, or `none` to turn them off");
+    else {
+      named = [];
+      places.forEach((place, n) => {
+        const path = `report.places[${n}]`;
+        if (typeof place !== "string" || !PLACE_NAME.test(place))
+          sink.add(path, "expected a lowercase word, such as `local`");
+        else if (named.includes(place)) sink.add(path, `\`${place}\` is listed twice`);
+        else named.push(place);
+      });
+    }
+  }
+  if (off) {
+    if (present(holds))
+      sink.add("report.holds", "Places are off, so none holds a merge: remove it");
+    return;
+  }
+  if (!present(holds)) {
+    if (present(places))
+      sink.add("report.holds", "name the Places that hold a merge, as a list of the Places above");
+    return;
+  }
+  if (!Array.isArray(holds)) return sink.add("report.holds", "expected a list of Places");
+  if (!holds.length) sink.add("report.holds", "name at least one Place that holds a merge");
+  holds.forEach((place, n) => {
+    if (!named.includes(place))
+      sink.add(`report.holds[${n}]`, `\`${place}\` is not in \`report.places\``);
+  });
+}
+
+/**
+ * The Places a posted QA Report may tag an item with: each `{name, holds}`, in
+ * order, or `null` when the config turns Places off (items untagged, all held).
+ * Read a config with no problems; a key with a problem is not defaulted.
+ *
+ * @param {Record<string, any>} config
+ * @returns {{name: string, holds: boolean}[] | null}
+ */
+export function effectivePlaces(config) {
+  const report = isMapping(config?.report) ? config.report : {};
+  if (report.places === "none") return null;
+  const names = Array.isArray(report.places) ? report.places : DEFAULT_PLACES;
+  const holds = Array.isArray(report.holds) ? report.holds : DEFAULT_HOLDS;
+  return names.map((name) => ({ name, holds: holds.includes(name) }));
 }
 
 function planProblems(sink, plan) {
@@ -562,12 +630,59 @@ export function runProblems(config, lines) {
 
   if (present(run.stack)) {
     if (!isMapping(run.stack))
-      sink.add("run.stack", "expected a mapping of `up`, `migrate`, `seed`, `down`");
+      sink.add("run.stack", "expected a mapping of `up`, `migrate`, `seed`, `down`, `address`");
     else {
-      unknownKeys(sink, run.stack, "run.stack", STACK_KEYS);
+      unknownKeys(sink, run.stack, "run.stack", STACK_CONFIG_KEYS);
       for (const key of STACK_KEYS)
         if (present(run.stack[key]) && !nonEmpty(run.stack[key]))
           sink.add(`run.stack.${key}`, "expected a command");
+      // The address a stack whose `up` prints none serves on. `host` must call it
+      // `local`: a `stack` run signs in nowhere else, so a config never holds another.
+      if (
+        present(run.stack.address) &&
+        !(nonEmpty(run.stack.address) && isLocalAddress(run.stack.address))
+      )
+        sink.add(
+          "run.stack.address",
+          "expected a local address, one `adapter.mjs host` calls `local`, such as `http://localhost:3000`",
+        );
+    }
+  }
+
+  if (present(run.hosts)) {
+    if (!Array.isArray(run.hosts))
+      sink.add("run.hosts", "expected a list of `{ name, url, surface }` candidates");
+    else {
+      const names = new Set();
+      /** @type {Map<string, string>} each surface, by the entry that holds it */
+      const surfaces = new Map();
+      run.hosts.forEach((entry, n) => {
+        const path = `run.hosts[${n}]`;
+        if (!isMapping(entry))
+          return sink.add(path, "expected a mapping of `name`, `url`, `surface`");
+        unknownKeys(sink, entry, path, HOST_KEYS);
+        if (typeof entry.name !== "string" || !SERVICE_NAME.test(entry.name))
+          sink.add(`${path}.name`, "required: letters, digits, `_` and `-` only");
+        else if (names.has(entry.name))
+          sink.add(`${path}.name`, `duplicate name \`${entry.name}\``);
+        else names.add(entry.name);
+        const address =
+          nonEmpty(entry.url) && /^https?:\/\//i.test(entry.url) ? addressUrl(entry.url) : null;
+        if (!address)
+          sink.add(`${path}.url`, "required: a web address, such as `https://qa.example.com`");
+        else if (address.username || address.password)
+          sink.add(`${path}.url`, "required: a web address with no sign-in values in it");
+        if (present(entry.surface)) {
+          if (!SURFACES.includes(entry.surface))
+            sink.add(`${path}.surface`, `expected one of: ${SURFACES.join(", ")}`);
+          else if (surfaces.has(entry.surface))
+            sink.add(
+              `${path}.surface`,
+              `\`${entry.surface}\` already has an entry (\`${surfaces.get(entry.surface)}\`): a surface has at most one`,
+            );
+          else surfaces.set(entry.surface, String(entry.name));
+        }
+      });
     }
   }
 
@@ -700,6 +815,7 @@ export function effectiveConfig(config) {
     },
     hazards: Array.isArray(config.hazards) ? config.hazards : [],
     run: present(config.run) ? config.run : null,
+    places: effectivePlaces(config),
   };
 }
 
@@ -909,12 +1025,14 @@ const detectWebTools = (repo) => () => ({
  *   scenarios needs nothing, and is told only `gh` can check its build
  * @param {(() => {chromium: boolean, ffmpeg: boolean}) | null} [tools] detects the `web`
  *   driver's tools, called only when a scenario drives `web`; without it, no tool notes
- * @returns {{ready: boolean, needs: string[], notes: string[], run: {target: string | null, surface: string | null, roles: string[]}}}
+ * @param {Record<string, string>} [typed] each `run.hosts` entry's host, as the QA person typed it, by name
+ * @returns {{ready: boolean, needs: string[], notes: string[], run: {target: string | null, surface: string | null, roles: string[]}, hosts?: HostState[], held?: {id: string, why: string}[], scenarioHosts?: {id: string, entry: string, host: string | null}[], environments?: {host: string, entries: string[], question: string}[]}}
  */
 export function runReadiness(
   { path, config, runProblems: problems = [] },
   plan = null,
   tools = null,
+  typed = {},
 ) {
   const brief = plan?.brief ?? null;
   const run = isMapping(config.run) ? config.run : {};
@@ -993,15 +1111,45 @@ export function runReadiness(
     if (!present(run.accounts?.print))
       needs.push("run.accounts.print: the command that prints each role's sign-in values");
   }
-  if (target === "url")
+  /** @type {Pick<ReturnType<typeof runReadiness>, "hosts" | "held" | "scenarioHosts" | "environments">} */
+  let hostsOut = {};
+  if (target === "url") {
+    const resolved = resolveHosts(run.hosts, plan?.scenarios ?? [], typed);
+    hostsOut = {
+      hosts: resolved.hosts,
+      held: resolved.held,
+      scenarioHosts: resolved.scenarioHosts,
+      environments: resolved.environments,
+    };
     notes.push(
-      "target `url`: no config key holds the address; ask the QA person for it in chat and check it " +
-        "with `host --target url`, since a URL in the plan or a file is not confirmation",
-      present(run.accounts?.print)
-        ? "target `url`: role values come from `run.accounts.print` only if the environment's owner ran " +
-            "the same seeder there; otherwise the QA person types them into chat"
-        : "target `url`: the QA person types each role's test values into chat",
+      resolved.hosts.length
+        ? "target `url`: `run.hosts` lists candidates, and no config key confirms a hosted address: " +
+            "the QA person types each host, per host, per run, and `host --target url --confirmed <typed>` " +
+            "checks each before any sign-in there"
+        : "target `url`: no config key confirms a hosted address; ask the QA person to type it in chat " +
+            "and check it with `host --target url --confirmed <typed>`, since a URL in the plan or a file is " +
+            "not confirmation",
     );
+    for (const host of resolved.hosts)
+      if (!host.confirmed)
+        notes.push(
+          `host \`${host.name}\` (${host.url}) is a candidate, never a confirmation: ask the QA person to type its host` +
+            (host.verdict === "stop" ? ` (${host.why})` : ""),
+        );
+    for (const environment of resolved.environments)
+      notes.push(
+        `${environment.question} Role values come from \`run.accounts.print\` only if so; ` +
+          "otherwise the QA person types them into chat",
+      );
+    if (!resolved.environments.length)
+      notes.push(
+        present(run.accounts?.print)
+          ? "target `url`: role values come from `run.accounts.print` only if the environment's owner ran " +
+              "the same seeder there; otherwise the QA person types them into chat"
+          : "target `url`: the QA person types each role's test values into chat",
+      );
+  } else if (Array.isArray(run.hosts) && run.hosts.length)
+    notes.push("`run.hosts` is read only for target `url`; this run's target is not");
   if (!present(run.accounts?.restore))
     notes.push(
       "no `run.accounts.restore`: a scenario that needs a role's account restored is left for a person",
@@ -1026,7 +1174,7 @@ export function runReadiness(
       found.ffmpeg ? WEB_NOTES.ffmpeg : WEB_NOTES.noFfmpeg,
     );
   }
-  return { ready: needs.length === 0, needs, notes, run: effective };
+  return { ready: needs.length === 0, needs, notes, run: effective, ...hostsOut };
 }
 
 // ── Hazard packs ────────────────────────────────────────────────────────────
@@ -1251,6 +1399,14 @@ export const CREATES = "Creates";
  */
 export const SCENARIO_SURFACE = "Surface";
 /**
+ * The optional field (format=2) naming the service a scenario tests on a hosted (`url`)
+ * target, in place of its surface's entry: right after **Surface:** (or where it would
+ * sit), before **Observes:**.
+ */
+export const SCENARIO_SERVICE = "Service";
+/** A service's name, as `run.hosts` and **Service:** spell it. */
+export const SERVICE_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
+/**
  * The optional field (format=2) naming what a scenario's result observes, for `manual-qa`
  * to check each driver against: right after the scenario's **Surface:**, or after its
  * sign-in field (and **Creates:**) when it has none, before **Steps:**.
@@ -1319,6 +1475,28 @@ export const FORMAT = FORMATS.at(-1);
 const RULE_OUT = "If this fails, first rule out";
 /** A Sign-off box for a promise only reading can check: `- [ ] Review: <what to read, and what it must say>`, a space after the colon. */
 const REVIEW_BOX = /^\s*[-*]\s+\[(?<tick>[ xX])\]\s+Review:(?<text>(?:\s.*)?)$/;
+/** A Place leading a `Review:` box's text: `[<place>] <text>`. */
+const REVIEW_PLACE = /^\[([^\]\s]*)\](?:\s|$)/;
+/**
+ * What is wrong with a `Review:` box's Place, given the configured Places
+ * (`effectivePlaces`; `undefined` checks none, `null` is Places turned off).
+ */
+function placeProblem(place, text, places) {
+  if (places === undefined) return null;
+  // Off, only a Place-shaped tag is a Place: `[the docs](x) say …` and `[WIP] …` are text.
+  if (places === null)
+    return place === null || !PLACE_NAME.test(place)
+      ? null
+      : "Places are off: write the box with no Place, `Review: <text>`";
+  const names = places.map((p) => p.name);
+  // A box with no Place is read as the first Place that holds a merge: a plan made before Places still runs.
+  if (place === null) return null;
+  if (text === `[${place}]`)
+    return "a `Review:` box with nothing after its Place: say what to read, and what it must say";
+  if (!names.includes(place))
+    return `the box's Place \`${place}\` is not configured (${names.join(", ")}): pick one of them, or add it to \`report.places\``;
+  return null;
+}
 /** A box that looks meant as a `Review:` box but is not written as one: `review:`, `**Review:**`, `Review :`, `Review:docs`. */
 const NEAR_REVIEW_BOX = /^\s*[-*]\s+\[[ xX]\]\s+[*_]*review[*_]*\s*[*_]*:/i;
 /** A role id, and a Scenario account id: letters, digits, `_` and `-`. */
@@ -1516,7 +1694,7 @@ export function credentialProblems(lines) {
  * @param {string} text
  * @returns {{plan: Record<string, any>, problems: string[]}}
  */
-export function validatePlan(text) {
+export function validatePlan(text, { places } = {}) {
   const problems = [];
   const lines = String(text).replace(/^﻿/, "").split(/\r?\n/);
   const at = (n, message) => problems.push(`line ${n + 1}: ${message}`);
@@ -1910,7 +2088,12 @@ export function validatePlan(text) {
       const { tick, text } = /** @type {Record<string, string>} */ (box.groups);
       if (text.trim() === "")
         at(n, "a `Review:` box with nothing after it: say what to read, and what it must say");
-      else plan.reviews.push({ text: text.trim(), ticked: tick !== " " });
+      else {
+        const place = REVIEW_PLACE.exec(text.trim())?.[1] ?? null;
+        plan.reviews.push({ text: text.trim(), ticked: tick !== " ", place });
+        const why = placeProblem(place, text.trim(), places);
+        if (why) at(n, why);
+      }
     }
   }
 
@@ -1994,6 +2177,38 @@ export function validatePlan(text) {
         else surface = word;
         if (surface !== word) surfaceKnown = false;
       }
+      // The service it tests (#418): after its Surface, else after its sign-in field.
+      /** @type {string | null} */
+      let service = null;
+      const services = found.filter((entry) => entry.label === SCENARIO_SERVICE);
+      for (const extra of services.slice(1))
+        at(extra.n, `${id}: a second **${SCENARIO_SERVICE}:**: a scenario has at most one`);
+      const ownService = services[0];
+      if (ownService) {
+        const k = found.indexOf(ownService);
+        const misplaced =
+          found.slice(k + 1).some((entry) => [...before, SCENARIO_SURFACE].includes(entry.label)) ||
+          found.slice(0, k).some((entry) => after.includes(entry.label));
+        const what = `${id}: **${SCENARIO_SERVICE}:**`;
+        const word = plainWord(ownService.inline);
+        if (plan.format === 1)
+          at(
+            ownService.n,
+            `${what} is a format=2 field: mark the plan \`format=2\`, or leave it out`,
+          );
+        else if (misplaced)
+          at(
+            ownService.n,
+            `${what} is out of position: it goes right after the scenario's **${SCENARIO_SURFACE}:**, or after **${SCENARIO_LABELS[1]}:** or **${SESSIONS}:** (and **${CREATES}:**, when present) when it has none, before **Steps:**`,
+          );
+        else if (ownService.text === "") at(ownService.n, `${what} is empty`);
+        else if (!SERVICE_NAME.test(word))
+          at(
+            ownService.n,
+            `${what} expected a service name: letters, digits, \`_\` and \`-\`, first on its line`,
+          );
+        else service = word;
+      }
       // What the scenario observes (#204): after its Surface, else after its sign-in field.
       /** @type {string[]} */
       const observes = [];
@@ -2004,8 +2219,11 @@ export function validatePlan(text) {
       if (listed) {
         const k = found.indexOf(listed);
         const misplaced =
-          found.slice(k + 1).some((entry) => [...before, SCENARIO_SURFACE].includes(entry.label)) ||
-          found.slice(0, k).some((entry) => after.includes(entry.label));
+          found
+            .slice(k + 1)
+            .some((entry) =>
+              [...before, SCENARIO_SURFACE, SCENARIO_SERVICE].includes(entry.label),
+            ) || found.slice(0, k).some((entry) => after.includes(entry.label));
         const what = `${id}: **${SCENARIO_OBSERVES}:**`;
         if (plan.format === 1)
           at(listed.n, `${what} is a format=2 field: mark the plan \`format=2\`, or leave it out`);
@@ -2042,7 +2260,9 @@ export function validatePlan(text) {
           found
             .slice(k + 1)
             .some((entry) =>
-              [...before, SCENARIO_SURFACE, SCENARIO_OBSERVES].includes(entry.label),
+              [...before, SCENARIO_SURFACE, SCENARIO_SERVICE, SCENARIO_OBSERVES].includes(
+                entry.label,
+              ),
             ) || found.slice(0, k).some((entry) => after.includes(entry.label));
         const what = `${id}: **${SCENARIO_CAPTURE}:**`;
         const word = plainWord(ownCapture.inline);
@@ -2092,9 +2312,13 @@ export function validatePlan(text) {
           found
             .slice(k + 1)
             .some((entry) =>
-              [...before, SCENARIO_SURFACE, SCENARIO_OBSERVES, SCENARIO_CAPTURE].includes(
-                entry.label,
-              ),
+              [
+                ...before,
+                SCENARIO_SURFACE,
+                SCENARIO_SERVICE,
+                SCENARIO_OBSERVES,
+                SCENARIO_CAPTURE,
+              ].includes(entry.label),
             ) || found.slice(0, k).some((entry) => after.includes(entry.label));
         const what = `${id}: **${SCENARIO_STORY}:**`;
         const end = found[k + 1]?.n ?? heads[i + 1]?.n ?? to;
@@ -2230,6 +2454,7 @@ export function validatePlan(text) {
         sessions,
         creates: [...new Set(made.filter((made) => made !== ""))],
         surface,
+        service,
         observes,
         capture,
         captureGiven: Boolean(ownCapture),
@@ -2423,6 +2648,87 @@ export function hostVerdict(address, { target = "stack", confirmed } = {}) {
   return { verdict: "hosted", host, why: `a hosted test host (\`${label}\`), confirmed in chat` };
 }
 
+/** Whether `host` calls `address` `local`: the only address a `stack` run signs in to. */
+export function isLocalAddress(address) {
+  return hostVerdict(address, { target: "stack" }).verdict === "local";
+}
+
+/**
+ * @typedef {{name: string, url: string, surface: string | null, verdict: "local" | "hosted" | "confirm" | "stop", host: string | null, why: string, confirmed: boolean}} HostState
+ */
+
+/**
+ * A `url` target's entries, each checked by the host rule, and which entry each scenario
+ * uses. A `run.hosts` entry is a candidate: it is `confirmed` only when its verdict is
+ * `local`, or `hosted` because the QA person typed its host (`typed`, by entry name). A
+ * scenario uses the entry its **Service:** names, else the entry for its surface; one
+ * whose entry is missing, refused (`stop`) or not confirmed is `held` for a person with
+ * the reason, and the others go on. Every environment (host) is asked about its seeder
+ * once.
+ *
+ * @param {unknown} entries `run.hosts`, as the config holds it (an invalid one reads as none)
+ * @param {{id: string, surface: string | null, service?: string | null}[]} scenarios
+ * @param {Record<string, string>} [typed]
+ * @returns {{hosts: HostState[], held: {id: string, why: string}[], scenarioHosts: {id: string, entry: string, host: string | null}[], environments: {host: string, entries: string[], question: string}[]}}
+ */
+export function resolveHosts(entries, scenarios, typed = {}) {
+  const hosts = (Array.isArray(entries) ? entries : []).flatMap((entry) => {
+    if (!isMapping(entry) || typeof entry.name !== "string" || typeof entry.url !== "string")
+      return [];
+    const result = hostVerdict(entry.url, { target: "url", confirmed: typed[entry.name] });
+    return [
+      {
+        name: entry.name,
+        url: entry.url,
+        surface: typeof entry.surface === "string" ? entry.surface : null,
+        verdict: result.verdict,
+        host: result.host,
+        why: result.why,
+        confirmed: result.verdict === "local" || result.verdict === "hosted",
+      },
+    ];
+  });
+  /** @type {{id: string, why: string}[]} */
+  const held = [];
+  /** @type {{id: string, entry: string, host: string | null}[]} */
+  const scenarioHosts = [];
+  for (const scenario of scenarios) {
+    const entry = scenario.service
+      ? hosts.find((candidate) => candidate.name === scenario.service)
+      : scenario.surface
+        ? hosts.find((candidate) => candidate.surface === scenario.surface)
+        : undefined;
+    if (!entry) {
+      // One URL for every surface (no list) serves a scenario with no **Service:**.
+      if (!scenario.service && !hosts.length) continue;
+      held.push({
+        id: scenario.id,
+        why: scenario.service
+          ? `no service \`${scenario.service}\` in the run's hosts: no host is added mid-run`
+          : `no entry for the \`${scenario.surface}\` surface in the run's hosts: no host is added mid-run`,
+      });
+    } else if (entry.verdict === "stop")
+      held.push({ id: scenario.id, why: `the host of \`${entry.name}\` is refused: ${entry.why}` });
+    else if (!entry.confirmed)
+      held.push({
+        id: scenario.id,
+        why: `the host of \`${entry.name}\` is not confirmed: the QA person has not typed it`,
+      });
+    else scenarioHosts.push({ id: scenario.id, entry: entry.name, host: entry.host });
+  }
+  /** @type {Map<string, string[]>} */
+  const byHost = new Map();
+  for (const entry of hosts)
+    if (entry.verdict !== "stop" && entry.host)
+      byHost.set(entry.host, [...(byHost.get(entry.host) ?? []), entry.name]);
+  const environments = [...byHost].map(([host, names]) => ({
+    host,
+    entries: names,
+    question: `At \`${host}\`, did the environment's owner run this repo's seeder there?`,
+  }));
+  return { hosts, held, scenarioHosts, environments };
+}
+
 // ── Writing ─────────────────────────────────────────────────────────────────
 
 const PLAIN_SAFE = /^[A-Za-z0-9_./@~+-][A-Za-z0-9_./@~+=-]*$/;
@@ -2581,15 +2887,16 @@ export function answersPlaceProblem(repo, workingDir, answersPath) {
  *
  * @param {string} file the answers file, as given
  * @param {Record<string, any>} answers
+ * @param {string} [what] whose answers: `Readiness` (`qa-plan`) or `Run` (`manual-qa`)
  */
-export function reusedAnswersLine(file, answers) {
+export function reusedAnswersLine(file, answers, what = "Readiness") {
   const values = [];
   for (const [key, value] of Object.entries(answers))
     if (MERGED_ONE_LEVEL_DOWN.includes(key) && isMapping(value))
       for (const [sub, inner] of Object.entries(value))
         values.push(`${key}.${sub}=${JSON.stringify(inner)}`);
     else values.push(`${key}=${JSON.stringify(value)}`);
-  return `Readiness answers reused from ${file}: ${values.join("; ") || "none"}`;
+  return `${what} answers reused from ${file}: ${values.join("; ") || "none"}`;
 }
 
 /**
@@ -2754,6 +3061,55 @@ function whichCopyCommand(argv, io) {
   return { code: 0, out: `${JSON.stringify(result, null, 2)}\n` };
 }
 
+/**
+ * The hosts the QA person typed, from each `--host <name>=<host>`, as [name, host]
+ * pairs. A string is the usage problem.
+ *
+ * @param {string[]} argv
+ * @returns {[string, string][] | string}
+ */
+function typedHostArgs(argv) {
+  /** @type {[string, string][]} */
+  const pairs = [];
+  for (const [n, arg] of argv.entries()) {
+    if (arg !== "--host" || argv[n + 1] === undefined) continue;
+    const text = argv[n + 1];
+    const at = text.indexOf("=");
+    if (at < 1 || at === text.length - 1)
+      return `--host expects <name>=<host the QA person typed>, not \`${text}\``;
+    pairs.push([text.slice(0, at), text.slice(at + 1)]);
+  }
+  return pairs;
+}
+
+/** The names of `config`'s `run.hosts` entries. */
+function hostNames(config) {
+  return new Set(
+    (Array.isArray(config.run?.hosts) ? config.run.hosts : []).flatMap((entry) =>
+      isMapping(entry) && typeof entry.name === "string" ? [entry.name] : [],
+    ),
+  );
+}
+
+/**
+ * The typed hosts by `run.hosts` entry name, each name checked against `config`
+ * (with any answers already merged). A string is the usage problem.
+ *
+ * @param {[string, string][]} pairs from `typedHostArgs`
+ * @param {Record<string, any>} config
+ * @returns {Record<string, string> | string}
+ */
+function typedHosts(pairs, config) {
+  /** @type {Record<string, string>} */
+  const typed = {};
+  const named = hostNames(config);
+  for (const [name, host] of pairs) {
+    if (!named.has(name)) return `no \`run.hosts\` entry named \`${name}\` for --host to confirm`;
+    typed[name] = host;
+  }
+  return typed;
+}
+
 function option(argv, name) {
   const values = [];
   argv.forEach((arg, n) => {
@@ -2825,6 +3181,110 @@ function checkPlanAnswers(argv, repo, loaded) {
   };
 }
 
+/** A base branch as `origin/main` and `main` both name it. */
+const baseName = (ref) => ref.replace(/^refs\/heads\//, "").replace(/^origin\//, "");
+
+/**
+ * `check --for run --answers <file>`: the run readiness with the run needs
+ * given up front merged over the config, by `check --for plan --answers`'s
+ * rules: the file is the JSON object `render` takes, read only from inside the
+ * merged `working_dir`, and nothing is written. The file holds for the base
+ * branch it was given for: with `--answers-base` and `--base` that differ, it
+ * is not used, and the readiness is that of the config alone.
+ *
+ * @param {string[]} argv
+ * @param {string} repo
+ * @param {{path: string | null, config: Record<string, any>, runProblems: string[]}} loaded
+ * @param {{plan: {plan: any, problems: string[]} | null, tools: () => {chromium: boolean, ffmpeg: boolean}, typedPairs: [string, string][]}} given
+ * @returns {{code: number, out: string} | null} null on bad usage
+ */
+function checkRunAnswers(argv, repo, loaded, { plan: planned, tools, typedPairs }) {
+  const file = option(argv, "--answers")[0];
+  if (file === undefined || file.startsWith("--")) return null;
+  const [answersBase] = option(argv, "--answers-base");
+  const [base] = option(argv, "--base");
+  for (const flag of ["--answers-base", "--base"])
+    if (argv.includes(flag) && (option(argv, flag)[0] ?? "--").startsWith("--")) return null;
+  const json = (value) => `${JSON.stringify(value, null, 2)}\n`;
+  const planProblems = planned ? { planProblems: planned.problems } : {};
+  // Before the answers are merged, a name the config lacks is left out, not refused.
+  const lenient = (config) =>
+    Object.fromEntries(typedPairs.filter(([name]) => hostNames(config).has(name)));
+  const readiness = (config, problems, typed = lenient(config)) =>
+    runReadiness(
+      { path: loaded.path, config, runProblems: problems },
+      planned?.problems.length ? null : planned?.plan,
+      tools,
+      typed,
+    );
+  const planFailed = (planned?.problems.length ?? 0) > 0;
+  if (loaded.runProblems.length)
+    return {
+      code: 1,
+      out: json({
+        path: loaded.path,
+        problems: loaded.runProblems,
+        ...planProblems,
+        effective: null,
+        readiness: readiness(loaded.config, loaded.runProblems),
+      }),
+    };
+  if (answersBase !== undefined && base !== undefined && baseName(answersBase) !== baseName(base)) {
+    const effective = effectiveConfig(loaded.config);
+    return {
+      code: planFailed ? 1 : 0,
+      out: json({
+        path: loaded.path,
+        problems: [],
+        ...planProblems,
+        effective: { working_dir: effective.working_dir, run: effective.run },
+        readiness: readiness(loaded.config, []),
+        answers: {
+          file,
+          used: false,
+          why: `the answers were given for \`${answersBase}\`, and this pull request's base is \`${base}\``,
+        },
+      }),
+    };
+  }
+  let read;
+  try {
+    read = readAnswersFile(repo, file);
+  } catch (error) {
+    if (error instanceof AnswersError) return { code: 2, out: `check: ${error.message}\n` };
+    throw error;
+  }
+  const merged = mergeAnswers(loaded.config, read.answers);
+  const typed = typedHosts(typedPairs, merged);
+  if (typeof typed === "string") return { code: 2, out: `check: ${typed}\n` };
+  const problems = runProblems(merged).map((p) => `the answers: ${p}`);
+  if (problems.length)
+    return {
+      code: 1,
+      out: json({
+        path: loaded.path,
+        problems,
+        ...planProblems,
+        effective: null,
+        readiness: readiness(merged, problems, typed),
+      }),
+    };
+  const effective = effectiveConfig(merged);
+  const misplaced = answersPlaceProblem(repo, effective.working_dir, read.path);
+  if (misplaced) return { code: 2, out: `check: ${misplaced}\n` };
+  return {
+    code: planFailed ? 1 : 0,
+    out: json({
+      path: loaded.path,
+      problems: [],
+      ...planProblems,
+      effective: { working_dir: effective.working_dir, run: effective.run },
+      readiness: readiness(merged, [], typed),
+      answers: { file, used: true, reused: reusedAnswersLine(file, read.answers, "Run") },
+    }),
+  };
+}
+
 /**
  * @param {string[]} argv the arguments after the script
  * @param {{read?: (path: string) => string | null, stdin?: () => string,
@@ -2838,10 +3298,17 @@ export function main(argv, io = {}) {
   const stdin = io.stdin ?? readStdin;
   const json = (value) => `${JSON.stringify(value, null, 2)}\n`;
   const loaded = readQaConfig(read);
+  const typedPairs = typedHostArgs(argv);
+  if (typeof typedPairs === "string") return { code: 2, out: `check: ${typedPairs}\n` };
+  // With `--answers`, the names are checked against the config the answers are merged
+  // into (`checkRunAnswers`): the answers may be what carries `run.hosts`.
+  const withAnswers = argv.includes("--answers");
+  const typed = withAnswers ? {} : typedHosts(typedPairs, loaded.config);
+  if (typeof typed === "string") return { code: 2, out: `check: ${typed}\n` };
   const usage = {
     code: 2,
     out:
-      "usage: node adapter.mjs check --for plan [--answers <file.json>] | check --for run [--plan <file>] | " +
+      "usage: node adapter.mjs check --for plan [--answers <file.json>] | check --for run [--plan <file>] [--host <name>=<typed host>]… [--answers <file.json> [--answers-base <branch> --base <branch>]] | " +
       "plan [<file>] < plan.md | host <url> [--target stack|url] [--confirmed <host>] | " +
       "hazards < changed-paths | " +
       "delivery [--label <name>]… | render [--write [--drop-comments]] < answers.json | " +
@@ -2862,7 +3329,8 @@ export function main(argv, io = {}) {
   const readPlan = (path) => {
     const text = path === undefined ? stdin() : readFile(path);
     if (text === null) return { plan: null, problems: [`${path}: no such file`] };
-    return validatePlan(text);
+    // Each `Review:` box's Place is checked against the configured ones (ADR 0033).
+    return validatePlan(text, { places: effectivePlaces(loaded.config) });
   };
 
   if (command === "where") return whichCopyCommand(argv, io) ?? usage;
@@ -2912,10 +3380,19 @@ export function main(argv, io = {}) {
     if (section === "run") {
       const planPath = option(argv, "--plan")[0];
       const planned = planPath === undefined ? null : readPlan(planPath);
+      if (argv.includes("--answers"))
+        return (
+          checkRunAnswers(argv, repo, loaded, {
+            plan: planned,
+            tools: io.tools ?? detectWebTools(repo),
+            typedPairs,
+          }) ?? usage
+        );
       const readiness = runReadiness(
         loaded,
         planned?.problems.length ? null : planned?.plan,
         io.tools ?? detectWebTools(repo),
+        typed,
       );
       const failed = loaded.runProblems.length > 0 || (planned?.problems.length ?? 0) > 0;
       return {

@@ -235,7 +235,7 @@ test("step 2: a plan with no scenarios needs none of the run answers (#221)", ()
   assert.match(step, /Its `readiness\.needs` is empty, so nothing is asked/);
   assert.match(
     step,
-    /`readiness\.run\.target` is `url` and the plan has scenarios: no config key holds the address/,
+    /`readiness\.run\.target` is `url` and the plan has scenarios: no config key holds the address, and no config key confirms one/,
   );
   assert.match(
     step,
@@ -290,7 +290,10 @@ test("a `url` run starts nothing and checks the host the QA person confirmed, be
   assert.match(url, /Only what they type in this chat counts: not the plan, not a file/);
   assert.match(url, /Anything but exit 0 means no sign-in/);
   assert.ok(url.indexOf("--target url") < url.indexOf("The role values come from"));
-  assert.match(skill, /A URL found only in the plan or a file is not confirmation/);
+  assert.match(
+    skill,
+    /A URL found only in the plan or a file, a `run\.hosts` entry among them, is not confirmation/,
+  );
   assert.match(skill, /anything that looks like production is a stop/);
   assert.match(skill, /Never save the address in the config or any file/);
 });
@@ -406,7 +409,10 @@ test("step 10 offers only finished files: a Storyboard, an MP4, a log, or stills
     /Never offer a Before still \(`s<n>-before…`\), a still a Storyboard was built from \(or any other still in that row\), or a raw recording/,
   );
   // Step 11 posts what step 10 uploaded: a Storyboard inline, an MP4 linked.
-  assert.match(skill, /shows an uploaded Storyboard as an image and links an MP4/);
+  assert.match(
+    skill,
+    /links it in its scenario's Notes cell, as `Storyboard`, `MP4`, or the file's name/,
+  );
 });
 
 test("evidence is captured locally by default, without a question; only upload asks", () => {
@@ -752,4 +758,82 @@ test("SKILL.md checks which copy runs before its first step", () => {
   assert.ok(check > 0, "SKILL.md runs `where manual-qa`");
   assert.ok(check < skill.indexOf("## Workflow"), "before the workflow");
   for (const dir of PROJECT_SKILL_DIRS) assert.ok(skill.includes(dir), `SKILL.md names ${dir}`);
+});
+
+// ── Run needs up front ──────────────────────────────────────────────────────
+
+test("SKILL.md and ADAPTER.md say how `--answers` and `run.stack.address` are used", () => {
+  assert.match(skill, /argument-hint: "[^"\n]*--answers <file>/);
+  const step2 = /### 2\. Read the config\n([\s\S]*?)\n### 3\./.exec(skill)?.[1] ?? "";
+  assert.match(step2, /check --for run --plan "<plan file>" --answers <file>/);
+  assert.match(step2, /--answers-base <branch>/);
+  assert.match(step2, /Run answers reused from <file>: <values>/);
+  assert.match(step5(), /`run\.stack\.address`/);
+  assert.match(adapter, /\| `run\.stack\.address`/);
+  assert.match(adapter, /`check --for run \[--plan <file>\] --answers <file>`/);
+});
+
+test("step 11 posts the short summary, with its header, Places and local-only facts (#416)", () => {
+  const skill = readFileSync(join(HERE, "SKILL.md"), "utf8").replace(/\s+/g, " ");
+  assert.match(skill, /It is a short summary, not the report \(ADR 0033\)/);
+  assert.match(
+    skill,
+    /`QA Report: result=passed\|failed; commit=<sha>; left-for-person=<n>; deferred=<n>`/,
+  );
+  assert.match(skill, /`- \[<place>\] <text>` with a Place from the config's `report\.places`/);
+  assert.match(
+    skill,
+    /Run facts, evidence paths, the \*\*Run deviations:\*\* line, the Execution record and side notes stay in the local report/,
+  );
+  assert.match(skill, /end that row's note with `Limits trust: <a few words>`/);
+  assert.match(
+    skill,
+    /`\(checked under R<n>\)` on its own indented line directly under its Review line/,
+  );
+  assert.match(
+    skill,
+    /`report\.mjs summary "<tmp>\/comment\.md"` reads a comment back as strictly as a program does/,
+  );
+});
+
+// ── Hosted targets with several addresses (#418) ────────────────────────────
+
+const design = readFileSync(join(HERE, "DESIGN.md"), "utf8");
+
+test("the narrowed hosted-target rule: no config key confirms a hosted address", () => {
+  assert.match(
+    skill,
+    /`run\.hosts` entry among them, is not confirmation: no config key confirms a hosted address/,
+  );
+  assert.match(skill, /no config key holds the address, and no config key confirms one/);
+  assert.match(
+    design,
+    /No config key confirms a hosted address: `run\.hosts` may list candidates[^\n]*the person still types each host, per host, per run/,
+  );
+  assert.match(adapter, /No key confirms a hosted address, and the skill never saves one/);
+  // The old, wider rule is gone from every text the skill reads.
+  for (const text of [skill, design, adapter])
+    assert.doesNotMatch(text, /No key holds a hosted address|no config key holds a hosted address/);
+});
+
+test("each `run.hosts` entry is checked on its own, and a held scenario does not stop the rest", () => {
+  const step = /#### `url`\n([\s\S]*?)\n### 6\./.exec(skill)?.[1] ?? skill;
+  assert.match(step, /check each entry on its own/);
+  assert.match(step, /leaves only the scenarios that use it for a person/);
+  assert.match(
+    step,
+    /A scenario uses the entry its \*\*Service:\*\* names, else the entry for its surface/,
+  );
+  assert.match(step, /once for each environment/);
+  assert.match(
+    design,
+    /one that stops, or that the person did not confirm, leaves only the scenarios that use it/,
+  );
+});
+
+test("`check --for run` documents --host and its readiness fields", () => {
+  assert.match(adapter, /check --for run --host <name>=<host as typed>/);
+  for (const field of ["hosts", "held", "scenarioHosts", "environments"])
+    assert.match(adapter, new RegExp(`\`${field}\``));
+  assert.match(main([], {}).out, /--host <name>=<typed host>/);
 });

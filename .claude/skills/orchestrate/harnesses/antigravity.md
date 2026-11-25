@@ -16,7 +16,7 @@
 - `await`: the sub-agent's result message. The heartbeat is the foreground watch ([HARNESSES.md](../HARNESSES.md#waiting-an-event-and-a-heartbeat)): while the run waits on a Delegation, the Chief of Staff does not end its turn, and the result message is one more change the watch sees. A `/schedule` timer keyed on the sub-agent's id may replace the watch once a run shows that it fires in an idle Chief of Staff and re-arms itself (check before use).
 - `report`: the absolute path, which needs a `write_file(<run folder>)` allow rule; else the result message.
 - Analysis: the `research` sub-agent, which is read-only, or `self` with workspace `branch` for anything that runs code.
-- A QA Delegation: `agy -p "<brief>" --model <model> --output-format json --add-dir <run folder>` in the worktree, then `agy -p "/qa-plan <n> [--answers <working_dir>/qa-readiness.json]" --conversation <id>`, and later `/manual-qa <plan file>`; print mode expands skill commands. Else a session the human starts in that worktree. With `go`, that is the typed route; with `go autonomous`, on a `stack` target, the same session follows its brief instead, reading each QA skill's `SKILL.md` from the paths the brief gives, so no command is sent or typed. A `url` target stays on the typed route.
+- A QA Delegation: `agy -p "<brief>" --model <model> --output-format json --add-dir <run folder>` in the worktree, then `agy -p "/qa-plan <n> [--answers <working_dir>/qa-readiness.json]" --conversation <id>`, and later `/manual-qa <plan file>`; print mode expands skill commands. Else a session the human starts in that worktree. With `go`, that is the typed route; with `go autonomous`, on a `stack` or a `url` target, the same session follows its brief instead, reading each QA skill's `SKILL.md` from the paths the brief gives, so no command is sent or typed. A `url` target runs from the brief too, with its hosts typed in the Dispatch Plan and relayed through the brief.
 
 ## Limits
 
@@ -30,6 +30,7 @@
 
 ## Check before use
 
+- Whether a QA session accepts a host relayed through its brief: that it checks it again with `adapter.mjs host` before any sign-in, and holds its scenarios (never asks) when it refuses it. A harness whose session does not holds every scenario of a `url` target. Record what was found.
 - How long a foreground shell command, and a turn, may run, since the foreground watch depends on both. A shell tool's own time limit could cut the watch short (not yet confirmed).
 - Where a sub-agent's worktree is made, and what its branch is named.
 - Whether a sub-agent's result wakes an idle Chief of Staff.

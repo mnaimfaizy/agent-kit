@@ -94,6 +94,7 @@ test("the good plan reads with no problems, and its parts are read out", () => {
       creates: [],
       surface: "web",
       observes: [],
+      service: null,
       capture: "screenshot",
       captureGiven: false,
       expectedBefore: null,
@@ -107,6 +108,7 @@ test("the good plan reads with no problems, and its parts are read out", () => {
       creates: [],
       surface: "web",
       observes: [],
+      service: null,
       capture: "screenshot",
       captureGiven: false,
       expectedBefore: null,
@@ -1737,11 +1739,13 @@ test("a `Review:` box reads, and is in the parsed plan's review list", () => {
   const { plan, problems } = validatePlan(withReview());
   assert.deepEqual(problems, []);
   assert.deepEqual(plan.reviews, [
-    { text: "docs/x.html says the token lasts 30 days", ticked: false },
+    { text: "docs/x.html says the token lasts 30 days", ticked: false, place: null },
   ]);
   assert.deepEqual(validatePlan(GOOD).plan.reviews, []);
   const ticked = validatePlan(withReview("* [x] Review: README.md names the new flag")).plan;
-  assert.deepEqual(ticked.reviews, [{ text: "README.md names the new flag", ticked: true }]);
+  assert.deepEqual(ticked.reviews, [
+    { text: "README.md names the new flag", ticked: true, place: null },
+  ]);
 });
 
 test("a `Review:` box says what to read, and what it must say", () => {
@@ -1775,6 +1779,7 @@ test("a `Review:` box is no scenario's box, so a scenario without its own is sti
     {
       text: "S2 docs/members.md says signed-out visitors are sent to sign in",
       ticked: false,
+      place: null,
     },
   ]);
 });
@@ -2016,4 +2021,126 @@ test("a Story sits right after Capture, before Steps, once, as a numbered list",
       story,
     );
   }
+});
+
+// --- Places on a `Review:` box (#416, ADR 0033) ---
+
+const PLACES = [
+  { name: "local", holds: true },
+  { name: "staging", holds: false },
+  { name: "production", holds: false },
+];
+const placeProblems = (box, places) =>
+  validatePlan(withReview(box), { places }).problems.join("\n");
+
+test("a `Review:` box may lead with a Place, which the parsed plan keeps beside the whole text", () => {
+  const { plan, problems } = validatePlan(
+    withReview("- [ ] Review: [local] docs/x.html says 30 days"),
+  );
+  assert.deepEqual(problems, []);
+  assert.deepEqual(plan.reviews, [
+    { text: "[local] docs/x.html says 30 days", ticked: false, place: "local" },
+  ]);
+});
+
+test("with the configured Places, a `Review:` box that names a Place names one of them", () => {
+  assert.equal(placeProblems("- [ ] Review: [staging] docs/x.html says 30 days", PLACES), "");
+  // A box with no Place, from a plan made before Places, still runs: it is read as the first Place that holds.
+  assert.equal(placeProblems("- [ ] Review: docs/x.html says 30 days", PLACES), "");
+  assert.equal(
+    validatePlan(withReview("- [ ] Review: docs/x.html says 30 days"), { places: PLACES }).plan
+      .reviews[0].place,
+    null,
+  );
+  assert.match(
+    placeProblems("- [ ] Review: [prod] docs/x.html says 30 days", PLACES),
+    /Place `prod` is not configured \(local, staging, production\)/,
+  );
+  assert.match(
+    placeProblems("- [ ] Review: [Local] docs/x.html says 30 days", PLACES),
+    /Place `Local` is not configured/,
+  );
+  assert.match(placeProblems("- [ ] Review: [local]", PLACES), /nothing after it/);
+});
+
+test("with Places turned off, a `Review:` box carries no Place", () => {
+  assert.equal(placeProblems("- [ ] Review: docs/x.html says 30 days", null), "");
+  assert.match(
+    placeProblems("- [ ] Review: [local] docs/x.html says 30 days", null),
+    /Places are off: write the box with no Place/,
+  );
+});
+
+test("with Places off, a `Review:` box whose text starts with a bracket is text, not a Place", () => {
+  assert.equal(placeProblems("- [ ] Review: [WIP] docs/x.html says 30 days", null), "");
+  assert.equal(placeProblems("- [ ] Review: [the docs](docs/x.html) say 30 days", null), "");
+});
+
+test("a plan checked with no Places given reads any tag as a Place and demands none", () => {
+  assert.deepEqual(problemsOf(withReview("- [ ] Review: docs/x.html says 30 days")), []);
+  assert.deepEqual(problemsOf(withReview("- [ ] Review: [anywhere] docs/x.html says 30 days")), []);
+});
+
+test("`adapter.mjs plan` checks a box's Place against the repository's config", () => {
+  const plan = withReview("- [ ] Review: [prod] docs/x.html says 30 days");
+  const run = (config) =>
+    main(["plan"], {
+      stdin: () => plan,
+      read: (path) => (path === "qa.config.yml" ? config : null),
+    });
+  assert.equal(run("report:\n  places: [local, prod]\n  holds: [local]\n").code, 0);
+  assert.match(run("report:\n  places: none\n").out, /Places are off/);
+  assert.match(run(null).out, /Place `prod` is not configured \(local, staging, production\)/);
+});
+
+// ── Which service a scenario tests (format=2, #418) ─────────────────────────
+
+const withService = (line = "- **Service:** `billing`", { after: anchor = S2_SIGNS } = {}) =>
+  broken(anchor, `${anchor}${line}\n`);
+
+test("a scenario with **Service:** validates and `plan` prints it; one without prints null", () => {
+  assert.deepEqual(problemsOf(withService()), []);
+  const result = main(["plan"], { read: () => null, stdin: () => withService() });
+  assert.equal(result.code, 0);
+  assert.deepEqual(
+    JSON.parse(result.out).plan.scenarios.map((s) => s.service),
+    [null, "billing"],
+  );
+});
+
+test("**Service:** sits after **Surface:** and before **Observes:**", () => {
+  const ok = broken(
+    S2_SIGNS,
+    `${S2_SIGNS}- **Surface:** api\n- **Service:** billing\n- **Observes:** status\n`,
+  );
+  assert.deepEqual(problemsOf(ok), []);
+  const before = broken(S2_SIGNS, `${S2_SIGNS}- **Service:** billing\n- **Surface:** api\n`);
+  assertProblem(before, /S2: \*\*Service:\*\* is out of position/);
+  const afterObserves = broken(
+    S2_SIGNS,
+    `${S2_SIGNS}- **Observes:** status\n- **Service:** billing\n`,
+  );
+  // The later field is the one out of position: **Observes:** goes after **Service:**.
+  assertProblem(afterObserves, /S2: \*\*Observes:\*\* is out of position/);
+});
+
+test("**Service:** is read as a first-word name; an empty, repeated or malformed one is a problem", () => {
+  assertProblem(withService("- **Service:**"), /S2: \*\*Service:\*\* is empty/);
+  assertProblem(
+    withService("- **Service:** billing\n- **Service:** auth"),
+    /S2: a second \*\*Service:\*\*: a scenario has at most one/,
+  );
+  assertProblem(
+    withService("- **Service:** `@billing`"),
+    /S2: \*\*Service:\*\* expected a service name: letters, digits, `_` and `-`/,
+  );
+  assert.deepEqual(problemsOf(withService("- **Service:** **billing**, the billing API")), []);
+});
+
+test("a format=1 plan carries no **Service:**", () => {
+  const text = withService().replace("format=2", "format=1");
+  assertProblem(
+    text,
+    /S2: \*\*Service:\*\* is a format=2 field: mark the plan `format=2`, or leave it out/,
+  );
 });

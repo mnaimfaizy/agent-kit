@@ -12,7 +12,8 @@
 # anchors or multi-line values, and a flow mapping must open and close on one
 # line. Long entries are in block style below so a formatter keeps them there.
 # Every scalar is a string: `default: true` and `default: "true"` read the same.
-# Never put a password, token or hosted address in this file.
+# Never put a password or token in this file. A hosted address belongs here only
+# as a candidate (`run.hosts`, commented below): no key confirms one.
 
 working_dir: tmp/qa # gitignored; plans, reports and evidence are written here
 
@@ -47,13 +48,18 @@ hazards: # Hazard packs; each path is relative to the repository root
   - pack: docs/qa-hazards/sign-in.md # start from examples/qa-hazards/sign-in.md
 
 run:
-  target: stack # stack (a local QA Stack) | url (a hosted test environment, address asked in chat)
+  target: stack # stack (a local QA Stack) | url (a hosted test environment, each host typed by the person)
   surface: web # web | desktop | mobile | api
   stack: # the QA Stack contract; all four are needed for target: stack
     up: "docker compose up -d"
     migrate: "uv run alembic upgrade head"
     seed: "uv run python -m app.qa_accounts seed"
     down: "docker compose down"
+    # address: http://localhost:3000 # optional: the local address, for an `up` that prints none; `host` must call it local
+  # hosts: # for target: url only: candidates the person still confirms by typing each host, every run
+  #   - { name: web, url: "https://qa.example.com", surface: web } # a surface's entry: one per surface
+  #   - { name: api, url: "https://api.qa.example.com", surface: api }
+  #   - { name: billing, url: "https://billing.qa.example.com" } # a named service, picked by a scenario's **Service:**
   accounts: # the QA Account contract
     print: "uv run python -m app.qa_accounts print"
     restore: "uv run python -m app.qa_accounts restore --account {id}"
@@ -65,3 +71,7 @@ run:
   version_endpoint: /version # a path on the build's own host that names its commit
   evidence:
     upload: none # none | gh-release:<tag>, such as gh-release:qa-artifacts
+
+report: # the Places a posted QA Report tags each item left for a person with
+  places: [local, staging, production] # a list of lowercase words, or `none` to leave items untagged
+  holds: [local] # the Places that hold a merge; the others are deferred

@@ -69,16 +69,31 @@ describe("examples/qa.config.yml", () => {
       ...planAdapter.SUITE_KEYS.map((k) => `plan.suites.${k}`),
       ...planAdapter.PUBLISH_KEYS.map((k) => `plan.publish.${k}`),
       ...planAdapter.HAZARD_KEYS.map((k) => `hazards.${k}`),
-      ...planAdapter.RUN_KEYS.map((k) => `run.${k}`),
+      // `run.hosts` is shown commented: a hosted address is a candidate, never a default.
+      ...planAdapter.RUN_KEYS.filter((k) => k !== "hosts").map((k) => `run.${k}`),
       ...planAdapter.STACK_KEYS.map((k) => `run.stack.${k}`),
       ...planAdapter.ACCOUNT_KEYS.map((k) => `run.accounts.${k}`),
       ...planAdapter.ROLE_KEYS.map((k) => `run.accounts.roles.${k}`),
       ...planAdapter.EVIDENCE_KEYS.map((k) => `run.evidence.${k}`),
+      ...planAdapter.REPORT_KEYS.map((k) => `report.${k}`),
     ];
     assert.deepEqual(
       accepted.filter((key) => !shown.has(key)),
       [],
       "keys adapter.mjs accepts that the example does not show",
+    );
+  });
+
+  it("shows `run.hosts` commented as candidates, and uncommented they read with no problems", () => {
+    assert.match(CONFIG, /^ {2}# hosts: .*candidates.*typing each host/m);
+    const parsed = planAdapter.parseConfig("qa.config.yml", CONFIG);
+    assert.equal(parsed.config.run.hosts, undefined);
+    const shown = CONFIG.replace(/^ {2}# hosts:/m, "  hosts:").replace(/^ {2}# {3}- /gm, "    - ");
+    const hosted = planAdapter.parseConfig("qa.config.yml", shown);
+    assert.deepEqual(hosted.runProblems, []);
+    assert.deepEqual(
+      hosted.config.run.hosts.map((h) => h.name),
+      ["web", "api", "billing"],
     );
   });
 

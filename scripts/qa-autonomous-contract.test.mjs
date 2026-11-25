@@ -1,6 +1,7 @@
 /**
  * Contract test: each QA skill owns the mapping that lets an autonomous
- * orchestrate run follow it from a brief (issue #289, ADR 0013). `qa-plan` and
+ * orchestrate run follow it from a brief (issue #289; ADR 0013, superseded by the autonomous-QA
+ * handover ADR). `qa-plan` and
  * `manual-qa` each carry a "Run from an autonomous brief" section with one row
  * per workflow step that waits on the person, saying what replaces the wait.
  *
@@ -104,10 +105,16 @@ describe("qa-plan: what replaces each wait", () => {
   const text = section(SKILL, HEADING);
   const row = (n) => text.split("\n").find((line) => new RegExp(`^\\|\\s*${n}\\s*\\|`).test(line));
 
-  it("takes the readiness answers from the --answers file, and never offers to save a config", () => {
+  it("takes the readiness answers from the --answers file, never offers to save a config, and holds what the file leaves", () => {
     assert.match(row(2), /`--answers`/);
     assert.match(row(2), /never (?:offers|offer) to save/);
-    assert.match(row(2), /never (?:a Ruling|rules)/);
+    assert.match(row(2), /never a Ruling/);
+    assert.match(row(2), /held for close-out/);
+  });
+
+  it("an unignored working_dir: writes nothing and stops, and the row is held", () => {
+    assert.match(row(2), /`working_dir`/);
+    assert.match(row(2), /write nothing and stop/);
   });
 
   it("makes the subject issue and an `unknown` row Rulings under the evidence bar, else the human's", () => {
@@ -115,7 +122,13 @@ describe("qa-plan: what replaces each wait", () => {
     assert.match(row(3), /evidence bar/);
     assert.match(row(4), /`unknown`/);
     assert.match(row(4), /evidence bar/);
-    assert.match(text, /`waiting`/);
+    assert.match(row(3), /held for close-out/);
+    assert.match(row(4), /held for close-out/);
+  });
+
+  it("never sets this Delegation `waiting` on the human: a question the evidence does not settle is held", () => {
+    assert.match(text, /never `waiting` on the human/);
+    assert.match(text, /held for close-out/);
   });
 
   it("turns 'Add the test' into a send-back Ruling, voids this QA, and commits nothing", () => {
@@ -126,9 +139,18 @@ describe("qa-plan: what replaces each wait", () => {
     assert.match(row(4), /commits nothing/);
   });
 
-  it("delivers the QA Plan on a Ruling, with the reused-answers line", () => {
+  it("delivers the QA Plan on a Ruling, with the reused-answers line, each Review box naming its file and exact words", () => {
     assert.match(row(7), /Ruling/);
     assert.match(row(7), /answers\.reused/);
+    assert.match(row(7), /the file and the exact words/);
+  });
+
+  it("skips the stale-report edit and logs it, since the header names its commit and a re-QA replaces the comment", () => {
+    assert.match(row(8), /skip/i);
+    assert.match(row(8), /log/);
+    assert.match(row(8), /replaces the comment/);
+    assert.match(row(8), /listed at close-out/);
+    assert.doesNotMatch(row(8), /Decision Request/);
   });
 });
 
@@ -137,16 +159,94 @@ describe("manual-qa: what replaces each wait", () => {
   const text = section(SKILL, HEADING);
   const row = (n) => text.split("\n").find((line) => new RegExp(`^\\|\\s*${n}\\s*\\|`).test(line));
 
-  it("runs only a `stack` target from the brief: a `url` target stays typed by the human", () => {
+  it("runs a `stack` target and a `url` target from the brief, with a `url` host typed in the Dispatch Plan (#421)", () => {
     assert.match(text, /`target: stack`/);
-    assert.match(text, /`url`/);
-    assert.match(row(5), /typed/);
-    assert.match(row(5), /`waiting`/);
+    assert.match(text, /`target: url`/);
+    assert.doesNotMatch(text, /A `url` target never runs from a brief/);
+    assert.doesNotMatch(row(5), /`waiting`/);
+    assert.doesNotMatch(row(5), /takes the typed route/);
   });
 
-  it("uploads nothing: every QA Artifact stays local", () => {
-    assert.match(row(10), /uploads nothing/);
-    assert.match(row(10), /local/);
+  it("the hosted-address rule widens to a host typed in this chat or in this run's Dispatch Plan, as the brief records", () => {
+    assert.match(text, /typed in this chat, or in this run's Dispatch Plan as the brief records/);
+    assert.match(
+      SKILL.split("\n").find((l) => l.startsWith("- **Sign in only as a role")),
+      /typed in this chat, or in this run's Dispatch Plan as the brief records/,
+    );
+  });
+
+  it("row 5: on a `url` target the brief's typed hosts are the addresses, `host` is re-run before any sign-in, and a seeder yes runs accounts.print", () => {
+    assert.match(row(5), /`url`/);
+    assert.match(row(5), /provenance/);
+    assert.match(row(5), /adapter\.mjs host[^|]*--target url --confirmed|`host`[^|]*re-?run/i);
+    assert.match(row(5), /before any sign-in/);
+    assert.match(row(5), /`accounts\.print`/);
+    assert.match(row(5), /seeder/);
+  });
+
+  it("a refused host, a missing entry or an unconfirmed entry holds only the affected scenarios, is logged, and never falls back to the typed route", () => {
+    for (const where of [row(5), row(2)]) assert.ok(where);
+    assert.match(row(5), /refused/);
+    assert.match(row(5), /missing/);
+    assert.match(row(5), /unconfirmed/);
+    assert.match(row(5), /logged|log /);
+    assert.match(row(5), /held for close-out/);
+    assert.match(row(5), /never (?:asked|typed)|no typed route|never falls back/);
+  });
+
+  it("row 2: the target is the plan's and config's, and a `url` target's address is the brief's typed host, never asked", () => {
+    assert.match(row(2), /address/);
+    assert.match(row(2), /the hosts the brief records/);
+  });
+
+  it("takes the run needs from the --answers file (qa-run.json), holds what appears after compose, and never asks", () => {
+    assert.match(row(2), /`--answers`/);
+    assert.match(row(2), /`qa-run\.json`/);
+    assert.match(row(2), /never (?:offers|offer) to save/);
+    assert.match(row(2), /after compose/);
+    assert.match(row(2), /left for a person/);
+    assert.match(row(2), /held for close-out/);
+  });
+
+  it("an unignored working_dir at the head: writes nothing and stops, and the row is held", () => {
+    assert.match(row(2), /write nothing and stop/);
+  });
+
+  it("run.surface is a Ruling under the evidence bar, otherwise held", () => {
+    assert.match(row(2), /`run\.surface:`/);
+    assert.match(row(2), /Ruling/);
+    assert.match(row(2), /evidence bar/);
+  });
+
+  it("an address `up` does not print comes from `run.stack.address`, and is held when there is none", () => {
+    assert.match(row(5), /`run\.stack\.address`/);
+    assert.match(row(5), /held for close-out/);
+    assert.match(row(5), /`adapter\.mjs host`|`host`/);
+  });
+
+  it("each open Review box is quoted at the pinned head and classified, and no agent ticks one", () => {
+    assert.match(row(8), /quote/);
+    assert.match(row(8), /"literal, quoted"/);
+    assert.match(row(8), /"needs judgment"/);
+    assert.match(row(8), /never ticks/);
+    assert.match(row(8), /`review-quotes\.md`/);
+  });
+
+  it("never sets this Delegation `waiting` on the human on a stack target", () => {
+    assert.match(text, /never `waiting` on the human/);
+  });
+
+  it("uploads nothing, unless the brief says uploads are approved: then no per-file question, never a failed run's media", () => {
+    assert.match(row(10), /uploads nothing unless the brief says/i);
+    assert.match(row(10), /stays? local/);
+    assert.match(row(10), /report\.mjs evidence/);
+    assert.match(row(10), /no per-file question/);
+    assert.match(row(10), /never a failed run's/);
+    assert.match(row(10), /refusals still apply/);
+  });
+
+  it("row 10 never offers an upload as a Decision Request", () => {
+    assert.doesNotMatch(row(10), /Decision Request/);
   });
 
   it("posts the QA Report only as a routine write the Dispatch Plan approved, else queues it", () => {

@@ -7,7 +7,8 @@
 //   results and said yes, and hands this file what `gh` printed.
 //
 //   1. `read`: reads a QA Report file (SKILL.md "The QA Report") into its
-//      headline, its anchors, its optional **Run deviations:** header line,
+//      headline, its anchors, its optional **Run deviations:** and
+//      `Run answers reused from` header lines,
 //      and one result per scenario, each one of the five (`RESULTS`) with its
 //      Before cell, and says whether the run failed (a FAIL of either kind,
 //      or a run stopped on a blocking outcome). It checks that the headline
@@ -29,8 +30,14 @@
 //      person posting wrote it), so a re-run edits it and never posts a second; and the tracker issue the
 //      plan's `<!-- qa-plan-link -->` comment names. With `--head`, the
 //      plan's head, it says whether that comment is for an older head.
-//   3. `comment`: the PR comment body: the marker, then the report, with each
-//      uploaded evidence path linked, an uploaded Storyboard shown as an image.
+//   3. `comment`: the PR comment body: the marker, a strict header line, and
+//      the short summary of the report (ADR 0033): one line saying an agent
+//      ran it, a Scenario/Result/Notes table (a deviation that limits trust
+//      in its row's Notes, each uploaded file linked there), the failures, and
+//      what is left for a person, each item under its Place from the config's
+//      `report.places`. The full report stays local. `parseSummary` and
+//      `parseHeader` are the pure strict readers of that comment; `summary`
+//      is their command line.
 //   4. `stale`: a report comment's body with a **Stale:** line after the
 //      marker, for `qa-plan` to edit in on the person's yes after a revision.
 //      The next `comment` replaces the whole body, Stale line included.
@@ -57,6 +64,7 @@
 //   node report.mjs find --login <login> [--head <sha>] < comments.jsonl
 //   node report.mjs stale --head <sha> < comment-body.md
 //   node report.mjs comment <report> [--link <path>=<url>]…
+//   node report.mjs summary <comment>
 //   node report.mjs tracker <report> --issue-body <file> [--link <path>=<url>]…
 //   node report.mjs evidence <report> [--pick <path>]… [--visibility <v>]
 //                            [--release missing|prerelease|release] [--github <owner/name>]
@@ -68,7 +76,14 @@ import { readFileSync, realpathSync, statSync } from "node:fs";
 import { join, posix, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { credentialProblems, effectiveConfig, readQaConfig, validatePlan } from "./adapter.mjs";
+import {
+  SURFACES,
+  credentialProblems,
+  effectiveConfig,
+  effectivePlaces,
+  readQaConfig,
+  validatePlan,
+} from "./adapter.mjs";
 
 /** The first line of the one PR comment that carries a QA Report. */
 export const REPORT_MARKER = "<!-- qa-report -->";
@@ -96,10 +111,216 @@ function staleFor(body) {
     : null;
   return named && FULL_HEAD.test(named) ? named : null;
 }
+/** The two fixed forms of the posted comment's header line (ADR 0033). */
+const HEADER_RESULT = new RegExp(
+  `^QA Report: result=(passed|failed); commit=(${HEAD_HEX}); ` +
+    "left-for-person=(0|[1-9]\\d*); deferred=(0|[1-9]\\d*)$",
+);
+const HEADER_NONE = new RegExp(`^QA Report: no manual QA needed; commit=(${HEAD_HEX})$`);
+const SHA_WORDS = "a full lowercase commit SHA (40 hex digits, or 64 for SHA-256)";
+/** A line that opens a list item, however it is written. */
+const LIST_ITEM = /^\s*(?:[-*+]|\d+[.)])(?:\s|$)/;
+const LEFT_HEADING = "### Left for a person";
+
+/**
+ * Read the header line strictly, pure, and
+ * only the two fixed forms read. Anything else (a short SHA, an extra or a
+ * missing field, loose spelling or spacing) is refused.
+ *
+ * @param {string} line the header line, as written
+ * @returns {{header: {kind: "result", result: "passed" | "failed", commit: string,
+ *   leftForPerson: number, deferred: number} | {kind: "none-needed", commit: string} | null,
+ *   problems: string[]}}
+ */
+export function parseHeader(line) {
+  const result = HEADER_RESULT.exec(line);
+  if (result)
+    return {
+      header: {
+        kind: "result",
+        result: /** @type {"passed" | "failed"} */ (result[1]),
+        commit: result[2],
+        leftForPerson: Number(result[3]),
+        deferred: Number(result[4]),
+      },
+      problems: [],
+    };
+  const none = HEADER_NONE.exec(line);
+  if (none) return { header: { kind: "none-needed", commit: none[1] }, problems: [] };
+  const problems = [
+    "the header is not `QA Report: result=passed|failed; commit=<sha>; left-for-person=<n>; " +
+      "deferred=<n>` or `QA Report: no manual QA needed; commit=<sha>`, written exactly",
+  ];
+  if (/^QA Report:/.test(line) && !new RegExp(`commit=${HEAD_HEX}(?:;|$)`).test(line))
+    problems.push(`its commit must be ${SHA_WORDS}`);
+  return { header: null, problems };
+}
+
+/**
+ * The Places a summary is read against: the configured `{name, holds}` list,
+ * `null` for Places turned off, or the defaults when none is given.
+ *
+ * @param {{name: string, holds: boolean}[] | null | undefined} places
+ */
+const placesOrDefault = (places) => (places === undefined ? effectivePlaces({}) : places);
+
+/** The header of a report comment, found after the marker, an optional Stale line and blank lines. */
+function headerAt(lines) {
+  let at = 1;
+  const skip = () => {
+    while (at < lines.length && lines[at].trim() === "") at += 1;
+  };
+  skip();
+  if (lines[at]?.trim().startsWith(STALE_START)) {
+    at += 1;
+    skip();
+  }
+  return at < lines.length ? at : -1;
+}
+
+/**
+ * The commit a report comment's header names, or `null`: a comment for the
+ * header's shape or, for one posted before the summary, its **Plan:** line.
+ *
+ * @param {string} body
+ * @returns {string | null}
+ */
+function headOf(body) {
+  const lines = lf(body ?? "").split("\n");
+  const at = headerAt(lines);
+  const header = at === -1 ? null : parseHeader(lines[at]).header;
+  return header?.commit ?? readReport(body).report.head;
+}
+
+/**
+ * Read a posted QA Report comment strictly (ADR 0033): the marker first, one
+ * header in a fixed form, and under `### Left for a person` only items written
+ * `- [<place>] <text>` with a configured Place (or `- <text>` with Places off).
+ * A top-level list item anywhere else, a malformed Place line, or counts that
+ * differ from the items per Place make the report unreadable. Pure: it runs
+ * nothing and reads no file.
+ *
+ * @param {string} body the comment's body
+ * @param {{places?: {name: string, holds: boolean}[] | null}} [options] the
+ *   configured Places (`effectivePlaces`); `null` is Places turned off
+ * @returns {{summary: {header: NonNullable<ReturnType<typeof parseHeader>["header"]>,
+ *   items: {place: string | null, text: string, ruling: string | null}[]} | null,
+ *   problems: string[]}}
+ */
+export function parseSummary(body, { places } = {}) {
+  const configured = placesOrDefault(places);
+  const names = configured?.map((place) => place.name) ?? [];
+  const lines = lf(body ?? "").split("\n");
+  const problems = [];
+  if (lines[0].trim() !== REPORT_MARKER)
+    return {
+      summary: null,
+      problems: [`its first line is not \`${REPORT_MARKER}\`: no report comment`],
+    };
+  const headerLine = headerAt(lines);
+  const read = headerLine === -1 ? null : parseHeader(lines[headerLine]);
+  if (!read?.header)
+    return {
+      summary: null,
+      problems: [
+        "no `QA Report: …` header after the marker",
+        ...(read && /^QA Report:/.test(lines[headerLine]) ? read.problems : []),
+      ],
+    };
+  const fenced = fencedLines(lines);
+  lines.forEach((line, n) => {
+    if (n !== headerLine && !fenced[n] && /^QA Report:/.test(line))
+      problems.push(`line ${n + 1}: a second header line: the comment has one`);
+  });
+
+  const headings = lines.flatMap((line, n) =>
+    !fenced[n] && line.trim() === LEFT_HEADING ? [n] : [],
+  );
+  const items = [];
+  if (read.header.kind === "none-needed") {
+    if (headings.length || lines.some((line, n) => !fenced[n] && LIST_ITEM.test(line)))
+      problems.push("a report that needs no manual QA needs no manual QA, so it lists nothing");
+  } else if (!headings.length) problems.push("no `### Left for a person` section");
+  else if (headings.length > 1)
+    problems.push("two `### Left for a person` sections: the comment has one");
+  const from = headings[0] ?? -1;
+  let to = lines.length;
+  if (from !== -1) {
+    const next = lines.findIndex((line, n) => n > from && !fenced[n] && /^#{1,6}\s/.test(line));
+    if (next !== -1) to = next;
+  }
+  lines.forEach((line, n) => {
+    if (fenced[n] || n === headerLine) return;
+    const inside = from !== -1 && n > from && n < to;
+    if (!inside) {
+      if (LIST_ITEM.test(line))
+        problems.push(
+          `line ${n + 1}: a list item outside **Left for a person**: the report is unreadable`,
+        );
+      return;
+    }
+    if (line.trim() === "" || line.trim() === "None.") return;
+    const at = `line ${n + 1}`;
+    if (!/^- \S/.test(line)) {
+      problems.push(
+        LIST_ITEM.test(line) && !/^\s/.test(line)
+          ? `${at}: a list item not written \`- [<place>] <text>\``
+          : `${at}: unexpected line under **Left for a person**: only items and \`None.\``,
+      );
+      return;
+    }
+    const raw = line.slice(2);
+    const ruling = / \(checked under (R[1-9]\d*)\)$/.exec(raw)?.[1] ?? null;
+    const rest = ruling ? raw.slice(0, raw.lastIndexOf(" (checked under")) : raw;
+    if (configured === null) {
+      if (TEXT_PLACE.test(rest))
+        problems.push(`${at}: Places are off, so an item carries no Place`);
+      else items.push({ place: null, text: rest, ruling });
+      return;
+    }
+    const tagged = /^\[([^\]]*)\](?: (\S.*))?$/.exec(rest);
+    if (!tagged || tagged[2] === undefined || !tagged[2].trim())
+      problems.push(
+        `${at}: an item with no Place: write \`- [<place>] <text>\`, a Place of: ${names.join(", ")}`,
+      );
+    else if (!names.includes(tagged[1]))
+      problems.push(`${at}: Place \`${tagged[1]}\` is not configured (${names.join(", ")})`);
+    else items.push({ place: tagged[1], text: tagged[2], ruling });
+  });
+
+  if (read.header.kind === "result" && !problems.length) {
+    const holding = items.filter(
+      (i) => configured === null || configured.find((p) => p.name === i.place)?.holds,
+    );
+    const deferred = items.length - holding.length;
+    if (holding.length !== read.header.leftForPerson)
+      problems.push(
+        `the header says left-for-person=${read.header.leftForPerson}, but the list holds ` +
+          `${holding.length} item${holding.length === 1 ? "" : "s"} in a Place that holds a merge`,
+      );
+    if (deferred !== read.header.deferred)
+      problems.push(
+        `the header says deferred=${read.header.deferred}, but the list holds ${deferred} deferred item${deferred === 1 ? "" : "s"}`,
+      );
+  }
+  return problems.length
+    ? { summary: null, problems }
+    : { summary: { header: read.header, items }, problems };
+}
+
 /** The optional QA Report header line listing where the run departed from the plan or the rules. */
 const DEVIATIONS_LABEL = "- **Run deviations:**";
+/** The optional QA Report header line saying the run took its run needs from an `--answers` file. */
+const REUSED_LABEL = "- Run answers reused from";
 /** A Follow-ups line for an open `Review:` box (SKILL.md, The QA Report), its text captured. */
 const REVIEW_FOLLOW_UP = /^\s*[-*]\s+Review, for a person:\s*(\S.*?)\s*$/;
+/** The line directly under a Review line that says a Ruling checked the box: `  (checked under R<n>)`. */
+const CHECKED_UNDER = /^\s+\(checked under (R[1-9]\d*)\)\s*$/;
+/** A Place leading a Review box's text, as `qa-plan` writes it: `[<place>] <text>`. The name's shape is `PLACE_NAME`'s in `adapter.mjs`; keep the two in step. */
+const TEXT_PLACE = /^\[([a-z0-9][a-z0-9-]*)\]\s+(\S[\s\S]*)$/;
+/** A scenario's note that a deviation limits how far its result can be trusted: a few words. */
+const LIMITS_TRUST = /(?<![A-Za-z])Limits trust:\s*([^;]*?)\s*(?:;|\.(?:\s|$)|$)/;
+const TRUST_NOTE_LIMIT = 160;
 /** The first line of the PR comment `qa-plan` posts naming its tracker issue. */
 export const PLAN_LINK_MARKER = "<!-- qa-plan-link -->";
 /** The five results a row may carry (SKILL.md step 6, DESIGN.md "Five results"). */
@@ -311,7 +532,8 @@ const cells = (row) =>
  *   subject: number | null, pr: number | null, head: string | null,
  *   target: "stack" | "url" | null, results: {id: string, scenario: string, result: string,
  *   before: string, evidence: string[], notes: string}[], failed: boolean, stopped: boolean,
- *   record: string | null, deviations: string | null, reviews: string[]},
+ *   record: string | null, deviations: string | null, runAnswers: string | null,
+ *   reviews: string[]},
  *   problems: string[]}}
  */
 export function readReport(text) {
@@ -334,8 +556,15 @@ export function readReport(text) {
     record: null,
     // The **Run deviations:** line's text, or `null`: the line is left out when there were none.
     deviations: null,
+    // What the `Run answers reused from` line says after its label (`<file>: <values>`), or `null`.
+    runAnswers: null,
     // The text of each `- Review, for a person: <text>` line under Follow-ups, outside fences.
     reviews: [],
+    // The same lines, each with the Ruling a `(checked under R<n>)` line under it names, or `null`.
+    reviewItems: [],
+    // The **Run:** line's surfaces (`web`, …) and its first date, for the posted summary.
+    surfaces: [],
+    date: null,
   };
   const titleAt = lines.findIndex((line) => /^# QA Report: \S/.test(line));
   if (titleAt === -1) problems.push("no `# QA Report: <title>` line");
@@ -375,6 +604,14 @@ export function readReport(text) {
   report.target = /** @type {"stack" | "url" | null} */ (
     /^- \*\*Run:\*\*\s*`(stack|url)`/.exec(runLine ?? "")?.[1] ?? null
   );
+  report.surfaces = [
+    ...new Set(
+      [...(runLine ?? "").matchAll(/`([a-z]+)`/g)]
+        .map((m) => m[1])
+        .filter((w) => SURFACES.includes(w)),
+    ),
+  ];
+  report.date = /\b(\d{4}-\d{2}-\d{2})\b/.exec(runLine ?? "")?.[1] ?? null;
 
   const found = sections(lines);
   // A header line: one under a later section (Follow-ups, say) is that section's
@@ -407,13 +644,49 @@ export function readReport(text) {
       );
   }
 
+  const reusedLines = lines
+    .slice(0, headerEnd)
+    .filter((line, n) => !fenced[n] && line.startsWith(REUSED_LABEL));
+  if (reusedLines.length > 1)
+    problems.push(
+      `the header has ${reusedLines.length} \`Run answers reused from\` lines: keep the one`,
+    );
+  if (reusedLines.length) {
+    report.runAnswers = reusedLines[0].slice(REUSED_LABEL.length).trim();
+    if (!/^\S.*: \S/.test(report.runAnswers))
+      problems.push(
+        "the `Run answers reused from` line names no file and values: " +
+          "`Run answers reused from <file>: <values>`, or leave the line out",
+      );
+    else if (report.runAnswers.startsWith("<"))
+      problems.push(
+        "the `Run answers reused from` line still carries the template's placeholder: " +
+          "write the file and the values, or leave the line out",
+      );
+  }
+
   const followUps = found["Follow-ups"];
   if (followUps)
-    report.reviews = lines
-      .slice(followUps.start + 1, followUps.end)
-      .filter((line, i) => !fenced[followUps.start + 1 + i])
-      .map((line) => REVIEW_FOLLOW_UP.exec(line)?.[1])
-      .filter((text) => text !== undefined);
+    for (let n = followUps.start + 1; n < followUps.end; n += 1) {
+      if (fenced[n]) continue;
+      const text = REVIEW_FOLLOW_UP.exec(lines[n])?.[1];
+      if (text === undefined) {
+        if (/^\s*\(checked under/.test(lines[n]) && !CHECKED_UNDER.test(lines[n]))
+          problems.push(
+            `line ${n + 1}: a \`(checked under R<n>)\` under a Review line: write it as \`  (checked under R4)\`, ` +
+              "the Ruling's own number",
+          );
+        else if (CHECKED_UNDER.test(lines[n]) && !REVIEW_FOLLOW_UP.test(lines[n - 1] ?? ""))
+          problems.push(
+            `line ${n + 1}: a \`(checked under R<n>)\` line must sit directly under the Review line ` +
+              "it checked",
+          );
+        continue;
+      }
+      const ruling = CHECKED_UNDER.exec(lines[n + 1] ?? "")?.[1] ?? null;
+      report.reviews.push(text);
+      report.reviewItems.push({ text, ruling });
+    }
 
   // The headline is judged from the rows, so only a problem in the rows themselves holds it back.
   const beforeRows = problems.length;
@@ -521,6 +794,15 @@ export function readReport(text) {
             `${at}'s Storyboard is its main evidence: link it first in the Evidence cell`,
           );
       });
+      // A deviation that limits the result's trust, in a few words, for the posted Notes cell.
+      const limits = LIMITS_TRUST.exec(note);
+      if (limits && !limits[1])
+        problems.push(`${at}'s \`Limits trust:\` names nothing: say in a few words what limits it`);
+      else if (limits && limits[1].length > TRUST_NOTE_LIMIT)
+        problems.push(
+          `${at}'s \`Limits trust:\` note runs over ${TRUST_NOTE_LIMIT} characters: a few words; ` +
+            "the rest stays in the local report",
+        );
       report.results.push({
         id,
         scenario,
@@ -528,6 +810,7 @@ export function readReport(text) {
         before,
         evidence: paths,
         notes: note,
+        limits: limits?.[1] || null,
       });
     }
     // `None.` in place of the table: a plan whose Residue is only `Review:` boxes has no
@@ -738,7 +1021,7 @@ export function findComments(comments, login, { head = null } = {}) {
   const own = marked.filter((c) => login && author(c) === login);
   const link = comments.find((c) => firstLine(c.body) === PLAN_LINK_MARKER);
   const planIssue = link ? Number(/QA Plan: #(\d+)/.exec(link.body)?.[1]) || null : null;
-  const reportHead = own.length ? readReport(own[0].body ?? "").report.head : null;
+  const reportHead = own.length ? headOf(own[0].body ?? "") : null;
   return {
     report: own.length
       ? {
@@ -781,8 +1064,12 @@ export function staleComment(body, head) {
       body: null,
       problems: [`its first line is not \`${REPORT_MARKER}\`: no report comment`],
     };
-  const old = readReport(body).report.head;
-  if (!old) return { body: null, problems: ["its report's **Plan:** line names no full head"] };
+  const old = headOf(body);
+  if (!old)
+    return {
+      body: null,
+      problems: ["its report names no full head: no header, and no **Plan:** line"],
+    };
   if (old === head)
     return { body: null, problems: [`its report is for the same head, ${head}: it is not stale`] };
   // The report, without the marker, any Stale line, and the blank lines around them.
@@ -821,19 +1108,160 @@ function checkBody(body, problems) {
     problems.push(`the body is ${body.length} characters; GitHub takes at most ${BODY_LIMIT}`);
 }
 
+/** A cell's text: one line, its pipes escaped. */
+const cellText = (text) =>
+  String(text)
+    .replace(/\s*\n\s*/g, " ")
+    .replace(/\|/g, "\\|")
+    .trim();
+
 /**
- * The PR comment body: the marker on its first line, then the report.
+ * A note cut short for a table cell: its first sentence when that fits, else
+ * cut at a word, with an ellipsis. The full note stays in the local report.
  *
- * @param {string} reportText
- * @param {{links?: Record<string, string>}} [options] uploaded evidence path → URL
+ * @param {string} text
+ * @param {number} [max]
+ */
+export function briefNote(text, max = 120) {
+  const note = String(text).replace(/\s+/g, " ").trim();
+  const sentence = /^.*?[.!?](?=\s|$)/.exec(note)?.[0] ?? note;
+  if (sentence.length <= max) return sentence;
+  const cut = sentence.slice(0, max);
+  return `${cut.slice(0, Math.max(cut.lastIndexOf(" "), 1)).replace(/[\s,;:.]+$/, "")}…`;
+}
+
+/** What an uploaded file is called in a Notes cell: `Storyboard`, `MP4`, else its file name. */
+const linkLabel = (path) => {
+  const normal = path.replace(/\\/g, "/");
+  if (STORYBOARD.test(normal)) return "Storyboard";
+  if (MP4.test(normal)) return "MP4";
+  return posix.basename(normal);
+};
+
+/**
+ * The summary the pull request gets (ADR 0033, prototype variant A): marker,
+ * header, one run line, a three-column table, failures, and what is left for a
+ * person. Run facts, evidence paths, run deviations, the Execution record and
+ * side notes stay in the local report.
+ *
+ * @param {ReturnType<typeof readReport>["report"]} report
+ * @param {{name: string, holds: boolean}[] | null} places
+ * @param {Record<string, string>} links
  * @returns {{body: string | null, problems: string[]}}
  */
-export function reportComment(reportText, { links = {} } = {}) {
-  const { problems } = readReport(reportText);
+function summaryBody(report, places, links) {
+  const problems = [];
+  const holder = places?.find((place) => place.holds)?.name ?? null;
+  const names = places?.map((place) => place.name) ?? [];
+  const items = [];
+  report.reviewItems.forEach(({ text, ruling }) => {
+    const tag = TEXT_PLACE.exec(text);
+    let place = holder;
+    let words = text;
+    if (places === null) {
+      if (tag)
+        problems.push(
+          `the Review line _${text}_ carries a Place, but Places are off (\`report.places: none\`)`,
+        );
+    } else if (tag) {
+      if (!names.includes(tag[1]))
+        problems.push(
+          `the Review line _${text}_ names Place \`${tag[1]}\`, which is not configured (${names.join(", ")})`,
+        );
+      place = tag[1];
+      words = tag[2];
+    }
+    items.push({ place, text: words, ruling });
+  });
+  // A scenario left for a person is an item a person must do, in the first Place that holds.
+  for (const row of report.results.filter((r) => r.result === "left for a person"))
+    items.push({ place: holder, text: `${row.scenario} (${briefNote(row.notes)})`, ruling: null });
   if (problems.length) return { body: null, problems };
-  const body = `${REPORT_MARKER}\n\n${linkEvidence(lf(reportText).trim(), links)}\n`;
-  checkBody(body, problems);
-  return { body: problems.length ? null : body, problems };
+
+  const holding = items.filter(
+    (item) => places === null || places.find((p) => p.name === item.place)?.holds,
+  );
+  const failed = report.headline === "QA failed";
+  const header =
+    `QA Report: result=${failed ? "failed" : "passed"}; commit=${report.head}; ` +
+    `left-for-person=${holding.length}; deferred=${items.length - holding.length}`;
+  const where = [
+    report.target === "stack" ? "QA Stack" : report.target === "url" ? "hosted URL" : null,
+    ...(report.surfaces.length
+      ? [report.surfaces.map((surface) => `\`${surface}\``).join(", ")]
+      : []),
+    report.date,
+  ].filter(Boolean);
+  const run =
+    `Run by an agent on \`${String(report.head).slice(0, 7)}\`` +
+    `${where.length ? ` (${where.join(", ")})` : ""}. Result: **${failed ? "QA failed" : "QA passed"}**`;
+
+  const rows = report.results.map((row) => {
+    const note = row.result === "PASS" ? (row.limits ?? "") : briefNote(row.notes);
+    const linked = row.evidence
+      .filter((path) => Object.hasOwn(links, path))
+      .map((path) => `[${linkLabel(path)}](${links[path]})`);
+    const cell = cellText([note, ...linked].filter(Boolean).join(" "));
+    return `| ${cellText(row.scenario)} | ${row.result} |${cell ? ` ${cell} ` : " "}|`;
+  });
+  const failures = report.results
+    .filter((row) => row.result.startsWith("FAIL"))
+    .map((row) => {
+      const note = briefNote(row.notes);
+      return `**${cellText(row.scenario)}**: ${row.result}.${note ? ` ${note.replace(/[.!?]?$/, ".")}` : ""} Unresolved at this head.`;
+    });
+  const list = items.map(
+    (item) =>
+      `- ${places === null ? "" : `[${item.place}] `}${cellText(item.text)}${item.ruling ? ` (checked under ${item.ruling})` : ""}`,
+  );
+  const body = [
+    REPORT_MARKER,
+    "",
+    header,
+    "",
+    "## QA Report",
+    "",
+    run,
+    "",
+    "| Scenario | Result | Notes |",
+    "| -------- | ------ | ----- |",
+    ...rows,
+    "",
+    "### Failures and how each was resolved",
+    "",
+    failures.length ? failures.join("\n\n") : "None.",
+    "",
+    LEFT_HEADING,
+    "",
+    ...(list.length ? list : ["None."]),
+    "",
+  ].join("\n");
+  return { body, problems };
+}
+
+/**
+ * The PR comment body: the short summary (ADR 0033), the marker on its first
+ * line. The full report stays local. The body is read back by `parseSummary`
+ * before it is returned, so a malformed post is never handed out.
+ *
+ * @param {string} reportText
+ * @param {{links?: Record<string, string>, places?: {name: string, holds: boolean}[] | null}} [options]
+ *   `links` is uploaded evidence path → URL; `places` the configured Places
+ *   (`effectivePlaces`; `null` is Places off; the defaults when left out)
+ * @returns {{body: string | null, problems: string[]}}
+ */
+export function reportComment(reportText, { links = {}, places } = {}) {
+  const { report, problems } = readReport(reportText);
+  if (problems.length) return { body: null, problems };
+  const configured = placesOrDefault(places);
+  const built = summaryBody(report, configured, links);
+  if (built.body === null) return built;
+  // The local report is scanned too: a sign-in value is refused wherever it sits.
+  for (const problem of credentialProblems(lf(reportText).split("\n")))
+    problems.push(problem.replace(/; a plan carries.*/, "; remove it before posting"));
+  if (!problems.length) problems.push(...parseSummary(built.body, { places: configured }).problems);
+  if (!problems.length) checkBody(built.body, problems);
+  return { body: problems.length ? null : built.body, problems };
 }
 
 /**
@@ -1075,7 +1503,7 @@ export function main(argv, io = {}) {
     out:
       "usage: node report.mjs read <report> [--plan <plan>] | " +
       "find --login <login> [--head <sha>] < comments | stale --head <sha> < body | " +
-      "comment <report> [--link p=url]… | " +
+      "comment <report> [--link p=url]… | summary <comment> | " +
       "tracker <report> --issue-body <file> [--link p=url]… | evidence <report> [--pick <path>]… " +
       "[--visibility <v>] [--release missing|prerelease|release] [--github <owner/name>]   [--repo <dir>]\n",
   };
@@ -1097,10 +1525,28 @@ export function main(argv, io = {}) {
       ? { code: 1, out: json({ problems: result.problems }) }
       : { code: 0, out: result.body };
   }
-  if (!["read", "comment", "tracker", "evidence"].includes(command)) return usage;
+  if (!["read", "comment", "summary", "tracker", "evidence"].includes(command)) return usage;
   if (target === undefined || target.startsWith("--")) return usage;
   const text = readFile(target);
   if (text === null) return { code: 1, out: json({ problems: [`${target}: no such file`] }) };
+  // The config, read when a command needs it: its problems stop the command.
+  const loadConfig = () => {
+    const loaded = readQaConfig(
+      io.read ??
+        ((path) => {
+          try {
+            return readFileSync(join(repo, path), "utf8");
+          } catch {
+            return null;
+          }
+        }),
+    );
+    return {
+      path: loaded.path,
+      config: loaded.config,
+      problems: loaded.runProblems.length ? loaded.runProblems : null,
+    };
+  };
 
   if (command === "read") {
     const result = readReport(text);
@@ -1117,10 +1563,24 @@ export function main(argv, io = {}) {
     }
     return { code: result.problems.length ? 1 : 0, out: json(result) };
   }
+  if (command === "summary") {
+    const config = loadConfig();
+    if (config.problems)
+      return { code: 1, out: json({ path: config.path, problems: config.problems }) };
+    const result = parseSummary(text, { places: effectivePlaces(config.config) });
+    return { code: result.problems.length ? 1 : 0, out: json(result) };
+  }
   if (command === "comment" || command === "tracker") {
     let result;
-    if (command === "comment") result = reportComment(text, { links: parseLinks(argv) });
-    else {
+    if (command === "comment") {
+      const config = loadConfig();
+      if (config.problems)
+        return { code: 1, out: json({ path: config.path, problems: config.problems }) };
+      result = reportComment(text, {
+        links: parseLinks(argv),
+        places: effectivePlaces(config.config),
+      });
+    } else {
       const issuePath = option(argv, "--issue-body")[0];
       if (issuePath === undefined) return usage;
       const issueBody = readFile(issuePath);

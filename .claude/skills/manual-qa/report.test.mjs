@@ -19,6 +19,8 @@ import {
   findComments,
   main,
   parseComments,
+  parseHeader,
+  parseSummary,
   reportPlanProblems,
   readReport,
   reportComment,
@@ -189,6 +191,53 @@ test("a report without the **Run deviations:** line reads as before, deviations 
   });
   assert.equal(cli.code, 0);
   assert.equal(JSON.parse(cli.out).report.deviations, null);
+});
+
+const REUSED = 'tmp/qa/qa-run.json: run.target="stack"; run.surface="web"';
+/** A report with the reused-answers header line after **Teardown:**, as the template places it. */
+const withReused = (text, line) => {
+  const teardown = "- **Teardown:** `down` run; nothing else started\n";
+  return text.replace(teardown, `${teardown}${line}\n`);
+};
+
+test("a `Run answers reused from` header line reads with no problem, its text kept", () => {
+  const reused = withReused(PASSED, `- Run answers reused from ${REUSED}`);
+  assert.notEqual(reused, PASSED);
+  const { report, problems } = readReport(reused);
+  assert.deepEqual(problems, []);
+  assert.equal(report.runAnswers, REUSED);
+  assert.deepEqual({ ...report, runAnswers: null }, readReport(PASSED).report);
+  const cli = main(["read", "report.md", "--plan", "plan.md"], {
+    readFile: (path) => (path === "plan.md" ? PLAN : reused),
+  });
+  assert.equal(JSON.parse(cli.out).report.runAnswers, REUSED);
+});
+
+test("a report run without --answers reads with runAnswers null", () => {
+  assert.equal(readReport(PASSED).report.runAnswers, null);
+});
+
+test("a `Run answers reused from` line with no file and values, or twice, is a problem", () => {
+  assert.match(
+    readReport(withReused(PASSED, "- Run answers reused from")).problems.join("\n"),
+    /names no file and values/,
+  );
+  assert.match(
+    readReport(withReused(PASSED, "- Run answers reused from <file>: <values>")).problems.join(
+      "\n",
+    ),
+    /placeholder/,
+  );
+  const twice = withReused(
+    PASSED,
+    `- Run answers reused from ${REUSED}\n- Run answers reused from ${REUSED}`,
+  );
+  assert.match(readReport(twice).problems.join("\n"), /2 `Run answers reused from` lines/);
+});
+
+test("a `Run answers reused from` line in a fenced block or after the header is not read", () => {
+  const late = `${PASSED}\n## Follow-ups\n\n- Run answers reused from ${REUSED}\n`;
+  assert.equal(readReport(late).report.runAnswers, null);
 });
 
 test("an empty **Run deviations:** line is a problem: list each one, or leave it out", () => {
@@ -974,24 +1023,535 @@ test("`read --plan` checks the report against its plan, and exits 1 on a problem
 
 // --- The PR comment: one, updated, never duplicated ---
 
-test("the comment starts with the marker and carries the report", () => {
+const DEFAULT_PLACES = [
+  { name: "local", holds: true },
+  { name: "staging", holds: false },
+  { name: "production", holds: false },
+];
+const SHORT = HEAD.slice(0, 7);
+
+test("the comment is the short summary: marker, header, one run line, a three-column table, failures, items", () => {
   const { body, problems } = reportComment(PASSED);
   assert.deepEqual(problems, []);
-  assert.equal(body.split("\n")[0], REPORT_MARKER);
-  assert.ok(body.includes("# QA Report: Members can be invited by email"));
+  assert.equal(
+    body,
+    [
+      REPORT_MARKER,
+      "",
+      `QA Report: result=passed; commit=${HEAD}; left-for-person=0; deferred=0`,
+      "",
+      "## QA Report",
+      "",
+      `Run by an agent on \`${SHORT}\` (QA Stack, \`web\`, 2026-11-10). Result: **QA passed**`,
+      "",
+      "| Scenario | Result | Notes |",
+      "| -------- | ------ | ----- |",
+      "| S1: An admin invites a new member | PASS | |",
+      "| S2: A signed-out visitor cannot open the members page | PASS | |",
+      "",
+      "### Failures and how each was resolved",
+      "",
+      "None.",
+      "",
+      "### Left for a person",
+      "",
+      "None.",
+      "",
+    ].join("\n"),
+  );
+  // It is the same report text, left as it was written: the local file is the full one.
+  assert.ok(PASSED.includes("# QA Report: Members can be invited by email"));
+  assert.ok(PASSED.includes("## Execution record"));
 });
 
-test("the comment keeps a **Run deviations:** line word for word, and adds none without it", () => {
-  const line = `- **Run deviations:** ${DEVIATION}`;
-  const kept = reportComment(DEVIATED);
-  assert.deepEqual(kept.problems, []);
-  assert.ok(kept.body.split("\n").includes(line));
+test("the post leaves out run facts, evidence paths, the Execution record and side notes", () => {
+  const { body } = reportComment(DEVIATED);
+  for (const local of [
+    "Run deviations",
+    DEVIATION,
+    "**Teardown:**",
+    "**Accounts:**",
+    "Execution record",
+    "qa-report-pr-57/s1.png",
+    "tmp/qa/qa-plan-pr-57.md",
+    "invite sent",
+  ])
+    assert.ok(!body.includes(local), `${local} stays local`);
   const cli = main(["comment", "report.md"], { readFile: () => DEVIATED });
   assert.equal(cli.code, 0);
-  assert.ok(cli.out.split("\n").includes(line));
-  const without = reportComment(PASSED);
-  assert.deepEqual(without.problems, []);
-  assert.ok(!without.body.includes("Run deviations"));
+  assert.equal(cli.out, body);
+});
+
+test("a deviation that limits trust goes in a few words in its scenario's Notes cell", () => {
+  const rows = [
+    "| S1: An admin invites a new member | PASS | `qa-report-pr-57/s1.png` | invite sent. Limits trust: screenshots, not video. Compared at 1024 wide. |",
+    "| S2: A signed-out visitor cannot open the members page | PASS | `qa-report-pr-57/s2.log` | redirected |",
+  ];
+  const { body, problems } = reportComment(reportFor(rows));
+  assert.deepEqual(problems, []);
+  assert.ok(body.includes("| S1: An admin invites a new member | PASS | screenshots, not video |"));
+  assert.ok(body.includes("| S2: A signed-out visitor cannot open the members page | PASS | |"));
+  // The few words are few: a long one is a problem in the local report, not a long cell.
+  const long = rows[0].replace("screenshots, not video", "x".repeat(200));
+  assert.match(
+    readReport(reportFor([long, rows[1]])).problems.join("\n"),
+    /S1's `Limits trust:` note runs over 160 characters/,
+  );
+  assert.match(
+    readReport(reportFor([rows[0].replace("screenshots, not video", ""), rows[1]])).problems.join(
+      "\n",
+    ),
+    /S1's `Limits trust:` names nothing/,
+  );
+});
+
+test("a failed run lists each failure; a row not passed keeps a short note in its cell", () => {
+  const { body, problems } = reportComment(FAILED);
+  assert.deepEqual(problems, []);
+  assert.ok(
+    body.includes(`QA Report: result=failed; commit=${HEAD}; left-for-person=0; deferred=0`),
+  );
+  assert.ok(body.includes("Result: **QA failed**"));
+  assert.ok(
+    body.includes("| S1: An admin invites a new member | FAIL: regression | no invite appeared |"),
+  );
+  const failures = body.split("### Failures and how each was resolved\n\n")[1].split("\n###")[0];
+  assert.equal(
+    failures.trim(),
+    "**S1: An admin invites a new member**: FAIL: regression. no invite appeared. Unresolved at this head.",
+  );
+  // A long note is cut to its first sentence, or at a word, so no cell runs to a thousand characters.
+  const wordy = `${"a".repeat(30)} ${"b".repeat(30)}. ${"c ".repeat(300)}`;
+  const long = reportComment(
+    reportFor([
+      `| S1: An admin invites a new member | FAIL: regression | \`qa-report-pr-57/s1.png\` | ${wordy} |`,
+      "| S2: A signed-out visitor cannot open the members page | PASS | `qa-report-pr-57/s2.log` | ok |",
+    ]),
+  ).body;
+  const row = long.split("\n").find((line) => line.startsWith("| S1:"));
+  assert.ok(row.length < 160, row);
+});
+
+test("a scenario left for a person is an item left for a person, so the header counts it", () => {
+  const { body } = reportComment(STOPPED);
+  assert.ok(
+    body.includes(`QA Report: result=failed; commit=${HEAD}; left-for-person=1; deferred=0`),
+    body,
+  );
+  const left = body.split("### Left for a person\n\n")[1];
+  assert.equal(
+    left.trim(),
+    "- [local] S2: A signed-out visitor cannot open the members page (_the run stopped at S1: data loss_)",
+  );
+});
+
+// --- The header, read strictly ---
+
+const SHA = "a".repeat(40);
+const RESULT_HEADER = `QA Report: result=passed; commit=${SHA}; left-for-person=2; deferred=1`;
+const NONE_HEADER = `QA Report: no manual QA needed; commit=${SHA}`;
+
+test("the header parser accepts both fixed forms", () => {
+  assert.deepEqual(parseHeader(RESULT_HEADER), {
+    header: { kind: "result", result: "passed", commit: SHA, leftForPerson: 2, deferred: 1 },
+    problems: [],
+  });
+  assert.equal(parseHeader(RESULT_HEADER.replace("passed", "failed")).header.result, "failed");
+  assert.deepEqual(parseHeader(NONE_HEADER), {
+    header: { kind: "none-needed", commit: SHA },
+    problems: [],
+  });
+});
+
+test("the header parser refuses a short SHA, an upper-case one, an extra or missing field, and loose spelling", () => {
+  const refused = (line) => {
+    const out = parseHeader(line);
+    assert.equal(out.header, null, line);
+    assert.ok(out.problems.length, line);
+    return out.problems.join("\n");
+  };
+  assert.match(refused(RESULT_HEADER.replace(SHA, SHA.slice(0, 7))), /full lowercase commit SHA/);
+  assert.match(refused(RESULT_HEADER.replace(SHA, "A".repeat(40))), /full lowercase commit SHA/);
+  assert.match(refused(NONE_HEADER.replace(SHA, "abc1234")), /full lowercase commit SHA/);
+  refused(`${RESULT_HEADER}; extra=1`);
+  refused(`${NONE_HEADER}; left-for-person=0`);
+  refused(RESULT_HEADER.replace("; deferred=1", ""));
+  refused(RESULT_HEADER.replace("result=passed", "result=Passed"));
+  refused(RESULT_HEADER.replace("result=passed", "result=skipped"));
+  refused(RESULT_HEADER.replace("left-for-person=2", "left-for-person=02"));
+  refused(RESULT_HEADER.replace("left-for-person=2", "left-for-person=-1"));
+  refused(RESULT_HEADER.replace("; ", ";"));
+  refused(`${RESULT_HEADER} `);
+  refused(RESULT_HEADER.replace("QA Report:", "QA report:"));
+  refused("not a header");
+});
+
+/** A summary comment as the renderer writes one, with `items` under Left for a person. */
+const summary = (header, items = ["None."], extra = "") =>
+  [
+    REPORT_MARKER,
+    "",
+    header,
+    "",
+    "## QA Report",
+    "",
+    "| Scenario | Result | Notes |",
+    "| -------- | ------ | ----- |",
+    "| S1: x | PASS | |",
+    "",
+    "### Failures and how each was resolved",
+    "",
+    "None.",
+    "",
+    "### Left for a person",
+    "",
+    ...items,
+    "",
+    extra,
+  ].join("\n");
+
+test("a summary reads into its header and items, each with its Place", () => {
+  const body = summary(RESULT_HEADER, [
+    "- [local] read docs/x.html",
+    "- [local] read docs/y.html (checked under R4)",
+    "- [staging] open the invite mail on staging",
+  ]);
+  const { summary: read, problems } = parseSummary(body);
+  assert.deepEqual(problems, []);
+  assert.deepEqual(read.header, {
+    kind: "result",
+    result: "passed",
+    commit: SHA,
+    leftForPerson: 2,
+    deferred: 1,
+  });
+  assert.deepEqual(read.items, [
+    { place: "local", text: "read docs/x.html", ruling: null },
+    { place: "local", text: "read docs/y.html", ruling: "R4" },
+    { place: "staging", text: "open the invite mail on staging", ruling: null },
+  ]);
+});
+
+test("the second form reads with no list, and refuses one", () => {
+  const body = `${REPORT_MARKER}\n\n${NONE_HEADER}\n`;
+  const { summary: read, problems } = parseSummary(body);
+  assert.deepEqual(problems, []);
+  assert.deepEqual(read.header, { kind: "none-needed", commit: SHA });
+  assert.deepEqual(read.items, []);
+  assert.match(
+    parseSummary(`${body}\n### Left for a person\n\n- [local] x\n`).problems.join("\n"),
+    /needs no manual QA, so it lists nothing/,
+  );
+});
+
+test("counts that do not match the items per Place are refused", () => {
+  const items = ["- [local] a", "- [staging] b"];
+  assert.deepEqual(
+    parseSummary(
+      summary(RESULT_HEADER.replace("=2;", "=1;").replace("deferred=1", "deferred=1"), items),
+    ).problems,
+    [],
+  );
+  assert.match(
+    parseSummary(summary(RESULT_HEADER, items)).problems.join("\n"),
+    /left-for-person=2, but the list holds 1 item in a Place that holds a merge/,
+  );
+  assert.match(
+    parseSummary(
+      summary(
+        RESULT_HEADER.replace("deferred=1", "deferred=0"),
+        items.slice(0, 1).concat("- [staging] b"),
+      ),
+    ).problems.join("\n"),
+    /deferred=0, but the list holds 1 deferred item/,
+  );
+  assert.match(
+    parseSummary(summary(RESULT_HEADER, ["None."])).problems.join("\n"),
+    /left-for-person=2, but the list holds 0/,
+  );
+});
+
+test("a malformed Place line, or a top-level list item in any other form, makes the report unreadable", () => {
+  const header = RESULT_HEADER.replace("=2;", "=1;").replace("deferred=1", "deferred=0");
+  const bad = (items, extra = "") =>
+    parseSummary(summary(header, items, extra)).problems.join("\n");
+  assert.match(bad(["- no place at all"]), /an item with no Place/);
+  assert.match(
+    bad(["- [prod] a place that is not configured"]),
+    /Place `prod` is not configured \(local, staging, production\)/,
+  );
+  assert.match(bad(["- [Local] upper case"]), /Place `Local` is not configured/);
+  assert.match(bad(["- [local]no space"]), /an item with no Place/);
+  assert.match(bad(["- [local] "]), /an item with no Place/);
+  assert.match(bad(["* [local] star bullet"]), /not written `- \[<place>\] <text>`/);
+  assert.match(bad(["1. [local] numbered"]), /not written `- \[<place>\] <text>`/);
+  assert.match(bad(["- [ ] a task box"]), /Place ` ` is not configured/);
+  assert.match(bad(["- [local] fine", "  - [local] nested"]), /unexpected line/);
+  assert.match(bad(["- [local] fine", "Some prose."]), /unexpected line/);
+  // A list item anywhere else in the comment is no report either.
+  const stray = (line) =>
+    parseSummary(
+      summary(header, ["- [local] fine"]).replace("None.\n\n### Left", `${line}\n\n### Left`),
+    ).problems.join("\n");
+  assert.match(stray("- a stray bullet"), /a list item outside \*\*Left for a person\*\*/);
+  assert.match(stray("1. a stray number"), /a list item outside/);
+  assert.match(stray("* a star"), /a list item outside/);
+  // A list item inside a code fence is text, not a list.
+  assert.deepEqual(
+    parseSummary(summary(header, ["- [local] fine"], "\n```\n- in a fence\n```\n")).problems,
+    [],
+  );
+});
+
+test("a summary needs the marker first, one header, and the Left for a person section", () => {
+  const ok = summary(RESULT_HEADER.replace("=2;", "=0;").replace("deferred=1", "deferred=0"));
+  assert.deepEqual(parseSummary(ok).problems, []);
+  assert.match(
+    parseSummary(ok.replace(REPORT_MARKER, "<!-- other -->")).problems.join("\n"),
+    /first line is not/,
+  );
+  assert.match(
+    parseSummary(`${REPORT_MARKER}\n\nno header\n`).problems.join("\n"),
+    /no `QA Report: …` header/,
+  );
+  assert.match(
+    parseSummary(`${ok}\n${RESULT_HEADER}\n`).problems.join("\n"),
+    /a second header line/,
+  );
+  assert.match(
+    parseSummary(ok.replace("### Left for a person", "### Left over")).problems.join("\n"),
+    /no `### Left for a person` section/,
+  );
+  assert.match(
+    parseSummary(`${ok}\n### Left for a person\n\nNone.\n`).problems.join("\n"),
+    /two `### Left for a person` sections/,
+  );
+  // A comment for an older head may carry the Stale line between the marker and the header.
+  const stale = ok.replace(`${REPORT_MARKER}\n\n`, `${REPORT_MARKER}\n\n${STALE_LINE}\n\n`);
+  assert.deepEqual(parseSummary(stale).problems, []);
+  assert.match(
+    parseSummary(
+      ok.replace(`${REPORT_MARKER}\n\n`, `${REPORT_MARKER}\n\nsome prose\n\n`),
+    ).problems.join("\n"),
+    /no `QA Report: …` header/,
+  );
+});
+const STALE_LINE = `**Stale:** the plan was revised for head ${"3".repeat(40)}; this report is for ${SHA}.`;
+
+test("what the renderer writes, the parser reads back, with the same counts", () => {
+  for (const report of [PASSED, FAILED, STOPPED, REVIEWED_TAGGED]) {
+    const { body, problems } = reportComment(report);
+    assert.deepEqual(problems, []);
+    const read = parseSummary(body);
+    assert.deepEqual(read.problems, []);
+    assert.equal(read.summary.header.commit, HEAD);
+  }
+});
+
+// --- Places ---
+
+/** The plan, with an open `Review:` box for each of `texts`. */
+const withReviewPlan = (...texts) =>
+  PLAN.replace(
+    "- [ ] Setup 1: the `admin` account was restored",
+    `- [ ] Setup 1: the \`admin\` account was restored\n${texts.map((text) => `- [ ] Review: ${text}`).join("\n")}`,
+  );
+const withReviews = (...lines) =>
+  PASSED.replace("## Follow-ups\n\nNone.", `## Follow-ups\n\n${lines.join("\n")}`);
+const REVIEWED_TAGGED = withReviews(
+  "- Review, for a person: [local] docs/x.html says the token lasts 30 days",
+  "- Review, for a person: [staging] the invite mail reads well",
+  "- Review, for a person: [production] the live site links the new page",
+);
+
+test("by default `local` holds a merge, and `staging` and `production` are deferred", () => {
+  const { body, problems } = reportComment(REVIEWED_TAGGED);
+  assert.deepEqual(problems, []);
+  assert.ok(body.includes(`left-for-person=1; deferred=2`));
+  assert.ok(body.includes("- [local] docs/x.html says the token lasts 30 days\n"));
+  assert.ok(body.includes("- [staging] the invite mail reads well\n"));
+  assert.ok(body.includes("- [production] the live site links the new page\n"));
+  assert.deepEqual(
+    parseSummary(body, { places: DEFAULT_PLACES }).summary.items.map((i) => i.place),
+    ["local", "staging", "production"],
+  );
+});
+
+test("a repository can rename Places and choose which hold", () => {
+  const places = [
+    { name: "dev", holds: true },
+    { name: "preprod", holds: true },
+    { name: "prod", holds: false },
+  ];
+  const report = withReviews(
+    "- Review, for a person: [dev] read the dev docs",
+    "- Review, for a person: [preprod] read the preprod docs",
+    "- Review, for a person: [prod] read the prod docs",
+  );
+  const { body, problems } = reportComment(report, { places });
+  assert.deepEqual(problems, []);
+  assert.ok(body.includes("left-for-person=2; deferred=1"));
+  assert.ok(body.includes("- [preprod] read the preprod docs\n"));
+  assert.deepEqual(parseSummary(body, { places }).problems, []);
+  // The default Places do not know these names, and the renderer will not guess.
+  assert.match(parseSummary(body).problems.join("\n"), /Place `dev` is not configured/);
+  assert.match(
+    reportComment(report).problems.join("\n"),
+    /names Place `dev`, which is not configured \(local, staging, production\)/,
+  );
+});
+
+test("with Places turned off, items are untagged and all count as held", () => {
+  const report = withReviews(
+    "- Review, for a person: read docs/x.html",
+    "- Review, for a person: read docs/y.html",
+  );
+  const { body, problems } = reportComment(report, { places: null });
+  assert.deepEqual(problems, []);
+  assert.ok(body.includes("left-for-person=2; deferred=0"));
+  assert.ok(body.includes("- read docs/x.html\n"));
+  assert.deepEqual(parseSummary(body, { places: null }).problems, []);
+  // A tagged line is a malformed one when Places are off, and a tagged box is refused to render.
+  assert.match(
+    parseSummary(body.replace("- read docs/x.html", "- [local] read docs/x.html"), {
+      places: null,
+    }).problems.join("\n"),
+    /Places are off/,
+  );
+  assert.match(
+    reportComment(REVIEWED_TAGGED, { places: null }).problems.join("\n"),
+    /Places are off/,
+  );
+});
+
+test("with Places off, an item whose text starts with a bracket composes and parses back", () => {
+  for (const text of ["[the docs](docs/x.html) say 30 days", "[WIP] read docs/x.html"]) {
+    const { body, problems } = reportComment(withReviews(`- Review, for a person: ${text}`), {
+      places: null,
+    });
+    assert.deepEqual(problems, []);
+    assert.ok(body.includes(`- ${text}\n`));
+    assert.deepEqual(parseSummary(body, { places: null }).problems, []);
+  }
+});
+
+test("a Review line with no Place, from a plan made before Places, goes to the first Place that holds", () => {
+  const { body, problems } = reportComment(
+    withReviews("- Review, for a person: docs/x.html says 30 days"),
+  );
+  assert.deepEqual(problems, []);
+  assert.ok(body.includes("- [local] docs/x.html says 30 days\n"));
+});
+
+test("the CLI reads the Places from the config, `comment` and `summary` alike", () => {
+  const read = (config) => (path) => (path === "qa.config.yml" ? config : null);
+  const renamed = "report:\n  places: [dev, prod]\n  holds: [dev]\n";
+  const report = withReviews("- Review, for a person: [dev] read it");
+  const posted = main(["comment", "r.md"], { readFile: () => report, read: read(renamed) });
+  assert.equal(posted.code, 0, posted.out);
+  assert.ok(posted.out.includes("left-for-person=1; deferred=0"));
+  assert.equal(main(["comment", "r.md"], { readFile: () => report, read: read(null) }).code, 1);
+  const parsed = main(["summary", "c.md"], { readFile: () => posted.out, read: read(renamed) });
+  assert.equal(parsed.code, 0, parsed.out);
+  assert.equal(JSON.parse(parsed.out).summary.header.leftForPerson, 1);
+  const refused = main(["summary", "c.md"], { readFile: () => posted.out, read: read(null) });
+  assert.equal(refused.code, 1);
+  assert.match(JSON.parse(refused.out).problems.join("\n"), /Place `dev` is not configured/);
+  const off = main(["comment", "r.md"], {
+    readFile: () => withReviews("- Review, for a person: read it"),
+    read: read("report:\n  places: none\n"),
+  });
+  assert.ok(off.out.includes("- read it\n"), off.out);
+  const broken = main(["comment", "r.md"], {
+    readFile: () => PASSED,
+    read: read("report:\n  places: [a]\n"),
+  });
+  assert.equal(broken.code, 1);
+  assert.match(broken.out, /report\.holds/);
+});
+
+// --- A ruled Review box ---
+
+test("a Ruling's `(checked under R<n>)` line under a Review box is read, and the summary shows it", () => {
+  const report = withReviews(
+    "- Review, for a person: [local] docs/x.html says 30 days\n  (checked under R4)",
+    "- Review, for a person: [local] docs/y.html says 60 days",
+  );
+  const { report: read, problems } = readReport(report);
+  assert.deepEqual(problems, []);
+  assert.deepEqual(read.reviews, [
+    "[local] docs/x.html says 30 days",
+    "[local] docs/y.html says 60 days",
+  ]);
+  assert.deepEqual(read.reviewItems, [
+    { text: "[local] docs/x.html says 30 days", ruling: "R4" },
+    { text: "[local] docs/y.html says 60 days", ruling: null },
+  ]);
+  const { body } = reportComment(report);
+  assert.ok(body.includes("- [local] docs/x.html says 30 days (checked under R4)\n"));
+  assert.ok(body.includes("- [local] docs/y.html says 60 days\n"));
+  assert.ok(body.includes("left-for-person=2; deferred=0"), body);
+  // The ruled box is still an item: a Ruling never ticks it, so the count holds it.
+  assert.equal(parseSummary(body).summary.items[0].ruling, "R4");
+  // The plan still sees the box as open, listed under its own text.
+  assert.deepEqual(
+    reportPlanProblems(
+      read,
+      withReviewPlan("[local] docs/x.html says 30 days", "[local] docs/y.html says 60 days"),
+    ),
+    [],
+  );
+});
+
+test("a `(checked under …)` line that is not in the form is a problem, never dropped", () => {
+  const bad = withReviews(
+    "- Review, for a person: [local] docs/x.html says 30 days\n  (checked under 4)",
+  );
+  assert.match(
+    readReport(bad).problems.join("\n"),
+    /`\(checked under R<n>\)` under a Review line: write it as `  \(checked under R4\)`/,
+  );
+  const stray = withReviews(
+    "- Review, for a person: [local] docs/x.html says 30 days\n\n  (checked under R4)",
+  );
+  assert.match(readReport(stray).problems.join("\n"), /directly under the Review line/);
+});
+
+// --- Uploaded files ---
+
+test("an uploaded Storyboard and MP4 are linked in their scenario's Notes cell", () => {
+  const base = "https://github.com/o/r/releases/download/qa-artifacts/";
+  const board = `${base}pr-57-s1-storyboard.png`;
+  const video = `${base}pr-57-s1.mp4`;
+  const links = { [p57("s1-storyboard.png")]: board, [p57("s1.mp4")]: video };
+  const { body, problems } = reportComment(BOARDS, { links });
+  assert.deepEqual(problems, []);
+  assert.ok(
+    body.includes(
+      `| S1: An admin invites a new member | PASS | [Storyboard](${board}) [MP4](${video}) |`,
+    ),
+    body,
+  );
+  // A file that was not uploaded is no path in the post, and a scenario with none has an empty cell.
+  assert.ok(!body.includes("step-02-a.png"));
+  assert.ok(body.includes("| S2: A signed-out visitor cannot open the members page | PASS | |"));
+  // A Storyboard written with backslashes links too.
+  const slashedBoard = "qa-report-pr-57\\s1-storyboard.png";
+  const slashed = reportComment(BOARDS.replace(p57("s1-storyboard.png"), slashedBoard), {
+    links: { [slashedBoard]: board },
+  });
+  assert.ok(slashed.body.includes(`[Storyboard](${board})`), slashed.body);
+});
+
+test("another uploaded file is linked by its name, and nothing is added when nothing is uploaded", () => {
+  const url = "https://github.com/o/r/releases/download/qa-artifacts/pr-57-s1.png";
+  const { body } = reportComment(PASSED, { links: { "qa-report-pr-57/s1.png": url } });
+  assert.ok(body.includes(`| S1: An admin invites a new member | PASS | [s1.png](${url}) |`));
+  assert.equal(reportComment(PASSED).body, reportComment(PASSED, { links: {} }).body);
+  assert.ok(!reportComment(PASSED).body.includes("]("));
+  // A non-passing row keeps its short note, then the links.
+  const failed = reportComment(FAILED, { links: { "qa-report-pr-57/s1.png": url } }).body;
+  assert.ok(failed.includes(`| FAIL: regression | no invite appeared [s1.png](${url}) |`), failed);
 });
 
 const ME = "qa-person";
@@ -1060,9 +1620,15 @@ test("the plan's link comment names the tracker issue, whoever posted it", () =>
 const NEW_HEAD = "3".repeat(40);
 const STALE = `**Stale:** the plan was revised for head ${NEW_HEAD}; this report is for ${HEAD}.`;
 
-test("the report comment's head is the one its **Plan:** line carries", () => {
+test("the report comment's head is the one its header carries", () => {
   const comments = [{ id: 40, body: reportComment(PASSED).body, user: ME }];
   assert.equal(findComments(comments, ME).report.head, HEAD);
+});
+
+test("a report comment posted before the summary still gives its head, from its **Plan:** line", () => {
+  const legacy = `${REPORT_MARKER}\n\n${PASSED}`;
+  assert.equal(findComments([{ id: 9, body: legacy, user: ME }], ME).report.head, HEAD);
+  assert.equal(staleComment(legacy, NEW_HEAD).problems.length, 0);
 });
 
 test("with the plan's head, a report comment for an older head is stale; one for the same head is not", () => {
@@ -1096,7 +1662,7 @@ test("the Stale line goes at the start of the report, after the marker", () => {
   assert.equal(lines[1], "");
   assert.equal(lines[2], STALE);
   assert.equal(lines[3], "");
-  assert.equal(lines[4], "# QA Report: Members can be invited by email");
+  assert.equal(lines[4], `QA Report: result=passed; commit=${HEAD}; left-for-person=0; deferred=0`);
   // Marking it twice keeps one line, for the newest head.
   const newer = "4".repeat(40);
   const again = staleComment(body, newer).body;
@@ -1125,10 +1691,10 @@ test("a report comment carrying the Stale line is still found, read, and replace
     head: HEAD,
     stale: true,
   });
-  // `read` takes the body as it takes the report it carries.
-  const read = readReport(stale);
+  // The summary parser reads it past the Stale line, header and all.
+  const read = parseSummary(stale);
   assert.deepEqual(read.problems, []);
-  assert.deepEqual(read, readReport(FAILED));
+  assert.equal(read.summary.header.commit, HEAD);
   // The next run's comment replaces it whole, Stale line and all.
   const next = reportComment(PASSED).body;
   assert.ok(!next.includes("**Stale:**"));
@@ -1168,33 +1734,6 @@ test("comments read from every shape gh prints", () => {
   assert.deepEqual(parseComments(JSON.stringify([[one], [two]])), [one, two]);
   assert.deepEqual(parseComments(`${JSON.stringify(one)}\n${JSON.stringify(two)}\n`), [one, two]);
   assert.deepEqual(parseComments(""), []);
-});
-
-test("uploaded evidence is linked; the rest stays a local path", () => {
-  const url = "https://github.com/o/r/releases/download/qa-artifacts/pr-57-s1.png";
-  const { body } = reportComment(PASSED, { links: { "qa-report-pr-57/s1.png": url } });
-  assert.ok(body.includes(`[\`qa-report-pr-57/s1.png\`](${url})`));
-  assert.ok(body.includes("| `qa-report-pr-57/s2.log` |"));
-});
-
-test("an uploaded Storyboard shows as an image, and an uploaded MP4 as a link (#237)", () => {
-  const base = "https://github.com/o/r/releases/download/qa-artifacts/";
-  const board = `${base}pr-57-s1-storyboard.png`;
-  const video = `${base}pr-57-s1.mp4`;
-  const links = { [p57("s1-storyboard.png")]: board, [p57("s1.mp4")]: video };
-  const { body, problems } = reportComment(BOARDS, { links });
-  assert.deepEqual(problems, []);
-  assert.ok(body.includes(`[![${p57("s1-storyboard.png")}](${board})](${board})`), body);
-  assert.ok(body.includes(`[\`${p57("s1.mp4")}\`](${video})`));
-  // A still that was not uploaded stays a local path.
-  assert.ok(body.includes(`\`${p57("s1-web/step-02-a.png")}\` `));
-  // A Storyboard written with backslashes shows as an image too.
-  const slashedBoard = "qa-report-pr-57\\s1-storyboard.png";
-  const slashed = reportComment(BOARDS.replace(p57("s1-storyboard.png"), slashedBoard), {
-    links: { [slashedBoard]: board },
-  });
-  assert.deepEqual(slashed.problems, []);
-  assert.ok(slashed.body.includes(`[![${slashedBoard}](${board})](${board})`), slashed.body);
 });
 
 test("a report that carries a sign-in value is not posted", () => {
@@ -1893,4 +2432,22 @@ test("the CLI answers `none` when the config has no `run:` section, or there is 
     assert.equal(code, 1);
     assert.match(JSON.parse(out).refused[0].why, /`run.evidence.upload` is `none`/);
   }
+});
+
+test("a `Run answers reused from` file path with a space reads with no problem", () => {
+  const line = '- Run answers reused from tmp/my qa/qa-run.json: run.target="stack"';
+  const { report, problems } = readReport(withReused(PASSED, line));
+  assert.deepEqual(problems, []);
+  assert.equal(report.runAnswers, 'tmp/my qa/qa-run.json: run.target="stack"');
+});
+
+test("a long local report does not block a short post: only the summary counts against the limit", () => {
+  const long = PASSED.replace(
+    "- **Accounts:** admin",
+    `- **Accounts:** admin\n- **Run deviations:** ${"x ".repeat(40000)}`,
+  );
+  assert.ok(long.length > 65536);
+  const { body, problems } = reportComment(long);
+  assert.deepEqual(problems, []);
+  assert.ok(body.length < 2000);
 });

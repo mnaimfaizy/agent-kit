@@ -177,7 +177,7 @@ _Avoid_: security board, advisory run, triage session
 
 ### Manual QA
 
-The `qa-plan` and `manual-qa` Portable skills; why they are two skills: [ADR 0003](docs/adr/0003-qa-is-two-skills-joined-by-a-copied-plan-format.md); how an autonomous `orchestrate` run follows them from a brief: [ADR 0013](docs/adr/0013-in-an-autonomous-orchestrate-run-the-qa-skills-run-from-the-brief.md). Each skill's `DESIGN.md` ([`qa-plan`](.claude/skills/qa-plan/DESIGN.md#glossary), [`manual-qa`](.claude/skills/manual-qa/DESIGN.md#glossary)) carries the same definitions, word for word, so the skill keeps them when it is installed alone; `scripts/qa-glossary-contract.test.py` keeps the three the same.
+The `qa-plan` and `manual-qa` Portable skills; why they are two skills: [ADR 0003](docs/adr/0003-qa-is-two-skills-joined-by-a-copied-plan-format.md); how an autonomous `orchestrate` run follows them from a brief: [ADR 0032](docs/adr/0032-autonomous-qa-handover-nothing-asked-mid-run.md), which supersedes ADR 0013. Each skill's `DESIGN.md` ([`qa-plan`](.claude/skills/qa-plan/DESIGN.md#glossary), [`manual-qa`](.claude/skills/manual-qa/DESIGN.md#glossary)) carries the same definitions, word for word, so the skill keeps them when it is installed alone; `scripts/qa-glossary-contract.test.py` keeps the three the same.
 
 **QA Plan**:
 The Markdown file `qa-plan` writes for one pull request at one head, in the format its `ANATOMY.md` gives, carrying only the Residue and runnable from the plan alone.
@@ -252,8 +252,24 @@ The QA Artifact for a scenario with a screen: a band naming the scenario, the re
 _Avoid_: contact sheet, filmstrip, combined image
 
 **QA Report**:
-The self-contained Markdown file `manual-qa` writes for one run of one QA Plan: the build it checked, one row per scenario with one of five results (PASS, FAIL: regression, FAIL: pre-existing, Not proven, or left for a person), and the evidence.
+The self-contained Markdown file `manual-qa` writes for one run of one QA Plan: the build it checked, one row per scenario with one of five results (PASS, FAIL: regression, FAIL: pre-existing, Not proven, or left for a person), and the evidence. The pull request gets a short summary of it, with a strict header; the full file stays local.
 _Avoid_: test report, QA results
+
+**Place**:
+Where a person checks an item left for a person: `local`, `staging` and `production` by default, or the names a repository configures. A Place that holds a merge counts as left for a person in the posted summary; any other is deferred and never holds.
+_Avoid_: environment, stage
+
+### Hosted targets
+
+How a `url` QA target names more than one address, and who confirms each: the terms [`manual-qa`](.claude/skills/manual-qa/SKILL.md) and the `orchestrate` Dispatch Plan share. `manual-qa` alone carries them, in its [`DESIGN.md`](.claude/skills/manual-qa/DESIGN.md#glossary), word for word, since it uses them; `scripts/qa-glossary-contract.test.py` keeps the two the same.
+
+**Host candidate**:
+A hosted address that a QA config lists under `run.hosts`. No config key confirms a hosted address, so it counts as a host only once the human types it, per host and per run (in chat, or in an approved-QA run's Dispatch Plan), and `adapter.mjs host` gives `hosted`.
+_Avoid_: configured host, saved host
+
+**Service**:
+A named hosted service of a `url` target, such as `billing`, that has an address of its own; a scenario picks it with **Service:**, and without one it uses the entry for its surface. Not a QA Stack service, which is what `plan.suites[].services` names (a `postgres` a suite runs against).
+_Avoid_: backend, microservice, a suite's `services`
 
 ### Orchestration
 
@@ -302,6 +318,14 @@ _Avoid_: decision log, audit log
 **Ruling Review**:
 The human's pass over a run's Ruling Ledger, in which each Ruling ends upheld or overturned; overturning one sends every Ruling that cited it back for review.
 _Avoid_: sign-off, approval
+
+**QA held for you**:
+In an approved-QA run, the list, right after the Ruling Review, of the QA questions the human keeps, each with its row, evidence and options; not Rulings, so outside the Ruling Ledger, and a row is Ready to Merge once they are answered.
+_Avoid_: QA queue, held Rulings
+
+**Parked QA session**:
+In an approved-QA run on Claude Code desktop, a Live Session for QA started at the `go` turn on a brief with no head yet; it idles until the Chief of Staff messages it the head, and runs a re-QA in the same session.
+_Avoid_: idle session, standby session
 
 **Dispatch Plan**:
 The one table the Chief of Staff shows before any Delegation starts, giving each one's scope, Executor, model and wave, with the kinds of routine write the human may approve; one "go" approves it whole.
