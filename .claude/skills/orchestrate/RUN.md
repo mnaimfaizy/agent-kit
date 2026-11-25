@@ -338,15 +338,20 @@ The count of people with access is left out when the sink cannot be read for it.
 
 ### The past-runs dashboard
 
-`--dashboard [--local-logs]` builds one self-contained page from the Run Records in `<run_dir>/records/`, so a past run can be reviewed down to a Delegation and a human step. It runs the records script, and prints what the script prints, the `file://` link of each page it wrote. It never launches a browser, since harnesses differ, and the page is never hosted.
+`--dashboard [--repo <host/owner/repo>] [--local-logs]` builds one self-contained page from the Run Records in `<run_dir>/records/` and from the config's `records.sink`, so a past run can be reviewed down to a Delegation and a human step, in one repository or in every repository the sink holds. It runs the records script, and prints what the script prints, the `file://` link of each page it wrote. It never launches a browser, since harnesses differ, and the page is never hosted.
 
 ```bash
 node "<skill>/records.mjs" dashboard                # <run_dir>/dashboard.html
+node "<skill>/records.mjs" dashboard --repo <host/owner/repo>   # opens on that repository
 node "<skill>/records.mjs" dashboard --local-logs   # also <run_dir>/dashboard.local.html
 ```
 
-The page is built on this machine from the local records alone, and works offline: it holds no credential and makes no request. It shows when it was built and the command that rebuilds it, since it does not update itself. A record that is not JSON, fails the safe-field check, or repeats a run id is skipped, with the file named, and the rest is built. With no records it builds nothing and says so.
+The page is built on this machine, and works offline: it holds no credential and makes no request. The sink is read at build time, through the same sink operations the upload uses, and the records are inlined. It shows when it was built and the command that rebuilds it, since it does not update itself. A record that is not JSON, fails the safe-field check, or repeats a run id is skipped, with the file named, and the rest is built. With no records it builds nothing and says so.
 
+- **Reading the sink.** The build checks the sink is private first (`visibility`), lists `records/` (`list`), and reads only the paths the cache does not hold (`read`). Records are cached forever, in `<run_dir>/records-cache/`, in a folder that mirrors the sink's paths, since a path in a create-only sink never changes; a cached record is checked again each build. The reader needs read access only ([sinks/github.md](sinks/github.md#access)). A sink that cannot be read (a `404` or a `403`) is one warning, and the page is built from the local records. A sink that has turned public is a warning too, but the read goes ahead.
+- **Which records.** `local` and the configured `records.sink`, nothing else. A record that is identical in both counts once. A record only in `local` is tagged "not uploaded" with its `--upload <run>` command, when the sink was read. When the bytes differ, the sink's copy is shown, with a warning.
+- **Namespaces** are parsed from the sink's paths alone, as `records/<host>/<owner>/<repo>/<login>/<run-id>.json`: no index file is read. A path that does not parse is skipped and listed. The Repository switcher offers _All repositories_ and every namespace found, and the page opens on the current repository (`records.repository`, else `origin`), or on `--repo`.
+- **All repositories** has the merge rate, human steps per run, the avoidable trend, the top avoidable cause, a chart comparing repositories over time, recent runs and the namespace tree. A **Repository** page has its human steps per run stacked by cause, and its runs.
 - **Runs:** every record, newest first, with its human steps and top cause.
 - **A Run** has tabs: Summary (what to improve next run, why a human was needed, the plan, the outcome), Timeline (a Human lane, a Chief of Staff lane with writes by `actor`, Reviews and CI, one lane per Delegation), Delegations, Human steps (filterable by cause, kind and actor), Reviews and CI, Log, and Record (JSON). A Delegation and each human step have a page of their own, and the Key page says what each cause, kind and mark means.
 - **Colour means `cause`, and nothing else.** Every chip names its cause and says avoidable or by design. States, such as an outcome or a CI result, are grey.

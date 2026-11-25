@@ -20,6 +20,8 @@ Then a `## Access` section giving the writer's access and the reader's, a `###` 
 
 **The path** is `records/<host>/<owner>/<repo>/<login>/<run-id>.json`, every segment lowercased: the host keeps different forges apart, so two repositories never collide in one shared sink, even with one run id or one login. `<host>/<owner>/<repo>` is `records.repository`, or the `origin` remote (or the only remote; with several and none named `origin`, the run asks which). `<login>` is the tracker login, which is also the record's `run.operator`, overridden only by `ORCHESTRATE_OPERATOR`; with no login, nothing is uploaded.
 
+**The dashboard reads through the same operations:** `visibility` first, then `list` under `records/`, then `read` of each path its cache lacks, so a sink type is written once. It needs read access only, and reads the namespaces from the paths, since there is no index file. A sink that cannot be read is a warning on the page, never a failure.
+
 **The write is create-only.** Identical bytes already at the path count as already uploaded; different bytes stop the upload; a parallel-write conflict is retried.
 
 Sinks beyond `github` are later work: `gitlab` and `s3` each get a file here when they land.

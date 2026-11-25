@@ -9,7 +9,7 @@ Every command runs with `gh` signed in as the person who runs the skill. `<owner
 ## Access
 
 - **The writer** needs **Contents: write** on the sink repository, and **Metadata: read**, which every token has. A classic token needs the `repo` scope. The upload writes one new file per run and never changes or deletes one.
-- **The reader** (the dashboard, a later part of this work) needs **Contents: read** and **Metadata: read**.
+- **The reader** (the dashboard) needs **Contents: read** and **Metadata: read**, and nothing more: it never writes, so it can be given to someone who may only look. A classic token needs the `repo` scope.
 - Access never comes from the config: `gh` holds the sign-in, and the skill never reads or writes a token.
 
 ## Operations
@@ -52,7 +52,7 @@ With a JSON body on standard input: `{"message": "Add Run Record <run-id>", "con
 gh api "repos/<owner>/<repo>/git/trees/<ref or HEAD>?recursive=1"
 ```
 
-Every blob with its `path`. When the answer carries `"truncated": true`, the tree is walked one level at a time (`git/trees/<sha>`, no `recursive`) instead. Used by the dashboard, which reads only paths under `records/`.
+Every blob with its `path`. When the answer carries `"truncated": true`, the tree is walked one level at a time (`git/trees/<sha>`, no `recursive`) instead. Used by the dashboard, which lists `records/` with one such call, reads only the paths its cache lacks (`read`, above), and checks `visibility` first. A `404` or `403` on the sink is a warning on the page, not a failure.
 
 ## The upload is create-only
 
