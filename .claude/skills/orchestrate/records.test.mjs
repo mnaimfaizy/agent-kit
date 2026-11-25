@@ -3602,7 +3602,7 @@ describe("upload-raw: the lifecycle gate", () => {
     const result = await uploadRaw(dir, s3);
     assert.equal(result.code, 1);
     assert.match(result.out, /no lifecycle rule/);
-    assert.match(result.out, /nothing uploaded/);
+    assert.match(result.out, /Nothing uploaded/);
     assert.equal(s3.puts().length, 0);
   });
 
