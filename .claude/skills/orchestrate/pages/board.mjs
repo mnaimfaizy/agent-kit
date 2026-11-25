@@ -611,9 +611,13 @@ const FILE_TAIL = `  setTimeout(reload, data.reloadSeconds * 1000);
 const LIVE_TAIL = `  const live = JSON.parse(document.getElementById("board-live").textContent);
   const button = document.getElementById("notify");
   const can = "Notification" in window;
+  let asking = false;
   if (can && Notification.permission === "default") {
     button.hidden = false;
-    button.addEventListener("click", () => Notification.requestPermission().then(() => { button.hidden = true; }));
+    button.addEventListener("click", () => {
+      asking = true;
+      Notification.requestPermission().finally(() => { asking = false; button.hidden = Notification.permission !== "default"; });
+    });
   }
   try {
     const key = "orchestrate-board-waits " + live.file;
@@ -623,11 +627,17 @@ const LIVE_TAIL = `  const live = JSON.parse(document.getElementById("board-live
       data.waits.filter((w) => !seen.includes(w.id)).forEach((w) => new Notification("Waiting on you: " + w.title, { body: w.how, tag: w.id }));
   } catch {}
   const stopped = document.querySelector(".server-stopped");
+  const trouble = document.querySelector(".server-trouble");
   let due = null;
   const refresh = () => {
     due ??= setTimeout(async () => {
       due = null;
-      try { if ((await fetch("/", { method: "HEAD", cache: "no-store" })).ok) reload(); } catch {}
+      // A reload would take the browser's permission prompt away: the next refresh comes soon enough.
+      if (asking) return;
+      try {
+        if ((await fetch("/", { method: "HEAD", cache: "no-store" })).ok) reload();
+        else trouble.hidden = false;
+      } catch {}
     }, 200);
   };
   const source = new EventSource("/events?session=" + encodeURIComponent(live.session) + "&after=" + live.seq);
@@ -645,6 +655,7 @@ const liveParts = (
   live,
 ) => `<p><button type="button" id="notify" hidden>Notify me of new waits</button></p>
 <div class="banner server-stopped" role="alert" hidden>The server stopped, so this page no longer updates. The file board keeps working: open <code id="file-board">${esc(live.file)}</code> <button type="button" data-copy="file-board">Copy</button> (a browser does not let a served page open a file).</div>
+<div class="banner server-trouble" role="alert" hidden>The server cannot build the board from the run folder, so this page is out of date. Reload it to see why.</div>
 <script type="application/json" id="board-live">${JSON.stringify(live).replaceAll("<", "\\u003c")}</script>
 `;
 

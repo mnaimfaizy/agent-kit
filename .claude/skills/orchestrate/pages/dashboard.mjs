@@ -968,7 +968,7 @@ function withSlugs(entries) {
  * @param {{record: object, repository?: string | null, login?: string | null, source?: "local" | "sink" | "both", notUploaded?: boolean}[]} entries
  *   `source` says where the record was read ("sink" only: never any prose); `notUploaded` is set on a
  *   local record the sink was read without.
- * @param {{vocabulary: {causes: Record<string, string>, stepKinds: readonly string[]}, logs?: Record<string, string> | null, warnings?: string[], skipped?: string[], home?: string | null, sink?: {name: string, read: boolean} | null, builtAt?: string}} context
+ * @param {{vocabulary: {causes: Record<string, string>, stepKinds: readonly string[]}, logs?: Record<string, string> | null, warnings?: string[], skipped?: string[], home?: string | null, sink?: {name: string, read: boolean, cached?: boolean} | null, builtAt?: string}} context
  *   `logs` (run id to prose) is set only for a local-only page; `null` or absent means no prose at all.
  *   `home` is the repository the page opens on.
  */

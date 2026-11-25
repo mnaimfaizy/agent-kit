@@ -5005,8 +5005,32 @@ describe("serve: the served board, and the file board without it", () => {
     const response = await fetch(server.url);
     assert.equal(response.status, 500);
     const text = await response.text();
-    assert.match(text, /<meta http-equiv="refresh" content="5">/);
     assert.match(text, /events\.jsonl:\d+/);
+    // It tries again only while the server answers, so a stopped server leaves no error page behind.
+    assert.doesNotMatch(text, /http-equiv="refresh"/);
+    assert.match(text, /method: "HEAD"[\s\S]*\.ok\) location\.reload\(\)/);
+    assert.ok(text.includes(pathToFileURL(boardAt(dir)).href));
+  });
+
+  it("tells an open page when the board cannot be rebuilt, and holds its reload while it asks to notify", async () => {
+    const server = await serving(replayed("2026-11-19T03:05:00Z"));
+    const html = await (await fetch(server.url)).text();
+    assert.match(
+      html,
+      /<div class="banner server-trouble" role="alert" hidden>The server cannot build the board from the run folder, so this page is out of date\. Reload it to see why\.<\/div>/,
+    );
+    assert.match(html, /trouble\.hidden = false/);
+    assert.match(html, /if \(asking\) return;/);
+  });
+
+  it("returns a failure, and serves nothing, when the run folder cannot be read", async () => {
+    const dir = replayed("2026-11-19T03:05:00Z");
+    const folder = join(runFolder(dir), "delegations");
+    rmSync(folder, { recursive: true });
+    writeFileSync(folder, "a file\n");
+    const result = await main(["serve", `tmp/orchestrate/${RUN}`], { cwd: dir, env: {} });
+    assert.equal(result.code, 1);
+    assert.match(result.out, /could not read the run folder/);
   });
 
   it("redacts the Activity Logs it serves, and links a closed run to /dashboard", async () => {

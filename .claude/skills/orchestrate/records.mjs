@@ -2448,7 +2448,7 @@ function followEvents(runFolder) {
           const event = JSON.parse(line);
           if (checkEvent(event).length === 0) fresh.push(event);
         } catch {
-          // Not JSON: the board names the line when it is next loaded.
+          // Not JSON: not pushed. The board's page names the line when it is loaded.
         }
       }
       taken.set(file, lines.length);
@@ -2472,7 +2472,13 @@ async function serve(args, io) {
   const pushed = [];
   const clients = new Set();
   const follow = followEvents(runFolder);
-  follow(); // What is there already is on the page: only what comes next is pushed.
+  try {
+    follow(); // What is there already is on the page: only what comes next is pushed.
+  } catch (error) {
+    return { code: 1, out: `could not read the run folder: ${error.message}\n` };
+  }
+  const file = join(runFolder, "board.html");
+  const boardFile = pathToFileURL(file).href;
   const send = (client, name, data) =>
     client.write(`event: ${name}\ndata: ${JSON.stringify(data)}\n\n`);
   const poll = () => {
@@ -2494,15 +2500,16 @@ async function serve(args, io) {
     });
     res.end(res.req.method === "HEAD" ? undefined : text);
   };
-  const trouble = (res, status, text) =>
+  // Tries again only while the server answers: a stopped server leaves this page, not the browser's error.
+  const errorPage = (res, status, text) =>
     reply(
       res,
       status,
       "text/html",
-      `<!doctype html>\n<meta charset="utf-8"><meta http-equiv="refresh" content="5"><title>Run board</title><pre>${esc(text)}</pre>\n`,
+      `<!doctype html>\n<meta charset="utf-8"><title>Run board</title><pre>${esc(text)}</pre>\n<p>If the server stops, the file board is <code>${esc(boardFile)}</code></p>\n<script>setInterval(async () => { try { if ((await fetch(location.href, { method: "HEAD", cache: "no-store" })).ok) location.reload(); } catch {} }, 5000);</script>\n`,
     );
 
-  const events = (req, res, query) => {
+  const stream = (req, res, query) => {
     res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store" });
     if (req.method === "HEAD") return void res.end();
     res.write(": connected\n\n");
@@ -2522,26 +2529,26 @@ async function serve(args, io) {
     if (req.method !== "GET" && req.method !== "HEAD")
       return reply(res, 405, "text/plain", "this server is read-only\n");
     const { pathname, searchParams } = new URL(req.url, "http://127.0.0.1");
-    if (pathname === "/events") return events(req, res, searchParams);
+    if (pathname === "/events") return stream(req, res, searchParams);
     if (pathname === "/") {
       // Read before the page is built, so an event appended meanwhile is pushed again, never lost.
       poll();
       const live = {
         session,
         seq: pushed.length,
-        file: pathToFileURL(join(runFolder, "board.html")).href,
+        file: boardFile,
       };
       const built = await buildBoard(runFolder, io, {
         heartbeat: given.heartbeat,
         dashboard: "/dashboard",
         live,
       });
-      if (built.problems) return trouble(res, 500, built.problems.join("\n"));
+      if (built.problems) return errorPage(res, 500, built.problems.join("\n"));
       return reply(res, 200, "text/html", built.html);
     }
     if (pathname === "/dashboard") {
       const built = await buildDashboard(io, { offline: true });
-      if (built.problem) return trouble(res, 404, built.problem.out);
+      if (built.problem) return errorPage(res, 404, built.problem.out);
       const html = renderDashboard(built.entries, { ...built.common, rebuild: built.rebuild });
       return reply(res, 200, "text/html", html);
     }
@@ -2556,7 +2563,7 @@ async function serve(args, io) {
   const server = createServer((req, res) => {
     answer(req, res).catch((error) => {
       if (res.headersSent) res.end();
-      else trouble(res, 500, String(error?.message ?? error));
+      else errorPage(res, 500, String(error?.message ?? error));
     });
   });
   const failed = await new Promise((done) => {
@@ -2574,11 +2581,13 @@ async function serve(args, io) {
 
   const timer = setInterval(poll, io.pollMs ?? POLL_MS);
   // The served page falls back to board.html, so the run must have one. The Chief of Staff's own is left alone.
-  const file = join(runFolder, "board.html");
-  if (!existsSync(file)) {
-    const first = await buildBoard(runFolder, io, given);
-    if (!first.problems) writeWhole(file, first.html);
-  }
+  if (!existsSync(file))
+    try {
+      const first = await buildBoard(runFolder, io, given);
+      if (!first.problems) writeWhole(file, first.html);
+    } catch {
+      // A board that cannot be written now is still served; the Chief of Staff writes the file.
+    }
   const { address, port: bound } = server.address();
   io.listening?.({ address, port: bound, url: `http://${address}:${bound}/` });
   await new Promise((done) => {
