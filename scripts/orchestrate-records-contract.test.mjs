@@ -282,3 +282,63 @@ describe("DESIGN.md and the docs page say what a run now writes, and why", () =>
     assert.match(text, /there is no backfill/);
   });
 });
+
+describe("waits and Ruling events: when each is written", () => {
+  const TEAM = read(`${SKILL_DIR}/TEAM.md`);
+
+  it("RUN.md says what a wait must carry, and that a wait never closed is reported open", () => {
+    const text = flat(section(RUN, "## Run Events and the Run Record"));
+    assert.match(
+      text,
+      /A `harness-limit` wait must name its `card`, and a `teammate-blocker` wait its blocker ticket and the teammate's login/,
+    );
+    assert.match(text, /derive reports it as still open, by id and step kind/);
+    assert.match(text, /A cause that is by design is never counted as avoidable/);
+    assert.match(text, /the record's `rulings` counts them \(`made`, `upheld`, `overturned`\)/);
+  });
+
+  it("SKILL.md writes ruling-made when a Ruling is sent and ruling-verdict at the Ruling Review", () => {
+    const text = flat(SKILL);
+    assert.match(
+      text,
+      /Write `ruling-made` \(the Ruling's `R<n>` and the Delegation it was sent to\)/,
+    );
+    assert.match(
+      text,
+      /Each verdict is a `ruling-verdict`, written with actor `human` for each Ruling the answer names/,
+    );
+    assert.match(
+      text,
+      /a wait that belongs to the run and not a Delegation \(the review label, posting replies, the merge\) is a `wait-opened` with no `delegation`/,
+    );
+  });
+
+  it("BRIEF.md says the Chief of Staff writes the Ruling events and a Delegation opens no wait on the human", () => {
+    assert.match(
+      flat(section(BRIEF, "## Ruling")),
+      /writes `ruling-made` when it sends the Ruling and `ruling-verdict` at the Ruling Review; the Delegation writes neither, and a wait on the human is never its to open/,
+    );
+  });
+
+  it("TEAM.md opens a teammate-blocker wait when a ticket is parked and closes it at the wake-up that sees the blocker merged", () => {
+    const text = flat(TEAM);
+    assert.match(
+      text,
+      /Parking the ticket writes a `wait-opened` for each blocker that is another teammate's ticket, with step kind and cause `teammate-blocker` \(by design, never avoidable\), how `github`, the blocker ticket \(`--blocker`\), the teammate's login \(`--blocker-login`\)/,
+    );
+    assert.match(
+      text,
+      /the Chief of Staff writes the `wait-closed` with the same `wait-id` at the wake-up that found it/,
+    );
+  });
+
+  it("docs/orchestrate.md names the waits and the Rulings counts", () => {
+    const text = flat(section(DOCS, "### Run Events and the Run Record"));
+    assert.match(text, /A wait that belongs to the run, such as plan approval, the review label/);
+    assert.match(
+      text,
+      /a by-design `teammate-blocker` wait with the blocker ticket and the teammate's login/,
+    );
+    assert.match(text, /A wait never closed is reported as open at close-out/);
+  });
+});
