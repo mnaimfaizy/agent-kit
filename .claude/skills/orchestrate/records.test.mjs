@@ -3040,7 +3040,7 @@ function fakeS3({ buckets = {}, region = "us-east-1" } = {}) {
       });
       if (again.authorization !== authorization) return reply(403, "", "SignatureDoesNotMatch");
     }
-    if (method === "HEAD" && key === "") return signed ? reply(200) : reply(403);
+    if (method === "HEAD" && key === "") return signed && !bucket.noHead ? reply(200) : reply(403);
     if (key === "" && target.searchParams.has("lifecycle"))
       return !signed
         ? reply(403, "", "AccessDenied")
@@ -3378,6 +3378,19 @@ describe("the dashboard reads an s3 sink", () => {
     assert.match(html, new RegExp(`id="/repo/${NS_A}"`));
     assert.doesNotMatch(html, new RegExp(`id="/repo/${NS_B}"`));
     assert.match(html, /could not list all of/);
+  });
+
+  it("still reads when the privacy check is refused, as for a reader limited to one prefix", async () => {
+    const { dir, s3 } = await readyToReadS3({
+      noHead: true,
+      refuse: true,
+      only: `records/${NS_A}/`,
+    });
+    const result = await buildS3(dir, s3);
+    assert.equal(result.code, 0, result.out);
+    assert.match(result.out, /built the dashboard from 2 Run Records/);
+    assert.match(result.out, /whether it is private could not be checked/);
+    assert.match(result.out, /could not list all of `records\/`/);
   });
 
   it("is one warning when the fallback is refused too, and builds from local", async () => {

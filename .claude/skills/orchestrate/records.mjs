@@ -1232,6 +1232,15 @@ export function signRequest({
 export const S3_KEY_ID = "ORCHESTRATE_S3_ACCESS_KEY_ID";
 export const S3_SECRET = "ORCHESTRATE_S3_SECRET_ACCESS_KEY";
 
+/** A listed key, url-decoded; a store that ignored `encoding-type=url` may hold a literal `%`. */
+const unescapeKey = (key) => {
+  try {
+    return decodeURIComponent(key.replace(/\+/g, " "));
+  } catch {
+    return key;
+  }
+};
+
 /** A `<Code>` from an S3 error body: what the store said, never the body itself. */
 const s3Code = (text) => /<Code>([A-Za-z0-9]+)<\/Code>/.exec(text)?.[1] ?? null;
 const xmlText = (text) =>
@@ -1323,7 +1332,7 @@ function s3Sink({
         });
         if (r.status !== 200) return null;
         for (const m of r.text.matchAll(/<Key>([\s\S]*?)<\/Key>/g))
-          out.push(decodeURIComponent(xmlText(m[1]).replace(/\+/g, " ")));
+          out.push(unescapeKey(xmlText(m[1])));
         if (!/<IsTruncated>true<\/IsTruncated>/.test(r.text)) return out.sort();
         token = /<NextContinuationToken>([\s\S]*?)<\/NextContinuationToken>/.exec(r.text)?.[1];
         if (!token) return null;
@@ -1722,13 +1731,16 @@ async function readSink(sinkConfig, { cache, exec, env, fetch, now, current }) {
   }
   // The privacy check runs before anything is listed or read; a sink turned public warns, and the read goes ahead.
   const privacy = await sink.privacy();
-  if (privacy.private === null) {
+  // A bucket's privacy needs `ListBucket` on the whole bucket, which a reader limited to one prefix lacks:
+  // on `s3` an unknown answer does not stop the read, and the list below decides whether the bucket is readable.
+  const unchecked = privacy.private === null && sinkConfig.type === "s3";
+  if (privacy.private === null && !unchecked) {
     out.warnings.push(
       `could not read \`${where}\`: it does not exist, you have no read access to it, or the call failed. The page is built from the local records only`,
     );
     return out;
   }
-  if (!privacy.private)
+  if (privacy.private === false)
     out.warnings.push(
       `\`${where}\` is not private (${privacy.visibility}): its records are read anyway, but make it private`,
     );
@@ -1748,6 +1760,10 @@ async function readSink(sinkConfig, { cache, exec, env, fetch, now, current }) {
     );
     return out;
   }
+  if (unchecked)
+    out.warnings.push(
+      `\`${where}\`: whether it is private could not be checked (that needs \`ListBucket\` on the whole bucket): its records are read anyway`,
+    );
   out.read = true;
   for (const path of listed) {
     const parsed = parseSinkPath(path);
