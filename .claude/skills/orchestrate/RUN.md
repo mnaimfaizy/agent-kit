@@ -336,6 +336,25 @@ The count of people with access is left out when the sink cannot be read for it.
 
 **The path** is `records/<host>/<owner>/<repo>/<login>/<run-id>.json`, every segment lowercased. `<host>/<owner>/<repo>` is `records.repository`, or the record's own repository, read from the `origin` remote (or the only remote); `<login>` is `run.operator`. A run with no `records` keys writes the local record and offers nothing.
 
+### The past-runs dashboard
+
+`--dashboard [--local-logs]` builds one self-contained page from the Run Records in `<run_dir>/records/`, so a past run can be reviewed down to a Delegation and a human step. It runs the records script, and prints what the script prints, the `file://` link of each page it wrote. It never launches a browser, since harnesses differ, and the page is never hosted.
+
+```bash
+node "<skill>/records.mjs" dashboard                # <run_dir>/dashboard.html
+node "<skill>/records.mjs" dashboard --local-logs   # also <run_dir>/dashboard.local.html
+```
+
+The page is built on this machine from the local records alone, and works offline: it holds no credential and makes no request. It shows when it was built and the command that rebuilds it, since it does not update itself. A record that is not JSON, fails the safe-field check, or repeats a run id is skipped, with the file named, and the rest is built. With no records it builds nothing and says so.
+
+- **Runs:** every record, newest first, with its human steps and top cause.
+- **A Run** has tabs: Summary (what to improve next run, why a human was needed, the plan, the outcome), Timeline (a Human lane, a Chief of Staff lane with writes by `actor`, Reviews and CI, one lane per Delegation), Delegations, Human steps (filterable by cause, kind and actor), Reviews and CI, Log, and Record (JSON). A Delegation and each human step have a page of their own, and the Key page says what each cause, kind and mark means.
+- **Colour means `cause`, and nothing else.** Every chip names its cause and says avoidable or by design. States, such as an outcome or a CI result, are grey.
+- **The Log tab** gives the Run Events as text, derived from the record alone, and a report of the run, each to copy or download.
+- **Prose is never in `dashboard.html`.** With `--local-logs`, `dashboard.local.html` also inlines the prose `activity.md` of each run whose folder is still in `<run_dir>`, under the banner "contains private prose from this machine, don't share this file". A credential the environment holds, and the usual token shapes, are replaced in that prose. Tell the human the `.local` file is not for sharing.
+
+The page shell and its one stylesheet are in [`pages/`](pages/), shared by every page the skill builds.
+
 ### Pruning old run folders
 
 Local pruning is off until the config sets `prune.after_days` ([CONFIG.md](CONFIG.md#prune)); setting it is the consent to delete. The close-out runs it after deriving the record:

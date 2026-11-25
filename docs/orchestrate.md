@@ -69,9 +69,10 @@ Every form runs from the root of the repository the issues belong to.
 | `/orchestrate --spec 50 --team [go] [autonomous]` | A **Team Run** of the spec `#50`: you build only the spec's tickets assigned to you alone, while each teammate runs their own ([Team Run](#team-run)). `go` and `autonomous` are yours alone.                                                                                                                                                                             |
 | `/orchestrate --status [<run>]`                   | Prints the board of the run named, or of the latest run, with each open Decision Request in full. It first runs the default-branch check on each Ready to Merge row, then prints what it finds and writes nothing, so it is safe to run beside a live Chief of Staff session. In a Team Run, it also prints the whole spec ([Watching a Team Run](#watching-a-team-run)). |
 | `/orchestrate --status --spec 50`                 | Prints the Shared Board of the Team Run on spec `#50` from the tracker alone, for someone with no run of their own: a reviewer, the spec's owner, a teammate with no tickets ([Watching a Team Run](#watching-a-team-run)). It writes nothing.                                                                                                                            |
+| `/orchestrate --dashboard [--local-logs]`         | Builds the past-runs dashboard from your local Run Records into `<run_dir>/dashboard.html` and prints its `file://` link, without opening a browser ([The past-runs dashboard](#the-past-runs-dashboard)). With `--local-logs` it also writes `dashboard.local.html`, with the prose Activity Logs of runs whose folder is still here. It reads no tracker and no sink.   |
 | `/orchestrate --resume <run>`                     | Continues a run from its folder, after a usage limit, a closed laptop or a pause for merges. It checks every Delegation against git and the tracker first.                                                                                                                                                                                                                |
 
-`--team` is taken only with `--spec <n>`, once, straight after the number. `--status --spec <n>` takes one issue number and nothing else. `autonomous` is taken once, last, after `go` when both are given, and only in a run for issues or a spec. Any other argument, or a mix of these forms, stops the run before anything is read, with the list of forms this version knows. `<run>` is the run folder's name, such as `2026-11-13-12-34` or `2026-11-13-spec-50` ([Run state](#run-state)).
+`--team` is taken only with `--spec <n>`, once, straight after the number. `--status --spec <n>` takes one issue number and nothing else. `--dashboard` takes nothing but `--local-logs`. `autonomous` is taken once, last, after `go` when both are given, and only in a run for issues or a spec. Any other argument, or a mix of these forms, stops the run before anything is read, with the list of forms this version knows. `<run>` is the run folder's name, such as `2026-11-13-12-34` or `2026-11-13-spec-50` ([Run state](#run-state)).
 
 ## Harnesses
 
@@ -288,6 +289,23 @@ prune:
 ```
 
 Only **closed-out** run folders older than the setting are deleted: those with a Run Record in `<run_dir>/records/` that closed more than `after_days` days ago. An open run, a closed run newer than the setting, and `<run_dir>/records/` with every record in it always stay. Why: [DESIGN.md](../.claude/skills/orchestrate/DESIGN.md#run-events-and-the-run-record).
+
+#### The past-runs dashboard
+
+`/orchestrate --dashboard` builds one page from the Run Records in `<run_dir>/records/` and prints a `file://` link to it. Open it by clicking the link: the skill never launches a browser, and the page is never hosted. The page is a single HTML file with no outside request, so it also works offline, and it holds no credential.
+
+```bash
+node .claude/skills/orchestrate/records.mjs dashboard                # tmp/orchestrate/dashboard.html
+node .claude/skills/orchestrate/records.mjs dashboard --local-logs   # also dashboard.local.html
+```
+
+- **Runs.** Every local record, newest first.
+- **A run.** Tabs for Summary (what to improve next run, why you were needed, the plan, the outcome), Timeline (a Human lane, a Chief of Staff lane with writes marked by who made them, Reviews and CI, one lane per Delegation), Delegations, Human steps (filter by cause, kind and actor), Reviews and CI, Log, and Record as JSON. Each Delegation and each human step has its own page, and a Key page explains every cause, kind and mark.
+- **Colour means cause.** Every chip names its cause and says whether the step was avoidable or by design. States, like an outcome, are grey.
+- **Log.** The Run Events as text, derived from the record, and a report of the run: copy or download either.
+- **Built when.** The page says when it was built and the command that rebuilds it. It does not update itself.
+
+Without `--local-logs` the page holds no prose, because a Run Record holds none. With it, the build also writes `dashboard.local.html` with the prose Activity Log of each run whose folder is still on this machine, under the banner "contains private prose from this machine, don't share this file". Share `dashboard.html`, never the `.local` file. Credentials in the environment, and the usual token shapes, are replaced in that prose. Why a file and not a server: [DESIGN.md](../.claude/skills/orchestrate/DESIGN.md#the-past-runs-dashboard-is-a-file-on-the-readers-machine).
 
 ## Spec mode
 

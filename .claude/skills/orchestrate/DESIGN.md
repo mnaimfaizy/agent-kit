@@ -222,6 +222,12 @@ A Run Record is uploaded to a **Sink** only after a disclosure, and only to a pr
 
 Pruning local run folders is opt-in and is the one setting that deletes data, so a run with no `prune.after_days` deletes nothing and setting the key is the consent. The close-out asks once, because the people most helped by pruning are the ones who never read the config: one question at 90 days turns it on, and the key is written only on a yes, so a "no" never edits a file the human did not choose to change. A "no" is remembered in a marker file beside the run folders on that machine, since the config is shared and the refusal is a personal choice. Only closed-out folders go, judged by their Run Record (derived at close-out, outside the run folder), so an open run is never mistaken for an old one, and the records the dashboard and sinks read are never touched.
 
+### The past-runs dashboard is a file on the reader's machine
+
+`--dashboard` builds a static HTML file from the local records, instead of serving a page, because a file needs no server, no port and no hosting, works offline, and holds no credential: the data is read when it is built and inlined, so the browser never has anything to leak. The cost is that it does not update, so the page says when it was built and how to rebuild it. The command prints a `file://` link and never opens a browser, because harnesses differ in what they may launch.
+
+Prose is kept out of it for the same reason Run Records hold none: a page that can be passed around should not carry what a record was built to leave out. `--local-logs` is the one way prose gets in, and it goes into a second file with a banner that says so, never into `dashboard.html`, so the file a person shares by habit is the safe one. Colour means `cause` and nothing else, so a reader learns one meaning for it, and states are grey so that an outcome is never mistaken for a reason. The page shell and the stylesheet are one module of their own, so the live board can use them without a second look.
+
 ## Seams
 
 The config reader checks each top-level key with its own function in one table, `SECTIONS`. A mode that needs keys of its own adds its section there, and its own reference file beside SKILL.md, loaded only when that mode is invoked, as spec mode adds `spec` and SPEC.md. An argument this version does not know stops the run before anything is read, so a newer invocation never runs on an older skill as if it were a set of issues.
