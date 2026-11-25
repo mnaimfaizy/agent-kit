@@ -434,6 +434,94 @@ describe("derive: the Run Record from a Run Event stream", () => {
   });
 });
 
+describe("derive: the spec-253 stream, a relay run with six QA Delegations (F18)", () => {
+  // Rebuilt from the hand-derived record on `prototype/run-record-fields`, as spec-344's was. That
+  // record gives most times as a local date only, so those events carry times placed in its order;
+  // it names no card id, so the three card starts carry `task_<delegation>`; its one follow-up
+  // posted after the run closed, and its one "ruling" (a standing human answer applied, in a relay
+  // run), are left out.
+  const RUN_253 = "2026-11-17-spec-253";
+  const derive253 = async () => {
+    const dir = mkdtempSync(join(tmpdir(), "orchestrate-records-"));
+    made.push(dir);
+    cpSync(join(here, "fixtures", "records", RUN_253), join(dir, "tmp", "orchestrate", RUN_253), {
+      recursive: true,
+    });
+    const result = await main(["derive", `tmp/orchestrate/${RUN_253}`], {
+      cwd: dir,
+      env: { ORCHESTRATE_OPERATOR: "naim" },
+    });
+    assert.equal(result.code, 0, result.out);
+    return JSON.parse(
+      readFileSync(join(dir, "tmp", "orchestrate", "records", `${RUN_253}.json`), "utf8"),
+    );
+  };
+
+  it("derives the run: relay authority, per-ticket landing, five pull requests, merged", async () => {
+    const { run } = await derive253();
+    assert.deepEqual(
+      [run.kind, run.spec, run.decision_authority, run.landing, run.outcome, run.open_waits],
+      ["spec", 253, "relay", "per-ticket", "merged", 0],
+    );
+    assert.deepEqual(run.pull_requests, [270, 271, 272, 277, 282]);
+    assert.equal(run.plan_approved_at, "2026-11-17T08:28:25Z");
+    assert.equal(run.closed_at, "2026-11-18T02:14:54Z");
+  });
+
+  it("has the five building and six QA Delegations, three QA ones started from a card", async () => {
+    const { delegations } = await derive253();
+    const qa = delegations.filter((d) => d.kind === "qa");
+    assert.equal(delegations.filter((d) => d.kind === "building").length, 5);
+    assert.deepEqual(qa.map((d) => d.id).sort(), [
+      "d255-qa",
+      "d255-qa2",
+      "d256-qa",
+      "d257-qa",
+      "d258-qa",
+      "d259-qa",
+    ]);
+    assert.deepEqual(
+      qa
+        .filter((d) => d.start_route === "card")
+        .map((d) => d.id)
+        .sort(),
+      ["d256-qa", "d257-qa", "d258-qa"],
+    );
+    // The first QA of #255 was voided when its head moved, so it has no `qa-result`.
+    assert.equal(delegations.find((d) => d.id === "d255-qa").outcome, "abandoned");
+  });
+
+  it("carries each qa-result, and the QA human steps by their qa- kinds", async () => {
+    const record = await derive253();
+    assert.deepEqual(
+      record.qa.map((q) => [q.delegation, q.target, q.route, q.result]),
+      ["d255-qa2", "d256-qa", "d258-qa", "d259-qa", "d257-qa"].map((d) => [
+        d,
+        "stack",
+        "typed",
+        "pass",
+      ]),
+    );
+    const kinds = {};
+    for (const s of record.human_steps) kinds[s.kind] = (kinds[s.kind] ?? 0) + 1;
+    assert.deepEqual(
+      [kinds["qa-command"], kinds["qa-readiness"], kinds["qa-plan-delivery"], kinds["qa-held"]],
+      [12, 5, 6, 6],
+    );
+    assert.equal(kinds["card-start"], 3);
+    assert.equal(kinds.merge, 6);
+  });
+
+  it("counts 64 human steps, its 19 review rounds and 6 CI results", async () => {
+    const record = await derive253();
+    assert.equal(record.summary.human_steps, 64);
+    assert.equal(record.summary.by_design + record.summary.avoidable, 64);
+    assert.equal(record.reviews.length, 19);
+    assert.equal(record.ci.length, 6);
+    assert.deepEqual(record.rulings, { made: 0, upheld: 0, overturned: 0 });
+  });
+});
+
 describe("derive: who the operator is", () => {
   const noEnv = { env: {} };
   const exec = (log, answers) => (command, args) => {
