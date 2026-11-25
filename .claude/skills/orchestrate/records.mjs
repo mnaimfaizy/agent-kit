@@ -425,6 +425,8 @@ export const EVENT_KINDS = Object.freeze({
   },
   "pull-request": { pr: t.int },
   "run-closed": { outcome: t.enum(RUN_OUTCOMES), "pull_requests?": t.list(t.int) },
+  /** The Chief of Staff is alive: written at every heartbeat firing. `derive` ignores it; the board's staleness check counts it. */
+  heartbeat: { actor: t.enum(["chief-of-staff"]) },
 });
 
 /** Problems with one Run Event, as dotted field paths. */

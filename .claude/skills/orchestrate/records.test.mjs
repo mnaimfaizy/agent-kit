@@ -191,6 +191,7 @@ describe("event: append one Run Event", () => {
       "delegation-ended",
       "delegation-landed",
       "delegation-started",
+      "heartbeat",
       "human-step",
       "plan-approved",
       "pull-request",
@@ -4628,7 +4629,7 @@ describe("board: a quiet run and a stopped one", () => {
     const { html } = await board(dir, ["--heartbeat", "5"], { until: "2026-11-19T04:00:00Z" });
     assert.match(
       html,
-      /<div class="banner stale-warning" role="alert">Stale: the last Run Event was 33m 20s ago, and the heartbeat is every 5 min\./,
+      /<div class="banner stale-warning" role="alert">Stale: the last heartbeat or Run Event was 33m 20s ago, and the heartbeat is every 5 min\./,
     );
   });
 
@@ -4664,6 +4665,64 @@ describe("board: a quiet run and a stopped one", () => {
       until: "2026-11-21T00:00:00Z",
     });
     assert.doesNotMatch(closed.html, /class="banner stale-warning"/);
+  });
+
+  const heartbeat = (dir, iso) =>
+    appendFileSync(
+      join(runFolder(dir), "events.jsonl"),
+      `${JSON.stringify({ at: iso, kind: "heartbeat", actor: "chief-of-staff" })}\n`,
+    );
+
+  it("counts a heartbeat event: a quiet run whose last heartbeat is fresh is not stale (F1)", async () => {
+    const dir = replayed(LAST);
+    heartbeat(dir, "2026-11-19T03:55:00Z");
+    const { result, html } = await board(dir, ["--heartbeat", "5"], {
+      until: "2026-11-19T04:00:00Z",
+    });
+    assert.equal(result.code, 0, result.out);
+    assert.doesNotMatch(html, /class="banner stale-warning"/);
+    assert.match(html, /"lastEventAt":"2026-11-19T03:55:00Z"/);
+    // A heartbeat is not news: it never shows in the feed.
+    const feed = /<section class="panel feed">[\s\S]*?<\/section>/.exec(html)[0];
+    assert.doesNotMatch(feed, /heartbeat/);
+  });
+
+  it("warns once the last heartbeat is old too (F1)", async () => {
+    const dir = replayed(LAST);
+    heartbeat(dir, "2026-11-19T03:40:00Z");
+    const { html } = await board(dir, ["--heartbeat", "5"], { until: "2026-11-19T04:00:00Z" });
+    assert.match(
+      html,
+      /Stale: the last heartbeat or Run Event was 20m 0s ago, and the heartbeat is every 5 min\./,
+    );
+  });
+
+  it("derive ignores heartbeat events (F1)", async () => {
+    const plain = await derived();
+    const dir = root();
+    heartbeat(dir, "2026-11-19T03:55:00Z");
+    heartbeat(dir, "2026-11-19T04:05:00Z");
+    assert.deepEqual(await derived(dir), plain);
+  });
+
+  it("appends a heartbeat event with no fields (F1)", async () => {
+    const dir = root();
+    const file = join(runFolder(dir), "events.jsonl");
+    const result = await main(
+      ["event", "--file", file, "--kind", "heartbeat", "--actor", "chief-of-staff"],
+      { cwd: dir, now: at("2026-11-19T03:55:00Z") },
+    );
+    assert.equal(result.code, 0, result.out);
+    assert.deepEqual(JSON.parse(readFileSync(file, "utf8").trim().split("\n").at(-1)), {
+      at: "2026-11-19T03:55:00Z",
+      kind: "heartbeat",
+      actor: "chief-of-staff",
+    });
+    const wrong = await main(
+      ["event", "--file", file, "--kind", "heartbeat", "--actor", "delegation"],
+      { cwd: dir, now: at("2026-11-19T03:56:00Z") },
+    );
+    assert.equal(wrong.code, 1);
   });
 
   it("tells the page's own script when to warn, so a file left open still goes stale", async () => {

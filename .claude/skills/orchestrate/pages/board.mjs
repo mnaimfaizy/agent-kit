@@ -316,7 +316,10 @@ export function boardModel({ events, now, states = {}, ledger = null, heartbeatM
     open,
     rulings,
     unreviewed: unreviewed.length,
-    feed: events.slice(-FEED_SIZE).reverse(),
+    feed: events
+      .filter((e) => e.kind !== "heartbeat")
+      .slice(-FEED_SIZE)
+      .reverse(),
     lastEventAt: last,
     heartbeatMinutes,
     staleAfterMs,
@@ -547,7 +550,7 @@ const FAVICON = (count) =>
   )}`;
 
 const staleText = (model, ago) =>
-  `Stale: the last Run Event was ${ago} ago, and the heartbeat is every ${model.heartbeatMinutes} min. The Chief of Staff may have stopped.`;
+  `Stale: the last heartbeat or Run Event was ${ago} ago, and the heartbeat is every ${model.heartbeatMinutes} min. The Chief of Staff may have stopped.`;
 
 /** The data the page's own script reads. Nothing here is prose. */
 const dataOf = (model) => ({
