@@ -344,3 +344,50 @@ describe("the live run board (issue #433, spec #414)", () => {
     assert.match(docs, /Team Run's board links to the Shared Board instead of copying it/);
   });
 });
+
+describe("the optional server of the live board (issue #434, spec #414)", () => {
+  it("SKILL.md says the server is optional and how to start it", () => {
+    assert.match(
+      flat(SKILL),
+      /\*\*An optional server\.\*\* Where a process can run, the human may start `node "<skill>\/records\.mjs" serve <run-folder> --heartbeat <minutes\|none>` from the repository's root: it binds to 127\.0\.0\.1 only, pushes each new Run Event to the page it serves, and runs until it is stopped\. Nothing needs it: the run never waits on it, and `board\.html` works without it \(\[RUN\.md\]\(RUN\.md#the-optional-server\)\)\./,
+    );
+  });
+
+  it("RUN.md says what the server watches, serves and never does, and what is left once it stops", () => {
+    const text = flat(section(RUN, "### The optional server"));
+    for (const claim of [
+      /node "<skill>\/records\.mjs" serve <run-folder> --heartbeat <minutes\|none>/,
+      /--port <n>/,
+      /binds to 127\.0\.0\.1 only/,
+      /the Chief of Staff's `events\.jsonl` and each Delegation's/,
+      /between the Chief of Staff's wake-ups/,
+      /`\/dashboard`/,
+      /It reads no sink and no tracker/,
+      /browser notification/,
+      /a browser does not let a served page open a file/,
+      /`board\.html` is unaffected/,
+      /Never forward the port or put the server behind a proxy/,
+    ])
+      assert.match(text, claim);
+    assert.doesNotMatch(RUN, /is not built: the file is the whole of the live board/);
+  });
+
+  it("HARNESSES.md says what to do where a harness cannot keep a process running", () => {
+    assert.match(
+      flat(read(`${SKILL_DIR}/HARNESSES.md`)),
+      /Where a harness cannot keep a process running, the human starts it in a terminal of their own, or goes without: `board\.html` needs no process\./,
+    );
+  });
+
+  it("DESIGN.md says why the server is optional, and the docs page says how to start it", () => {
+    const design = flat(
+      section(DESIGN, "### The live board is a file the page reloads, never hosted"),
+    );
+    assert.match(design, /so nothing depends on it/);
+    assert.doesNotMatch(design, /left out until it is wanted/);
+    const docs = flat(section(DOCS, "#### The live run board"));
+    assert.match(docs, /\*\*An optional server\.\*\*/);
+    assert.match(docs, /records\.mjs serve tmp\/orchestrate\/<run>/);
+    assert.match(docs, /127\.0\.0\.1/);
+  });
+});

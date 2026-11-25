@@ -351,6 +351,12 @@ node .claude/skills/orchestrate/records.mjs board tmp/orchestrate/<run> --heartb
 - **Rulings**, in an autonomous run only: the count still unreviewed, and each Ruling in the drawer with its options, choice, reason, evidence, cites and verdicts. The board is read-only: you uphold or overturn in the Chief of Staff chat.
 - **Stale.** It warns when the last Run Event is older than two heartbeat intervals, so a stopped Chief of Staff is never mistaken for a quiet run.
 - **Team Run and closed run.** A Team Run's board links to the Shared Board instead of copying it. A closed run's board links to that run's page in the dashboard.
+- **An optional server.** Where you can run a process, start one for updates to the second, from the repository's root. It binds to 127.0.0.1 only, prints its address and runs until you stop it (Ctrl-C); `--port <n>` picks the port. It pushes each new Run Event to the page, your Delegations' own steps included, and can raise a browser notification for a new wait once you click its button. `/dashboard` there is the past-runs dashboard, rebuilt on each request from your local records and the sink records an earlier build cached; it reads no sink. When you stop the server, its page says so and gives the address of `board.html`, which keeps working (a browser will not open a file from a served page). Nothing needs the server. Details: [RUN.md](../.claude/skills/orchestrate/RUN.md#the-optional-server).
+
+  ```bash
+  node .claude/skills/orchestrate/records.mjs serve tmp/orchestrate/<run> --heartbeat 10   # prints http://127.0.0.1:<port>/
+  ```
+
 - **Never hosted.** The drawer shows your Activity Logs, which can quote private issue text and command output. The page holds them only from your run folder, with credentials redacted, and says so: do not share the file. A hosted board would be an upload, and there is none. Why: [DESIGN.md](../.claude/skills/orchestrate/DESIGN.md#the-live-board-is-a-file-the-page-reloads-never-hosted).
 
 ## Spec mode

@@ -189,6 +189,8 @@ The plan's approval is a wait of the run, not of a Delegation: when the plan is 
 
 **The live board.** The Chief of Staff writes `board.html` each time it rewrites `board.md`, with `node <skill>/records.mjs board <run-folder> --heartbeat <minutes|none>` (the interval on the board's `Heartbeat` line, or `none` while the heartbeat is deleted or on tier 3), and at `go` and `go autonomous` it gives the human the `file://` link that command prints, so they can watch the run in a browser ([RUN.md](RUN.md#the-live-board)). It is a file that reloads itself, never hosted, and the human answers in the chat, never on the board.
 
+**An optional server.** Where a process can run, the human may start `node "<skill>/records.mjs" serve <run-folder> --heartbeat <minutes|none>` from the repository's root: it binds to 127.0.0.1 only, pushes each new Run Event to the page it serves, and runs until it is stopped. Nothing needs it: the run never waits on it, and `board.html` works without it ([RUN.md](RUN.md#the-optional-server)).
+
 **Done when:** the human has said "go" to this plan, and the board records it, with its Decision authority.
 
 ### 5. Dispatch a wave

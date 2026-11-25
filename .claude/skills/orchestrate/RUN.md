@@ -153,7 +153,21 @@ The verdicts:
 - **Team Run and closed runs.** In a Team Run the board links to the Shared Board, on the spec's issue, and does not copy it: teammates' state has one source ([TEAM.md](TEAM.md#the-shared-board)). Once the run is closed, it links to the run's page in the dashboard (`<run_dir>/dashboard.html`), once `--dashboard` has built it.
 - **Never hosted.** The drawer shows the Activity Logs, which are private prose, so the page says it holds them and carries every credential of the environment redacted. It stays on the machine: a hosted board would be an upload, with its disclosure, and none exists. Do not share the file.
 
-An optional server on 127.0.0.1 that pushes Run Events to the page and raises notifications is not built: the file is the whole of the live board.
+### The optional server
+
+`board.html` moves only when the Chief of Staff writes it. Where a process can run, the human may start a server that updates the board to the second. Nothing needs it: the run never waits on it, no step of the skill starts it unasked, and the file board works without it.
+
+```bash
+node "<skill>/records.mjs" serve <run-folder> --heartbeat <minutes|none>   # prints http://127.0.0.1:<port>/
+```
+
+Run it from the repository's root. It takes a free port, or the one `--port <n>` names, and runs until it is stopped (Ctrl-C).
+
+- **Local only.** It binds to 127.0.0.1 only, answers `GET` and `HEAD` requests made to that address or to `localhost` and no others, and sends no CORS header, so a page of another site cannot read it. While it runs, any program or account on the machine can open it, and it serves the Activity Logs, with credentials redacted as in `board.html`. Never forward the port or put the server behind a proxy: the board is never hosted.
+- **What it pushes.** It watches the run folder's events files, the Chief of Staff's `events.jsonl` and each Delegation's, including one made after it started, and pushes each newly appended Run Event to the connected page, which reloads. So a Delegation's own steps show between the Chief of Staff's wake-ups, for every Delegation that writes its events into this run folder. The page also reloads about every 15 seconds, for what no event carries: the State column of `board.md`, the Ruling Ledger and the Activity Logs. Staleness is judged with the `--heartbeat` the server was started with.
+- **Notifications.** The page offers a button, "Notify me of new waits". Once the human clicks it and the browser allows it, a wait opened afterwards raises a browser notification.
+- **`/dashboard`.** The past-runs dashboard, built again on each request from the local records and the sink's records an earlier `--dashboard` build cached. It reads no sink and no tracker, so it can lag the sink and tags no record "not uploaded"; `--dashboard` fetches what is new. It writes no file, and takes neither `--repo` nor `--local-logs`. A closed run's served board links here.
+- **When it stops.** The served page stops reloading, keeps what it last showed, and gives `board.html`'s `file://` address to copy: a browser does not let a served page open a file. `board.html` is unaffected, and goes on being written and reloading itself. The server writes it once at its start only when the run has none. Started again on the same `--port`, it makes the open page reload.
 
 ## Activity Logs
 
