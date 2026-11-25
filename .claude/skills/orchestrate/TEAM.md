@@ -275,6 +275,8 @@ After the Ruling Review ([SKILL.md](SKILL.md#autonomous-runs)), `not yet reviewe
 
 ## What stays local
 
+The live board `board.html` stays local too: in a Team Run it links to the Shared Board on the spec's issue and never copies a teammate's row ([RUN.md](RUN.md#the-live-board)).
+
 The Shared Board publishes only the row and the state label. Everything else stays in this teammate's run folder, exactly as in a single-person run ([RUN.md](RUN.md#layout)): the briefs, the reports, the full Decision Requests and their answers, the Ruling Ledger, the evidence, both kinds of Activity Log, and the QA Plans and QA Reports. A QA Report reaches a pull request only through the QA skills' own post-on-a-yes route. Decision answers and Ruling lines are recorded where `decisions.to` says, as in any run. The copies of the rows in `shared-board/` are the run's own, too.
 
 ## Reading a spec's Team Runs afterwards

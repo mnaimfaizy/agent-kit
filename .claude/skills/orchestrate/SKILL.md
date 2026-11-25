@@ -187,6 +187,8 @@ The human's "go" approves the whole plan: every row, the routine writes they tic
 
 The plan's approval is a wait of the run, not of a Delegation: when the plan is shown and waits for "go", write `wait-opened` (step kind `plan-approval`, cause `by-design`, how `chat`), and a Decision Request raised before "go" as `decision-request`. The human's "go" is one touch: write `wait-closed` with actor `human`, covering those Decision Requests, then `plan-approved` with the Decision authority line as approved. With `go` in the invocation and no wait, the "go" is a `human-step` of the same kind.
 
+**The live board.** The Chief of Staff writes `board.html` each time it rewrites `board.md`, with `node <skill>/records.mjs board <run-folder> --heartbeat <minutes|none>` (the interval on the board's `Heartbeat` line, or `none` while the heartbeat is deleted or on tier 3), and at `go` and `go autonomous` it gives the human the `file://` link that command prints, so they can watch the run in a browser ([RUN.md](RUN.md#the-live-board)). It is a file that reloads itself, never hosted, and the human answers in the chat, never on the board.
+
 **Done when:** the human has said "go" to this plan, and the board records it, with its Decision authority.
 
 ### 5. Dispatch a wave

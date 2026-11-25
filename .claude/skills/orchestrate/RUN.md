@@ -9,6 +9,7 @@ A run lives in its own folder inside the config's `run_dir`, which is gitignored
 ```text
 <run_dir>/<run>/
   board.md                  the board: one row per Delegation
+  board.html                the live board, written beside board.md each time it is rewritten (private prose: never shared or hosted)
   activity.md               the Chief of Staff's Activity Log
   answers.json              the answers given in chat, when the config did not say
   qa-readiness.json         the QA readiness answers the Dispatch Plan asked for, the JSON object qa-plan's --answers takes, with a run-only change to the Places as its `report` key
@@ -86,7 +87,7 @@ The **Decision Requests** cell lists each open question by its heading, and in a
 
 A QA Delegation's **Branch** cell is the full head it is pinned to, and its **Pull request** cell is the pull request it tests. Its earlier rows stay on the board, `void` or `failed`, so each QA run on the issue is visible.
 
-The **Handle** is what `message` and `await` need to reach the Executor again: a session id, a process id with its output file, or a sub-agent's name ([HARNESSES.md](HARNESSES.md)). The board is rewritten whole on each change, never edited in part, so an interrupted write leaves the last whole board in place: write the new board beside the old one, then rename it over the old one.
+The **Handle** is what `message` and `await` need to reach the Executor again: a session id, a process id with its output file, or a sub-agent's name ([HARNESSES.md](HARNESSES.md)). The board is rewritten whole on each change, never edited in part, so an interrupted write leaves the last whole board in place: write the new board beside the old one, then rename it over the old one. Each time it is rewritten, `board.html` is written beside it ([The live board](#the-live-board)).
 
 ## States
 
@@ -138,6 +139,21 @@ The verdicts:
 - `upheld`: the human upheld it.
 - `overturned`: the human overturned it, and the option they chose is its answer. Every Ruling whose **Cites** line names it becomes `needs re-review`.
 - `needs re-review`: it cited a Ruling since overturned, and waits for the human again. It is not overturned with the one it cited.
+
+## The live board
+
+`board.html` is the live view of a run: a page the human opens from the link given at `go` and `go autonomous`, and leaves open. The Chief of Staff writes it each time it rewrites `board.md`, by running `node <skill>/records.mjs board <run-folder> --heartbeat <minutes|none>`, which prints the `file://` link. It writes the page beside the old one and renames it over, as the board is written, so a reader never sees half a page. It is a file, not a server, so it works in every harness, and it reloads itself about every 15 seconds.
+
+- **Columns.** Planned, Needs you, Running, Checking, Landed and Merged. A Delegation is a card in the column its state belongs to; with a wait open on it, it is in Needs you instead. The card shows its exact board state, how long it has been in it, and a badge for each Ruling (`R1 unreviewed`). A wait of the run, with no Delegation (the plan's approval, a review label, the merge, close-out), is a card of its own in Needs you.
+- **What waits on the human.** A banner and the Needs-you column give each open wait its cause chip, its `how` (the chat, a card id, GitHub) and its age. The count of open waits is in the tab title and the favicon. A Recent Run Events feed sits beside the board.
+- **The drawer.** A click on a card opens that Delegation's facts (including whether it started from a card), its states with durations, its waits, its Rulings, its Run Events and its Activity Log. The address `#open=d:<id>` opens it, and `#open=r:<id>` opens a Ruling.
+- **Rulings.** In an autonomous run only, a Rulings section counts those still unreviewed, and each Ruling opens in the drawer with its question, options, choice, reason, evidence, cites and verdict history. The board is read-only: a verdict is given in the Chief of Staff chat.
+- **Where its data comes from.** The Run Events of this run folder (the Chief of Staff's and each Delegation's), the State column of `board.md`, the Ruling Ledger and the Activity Logs, all from this folder. The page never reads a sink or the tracker.
+- **Stale.** A run that is quiet is not a run that stopped. The page compares the last Run Event with the heartbeat interval, and says so when the last one is older than two intervals (one missed firing is allowed). The interval is the one on the `Heartbeat` line, 10 minutes by default ([HARNESSES.md](HARNESSES.md#waiting-an-event-and-a-heartbeat)). With no heartbeat armed, or once the run is closed, it says nothing. The page checks this against the clock of the browser, so a page left open still warns when the Chief of Staff has stopped writing it.
+- **Team Run and closed runs.** In a Team Run the board links to the Shared Board, on the spec's issue, and does not copy it: teammates' state has one source ([TEAM.md](TEAM.md#the-shared-board)). Once the run is closed, it links to the run's page in the dashboard (`<run_dir>/dashboard.html`), once `--dashboard` has built it.
+- **Never hosted.** The drawer shows the Activity Logs, which are private prose, so the page says it holds them and carries every credential of the environment redacted. It stays on the machine: a hosted board would be an upload, with its disclosure, and none exists. Do not share the file.
+
+An optional server on 127.0.0.1 that pushes Run Events to the page and raises notifications is not built: the file is the whole of the live board.
 
 ## Activity Logs
 

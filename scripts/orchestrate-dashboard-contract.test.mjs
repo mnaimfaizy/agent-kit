@@ -290,3 +290,57 @@ describe("the dashboard shows each teammate (#432)", () => {
       assert.match(doc, /who can read the sink are (the|your) organization's controls/);
   });
 });
+
+describe("the live run board (issue #433, spec #414)", () => {
+  it("SKILL.md has the Chief of Staff write board.html each time it rewrites board.md, and give the link at go and go autonomous", () => {
+    assert.match(
+      flat(SKILL),
+      /The Chief of Staff writes `board\.html` each time it rewrites `board\.md`, with `node <skill>\/records\.mjs board <run-folder> --heartbeat <minutes\|none>`/,
+    );
+    assert.match(
+      flat(SKILL),
+      /at `go` and `go autonomous` it gives the human the `file:\/\/` link that command prints, so they can watch the run in a browser/,
+    );
+  });
+
+  it("SKILL.md says the board is a self-reloading file, never hosted, and read-only", () => {
+    assert.match(
+      flat(SKILL),
+      /It is a file that reloads itself, never hosted, and the human answers in the chat, never on the board\./,
+    );
+  });
+
+  it("RUN.md lists board.html in the layout and says what the board is", () => {
+    assert.match(RUN, /^ {2}board\.html {16}the live board, written beside board\.md/m);
+    const live = flat(section(RUN, "## The live board"));
+    for (const claim of [
+      /Planned, Needs you, Running, Checking, Landed and Merged/,
+      /cause chip, its `how` .* and its age/,
+      /`#open=d:<id>`/,
+      /In an autonomous run only, a Rulings section/,
+      /The board is read-only/,
+      /older than two intervals/,
+      /links to the Shared Board/,
+      /links to the run's page in the dashboard/,
+      /never reads a sink or the tracker/,
+      /\*\*Never hosted\.\*\*/,
+    ])
+      assert.match(live, claim);
+  });
+
+  it("HARNESSES.md ties the heartbeat interval to the board's staleness", () => {
+    const harnesses = read(`${SKILL_DIR}/HARNESSES.md`);
+    assert.match(flat(harnesses), /takes this interval to say when the run is stale/);
+  });
+
+  it("DESIGN.md says why the board is a file and is never hosted, and the docs page says what it is", () => {
+    const design = flat(
+      section(DESIGN, "### The live board is a file the page reloads, never hosted"),
+    );
+    assert.match(design, /instead of a server/);
+    assert.match(design, /A hosted board would be an upload/);
+    const docs = flat(section(DOCS, "#### The live run board"));
+    assert.match(docs, /A hosted board would be an upload, and there is none\./);
+    assert.match(docs, /Team Run's board links to the Shared Board instead of copying it/);
+  });
+});

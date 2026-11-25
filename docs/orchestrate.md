@@ -337,6 +337,22 @@ node .claude/skills/orchestrate/records.mjs dashboard --local-logs   # also dash
 
 Without `--local-logs` the page holds no prose, because a Run Record holds none. With it, the build also writes `dashboard.local.html` with the prose Activity Log of each run whose folder is still on this machine, under the banner "contains private prose from this machine, don't share this file". Share `dashboard.html`, never the `.local` file. Credentials in the environment, and the usual token shapes, are replaced in that prose. Why a file and not a server: [DESIGN.md](../.claude/skills/orchestrate/DESIGN.md#the-past-runs-dashboard-is-a-file-on-the-readers-machine).
 
+#### The live run board
+
+At `go` and `go autonomous` the Chief of Staff gives you a `file://` link to `board.html`, in the run folder beside `board.md`. Open it and leave it open: the Chief of Staff rewrites it each time it rewrites the board, and the page reloads itself about every 15 seconds. It is a file, so it works in every harness, with no server.
+
+```bash
+node .claude/skills/orchestrate/records.mjs board tmp/orchestrate/<run> --heartbeat 10   # rewrites board.html, prints its link
+```
+
+- **Kanban.** Planned, Needs you, Running, Checking, Landed and Merged. Each card shows its exact state, how long it has been in it and its Ruling badges. A wait that is the run's own, such as approving the plan or merging, is a card in Needs you.
+- **What waits on you.** A banner lists each open wait with its cause chip, where to answer (the chat, a card to click, GitHub) and its age. The count is in the tab title and the favicon.
+- **A drawer per card**, linkable as `#open=d:<id>`: the Delegation's facts (including whether you started it from a card), its states with durations, its waits, its Rulings, its Run Events and its Activity Log.
+- **Rulings**, in an autonomous run only: the count still unreviewed, and each Ruling in the drawer with its options, choice, reason, evidence, cites and verdicts. The board is read-only: you uphold or overturn in the Chief of Staff chat.
+- **Stale.** It warns when the last Run Event is older than two heartbeat intervals, so a stopped Chief of Staff is never mistaken for a quiet run.
+- **Team Run and closed run.** A Team Run's board links to the Shared Board instead of copying it. A closed run's board links to that run's page in the dashboard.
+- **Never hosted.** The drawer shows your Activity Logs, which can quote private issue text and command output. The page holds them only from your run folder, with credentials redacted, and says so: do not share the file. A hosted board would be an upload, and there is none. Why: [DESIGN.md](../.claude/skills/orchestrate/DESIGN.md#the-live-board-is-a-file-the-page-reloads-never-hosted).
+
 ## Spec mode
 
 `/orchestrate --spec <n>` reads the spec issue and decides its shape:
