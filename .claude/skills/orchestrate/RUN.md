@@ -14,6 +14,7 @@ A run lives in its own folder inside the config's `run_dir`, which is gitignored
   qa-readiness.json         the QA readiness answers the Dispatch Plan asked for, the JSON object qa-plan's --answers takes, with a run-only change to the Places as its `report` key
   qa-readiness-<base>.json  the same, for a pull request with another base branch, once the human has answered for it
   qa-run.json               the run answers manual-qa's check --for run listed, asked in the same message, the JSON object manual-qa's --answers takes (approved QA only)
+  events.jsonl              the Chief of Staff's Run Events, appended as each step happens
   rulings.md                the Ruling Ledger, in an autonomous run
   qa-hosts.json             the hosts the human typed in the Dispatch Plan, each with its `host` verdict and its environment's seeder answer, for a `url` target (approved QA only); never written to a config, and deleted at close-out
   qa-held.md                the QA held for you list, in an approved-QA run: each held item, with its row, evidence and options, and its answer once given (not Rulings, so not in the Ledger)
@@ -22,6 +23,7 @@ A run lives in its own folder inside the config's `run_dir`, which is gitignored
   delegations/<id>/
     brief.md                the brief, as spawned
     activity.md             the Delegation's Activity Log
+    events.jsonl            the Delegation's own Run Events
     report.md               its latest report
     decisions.md            its Decision Requests, appended, each marked answered when it is (by the human, or by a Ruling's id)
     qa-plan.md              a QA Delegation's QA Plan, as drafted, then as delivered
@@ -32,6 +34,8 @@ A run lives in its own folder inside the config's `run_dir`, which is gitignored
 `<run>` is the date and the issue numbers, `2026-11-13-12-34`, with `.2`, `.3` added when that folder is already there (a dot, so a second run for #12 is never read as a run for #12 and #2). A spec run's `<run>` is the date and the spec, `2026-11-13-spec-50`, with the same `.2`. A Delegation's `<id>` is `d<issue>`, `d12`; a second Delegation for the same issue adds `-2`, a third `-3`, and so on: the next suffix not yet used in the run, so a restart never reuses a folder. A phase of a spec with no tickets is `d<spec>-p<k>`, `d50-p2` for its second phase ([SPEC.md](SPEC.md#phases)), and a fix Delegation on an integration branch is `d<spec>-fix<k>`. A QA Delegation is `d<issue>-qa` for the first QA of that issue's pull request, then `d<issue>-qa2`, `-qa3` for each later one, on a new head or the same one.
 
 A Team Run adds `shared-board/`, holding the copy of each of this teammate's ticket rows as last written: a row is written only when its new rendering differs from that copy, and `--status` reads a row's age from it ([TEAM.md](TEAM.md#when-a-row-is-written)).
+
+The Run Record is not in the run folder. It is derived at close-out into `<run_dir>/records/<run-id>.json`, a folder beside the run folders, so deleting or pruning a run folder leaves it ([Run Events and the Run Record](#run-events-and-the-run-record)).
 
 Nothing in a run folder is committed. A brief or a log can quote issue text and command output the human has not chosen to publish.
 
@@ -232,6 +236,72 @@ It writes nothing, as the rest of `--status`: no board, no row, no label, no fil
 When `spec-tickets` lists no ticket, it says that the spec has none the tracker file can read, so there is no Shared Board to show; on GitLab the spec lists its tickets as a task list in its description ([trackers/gitlab.md](trackers/gitlab.md#spec-tickets)).
 
 It writes nothing: no row, no label, no file. It never says whether a run is alive or dead, as above.
+
+## Run Events and the Run Record
+
+Every step of a run is written as a **Run Event**, as it happens, to an events file in the run folder: `events.jsonl` for the Chief of Staff and one `delegations/<id>/events.jsonl` for each Delegation. At close-out the Chief of Staff derives one **Run Record** from them. The Activity Log stays as it is: it is the readable prose, and the events are the structured account beside it. Why: [DESIGN.md](DESIGN.md#run-events-and-the-run-record).
+
+Both are written only with the records script, never by hand. It takes the time from the clock, so an event is never given a time and never back-dated, and it refuses a field outside its schema:
+
+```bash
+node "<skill>/records.mjs" event --file <run folder>/events.jsonl --kind <kind> --actor <human|chief-of-staff|delegation> [--<field> <value>]...
+node "<skill>/records.mjs" derive <run folder>
+```
+
+`--file` is an absolute path for a Delegation, because its working copy is not the Chief of Staff's. Fields are written with a hyphen (`--wait-id`), lists are comma-separated (`--covers dr1,dr2`). A value is an enum, a number, a SHA or an id: never a sentence. A reason in words belongs in the Activity Log.
+
+Every event carries an `actor`: `human`, `chief-of-staff` or `delegation`. `gh` and `glab` show the same login for a write the Chief of Staff made in the human's name and one the human made, so the actor is the only record of which it was.
+
+| Kind                 | Written by                        | When                                                                                                                                                          |
+| -------------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `run-opened`         | Chief of Staff                    | Step 2: the repository, tracker, run kind, spec, `team`, `took_over`, tickets, harness, Support Level, Decision authority and landing                         |
+| `plan-approved`      | Chief of Staff, actor `human`     | Step 4: the human's "go", with the Decision authority line as approved                                                                                        |
+| `delegation-started` | the Delegation                    | Its first act: its `delegation`, issue, kind, Executor kind, model and start route, all given in its brief                                                    |
+| `delegation-landed`  | the Delegation                    | Each time it pushes work it reports as landed, with the head                                                                                                  |
+| `delegation-ended`   | the Delegation                    | When its final report is written, with its outcome                                                                                                            |
+| `send-back`          | Chief of Staff                    | Each time a report is sent back (step 7, step 9)                                                                                                              |
+| `decision-request`   | whoever raises it                 | When a Decision Request is queued: a run-wide id `dr<n>`, and the Delegation when it asked                                                                    |
+| `ruling-made`        | Chief of Staff                    | With each Ruling: its `R<n>` and the Delegation it was sent to                                                                                                |
+| `ruling-verdict`     | Chief of Staff, actor `human`     | When the human upholds or overturns it                                                                                                                        |
+| `wait-opened`        | Chief of Staff                    | When something starts waiting on the human, or on a teammate: a `wait-id`, its step kind, its `cause`, and `how` the human answers (`chat`, `card`, `github`) |
+| `wait-closed`        | Chief of Staff, actor `human`     | When the human's touch ends it, listing the Decision Requests it `covers`                                                                                     |
+| `human-step`         | Chief of Staff, actor `human`     | A touch with no wait before it (a typed command, a close-out answer)                                                                                          |
+| `write`              | Chief of Staff, or the Delegation | Each write to the tracker, with its kind and whether it was made in the human's name (`as-human`)                                                             |
+| `review`, `ci`       | Chief of Staff                    | Each review round and each CI result on a head                                                                                                                |
+| `qa-result`          | Chief of Staff                    | Each QA Delegation's result                                                                                                                                   |
+| `pull-request`       | Chief of Staff                    | When a pull request is opened                                                                                                                                 |
+| `run-closed`         | Chief of Staff                    | At close-out, with the run's outcome and its pull requests                                                                                                    |
+
+**A human step is one touch** from the human: one answer, click or typed command, and it lists every Decision Request it covered, so an answer to three questions in one message is one step. A wait has a `wait-opened` and a `wait-closed` sharing one `wait-id`, and the close is the touch the Run Record counts; the time between them is the wait. A wait belongs to a Delegation, or to the run when it is the plan's approval, the review label, posting replies, the merge or the close-out. A card start the harness refused opens a wait with cause `harness-limit` and the card's id. A ticket parked on a teammate's ticket opens a `teammate-blocker` wait carrying the blocker ticket and the teammate's login, and unparking closes it, written with actor `chief-of-staff`: it is by design and is measured, but it is not a human step, since only a `human` actor counts as one.
+
+**Each human step carries a `cause`**, from this list, each either avoidable or by design:
+
+| Cause                | Counts as | Meaning                                                                 |
+| -------------------- | --------- | ----------------------------------------------------------------------- |
+| `harness-limit`      | avoidable | The harness could not start or do it without the human, such as a card. |
+| `permission-refusal` | avoidable | A permission rule stopped a write or a command.                         |
+| `tool-missing`       | avoidable | A tool or CLI the step needed was not there.                            |
+| `skill-bug`          | avoidable | The skill's own rules asked for a step they should not have.            |
+| `spec-gap`           | avoidable | The spec or issue left a question that only the human could answer.     |
+| `missing-config`     | avoidable | A config key or an approved routine write would have made it needless.  |
+| `human-choice`       | avoidable | The human chose to step in where the run did not need them.             |
+| `other`              | avoidable | None of the above.                                                      |
+| `by-design`          | by design | An expected step: the plan's approval, the merge, the close-out.        |
+| `teammate-blocker`   | by design | Waiting on a teammate's ticket in a Team Run.                           |
+
+The plan's approval and the close-out are always `by-design`.
+
+**At close-out** the Chief of Staff writes `run-closed`, then derives the record:
+
+```bash
+node "<skill>/records.mjs" derive <run_dir>/<run>
+```
+
+It reads the Chief of Staff's events and each Delegation's, in time order, and writes `<run_dir>/records/<run-id>.json`. The record holds only counts, ids, SHAs, issue and pull request numbers, times, durations, enum values and outcomes: the repository (`host/owner/repo`), the operator, the run kind and spec, `team`, `took_over`, the harness and its Support Level, each Delegation's Executor kind, model and real start and end, each human step with its kind, cause and wait, the writes with their actors, reviews, CI, Rulings and QA. It never holds issue text, ticket titles, commit messages, command output, file contents or a reason in words.
+
+A **safe-field check** runs on every derive: a field outside the schema, or a value that is free text, is an error that names the field, and nothing is written. It never strips. A stream that does not add up is refused the same way: a wait closed that was never opened, a step covering a Decision Request nobody raised, an event for a Delegation that never started, no `run-closed`. Fix the events file with a new event, and derive again.
+
+`run.operator` is the login of the tracker CLI (`gh api user`, or `glab api user`), and only `ORCHESTRATE_OPERATOR` overrides it; with no login it is `null`. `run.repo` is `host/owner/repo` from the `origin` remote, or the only remote. Records start with the first run that writes events: there is no backfill.
 
 ## Run Summary
 

@@ -225,6 +225,7 @@ A run keeps its state in a folder of its own inside the config's `run_dir` (defa
   qa-readiness-<base>.json  the same, for a pull request with another base
   qa-run.json              manual-qa's run needs the Dispatch Plan asked for, in an approved-QA run
   qa-hosts.json            the hosts you typed in the Dispatch Plan, each with its verdict and seeder answer; never in a config, deleted at close-out
+  events.jsonl              the Chief of Staff's Run Events, one timestamped line per step
   rulings.md                the Ruling Ledger, in an autonomous run
   qa-held.md                the QA held for you list, in an approved-QA run
   evidence/                 command output a Ruling cites
@@ -232,6 +233,7 @@ A run keeps its state in a folder of its own inside the config's `run_dir` (defa
   delegations/<id>/
     brief.md                the brief, as started
     activity.md             the Delegation's Activity Log
+    events.jsonl            the Delegation's own Run Events
     report.md               its latest report
     decisions.md            its Decision Requests, each marked when answered
 ```
@@ -243,6 +245,14 @@ A run keeps its state in a folder of its own inside the config's `run_dir` (defa
 - **A Delegation works in its own worktree or clone**, and writes its report and Decision Requests by absolute path into the Chief of Staff's run folder. An Executor in a clone that cannot reach the run folder ends its turn with its report or Decision Request as its last message, and the Chief of Staff writes it into the folder.
 
 `--status` prints the board, and in an autonomous run the Ruling Ledger, after running the default-branch check on each Ready to Merge row; it prints what the check found and writes nothing. `--resume <run>` reads the config again, then checks every Delegation not `merged` or `dropped` against git, the tracker, CI and its Executor, updates the board to what it found, runs the default-branch check on each Ready to Merge row, starts each parked Delegation whose wait is over, and goes on with the loop.
+
+### Run Events and the Run Record
+
+Beside its prose Activity Log, a run writes a structured **Run Event** for each step as it happens: the Chief of Staff to its `events.jsonl`, and each Delegation to its own. Each event has a time from the clock, a kind (a spawn, a land, a wait on you, your answer, a review, a CI result), and an `actor`: `human`, `chief-of-staff` or `delegation`. It holds ids, numbers and enum values, never a sentence. That is why a run can now say how long a Delegation took and how long it waited on you, which the prose, with dates and no times, could not.
+
+At close-out the Chief of Staff derives one **Run Record** from the events and writes it to `<run_dir>/records/<run-id>.json`, beside the run folders and not inside one, so pruning or deleting a run folder leaves it. It holds the repository, your tracker login (from `gh` or `glab`, or `ORCHESTRATE_OPERATOR`), the run kind, the harness and its Support Level, each Delegation's Executor kind, model, start and end, and each **human step**: one touch from you (one answer, click or typed command), listing the Decision Requests it covered, with a `cause` from a fixed list, each avoidable or by design. Plan approval, the merge and the close-out are by design.
+
+A safe-field check runs when the record is derived. A record with a field outside the schema, or a value that is free text such as issue text, a ticket title, command output or a reason in words, is refused with the field named, and nothing is written: it errors, and never strips. The record is local only, every run writes it, and a run with no `records` config behaves as before apart from it. Records start with the first run after this ships: there is no backfill. The script is `.claude/skills/orchestrate/records.mjs`, on Node built-ins and the tracker CLI alone.
 
 ## Spec mode
 

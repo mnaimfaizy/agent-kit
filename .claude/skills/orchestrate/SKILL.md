@@ -53,6 +53,7 @@ It finds the repository from the folder it runs in, and lists the copies of `orc
 - **No unsettled design gets built.** An issue that is not ready for an agent becomes an analysis Delegation: it produces evidence and options, then stops.
 - **Two Delegations that touch the same files never share a wave**, and a named shared resource has one holder at a time. The **QA Stack** is one, held by every QA Delegation that runs against it, whether or not `limits.shared` names it.
 - **QA holds for one head.** A QA result is about the commit it ran on. Any push to the branch after it, a review fix or a conflict merge alike, voids it, and the new head goes through QA again.
+- **Every step is a Run Event.** The Chief of Staff and each Delegation write a timestamped Run Event for each step as it happens, with the records script ([RUN.md](RUN.md#run-events-and-the-run-record)), and the Chief of Staff derives the Run Record from them at close-out. A Run Record holds no free text. The Activity Log stays as the readable prose.
 - **No repository fact is guessed.** Every command route, re-gate command, model, skill, label and limit comes from the config, or from the human's answer when the config does not say.
 
 ## Autonomous runs
@@ -116,7 +117,9 @@ Then find the harness, from `check`'s `harness` output and this session's own to
 
 Make the run folder, unless step 1 made it for the answers, then the board and the Chief of Staff's Activity Log, as [RUN.md](RUN.md) lays them out. Every later step updates the board as its state changes, and appends what it did and why to the Activity Log.
 
-**Done when:** the run folder exists inside `run_dir`, with a board listing each issue named.
+Then write the run's first Run Event, `run-opened`, to the Chief of Staff's `events.jsonl` ([RUN.md](RUN.md#run-events-and-the-run-record)): the repository, the tracker, the run kind, the spec, `team`, `took_over`, the tickets, the harness and its Support Level, and the Decision authority and landing as known so far. From here every step below writes its own Run Event as it happens, never afterwards from memory: the time comes from the clock.
+
+**Done when:** the run folder exists inside `run_dir`, with a board listing each issue named, and its `events.jsonl` opens with `run-opened`.
 
 ### 3. Analyse each issue
 
@@ -180,6 +183,8 @@ Under it, the **QA** line, when the run is autonomous and has QA rows: `QA: appr
 
 The human's "go" approves the whole plan: every row, the routine writes they tick, and the Decision authority line as shown. `go autonomous` approves it with the line set to `autonomous`. A change to any row, or setting the line back to `relay` on a harness at `verified`, is a new plan, shown again. With `go` in the invocation, start as soon as the plan is shown, unless step 3 raised a Decision Request, or a harness the plan uses is below `verified`: then wait for the answer and the human's "go". Below `verified`, the line an `autonomous` word fills in reads `autonomous, on a typed go autonomous`, and the plan says that Rulings would be made on a harness whose limits are not fully known. That line, as shown, offers two answers: `go autonomous`, typed after seeing the plan, starts the run autonomous; a plain `go` approves the plan as shown with the line at `relay`. Neither is a change to the plan, so neither shows it again.
 
+The plan's approval is a wait of the run, not of a Delegation: when the plan is shown and waits for "go", write `wait-opened` (step kind `plan-approval`, cause `by-design`, how `chat`), and a Decision Request raised before "go" as `decision-request`. The human's "go" is one touch: write `wait-closed` with actor `human`, covering those Decision Requests, then `plan-approved` with the Decision authority line as approved. With `go` in the invocation and no wait, the "go" is a `human-step` of the same kind.
+
 **Done when:** the human has said "go" to this plan, and the board records it, with its Decision authority.
 
 ### 5. Dispatch a wave
@@ -189,6 +194,8 @@ For each Delegation in the wave, write its brief to its folder in the run, carry
 Where the harness file says its `spawn` can only propose a session for the human to start (on Claude Code desktop, a turn the app started), the Delegation is `waiting` on the human to start it, with what the human must do queued as a Decision Request. Step 6 checks `waiting` rows on every wake-up, so the turn that finds the session records its handle and start time, sets the row to `running`, and arms its waits, as the harness file says.
 
 Where the harness file starts QA sessions parked (Claude Code desktop, with QA approved in step 4), the `go` turn also starts one parked QA session per approved QA row, each on a QA brief written without `<head>` ([BRIEF.md](BRIEF.md#the-qa-brief)), and the row is `parked` with its handle. Those starts are never cards: the human's words at `go` authorize them, and a parked session that later proves unusable holds its row for close-out instead of being replaced by a card mid-run.
+
+Each brief gives the Delegation its own `events.jsonl` as an absolute path, and the commands to write its `delegation-started`, `delegation-landed` and `delegation-ended` events with its Executor kind, model and start route already filled in ([BRIEF.md](BRIEF.md#the-brief-contract)). The Delegation writes them, so its start and end are the times it really started and ended, not the times the Chief of Staff noticed. A start the harness refused, so that the human must start it from a card, opens a `wait-opened` with cause `harness-limit`, how `card` and the card's id, and the human's click closes it.
 
 **Done when:** every Delegation in the wave is running, with its handle on the board, or is `waiting` on the human to start it, as above.
 
@@ -204,6 +211,8 @@ Where the harness file starts QA sessions parked (Claude Code desktop, with QA a
 - **A crash:** keep its branch and worktree as they are: they are its handoff. Record what was done and what is left on the board, and raise it to the human with a recommendation (start a new Delegation from the branch, or stop).
 - **In an autonomous run**, a Delegation still stuck after the nudge, or a crashed one, is a Ruling instead of a question to the human: nudge it again, or restart it from its branch. The Chief of Staff makes one such Ruling per issue in the run. When the nudged or restarted Delegation stalls or crashes again, that is a question the human keeps: it is queued and notified as a question not ruled on ([Autonomous runs](#autonomous-runs)). Stopping it, or dropping it from the run, stays the human's.
 - **A Ruling overturned in the Ruling Review:** act on it as on any human answer ([Autonomous runs](#autonomous-runs)).
+
+**Run Events in the loop.** Each event above is also written as a Run Event, with the actor who did it: a Decision Request queued is `decision-request`, and a question not ruled on opens a `wait-opened` (cause from the list in [RUN.md](RUN.md#run-events-and-the-run-record), how the human answers) that the human's answer closes, covering every Decision Request that one answer settled; a Ruling is `ruling-made`, and its verdict `ruling-verdict`; a report sent back is `send-back`; each write made in the human's name is a `write` with `as-human` true and actor `chief-of-staff`; a review round and a CI result are `review` and `ci`; a ticket parked on a teammate's ticket opens a `teammate-blocker` wait, and unparking closes it. A wake-up that finds the human has acted writes the human's touch with the time the wake-up found it, and says in the Activity Log that the time is the wake-up's.
 
 **The heartbeat.** Arm it at the first `spawn` of the run, in the form the harness file gives, and record its id on the board, with the time it was made ([RUN.md](RUN.md#board)). Where the heartbeat is the foreground watch, the board says `foreground watch` in place of an id. On tier 3 there is none: the human is the event. Delete it at close-out (step 10), or when the run parks with nothing running and only the human's merges to wait for, in the form the harness file gives, a marker file included, and record that on the board. `--resume` arms it again ([RUN.md](RUN.md#resume)). Where the harness's heartbeat expires, recreate it before then and record the new id. On each firing, the Chief of Staff:
 
@@ -306,6 +315,14 @@ Also print what is not on the list and why: parked Delegations, Delegations awai
 Once the list is printed, delete the heartbeat (step 6), with anything the harness file says goes with it, such as a hook's marker file, and record that on the board. Anything that sends a Delegation back to work after that, such as an overturned Ruling, arms it again.
 
 Then one line for the harness: each **check before use** item this run settled, and what it found, so the harness file can be corrected; and, on an unlisted harness, an offer to draft a harness file from what the run learned. Writing either is a change to this skill, made only on the human's yes.
+
+**Derive the Run Record.** Once the human has said they have merged, or the run ends without a merge, write `pull-request` for each pull request, the human's merge and close-out answers as `wait-closed` or `human-step` events (cause `by-design`), and last `run-closed` with the run's outcome. Then derive the record from the events:
+
+```bash
+node "<skill>/records.mjs" derive "<run_dir>/<run>"
+```
+
+It writes `<run_dir>/records/<run-id>.json`, outside the run folder, so pruning or deleting the folder leaves it. The safe-field check refuses a record that holds free text or a field outside the schema, and names the field: fix the events with a new event and derive again, and say in the Activity Log what was wrong. The record is local only, and every run writes it, with or without any `records` config. Say its path in the close-out.
 
 After the human says they have merged, offer a **Run Summary** on the umbrella issue the run's issues share, if they share one ([RUN.md](RUN.md#run-summary)). It is a write as the human: draft it, show it, and post it only on a yes. If parked Delegations are waiting on the merges, offer to resume the run.
 
