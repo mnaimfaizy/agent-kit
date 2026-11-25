@@ -19,13 +19,34 @@ routes:
 # The Node line skips two tests that fail on macOS (they fail on main too) and
 # pass on CI's ubuntu-latest, where ci.yml still runs them. Fixing them is a
 # separate change. The rest of both suites runs.
+#
+# `allowed_failures` are five tests that fail on main too, on macOS: four under
+# bash 3.2, one under the sandbox's sh. `config.mjs regate` treats exactly
+# these as allowed and names any other failure. A fix removes its entry. An
+# entry excuses only a named test failure: a command that exits other than 1,
+# or prints a non-test failure (a coverage threshold), still fails the re-gate.
+#
+# pre-commit runs after npm ci, so its prettier hook uses the pinned prettier.
 regate:
-  - uv run pytest
-  - "node --test --test-skip-pattern='denies an out-of-tree read with the staged hook|exits non-zero from the command line on an unexpected key' scripts/*.test.mjs .claude/skills/*/*.test.mjs"
-  - uv run ruff check .
-  - uv run ruff format --check .
-  - npm ci
-  - npx prettier --check .
+  commands:
+    - uv run pytest
+    - "node --test --test-skip-pattern='denies an out-of-tree read with the staged hook|exits non-zero from the command line on an unexpected key' scripts/*.test.mjs .claude/skills/*/*.test.mjs"
+    - uv run ruff check .
+    - uv run ruff format --check .
+    - npm ci
+    - uv run pre-commit run --all-files
+    - npx prettier --check .
+  allowed_failures:
+    - test: test_the_check_refuses_a_bad_model_or_limit_and_a_sum_past_the_timeout
+      reason: scripts/deep-scan-workflow-contract.test.py; fails on main under macOS bash 3.2 (unbound empty array)
+    - test: test_the_launcher_selects_the_subscription_path_from_the_token
+      reason: scripts/deep-scan-workflow-contract.test.py; fails on main under macOS bash 3.2 (unbound empty array)
+    - test: test_the_launcher_keeps_the_api_key_path_from_the_key
+      reason: scripts/deep-scan-workflow-contract.test.py; fails on main under macOS bash 3.2 (unbound empty array)
+    - test: test_the_launcher_passes_the_effort_as_a_flag_only_when_it_is_set
+      reason: scripts/deep-scan-workflow-contract.test.py; fails on main under macOS bash 3.2 (unbound empty array)
+    - test: checks the report in the sandbox with a real sh, then tars that one file
+      reason: scripts/cli-deep-scan-contract.test.mjs; fails on main under macOS, where the archive holds two files
 
 skills:
   implement: tdd

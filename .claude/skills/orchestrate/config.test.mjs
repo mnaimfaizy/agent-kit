@@ -155,6 +155,7 @@ test("each key's default, with an empty config", () => {
     read_first: null,
     routes: { commit: null, pull_request: null, merge: null },
     regate: null,
+    regate_allowed_failures: [],
     skills: { implement: null, triage: null, review: null },
     triage_labels: {
       from: "default",
@@ -441,6 +442,62 @@ const YAML_PROBLEMS = [
     "a regate entry that is not a command",
     ["regate:", "  - { run: npm test }"],
     /^line 2: `regate\[0\]`: expected a command/,
+  ],
+  [
+    "regate as a mapping with an unknown key",
+    ["regate:", "  commands: [npm test]", "  skip: [x]"],
+    /^line 3: `regate\.skip`: unknown key \(CONFIG\.md documents: commands, allowed_failures\)/,
+  ],
+  [
+    "regate as a mapping with no commands",
+    ["regate:", "  allowed_failures: []"],
+    /^line 1: `regate\.commands`: expected a list of commands/,
+  ],
+  [
+    "a regate mapping whose commands are not a list",
+    ["regate:", "  commands: npm test"],
+    /^line 2: `regate\.commands`: expected a list of commands/,
+  ],
+  [
+    "allowed_failures that is not a list",
+    ["regate:", "  commands: [npm test]", "  allowed_failures: flaky"],
+    /^line 3: `regate\.allowed_failures`: expected a list of failing tests/,
+  ],
+  [
+    "an allowed failure with no reason",
+    ["regate:", "  commands: [npm test]", "  allowed_failures:", "    - { test: a test }"],
+    /^line 4: `regate\.allowed_failures\[0\]\.reason`: expected a non-empty string/,
+  ],
+  [
+    "an allowed failure with no test name",
+    ["regate:", "  commands: [npm test]", "  allowed_failures:", "    - { reason: fails on main }"],
+    /^line 4: `regate\.allowed_failures\[0\]\.test`: expected a non-empty string/,
+  ],
+  [
+    "an allowed failure that is a bare string",
+    ["regate:", "  commands: [npm test]", "  allowed_failures: [a test]"],
+    /^line 3: `regate\.allowed_failures\[0\]`: expected a mapping with `test` and `reason`/,
+  ],
+  [
+    "an allowed failure with an unknown key",
+    [
+      "regate:",
+      "  commands: [npm test]",
+      "  allowed_failures:",
+      "    - { test: a, reason: b, until: later }",
+    ],
+    /^line 4: `regate\.allowed_failures\[0\]\.until`: unknown key \(CONFIG\.md documents: test, reason\)/,
+  ],
+  [
+    "an allowed failure listed twice",
+    [
+      "regate:",
+      "  commands: [npm test]",
+      "  allowed_failures:",
+      "    - { test: a, reason: b }",
+      "    - { test: a, reason: c }",
+    ],
+    /^line 5: `regate\.allowed_failures\[1\]`: `a` is listed twice/,
   ],
   [
     "a regate command listed twice",
@@ -1062,6 +1119,63 @@ test("an answers file that is not an object says so, and a `__proto__` answer is
   assert.match(proto.problems[0], /^a\.json line 2: `__proto__`: unknown key/);
 });
 
+test("regate reads as a list, or as a mapping with commands and allowed failures, in both dialects", () => {
+  const asList = yaml("regate:", "  - npm test", "  - npx prettier --check .");
+  assert.deepEqual(asList.problems, []);
+  assert.deepEqual(effectiveConfig(asList.config).regate, ["npm test", "npx prettier --check ."]);
+  assert.deepEqual(effectiveConfig(asList.config).regate_allowed_failures, []);
+
+  const mapping = yaml(
+    "regate:",
+    "  commands:",
+    "    - npm test",
+    "  allowed_failures:",
+    '    - test: "checks the report, then tars it"',
+    "      reason: fails on main too, macOS sh",
+  );
+  assert.deepEqual(mapping.problems, []);
+  const effective = effectiveConfig(mapping.config);
+  assert.deepEqual(effective.regate, ["npm test"]);
+  assert.deepEqual(effective.regate_allowed_failures, [
+    { test: "checks the report, then tars it", reason: "fails on main too, macOS sh" },
+  ]);
+
+  const asJson = json(
+    JSON.stringify({
+      regate: {
+        commands: ["npm test"],
+        allowed_failures: [{ test: "checks the report, then tars it", reason: "macOS sh" }],
+      },
+    }),
+  );
+  assert.deepEqual(asJson.problems, []);
+  assert.deepEqual(effectiveConfig(asJson.config).regate, ["npm test"]);
+});
+
+test("an unset regate has no allowed failures, and a regate mapping still needs its commands asked for", () => {
+  assert.equal(effectiveConfig({}).regate, null);
+  assert.deepEqual(effectiveConfig({}).regate_allowed_failures, []);
+  const needs = readiness(
+    readConfig(
+      reader({
+        "orchestrate.config.yml": "read_first: []\nroutes: { commit: c, pull_request: p }\n",
+      }),
+    ),
+  ).needs;
+  assert.ok(needs.some((n) => n.startsWith("regate:")));
+});
+
+test("regate as a mapping with an empty command list is ready: CI is left to CI", () => {
+  const loaded = readConfig(
+    reader({
+      "orchestrate.config.yml":
+        "read_first: []\nroutes: { commit: c, pull_request: p }\nregate: { commands: [], allowed_failures: [] }\n",
+    }),
+  );
+  assert.deepEqual(loaded.problems, []);
+  assert.equal(readiness(loaded).ready, true);
+});
+
 // ── CLI ─────────────────────────────────────────────────────────────────────
 
 const run = (argv, files, exists = () => true) =>
@@ -1675,8 +1789,17 @@ test("the `tracker` and `team` keys add nothing the readiness check asks for or 
   assert.deepEqual(team, base);
 });
 
+test("CONFIG.md's `regate` example reads with no problems, and names a failure with its reason", () => {
+  const { config, problems } = parseConfig("orchestrate.config.yml", configBlock("yaml", 2));
+  assert.deepEqual(problems, []);
+  const effective = effectiveConfig(config);
+  assert.deepEqual(effective.regate, ["uv run pytest", "npm test"]);
+  assert.equal(effective.regate_allowed_failures.length, 1);
+  assert.match(effective.regate_allowed_failures[0].reason, /macOS/);
+});
+
 test("CONFIG.md's `team` example reads with no problems, and is the defaults", () => {
-  const block = configBlock("yaml", 2);
+  const block = configBlock("yaml", 3);
   assert.match(block, /^team:/);
   const read = parseConfig("orchestrate.config.yml", block);
   assert.deepEqual(read.problems, []);
