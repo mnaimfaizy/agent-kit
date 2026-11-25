@@ -37,7 +37,7 @@ The First-class flow plan → implement → review, behind one master Kill switc
 _Avoid_: pipeline, agent pipeline
 
 **Stage**:
-One agent run with its own harness, model, effort and Kill switch: in a First-class flow, plan, implement, review, review response or security audit; in the Factory, plan, build, review, QA or security.
+One agent run with its own harness, model and effort (and, in a First-class flow, its own Kill switch): in a First-class flow, plan, implement, review, review response or security audit; in the Factory, plan, build, review, QA or security.
 _Avoid_: step, phase, pipeline
 
 **Launcher**:
