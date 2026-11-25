@@ -3415,7 +3415,37 @@ describe("dashboard: Spec pages", () => {
     const totals = plain(section(html, SPEC).split("data-totals")[1].split("</dl>")[0]);
     assert.match(totals, /120h 50m/);
     assert.match(totals, /26/);
-    assert.match(totals, /6 of 7 listed tickets merged/);
+    assert.match(totals, /6 of 7 listed tickets landed in merged runs/);
+    assert.match(totals, /Landed in partly-merged runs 0 more/);
+  });
+
+  it("counts tickets landed in a partly-merged run apart, never as merged (F6)", async () => {
+    const made = await readyToTeam();
+    const key = [...made.files.keys()].find((k) => k.endsWith("/2026-11-05-team-77b.json"));
+    const text = made.files.get(key);
+    assert.match(text, /"outcome": "merged"/);
+    made.files.set(key, text.replace('"outcome": "merged"', '"outcome": "partly-merged"'));
+    const result = await build(made.dir, made.transport);
+    assert.equal(result.code, 0, result.out);
+    const totals = plain(
+      section(body(page(made.dir)), SPEC)
+        .split("data-totals")[1]
+        .split("</dl>")[0],
+    );
+    assert.doesNotMatch(totals, /6 of 7/);
+    assert.match(totals, /listed tickets landed in merged runs/);
+    assert.match(totals, /Landed in partly-merged runs [1-9]\d* more/);
+  });
+
+  it("names the sink it read above the People table, on Repository and All repositories pages (F4)", async () => {
+    const { html } = await peopleOf();
+    const sentence =
+      "Only runs uploaded to acme/run-records are here. Teammates who haven't uploaded, upload elsewhere, or have runs still open aren't shown.";
+    for (const route of [`/repo/${NS_A}`, "/"]) {
+      const panel = section(html, route).split('data-panel="people"')[1];
+      const [above] = panel.split('data-table="people"');
+      assert.ok(plain(above).includes(sentence), route);
+    }
   });
 
   it("names the sink it read, says who is not shown, and points at --status --spec", async () => {

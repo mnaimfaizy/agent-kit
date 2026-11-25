@@ -227,6 +227,10 @@ function peopleTable(kit, entries, { byHost }) {
   }`;
 }
 
+/** The one sentence a page that shows teammates carries: the sink it read, and who is not shown. */
+const missingTeammates = (code, sink) =>
+  `<div class="callout" data-missing-teammates>Only runs uploaded to ${code(sink)} are here. Teammates who haven't uploaded, upload elsewhere, or have runs still open aren't shown.</div>`;
+
 /** The People panel of a Repository page, or of All repositories (`byHost`). */
 export function peoplePanel(kit, entries, context, { byHost }) {
   const now = builtMs(context, entries);
@@ -234,6 +238,7 @@ export function peoplePanel(kit, entries, context, { byHost }) {
     ? `One row per host and login, with a count of repositories: the same login on two hosts is two people. It covers only the repositories this machine and ${kit.code(context.sink?.name ?? "local")} hold.`
     : "One row per login in this repository.";
   return `<div class="panel" data-panel="people"><h2>People</h2>
+${missingTeammates(kit.code, context.sink?.name ?? "local")}
 <p class="muted small">${note} Sorted by login, side by side: nothing here is ordered by a figure or summed across people. Run counts and lengths are per kind of run; only the human steps per Delegation compare across kinds.</p>
 ${rangeSelect()}
 ${ranged(entries, now, (inside) => peopleTable(kit, inside, { byHost }))}</div>`;
@@ -456,26 +461,29 @@ function specPage(kit, group, context) {
   // Spec totals.
   const stepsTotal = runs.reduce((n, e) => n + e.record.summary.human_steps, 0);
   const listed = [...new Set(runs.flatMap((e) => e.record.run.tickets))].sort((a, b) => a - b);
-  const merged = listed.filter((n) =>
+  // The record holds no per-ticket merge: a ticket counts by the outcome of the run it landed in.
+  const landedIn = (n, outcome) =>
     runs.some(
       (e) =>
-        e.record.run.outcome === "merged" &&
+        e.record.run.outcome === outcome &&
         e.record.delegations.some((d) => d.issue === n && d.outcome === "landed"),
-    ),
-  );
+    );
+  const merged = listed.filter((n) => landedIn(n, "merged"));
+  const partly = listed.filter((n) => !merged.includes(n) && landedIn(n, "partly-merged"));
 
   return page(
     specRoute(repository, spec),
     `<div class="crumbs"><a href="#/">All repositories</a> / ${link(`/repo/${repository}`, esc(repository))} / Spec #${spec}</div>
 <h1>Spec #${spec}</h1>
 <p class="muted">${plural(runs.length, "Team Run")} by ${plural(logins.length, "login")} in ${code(repository)}, on one clock.</p>
-<div class="callout" data-missing-teammates>Only runs uploaded to ${code(sink)} are here. Teammates who haven't uploaded, upload elsewhere, or have runs still open aren't shown.</div>
+${missingTeammates(code, sink)}
 <p class="small">Logins found: ${logins.map(esc).join(", ")}. Live state, including open runs, is on the Shared Board: ${code(`/orchestrate --status --spec ${spec}`)}. This page never reads the tracker.</p>
 <div class="panel"><h2>Spec totals</h2>
 <dl class="dl" data-totals>
   <dt>First start to last close</dt><dd>${esc(duration((t1 - t0) / 1000))}</dd>
   <dt>Human steps</dt><dd>${stepsTotal}</dd>
-  <dt>Tickets merged</dt><dd>${merged.length} of ${listed.length} listed tickets merged <span class="muted small">(a ticket counts when its Delegation landed in a run that merged)</span></dd>
+  <dt>Tickets landed in merged runs</dt><dd>${merged.length} of ${listed.length} listed tickets landed in merged runs <span class="muted small">(the record holds no per-ticket merge: a ticket counts when its Delegation landed in a run that merged)</span></dd>
+  <dt>Landed in partly-merged runs</dt><dd>${partly.length} more <span class="muted small">(landed in a run that merged only part of its work, so the record cannot say whether they merged)</span></dd>
   <dt>Parked on a teammate</dt><dd>${esc(duration(parkedSeconds))}</dd>
 </dl></div>
 <div class="panel"><h2>Lanes</h2>
