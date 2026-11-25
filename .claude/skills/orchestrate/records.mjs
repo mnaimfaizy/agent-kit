@@ -1184,6 +1184,7 @@ async function upload(args, io) {
 
 /** Where a "no" to the close-out's prune ask is remembered: a file beside the run folders, never a folder. */
 const PRUNE_DECLINED = "prune-declined";
+const DAY_MS = 86_400_000;
 
 /**
  * Delete the closed-out run folders older than `prune.after_days`, and
@@ -1223,21 +1224,30 @@ function prune(args, io) {
     };
   if (!existsSync(base)) return { code: 0, out: "nothing to prune\n" };
 
-  const cutoff = Date.parse(nowIso(io)) - setting.after_days * 86_400_000;
+  const cutoff = Date.parse(nowIso(io)) - setting.after_days * DAY_MS;
+  if (!Number.isFinite(cutoff)) return { code: 1, out: "cannot read the clock: nothing deleted\n" };
   const deleted = [];
+  let failed = null;
   for (const name of readdirSync(base).sort()) {
     if (name === "records" || !ID.test(name)) continue;
     const folder = join(base, name);
     if (!lstatSync(folder).isDirectory()) continue;
-    const record = closedAt(join(base, "records", `${name}.json`), name);
-    if (record === null || record >= cutoff) continue;
-    rmSync(folder, { recursive: true, force: true });
+    const closed = closedAt(join(base, "records", `${name}.json`), name);
+    if (closed === null || closed >= cutoff) continue;
+    try {
+      rmSync(folder, { recursive: true, force: true });
+    } catch (error) {
+      failed = `${name}: ${error?.code ?? error}`;
+      break;
+    }
     deleted.push(name);
   }
+  const done = deleted.map((name) => `pruned ${name}`);
+  if (failed) return { code: 1, out: `${[...done, `could not delete ${failed}`].join("\n")}\n` };
   if (deleted.length === 0) return { code: 0, out: "nothing to prune\n" };
   return {
     code: 0,
-    out: `${deleted.map((name) => `pruned ${name}`).join("\n")}\n${deleted.length} closed-out run ${deleted.length === 1 ? "folder" : "folders"} older than ${setting.after_days} days deleted; every Run Record kept\n`,
+    out: `${done.join("\n")}\n${deleted.length} closed-out run ${deleted.length === 1 ? "folder" : "folders"} older than ${setting.after_days} days deleted; every Run Record kept\n`,
   };
 }
 

@@ -1710,6 +1710,14 @@ describe("prune: only closed-out run folders older than prune.after_days", () =>
     assert.deepEqual(kept(dir), ["records", "run-old"]);
   });
 
+  it("deletes nothing when the clock cannot be read", async () => {
+    const dir = pruneRoot({ runs: { "run-old": 99 } });
+    const result = await main(["prune"], { cwd: dir, now: () => "not a time" });
+    assert.equal(result.code, 1);
+    assert.match(result.out, /cannot read the clock/);
+    assert.deepEqual(kept(dir), ["records", "run-old"]);
+  });
+
   it("says what it deleted, and what it found nothing to delete", async () => {
     const dir = pruneRoot({ runs: { "run-new": 1 } });
     const result = await prune(dir);
