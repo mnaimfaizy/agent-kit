@@ -4542,6 +4542,55 @@ describe("board: the spec-344 stream replayed", () => {
     assert.match(column(html, "Needs you"), /c-permission-refusal/);
   });
 
+  it("keeps a wait on a teammate's ticket out of Needs you: it parks the card, with its age (F3)", async () => {
+    const dir = replayed("2026-11-19T03:35:00Z");
+    const before = await board(dir, [], { until: "2026-11-19T03:35:00Z" });
+    const parked = (wait, delegation, blocker, login, iso) =>
+      appendFileSync(
+        join(runFolder(dir), "events.jsonl"),
+        `${JSON.stringify({ at: iso, kind: "wait-opened", actor: "chief-of-staff", wait_id: wait, delegation, step_kind: "teammate-blocker", cause: "teammate-blocker", how: "github", blocker, blocker_login: login })}\n`,
+      );
+    parked("w90", "d350", 355, "sam", "2026-11-19T03:34:00Z"); // running, then parked
+    parked("w91", "d352", 356, "lee", "2026-11-19T03:34:30Z"); // not started yet
+    const { html } = await board(dir, [], { until: "2026-11-19T03:35:00Z" });
+    const cols = columns(html);
+    assert.equal(cols.d350, "Planned");
+    assert.equal(cols.d352, "Planned");
+    assert.doesNotMatch(column(html, "Needs you"), /data-delegation="d35[02]"/);
+    // Nothing more waits on the human: the banner, the tab title, the favicon and the page's notifications agree.
+    const title = (h) => /<title>(.*?)<\/title>/.exec(h)[1];
+    const icon = (h) => /<link rel="icon" href="([^"]*)">/.exec(h)[1];
+    const needs = (h) => /<div class="needs[^"]*" id="needs">[\s\S]*?<\/div>/.exec(h)[0];
+    const data = (h) =>
+      JSON.parse(/<script type="application\/json" id="board-data">(.*?)<\/script>/s.exec(h)[1]);
+    assert.equal(title(html), title(before.html));
+    assert.equal(icon(html), icon(before.html));
+    assert.equal(needs(html), needs(before.html));
+    assert.deepEqual(data(html).waits, data(before.html).waits);
+    assert.equal(data(html).open, data(before.html).open);
+    assert.doesNotMatch(html, /Answer on GitHub/);
+    // The card says what it is parked on, and for how long.
+    const card = /<div class="card" data-delegation="d350"[\s\S]*?\n<\/div>/.exec(html)[0];
+    assert.match(card, /data-state="parked"/);
+    assert.match(card, /c-teammate-blocker/);
+    assert.match(card, /Parked on #355 \(@sam\)/);
+    assert.match(card, /parked <span class="age" data-since="2026-11-19T03:34:00Z">1m 0s</);
+    assert.match(html, /d350: parked on #355 \(@sam\)/);
+  });
+
+  it("unparks the card when the teammate's ticket merges (F3)", async () => {
+    const dir = replayed("2026-11-19T03:35:00Z");
+    const file = join(runFolder(dir), "events.jsonl");
+    appendFileSync(
+      file,
+      `${JSON.stringify({ at: "2026-11-19T03:34:00Z", kind: "wait-opened", actor: "chief-of-staff", wait_id: "w90", delegation: "d350", step_kind: "teammate-blocker", cause: "teammate-blocker", how: "github", blocker: 355, blocker_login: "sam" })}\n${JSON.stringify({ at: "2026-11-19T03:34:50Z", kind: "wait-closed", actor: "chief-of-staff", wait_id: "w90" })}\n`,
+    );
+    const { html } = await board(dir, [], { until: "2026-11-19T03:35:00Z" });
+    assert.equal(columns(html).d350, "Running");
+    const card = /<div class="card" data-delegation="d350"[\s\S]*?\n<\/div>/.exec(html)[0];
+    assert.doesNotMatch(card, /Parked on #355/);
+  });
+
   it("takes the exact state of board.md where it has the row, and files it in its column", async () => {
     const dir = replayed("2026-11-19T04:30:00Z");
     writeFileSync(

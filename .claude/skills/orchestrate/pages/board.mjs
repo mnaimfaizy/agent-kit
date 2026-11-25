@@ -227,9 +227,11 @@ export function boardModel({ events, now, states = {}, ledger = null, heartbeatM
       if (d) {
         d.waits.push(wait);
         // A Delegation that is working and stops on a wait is `waiting`; one not yet started stays `planned`.
+        // A wait on a teammate's ticket waits on nobody here: it parks the Delegation instead.
+        const parks = wait.cause === "teammate-blocker";
         if (d.state === "running" || d.state === "sent back") {
           d.before = d.state;
-          track(d, "waiting", e.at);
+          track(d, parks ? "parked" : "waiting", e.at);
         }
       }
     } else if (e.kind === "wait-closed") {
@@ -238,8 +240,13 @@ export function boardModel({ events, now, states = {}, ledger = null, heartbeatM
         wait.closedAt = e.at;
         wait.covers = e.covers ?? [];
         const owner = wait.delegation ? delegations.get(wait.delegation) : null;
-        if (owner && owner.state === "waiting" && !owner.waits.some((w) => !w.closedAt))
-          track(owner, owner.before, e.at);
+        const still = owner ? owner.waits.filter((w) => !w.closedAt) : [];
+        if (
+          owner &&
+          (owner.state === "waiting" || owner.state === "parked") &&
+          !still.some((w) => !onTeammate(w))
+        )
+          track(owner, still.length ? "parked" : owner.before, e.at);
       }
     } else if (e.kind === "ruling-made") {
       rulingEvents.set(e.ruling, {
@@ -297,12 +304,14 @@ export function boardModel({ events, now, states = {}, ledger = null, heartbeatM
     if (given && given !== d.state)
       track(d, given, d.events.at(-1)?.at ?? run.openedAt ?? events[0]?.at);
     d.sinceAt = d.states.at(-1).at;
-    d.open = d.waits.filter((w) => !w.closedAt);
+    // Only a wait on the human is in Needs you; a wait on a teammate's ticket stays on its card.
+    d.open = d.waits.filter((w) => !w.closedAt && !onTeammate(w));
+    d.parkedOn = d.waits.filter((w) => !w.closedAt && onTeammate(w));
     d.column = d.open.length ? "Needs you" : (COLUMN_OF[d.state] ?? "Running");
     d.rulings = rulings.filter((r) => r.delegation === d.id);
   }
 
-  const open = [...waits.values()].filter((w) => !w.closedAt);
+  const open = [...waits.values()].filter((w) => !w.closedAt && !onTeammate(w));
   const last = events.at(-1)?.at ?? null;
   const staleAfterMs =
     heartbeatMinutes && !run.closed ? heartbeatMinutes * STALE_INTERVALS * 60_000 : null;
@@ -328,10 +337,15 @@ export function boardModel({ events, now, states = {}, ledger = null, heartbeatM
   };
 }
 
+/** A wait on a teammate's ticket: by design, and on nobody in this session. */
+const onTeammate = (w) => w.cause === "teammate-blocker";
+
 // --- Text.
 
 /** Where the human answers a wait, in words. */
 function howText(w) {
+  if (onTeammate(w))
+    return `Waits for #${w.blocker} to merge${w.blockerLogin ? ` (@${w.blockerLogin}'s ticket)` : ""}: nothing to answer`;
   if (w.how === "card")
     return `Click the New task card${w.card ? ` ${w.card}` : ""} in the Chief of Staff session`;
   if (w.how === "github") return "Answer on GitHub";
@@ -366,6 +380,8 @@ export function eventText(e) {
     case "ruling-verdict":
       return `${e.ruling} ${e.verdict}`;
     case "wait-opened":
+      if (e.cause === "teammate-blocker")
+        return `${who}parked on #${e.blocker}${e.blocker_login ? ` (@${e.blocker_login})` : ""}`;
       return `${who}waiting on you: ${stepName(e.step_kind)} (${words(e.cause)}), ${e.how}`;
     case "wait-closed":
       return `wait ${e.wait_id} closed`;
@@ -411,11 +427,17 @@ function card(d, now) {
         `<div class="wait">${chip(w.cause)} <b>${esc(waitTitle(w))}</b><br>${waitLine(w, now)}</div>`,
     )
     .join("");
+  const parked = d.parkedOn
+    .map(
+      (w) =>
+        `<div class="wait parked-on" data-wait="${esc(w.id)}">${chip(w.cause)} <b>${esc(waitTitle(w))}</b><br><span class="muted">parked ${since(w.openedAt, now)}</span></div>`,
+    )
+    .join("");
   const badges = d.rulings.map(rulingBadge).join(" ");
   return `<div class="card" data-delegation="${esc(d.id)}" data-state="${esc(d.state)}">
   <a class="card-head" href="#open=d:${esc(d.id)}"><b>${esc(d.id)}</b>${d.issue ? ` <span class="muted">#${d.issue}</span>` : ""}</a>
   <div>${stateTag(d.state)} <span class="muted small">for ${since(d.sinceAt, now)}</span></div>
-  ${waits}${badges ? `<div class="badges">${badges}</div>` : ""}
+  ${waits}${parked}${badges ? `<div class="badges">${badges}</div>` : ""}
 </div>`;
 }
 
