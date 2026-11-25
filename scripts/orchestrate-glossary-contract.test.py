@@ -64,9 +64,7 @@ def test_the_skill_design_repeats_them_word_for_word() -> None:
 
 
 def test_a_team_run_is_one_per_teammate_and_read_together_on_the_board_or_the_dashboard() -> None:
-    sentence = (
-        "One per teammate; a spec's Team Runs are read together on the Shared Board or the Run Record dashboard."
-    )
+    sentence = "One per teammate; a spec's Team Runs are read together on the Shared Board or the Run Record dashboard."
     assert sentence in glossary_terms()["Team Run"]
     assert sentence in design_terms()["Team Run"]
 
