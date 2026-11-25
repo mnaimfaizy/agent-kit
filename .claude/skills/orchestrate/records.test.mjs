@@ -2506,6 +2506,12 @@ describe("dashboard: the Repository switcher and the pages", () => {
     assert.match(all, /data-tree/);
   });
 
+  it("shows the warnings on the Repository page too, where the page opens", async () => {
+    const { dir, transport } = await readyToRead({ sink: { visibility: "public" } });
+    await build(dir, transport);
+    assert.match(section(body(page(dir)), `/repo/${NS_A}`), /<div class="warn">[^<]*not private/);
+  });
+
   it("the Repository page has human steps per run stacked by cause, and its runs", async () => {
     const { dir, transport } = await readyToRead();
     await build(dir, transport);

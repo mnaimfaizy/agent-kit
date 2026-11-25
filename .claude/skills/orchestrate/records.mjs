@@ -1346,7 +1346,7 @@ async function readSink(sinkConfig, { cache, exec }) {
   const privacy = await sink.privacy();
   if (privacy.private === null) {
     out.warnings.push(
-      `could not read \`${where}\`: it does not exist or you have no read access to it. The page is built from the local records only`,
+      `could not read \`${where}\`: it does not exist, you have no read access to it, or the call failed. The page is built from the local records only`,
     );
     return out;
   }

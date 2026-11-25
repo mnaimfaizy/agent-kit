@@ -914,12 +914,13 @@ ${
   );
 }
 
-function repositoryPage(repository, entries) {
+function repositoryPage(repository, entries, warnings) {
   return page(
     repoRoute(repository),
     `<div class="crumbs"><a href="#/">All repositories</a> / ${esc(repository)}</div>
 <h1>${esc(repository)}</h1>
 <p class="muted">${plural(entries.length, "Run Record")}.</p>
+${warnings.map((w) => `<div class="warn">${esc(w)}</div>`).join("\n")}
 ${kpis(entries)}
 <div class="panel"><h2>Human steps per run</h2>
 <p class="muted small">One bar per run, oldest first, stacked by cause.</p>
@@ -961,6 +962,7 @@ export function buildPages(entries, context) {
       repositoryPage(
         repository,
         entries.filter((e) => e.repository === repository),
+        context.warnings ?? [],
       ),
     );
   for (const entry of entries) {
