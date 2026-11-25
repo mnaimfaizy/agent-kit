@@ -364,7 +364,7 @@ A Delegation whose CI is green, whose review is settled, whose QA requirement is
 _Avoid_: done, mergeable, green
 
 **Team Run**:
-A spec run started with `--team`, in which each teammate runs their own Chief of Staff over the spec's tickets assigned to them alone, beside the others, and every one of them reads one Shared Board.
+A spec run started with `--team`, in which each teammate runs their own Chief of Staff over the spec's tickets assigned to them alone, beside the others, and every one of them reads one Shared Board. One per teammate; a spec's Team Runs are read together on the Shared Board or the Run Record dashboard.
 _Avoid_: team mode, shared run, joining a run
 
 **Shared Board**:

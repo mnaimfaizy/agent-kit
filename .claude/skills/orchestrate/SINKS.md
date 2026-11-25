@@ -22,6 +22,8 @@ Then a `## Access` section giving the writer's access and the reader's, a `###` 
 
 **The dashboard reads through the same operations:** `visibility` first, then `list` under `records/`, then `read` of each path its cache lacks, so a sink type is written once. It needs read access only, and reads the namespaces from the paths, since there is no index file. A sink that cannot be read is a warning on the page, never a failure.
 
+**Whoever can read the sink reads every record.** A sink holds each teammate's records under their login, and the dashboard shows them side by side; anyone with read access sees every one of them, whatever the page shows or hides. Who uploads (each person's yes, or an approved routine write) and who can read the sink are the organization's controls; no page setting stands in for them.
+
 **The write is create-only.** Identical bytes already at the path count as already uploaded; different bytes stop the upload; a parallel-write conflict is retried.
 
 **The sinks, and their Support Level** (the level its own file states, in the vocabulary harness files use: [HARNESSES.md](HARNESSES.md#support-level)):

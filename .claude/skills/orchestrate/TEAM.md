@@ -276,3 +276,7 @@ After the Ruling Review ([SKILL.md](SKILL.md#autonomous-runs)), `not yet reviewe
 ## What stays local
 
 The Shared Board publishes only the row and the state label. Everything else stays in this teammate's run folder, exactly as in a single-person run ([RUN.md](RUN.md#layout)): the briefs, the reports, the full Decision Requests and their answers, the Ruling Ledger, the evidence, both kinds of Activity Log, and the QA Plans and QA Reports. A QA Report reaches a pull request only through the QA skills' own post-on-a-yes route. Decision answers and Ruling lines are recorded where `decisions.to` says, as in any run. The copies of the rows in `shared-board/` are the run's own, too.
+
+## Reading a spec's Team Runs afterwards
+
+The Shared Board is live and holds no history. Once the runs have closed and uploaded their Run Records to the shared sink, the dashboard's Spec page for the spec reads every teammate's Team Run together, on one clock: a lane for each, the tickets each built, the time a ticket was parked on a teammate's, takeovers, and totals ([RUN.md](RUN.md#teammates-on-the-dashboard)). It shows only runs uploaded to the sink it names, and for live state, including open runs, it points at `--status --spec <n>`. The harness, Support Level, Executor kind and model it shows per lane come from the Run Record and stay off the Shared Board. Whoever can read the sink reads every teammate's record; who uploads and who can read the sink are the organization's controls.

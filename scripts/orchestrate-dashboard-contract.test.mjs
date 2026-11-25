@@ -229,3 +229,64 @@ describe("DESIGN.md and docs/orchestrate.md say what it does and why", () => {
     assert.match(text, /If the bytes differ, the sink's copy is shown, with a warning/);
   });
 });
+
+describe("the dashboard shows each teammate (#432)", () => {
+  const text = flat(section(RUN, "#### Teammates on the dashboard"));
+  const TEAM = read(`${SKILL_DIR}/TEAM.md`);
+  const SINKS = read(`${SKILL_DIR}/SINKS.md`);
+
+  it("RUN.md says what the People table holds, per run kind, sorted by login, with no ranking or config key", () => {
+    assert.match(text, /a People table with a row for each login in that repository/);
+    assert.match(text, /grouped by `\(host, login\)` with a count of repositories/);
+    assert.match(
+      text,
+      /A date range of 30 days, 90 days or all covers the table and the Person page, and defaults to 90 days/,
+    );
+    assert.match(
+      text,
+      /Run counts and run lengths are shown per run kind \(`tickets`, `spec`, `team`\) and never mixed; only the per-Delegation figures compare across kinds/,
+    );
+    assert.match(
+      text,
+      /sorted by login, with no ranking, score, total, "best" or "worst"\. No config key hides or totals people/,
+    );
+  });
+
+  it("RUN.md says a Person page is per repository and login, never merged across hosts, with no alias map", () => {
+    assert.match(text, /A Person page per `\(repository, login\)`/);
+    assert.match(text, /logins are never merged across hosts, and there is no alias map/);
+  });
+
+  it("RUN.md says what the Spec page shows and that it never reads the tracker", () => {
+    assert.match(
+      text,
+      /A Spec page per `\(host\/owner\/repo, run\.spec\)` where `run\.team` is true/,
+    );
+    assert.match(text, /marks it "superseded by <run-id>"/);
+    assert.match(
+      text,
+      /It points at `--status --spec <n>` for live state and never reads the tracker/,
+    );
+    assert.match(
+      text,
+      /"Only runs uploaded to `<sink>` are here\. Teammates who haven't uploaded, upload elsewhere, or have runs still open aren't shown\."/,
+    );
+  });
+
+  it("says that whoever can read the sink reads every record, and that uploads and sink access are the organization's controls", () => {
+    for (const doc of [
+      text,
+      flat(SINKS),
+      flat(TEAM),
+      flat(section(DOCS, "#### The past-runs dashboard")),
+    ])
+      assert.match(doc, /[Ww]hoever can read the sink reads every (teammate's )?record/);
+    for (const doc of [
+      text,
+      flat(SINKS),
+      flat(TEAM),
+      flat(section(DOCS, "#### The past-runs dashboard")),
+    ])
+      assert.match(doc, /who can read the sink are (the|your) organization's controls/);
+  });
+});

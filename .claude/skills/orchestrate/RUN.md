@@ -384,6 +384,17 @@ The page is built on this machine, and works offline: it holds no credential and
 - **The Log tab** gives the Run Events as text, derived from the record alone, and a report of the run, each to copy or download.
 - **Prose is never in `dashboard.html`.** With `--local-logs`, `dashboard.local.html` also inlines the prose `activity.md` of each run whose folder is still in `<run_dir>`, under the banner "contains private prose from this machine, don't share this file". A credential the environment holds, and the usual token shapes, are replaced in that prose. Tell the human the `.local` file is not for sharing.
 
+#### Teammates on the dashboard
+
+Teammates sharing a sink see each other's runs, how each uses the skill and how long their runs take, side by side and without ranking. Everything comes from the Run Records, and the dashboard never reads the tracker.
+
+- **People.** The Repository page has a People table with a row for each login in that repository, and _All repositories_ has the same table grouped by `(host, login)` with a count of repositories. Each row has: runs by kind and the outcome mix; the median and the longest run length; the time waiting on the human (the sum of each wait, from its open and close Run Events); human steps per Delegation; the avoidable share with its top avoidable cause and a trend line; the mix of decision authority, of QA, of harness and of model; and the date of the last record. A date range of 30 days, 90 days or all covers the table and the Person page, and defaults to 90 days.
+- **Like with like.** Run counts and run lengths are shown per run kind (`tickets`, `spec`, `team`) and never mixed; only the per-Delegation figures compare across kinds. People are shown by login, sorted by login, with no ranking, score, total, "best" or "worst". No config key hides or totals people.
+- **Person.** A Person page per `(repository, login)` shows runs over time, run lengths, human steps by cause, the avoidable trend, and links to the person's Spec pages. A login on two hosts is two people: logins are never merged across hosts, and there is no alias map.
+- **Spec.** A Spec page per `(host/owner/repo, run.spec)` where `run.team` is true reads every login's Team Run over the spec on one clock: a lane per run, grouped under its login, with the harness and model of each; the tickets each teammate built; the time parked on a teammate's ticket (the `teammate-blocker` waits, and whose ticket); takeovers, where a run that took over another marks it "superseded by <run-id>"; and the spec's totals (first start to last close, human steps, tickets merged of those listed). It points at `--status --spec <n>` for live state and never reads the tracker.
+- **Who is not shown.** The page names the sink it read and says: "Only runs uploaded to `<sink>` are here. Teammates who haven't uploaded, upload elsewhere, or have runs still open aren't shown." There is no roster, and the page never guesses who is missing; a login's last-record date shows that someone has stopped uploading.
+- **Who can see it.** Whoever can read the sink reads every record, with every login's name, so no page setting is privacy. Who uploads (each person's yes at close-out, or a routine write the Dispatch Plan approved) and who can read the sink are the organization's controls.
+
 The page shell and its one stylesheet are in [`pages/`](pages/), shared by every page the skill builds.
 
 ### Pruning old run folders
