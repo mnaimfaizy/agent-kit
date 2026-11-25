@@ -1852,8 +1852,9 @@ test("`records` adds nothing the readiness check asks for or notes", () => {
 });
 
 test("CONFIG.md's `records` example reads with no problems", () => {
-  const block = [0, 1, 2, 3, 4]
-    .map((n) => configBlock("yaml", n))
+  const block = CONFIG_MD.split("\n```yaml\n")
+    .slice(1)
+    .map((part) => part.split("\n```")[0])
     .find((text) => text.startsWith("records:"));
   const read = parseConfig("orchestrate.config.yml", block);
   assert.deepEqual(read.problems, []);
