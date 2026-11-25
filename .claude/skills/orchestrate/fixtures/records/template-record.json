@@ -8,14 +8,7 @@
     "spec": 344,
     "team": false,
     "took_over": [],
-    "tickets": [
-      348,
-      349,
-      350,
-      351,
-      352,
-      353
-    ],
+    "tickets": [348, 349, 350, 351, 352, 353],
     "harness": "claude-code-desktop",
     "support_level": "verified",
     "decision_authority": "autonomous",
@@ -25,9 +18,7 @@
     "closed_at": "2026-11-19T06:27:30Z",
     "duration_seconds": 17010,
     "outcome": "merged",
-    "pull_requests": [
-      387
-    ],
+    "pull_requests": [387],
     "open_waits": 0
   },
   "delegations": [
@@ -156,9 +147,7 @@
       "wait_id": "w1",
       "waited_seconds": 360,
       "how": "chat",
-      "covers": [
-        "dr1"
-      ]
+      "covers": ["dr1"]
     },
     {
       "at": "2026-11-19T03:33:10Z",
@@ -227,9 +216,7 @@
       "wait_id": "w6",
       "waited_seconds": 98,
       "how": "chat",
-      "covers": [
-        "dr2"
-      ]
+      "covers": ["dr2"]
     },
     {
       "at": "2026-11-19T05:04:50Z",
@@ -242,11 +229,7 @@
       "wait_id": "w7",
       "waited_seconds": 1090,
       "how": "chat",
-      "covers": [
-        "dr3",
-        "dr4",
-        "dr5"
-      ]
+      "covers": ["dr3", "dr4", "dr5"]
     },
     {
       "at": "2026-11-19T05:06:10Z",
@@ -273,9 +256,7 @@
       "wait_id": "w9",
       "waited_seconds": 2092,
       "how": "chat",
-      "covers": [
-        "dr6"
-      ]
+      "covers": ["dr6"]
     },
     {
       "at": "2026-11-19T06:12:27Z",
@@ -288,9 +269,7 @@
       "wait_id": "w10",
       "waited_seconds": 227,
       "how": "chat",
-      "covers": [
-        "dr7"
-      ]
+      "covers": ["dr7"]
     },
     {
       "at": "2026-11-19T06:26:19Z",
