@@ -1359,15 +1359,18 @@ async function dashboard(args, io) {
   const node = `node ${/\s/.test(path) ? `"${path}"` : path} dashboard`;
   const builtAt = nowIso(io);
   mkdirSync(runDir, { recursive: true });
+  const common = {
+    vocabulary: { causes: CAUSES, stepKinds: STEP_KINDS },
+    builtAt,
+    warnings,
+  };
 
   const shared = join(runDir, "dashboard.html");
   writeWhole(
     shared,
     renderDashboard(entries, {
-      vocabulary: { causes: CAUSES, stepKinds: STEP_KINDS },
-      builtAt,
+      ...common,
       rebuild: { slash: "/orchestrate --dashboard", node },
-      warnings,
     }),
   );
   const links = [pathToFileURL(shared).href];
@@ -1383,12 +1386,10 @@ async function dashboard(args, io) {
     writeWhole(
       local,
       renderDashboard(entries, {
-        vocabulary: { causes: CAUSES, stepKinds: STEP_KINDS },
-        builtAt,
+        ...common,
         rebuild: { slash: "/orchestrate --dashboard --local-logs", node: `${node} --local-logs` },
         banner: "contains private prose from this machine, don't share this file",
         logs,
-        warnings,
       }),
     );
     links.push(pathToFileURL(local).href);
