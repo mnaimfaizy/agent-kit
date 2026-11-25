@@ -1099,6 +1099,7 @@ function fakeTransport({ repos = {}, remotes = {}, conflicts = 0 } = {}) {
     const key = host === "github.com" ? `${owner}/${name}` : `${host}/${owner}/${name}`;
     const repo = state.repos[key];
     if (!repo) return missing;
+    if (repo.forbidden) return { code: 1, out: "", err: "gh: Resource not accessible (HTTP 403)" };
     const kind = rest[0];
     if (kind === undefined) return { code: 0, out: `${repo.visibility}\n` };
     if (kind === "collaborators")
@@ -2155,5 +2156,387 @@ describe("dashboard: private prose, only with --local-logs and only in its own f
       for (const value of Object.values(env)) assert.ok(!html.includes(value), `${name} ${value}`);
     }
     assert.match(page(dir, "dashboard.local.html"), /leaked \[redacted\] here/);
+  });
+});
+
+// --- dashboard: reading the configured sink, and every repository in it.
+
+const NS_A = "github.com/mnaimfaizy/agent-kit";
+const NS_B = "github.com/acme/widgets";
+const ORIGIN = { origin: "git@github.com:mnaimfaizy/agent-kit.git" };
+const sinkFile = (ns, login, id) => `records/${ns}/${login}/${id}.json`;
+
+/** The spec-344 record as bytes, made over as another repository's, login's and run's. */
+function recordBytes(stencil, { repo, login, id, outcome }) {
+  const record = JSON.parse(stencil);
+  record.run.id = id;
+  record.run.repo = repo;
+  record.run.operator = login;
+  if (outcome) record.run.outcome = outcome;
+  return `${JSON.stringify(record, null, 2)}\n`;
+}
+
+/**
+ * A root with a configured github sink holding records from two repositories
+ * and two logins, plus paths that do not parse. Returns the fake transport
+ * and the files behind it.
+ */
+async function readyToRead({ config = SINK_CONFIG, sink = {} } = {}) {
+  const dir = await readyToUpload({ config });
+  const stencil = readFileSync(recordPath(dir), "utf8");
+  const bytes = (spec) => recordBytes(stencil, spec);
+  const files = new Map([
+    [
+      sinkFile(NS_A, "naim", "2026-11-01-tickets-1"),
+      bytes({ repo: NS_A, login: "naim", id: "2026-11-01-tickets-1" }),
+    ],
+    [
+      sinkFile(NS_A, "lee", "2026-11-02-tickets-2"),
+      bytes({ repo: NS_A, login: "lee", id: "2026-11-02-tickets-2", outcome: "abandoned" }),
+    ],
+    [
+      sinkFile(NS_B, "naim", "2026-11-03-spec-9"),
+      bytes({ repo: NS_B, login: "naim", id: "2026-11-03-spec-9" }),
+    ],
+    // The same run id in another repository: two pages, never one.
+    [
+      sinkFile(NS_B, "lee", "2026-11-01-tickets-1"),
+      bytes({ repo: NS_B, login: "lee", id: "2026-11-01-tickets-1" }),
+    ],
+    [`records/${NS_B}/oops.json`, "{}"],
+    ["records/stray.txt", "x"],
+    ["README.md", "outside records/"],
+  ]);
+  const transport = fakeTransport({
+    remotes: ORIGIN,
+    repos: { "acme/run-records": { files, ...sink } },
+  });
+  // Nothing is local: the derived record was only the stencil.
+  rmSync(recordPath(dir));
+  return { dir, files, transport, bytes, stencil };
+}
+const addLocal = (dir, id, text) =>
+  writeFileSync(join(dir, "tmp", "orchestrate", "records", `${id}.json`), text);
+const build = (dir, transport, args = [], env = {}) =>
+  main(["dashboard", ...args], { cwd: dir, now: BUILT_AT, env, exec: transport.exec });
+const reads = (transport) =>
+  transport.calls.filter(
+    (c) => c.args.some((a) => /\/contents\//.test(a)) && !c.args.includes("PUT"),
+  );
+const section = (html, id) => html.split(`id="${id}"`)[1].split("</section>")[0];
+
+describe("dashboard: namespaces from the sink's paths", () => {
+  it("lists every namespace found, the logins under it, and skips a path that does not parse", async () => {
+    const { dir, transport } = await readyToRead();
+    const result = await build(dir, transport);
+    assert.equal(result.code, 0, result.out);
+    const html = body(page(dir));
+    for (const ns of [NS_A, NS_B]) assert.match(html, new RegExp(`id="/repo/${ns}"`));
+    const tree = section(html, "/").split("data-tree")[1].split("</ul>\n</div>")[0];
+    for (const login of ["naim", "lee"]) assert.match(tree, new RegExp(`>${login}<`));
+    assert.match(tree, new RegExp(NS_A));
+    assert.match(tree, new RegExp(NS_B));
+    // The malformed paths are listed, in the output and in the page, and nothing else is.
+    assert.match(result.out, new RegExp(`skipped records/${NS_B}/oops\\.json`));
+    assert.match(result.out, /skipped records\/stray\.txt/);
+    const skipped = section(html, "/").split("data-skipped")[1].split("</ul>")[0];
+    assert.match(skipped, /oops\.json/);
+    assert.match(skipped, /stray\.txt/);
+    assert.doesNotMatch(skipped, /README/);
+    assert.match(result.out, /built the dashboard from 4 Run Records/);
+  });
+
+  it("gives a run id that two repositories share one page each", async () => {
+    const { dir, transport } = await readyToRead();
+    await build(dir, transport);
+    const html = page(dir);
+    const ids = [...html.matchAll(/<section class="page" id="(\/run\/[^"]*\/summary)"/g)].map(
+      (m) => m[1],
+    );
+    assert.equal(new Set(ids).size, ids.length);
+    assert.equal(ids.length, 4);
+    assert.equal(ids.filter((i) => i.includes("2026-11-01-tickets-1")).length, 2);
+  });
+
+  it("lists a truncated recursive listing level by level and still builds", async () => {
+    const { dir, transport } = await readyToRead({ sink: { truncate: true } });
+    const result = await build(dir, transport);
+    assert.equal(result.code, 0, result.out);
+    assert.match(result.out, /4 Run Records/);
+  });
+
+  it("makes one recursive Git Trees call to list", async () => {
+    const { dir, transport } = await readyToRead();
+    await build(dir, transport);
+    const trees = transport.calls.filter((c) => c.args.some((a) => /git\/trees\//.test(a)));
+    assert.equal(trees.length, 1);
+    assert.ok(trees[0].args.some((a) => a.includes("recursive=1")));
+  });
+});
+
+describe("dashboard: the cache", () => {
+  it("fetches only new paths: a second build makes no read, a new path makes one", async () => {
+    const { dir, transport, files, bytes } = await readyToRead();
+    await build(dir, transport);
+    assert.equal(reads(transport).length, 4);
+    transport.calls.length = 0;
+    const again = await build(dir, transport);
+    assert.equal(again.code, 0, again.out);
+    assert.equal(reads(transport).length, 0);
+    assert.match(again.out, /4 Run Records/);
+    files.set(
+      sinkFile(NS_A, "naim", "2026-11-09-tickets-5"),
+      bytes({ repo: NS_A, login: "naim", id: "2026-11-09-tickets-5" }),
+    );
+    transport.calls.length = 0;
+    const third = await build(dir, transport);
+    assert.equal(reads(transport).length, 1);
+    assert.match(third.out, /5 Run Records/);
+  });
+
+  it("keeps the cache under a folder that mirrors the sink paths", async () => {
+    const { dir, transport } = await readyToRead();
+    await build(dir, transport);
+    const cached = join(
+      dir,
+      "tmp",
+      "orchestrate",
+      "records-cache",
+      "github.com",
+      "acme",
+      "run-records",
+      sinkFile(NS_A, "naim", "2026-11-01-tickets-1"),
+    );
+    assert.ok(existsSync(cached), cached);
+    assert.equal(
+      readFileSync(cached, "utf8"),
+      transport.repos["acme/run-records"].files.get(sinkFile(NS_A, "naim", "2026-11-01-tickets-1")),
+    );
+  });
+
+  it("checks a cached record again: one edited since it was cached is skipped, never shown", async () => {
+    const { dir, transport } = await readyToRead();
+    await build(dir, transport);
+    const cached = join(
+      dir,
+      "tmp",
+      "orchestrate",
+      "records-cache",
+      "github.com",
+      "acme",
+      "run-records",
+      sinkFile(NS_A, "lee", "2026-11-02-tickets-2"),
+    );
+    const record = JSON.parse(readFileSync(cached, "utf8"));
+    record.run.outcome = "a sentence of free text";
+    writeFileSync(cached, JSON.stringify(record));
+    const result = await build(dir, transport);
+    assert.match(
+      result.out,
+      /skipped records\/.*2026-11-02-tickets-2\.json: fails the safe-field check/,
+    );
+    assert.doesNotMatch(page(dir), /a sentence of free text/);
+  });
+});
+
+describe("dashboard: local and sink copies", () => {
+  /** A local record made over as the sink's `id` copy (same or different bytes), or another run. */
+  async function withLocal() {
+    const ready = await readyToRead();
+    const { dir, files } = ready;
+    const records = join(dir, "tmp", "orchestrate", "records");
+    const same = sinkFile(NS_A, "naim", "2026-11-01-tickets-1");
+    writeFileSync(join(records, "2026-11-01-tickets-1.json"), files.get(same));
+    const other = sinkFile(NS_A, "lee", "2026-11-02-tickets-2");
+    const changed = JSON.parse(files.get(other));
+    changed.run.outcome = "merged";
+    writeFileSync(join(records, "2026-11-02-tickets-2.json"), JSON.stringify(changed));
+    const only = JSON.parse(files.get(same));
+    only.run.id = "2026-11-10-tickets-7";
+    writeFileSync(join(records, "2026-11-10-tickets-7.json"), JSON.stringify(only));
+    return ready;
+  }
+
+  it("counts identical bytes in both once, tags a local-only record not uploaded with its --upload command, and warns when the bytes differ", async () => {
+    const { dir, transport } = await withLocal();
+    const result = await build(dir, transport);
+    assert.equal(result.code, 0, result.out);
+    assert.match(result.out, /built the dashboard from 5 Run Records/);
+    assert.match(
+      result.out,
+      /records\/github\.com\/mnaimfaizy\/agent-kit\/lee\/2026-11-02-tickets-2\.json.*differ/,
+    );
+    const html = body(page(dir));
+    const tagged = [
+      ...html.matchAll(
+        /<span class="state not-uploaded">not uploaded<\/span> <code>([^<]+)<\/code>/g,
+      ),
+    ].map((m) => m[1]);
+    assert.ok(tagged.includes("/orchestrate --upload 2026-11-10-tickets-7"), tagged.join());
+    assert.ok(!tagged.includes("/orchestrate --upload 2026-11-01-tickets-1"));
+    assert.ok(!tagged.includes("/orchestrate --upload 2026-11-02-tickets-2"));
+    // The warning is in the page, too.
+    assert.match(html, /<div class="warn">[^<]*2026-11-02-tickets-2[^<]*differ/);
+    // The sink's copy won: its abandoned outcome, not the local "merged".
+    const row = html.split("2026-11-02-tickets-2/summary")[1].split("</tr>")[0];
+    assert.match(row, /abandoned/);
+  });
+
+  it("does not tag a record not uploaded when no sink is configured or the sink was not read", async () => {
+    const none = await readyToBuild();
+    await dashboard(none);
+    assert.doesNotMatch(page(none), /not uploaded/);
+    const { dir } = await withLocal();
+    const down = fakeTransport({
+      remotes: ORIGIN,
+      repos: { "acme/run-records": { forbidden: true } },
+    });
+    await build(dir, down);
+    assert.doesNotMatch(page(dir), /not uploaded/);
+  });
+});
+
+describe("dashboard: a sink that cannot be read", () => {
+  for (const [why, sink] of [
+    ["404", null],
+    ["403", { forbidden: true }],
+  ]) {
+    it(`warns once on a ${why} and builds the page from local`, async () => {
+      const { dir, bytes } = await readyToRead();
+      addLocal(
+        dir,
+        "2026-11-12-tickets-3",
+        bytes({ repo: NS_A, login: "naim", id: "2026-11-12-tickets-3" }),
+      );
+      const transport = fakeTransport({
+        remotes: ORIGIN,
+        repos: sink ? { "acme/run-records": sink } : {},
+      });
+      if (!sink) delete transport.repos["acme/run-records"];
+      const result = await build(dir, transport);
+      assert.equal(result.code, 0, result.out);
+      assert.equal((result.out.match(/acme\/run-records/g) ?? []).length, 1, result.out);
+      assert.match(result.out, /could not read `acme\/run-records`/);
+      assert.match(result.out, /1 Run Record\b/);
+      assert.match(body(page(dir)), /<div class="warn">[^<]*could not read/);
+      assert.equal(reads(transport).length, 0);
+    });
+  }
+
+  it("warns about a sink that has turned public, and reads it anyway", async () => {
+    const { dir, transport } = await readyToRead({ sink: { visibility: "public" } });
+    const result = await build(dir, transport);
+    assert.equal(result.code, 0, result.out);
+    assert.match(result.out, /acme\/run-records.* is not private \(public\)/);
+    assert.match(result.out, /4 Run Records|5 Run Records/);
+    assert.ok(reads(transport).length > 0);
+  });
+
+  it("checks the sink is private before it lists or reads anything", async () => {
+    const { dir, transport } = await readyToRead();
+    await build(dir, transport);
+    const asked = (c) => c.command === "gh" && c.args.at(-1) === "repos/acme/run-records";
+    const first = transport.calls.findIndex(asked);
+    assert.ok(first >= 0);
+    const firstRead = transport.calls.findIndex((c) =>
+      c.args.some((a) => /git\/trees|\/contents\//.test(a)),
+    );
+    assert.ok(first < firstRead);
+  });
+
+  it("reads only the local records when no sink is configured", async () => {
+    const dir = await readyToBuild();
+    const transport = fakeTransport({ remotes: ORIGIN });
+    const result = await build(dir, transport);
+    assert.equal(result.code, 0, result.out);
+    assert.equal(transport.calls.filter((c) => c.command === "gh").length, 0);
+  });
+});
+
+describe("dashboard: the Repository switcher and the pages", () => {
+  it("offers All repositories and every namespace, and opens on the current repository", async () => {
+    const { dir, transport } = await readyToRead();
+    await build(dir, transport);
+    const html = body(page(dir));
+    const select = html.split('id="repo-switch"')[1].split("</select>")[0];
+    const options = [...select.matchAll(/<option value="([^"]*)"[^>]*>([^<]*)</g)].map((m) => [
+      m[1],
+      m[2],
+    ]);
+    assert.deepEqual(options, [
+      ["/", "All repositories"],
+      [`/repo/${NS_B}`, NS_B],
+      [`/repo/${NS_A}`, NS_A],
+    ]);
+    assert.match(html, new RegExp(`<body data-home="/repo/${NS_A}"`));
+  });
+
+  it("--repo picks the repository the page opens on", async () => {
+    const { dir, transport } = await readyToRead();
+    const result = await build(dir, transport, ["--repo", NS_B]);
+    assert.equal(result.code, 0, result.out);
+    assert.match(page(dir), new RegExp(`<body data-home="/repo/${NS_B}"`));
+  });
+
+  it("--repo with a repository no record is in, or not given a name, exits without writing", async () => {
+    const { dir, transport } = await readyToRead();
+    const missing = await build(dir, transport, ["--repo", "github.com/nobody/nothing"]);
+    assert.equal(missing.code, 1);
+    assert.match(missing.out, /no Run Records for `github\.com\/nobody\/nothing`/);
+    assert.match(missing.out, new RegExp(NS_A));
+    assert.equal((await build(dir, transport, ["--repo"])).code, 2);
+    assert.equal((await build(dir, transport, ["--repo", NS_A, "--repo", NS_B])).code, 2);
+    assert.ok(!existsSync(join(dir, "tmp", "orchestrate", "dashboard.html")));
+  });
+
+  it("the All repositories page has the merge rate, human steps per run, the avoidable trend, the top cause, the chart, recent runs and the tree", async () => {
+    const { dir, transport } = await readyToRead();
+    await build(dir, transport);
+    const all = section(body(page(dir)), "/");
+    assert.match(all, /<h1>All repositories<\/h1>/);
+    // Three merged, one abandoned (lee's record in the first repository).
+    assert.match(all, /data-kpi="merge-rate"[^>]*><b>\d+%<\/b>/);
+    assert.match(all, /data-kpi="merge-rate"[^>]*><b>75%<\/b>/);
+    assert.match(all, /data-kpi="steps-per-run"/);
+    assert.match(all, /data-chart="avoidable-trend"/);
+    assert.match(all, /data-kpi="top-cause"[\s\S]*?class="chip cause c-/);
+    const chart = all.split('data-chart="repositories"')[1];
+    for (const ns of [NS_A, NS_B]) assert.match(chart.split("</svg>")[0], new RegExp(ns));
+    assert.match(all, /data-table="recent-runs"/);
+    assert.match(all, /data-tree/);
+  });
+
+  it("the Repository page has human steps per run stacked by cause, and its runs", async () => {
+    const { dir, transport } = await readyToRead();
+    await build(dir, transport);
+    const repo = section(body(page(dir)), `/repo/${NS_A}`);
+    assert.match(repo, new RegExp(`<h1>${NS_A}</h1>`));
+    const chart = repo.split('data-chart="steps-by-cause"')[1].split("</svg>")[0];
+    assert.match(chart, /class="seg c-/);
+    const runs = repo.split('data-table="runs"')[1];
+    assert.match(runs, /2026-11-01-tickets-1/);
+    assert.match(runs, /2026-11-02-tickets-2/);
+    assert.doesNotMatch(runs, /2026-11-03-spec-9/);
+  });
+
+  it("colours only mean cause: the repository chart uses no cause class", async () => {
+    const { dir, transport } = await readyToRead();
+    await build(dir, transport);
+    const all = section(body(page(dir)), "/");
+    const chart = all.split('data-chart="repositories"')[1].split("</svg>")[0];
+    assert.doesNotMatch(chart, /c-(by-design|human-choice|harness-limit|other|skill-bug)/);
+    assert.doesNotMatch(chart, /style="[^"]*(color|fill|stroke)/);
+  });
+
+  it("never shows prose from a sink record, with --local-logs too", async () => {
+    const { dir, transport, bytes } = await readyToRead();
+    addLocal(dir, RUN, bytes({ repo: NS_A, login: "naim", id: RUN }));
+    writeFileSync(join(runFolder(dir), "activity.md"), `# Activity Log\n\n${PROSE}\n`);
+    await build(dir, transport, ["--local-logs"]);
+    const html = readFileSync(join(dir, "tmp", "orchestrate", "dashboard.local.html"), "utf8");
+    assert.match(html, new RegExp(PROSE));
+    const sinkLog = html.split('id="/run/2026-11-02-tickets-2/log"')[1].split("</section>")[0];
+    assert.doesNotMatch(sinkLog, new RegExp(PROSE));
+    assert.doesNotMatch(page(dir), new RegExp(PROSE));
   });
 });

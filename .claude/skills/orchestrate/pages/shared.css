@@ -487,3 +487,52 @@ svg.timeline a:hover .mark {
   gap: 6px;
   margin-top: 8px;
 }
+
+/* The repository pages. Charts that are not about a cause are grey: colour is the cause and nothing else. */
+.switcher {
+  font-size: 13px;
+}
+.bar.neutral .fill {
+  background: var(--grey);
+}
+.state.not-uploaded {
+  margin-right: 4px;
+}
+svg.chart {
+  width: 100%;
+  height: auto;
+  max-height: 340px;
+}
+svg.chart text {
+  fill: var(--muted);
+  font:
+    11px system-ui,
+    sans-serif;
+}
+svg.chart .axis {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+svg.chart .seg {
+  fill: var(--cause);
+}
+svg.chart a:hover .seg {
+  opacity: 0.75;
+}
+svg.chart .line {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 1.6;
+}
+svg.chart .dot {
+  fill: var(--ink);
+}
+ul.tree,
+ul.tree ul {
+  list-style: none;
+  margin: 0;
+  padding-left: 18px;
+}
+ul.tree {
+  padding-left: 0;
+}

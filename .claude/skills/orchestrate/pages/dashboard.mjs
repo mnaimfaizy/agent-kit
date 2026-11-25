@@ -1,10 +1,11 @@
 /**
  * The past-runs dashboard as HTML: pure functions from Run Records to pages.
  *
- * `buildPages(entries, context)` returns the page list and the header
- * links; `renderDashboard` puts them in the shared shell. Later tickets feed
- * it more entries (records read from a sink) and add pages to the list: the
- * shell and the stylesheet do not change.
+ * `buildPages(entries, context)` returns the page list, the header links and
+ * the Repository switcher; `renderDashboard` puts them in the shared shell.
+ * Entries come from the local records and the configured sink alike, and a
+ * repository is whatever namespace they came from. Later tickets add pages
+ * to the list: the shell and the stylesheet do not change.
  *
  * An entry is `{record, repository, login, source}`. A Run Record holds no
  * prose, so nothing here can show any; the one prose is the local Activity
@@ -274,8 +275,9 @@ const logBox = (id, text, filename) =>
 
 // --- The Run page, tab by tab.
 
-function tabs(record, current) {
-  const id = record.run.id;
+function tabs(entry, current) {
+  const { record } = entry;
+  const id = entry.slug;
   const counts = {
     delegations: record.delegations.length,
     steps: record.human_steps.length,
@@ -290,10 +292,13 @@ function tabs(record, current) {
 function runHead(entry, tab) {
   const { run } = entry.record;
   const id = run.id;
-  return `<div class="crumbs"><a href="#/">Runs</a> / ${esc(id)}</div>
+  const repository = entry.repository
+    ? `${link(repoRoute(entry.repository), esc(entry.repository))} / `
+    : "";
+  return `<div class="crumbs"><a href="#/">All repositories</a> / ${repository}${esc(id)}</div>
 <h1>${esc(id)}</h1>
-<p class="muted">${[run.repo, run.operator && `by ${run.operator}`, `${run.kind} run${run.spec === undefined ? "" : ` over spec #${run.spec}`}`].filter(Boolean).map(esc).join(" · ")} · ${state(run.outcome)}</p>
-${tabs(entry.record, tab)}`;
+<p class="muted">${[run.repo, run.operator && `by ${run.operator}`, `${run.kind} run${run.spec === undefined ? "" : ` over spec #${run.spec}`}`].filter(Boolean).map(esc).join(" · ")} · ${state(run.outcome)} ${notUploaded(entry)}</p>
+${tabs(entry, tab)}`;
 }
 
 function summaryTab(entry) {
@@ -390,7 +395,7 @@ function timelineTab(entry) {
       }
       record.human_steps.forEach((s, n) =>
         marks.push(
-          `<a href="#${esc(stepRoute(run.id, n + 1))}"><circle class="mark human-step c-${s.cause} actor-${s.actor}" cx="${x(s.at).toFixed(1)}" cy="${cy}" r="${s.actor === "human" ? 5 : 3}"><title>${esc(`${s.kind}, ${CAUSE_INFO[s.cause].label}, ${s.at}`)}</title></circle></a>`,
+          `<a href="#${esc(stepRoute(entry.slug, n + 1))}"><circle class="mark human-step c-${s.cause} actor-${s.actor}" cx="${x(s.at).toFixed(1)}" cy="${cy}" r="${s.actor === "human" ? 5 : 3}"><title>${esc(`${s.kind}, ${CAUSE_INFO[s.cause].label}, ${s.at}`)}</title></circle></a>`,
         ),
       );
     } else if (lane.key === "chief-of-staff") {
@@ -417,7 +422,7 @@ function timelineTab(entry) {
       const d = record.delegations.find((e) => `delegation:${e.id}` === lane.key);
       const end = d.ended_at ?? d.landed_at ?? run.closed_at;
       marks.push(
-        `<a href="#${esc(delegationRoute(run.id, d.id))}"><rect class="mark delegation" x="${x(d.started_at).toFixed(1)}" y="${cy - 5}" width="${Math.max(2, x(end) - x(d.started_at)).toFixed(1)}" height="10"><title>${esc(`${d.id}: ${d.outcome}, ${duration(d.duration_seconds ?? 0)}`)}</title></rect></a>`,
+        `<a href="#${esc(delegationRoute(entry.slug, d.id))}"><rect class="mark delegation" x="${x(d.started_at).toFixed(1)}" y="${cy - 5}" width="${Math.max(2, x(end) - x(d.started_at)).toFixed(1)}" height="10"><title>${esc(`${d.id}: ${d.outcome}, ${duration(d.duration_seconds ?? 0)}`)}</title></rect></a>`,
       );
       if (d.landed_at)
         marks.push(
@@ -426,7 +431,7 @@ function timelineTab(entry) {
       record.human_steps.forEach((s, n) => {
         if (s.delegation === d.id)
           marks.push(
-            `<a href="#${esc(stepRoute(run.id, n + 1))}"><circle class="mark human-step c-${s.cause}" cx="${x(s.at).toFixed(1)}" cy="${cy}" r="4"></circle></a>`,
+            `<a href="#${esc(stepRoute(entry.slug, n + 1))}"><circle class="mark human-step c-${s.cause}" cx="${x(s.at).toFixed(1)}" cy="${cy}" r="4"></circle></a>`,
           );
       });
     }
@@ -449,7 +454,7 @@ function timelineTab(entry) {
 
 function delegationsTab(entry) {
   const { record } = entry;
-  const id = record.run.id;
+  const id = entry.slug;
   return `${runHead(entry, "delegations")}
 <div class="panel"><h2>Delegations</h2>${table(
     [
@@ -483,7 +488,7 @@ function stepRows(id, steps, only = null) {
 
 function stepsTab(entry) {
   const { record } = entry;
-  const id = record.run.id;
+  const id = entry.slug;
   const causes = [...new Set(record.human_steps.map((s) => s.cause))].sort();
   const kinds = [...new Set(record.human_steps.map((s) => s.kind))].sort();
   const actors = [...new Set(record.human_steps.map((s) => s.actor))].sort();
@@ -528,8 +533,10 @@ function reviewsTab(entry) {
 
 function logTab(entry, context) {
   const { record } = entry;
-  const id = record.run.id;
-  const prose = context.logs ? context.logs[id] : undefined;
+  const id = entry.slug;
+  const runId = record.run.id;
+  // A record that came only from a sink never gains prose, whatever the logs hold.
+  const prose = context.logs && entry.source !== "sink" ? context.logs[runId] : undefined;
   const proseSection =
     context.logs === null || context.logs === undefined
       ? ""
@@ -539,17 +546,17 @@ function logTab(entry, context) {
   return `${runHead(entry, "log")}
 <div class="panel"><h2>Run Events</h2>
 <p class="muted small">The steps of the run as text, derived from its Run Record.</p>
-${logBox(`events-${id}`, eventLines(record).join("\n") + "\n", `${id}-events.txt`)}</div>
+${logBox(`events-${id}`, eventLines(record).join("\n") + "\n", `${runId}-events.txt`)}</div>
 <div class="panel"><h2>Report</h2>
-${logBox(`report-${id}`, reportText(record) + "\n", `${id}-report.txt`)}</div>${proseSection}`;
+${logBox(`report-${id}`, reportText(record) + "\n", `${runId}-report.txt`)}</div>${proseSection}`;
 }
 
 function recordTab(entry) {
   const { record } = entry;
-  const id = record.run.id;
+  const id = entry.slug;
   return `${runHead(entry, "record")}
 <div class="panel"><h2>Record (JSON)</h2>
-${logBox(`record-${id}`, JSON.stringify(record, null, 2) + "\n", `${id}.json`)}</div>`;
+${logBox(`record-${id}`, JSON.stringify(record, null, 2) + "\n", `${record.run.id}.json`)}</div>`;
 }
 
 // --- Drill-down pages.
@@ -569,14 +576,14 @@ const stepSentence = (record, s) => {
 
 function stepPage(entry, s, n, lines) {
   const { record } = entry;
-  const id = record.run.id;
+  const id = entry.slug;
   const info = CAUSE_INFO[s.cause];
   const stamp = `${s.at}  human-step`;
   const at = lines.findIndex((l) => l.startsWith(stamp) && l.includes(`kind=${s.kind}`));
   const around = lines.slice(Math.max(0, at - 3), at + 4);
   return page(
     stepRoute(id, n + 1),
-    `<div class="crumbs"><a href="#/">Runs</a> / ${link(runRoute(id) + "/steps", esc(id))} / step ${n + 1}</div>
+    `<div class="crumbs"><a href="#/">All repositories</a> / ${link(runRoute(id) + "/steps", esc(record.run.id))} / step ${n + 1}</div>
 <h1>Human step ${n + 1}</h1>
 <p class="sentence">${esc(stepSentence(record, s))}</p>
 <div class="panel"><h2>Cause and fix</h2>
@@ -592,13 +599,13 @@ function stepPage(entry, s, n, lines) {
 
 function delegationPage(entry, d) {
   const { record } = entry;
-  const id = record.run.id;
+  const id = entry.slug;
   const steps = stepRows(id, record.human_steps, d.id);
   const writes = record.writes.filter((w) => w.delegation === d.id);
   const qa = record.qa.filter((q) => q.delegation === d.id);
   return page(
     delegationRoute(id, d.id),
-    `<div class="crumbs"><a href="#/">Runs</a> / ${link(runRoute(id) + "/delegations", esc(id))} / ${esc(d.id)}</div>
+    `<div class="crumbs"><a href="#/">All repositories</a> / ${link(runRoute(id) + "/delegations", esc(record.run.id))} / ${esc(d.id)}</div>
 <h1>Delegation ${esc(d.id)}</h1>
 <p class="muted">${d.issue === null ? "No issue" : `Issue #${d.issue}`} · ${state(d.outcome)}</p>
 <div class="panel"><h2>Facts</h2>
@@ -633,7 +640,7 @@ function delegationPage(entry, d) {
 function keyPage() {
   return page(
     "/key",
-    `<div class="crumbs"><a href="#/">Runs</a> / Key</div>
+    `<div class="crumbs"><a href="#/">All repositories</a> / Key</div>
 <h1>Key</h1>
 <p class="muted">Colour means cause, and nothing else. Every chip also says its name, and whether the step was avoidable or by design. States, such as an outcome or a result, are grey.</p>
 <div class="panel"><h2>Causes</h2>${table(
@@ -661,53 +668,303 @@ function keyPage() {
   );
 }
 
-// --- The Runs index.
+// --- The repository pages: All repositories, and one repository.
 
-function indexPage(entries, context) {
+const repoRoute = (repository) => `/repo/${repository}`;
+const month = (entry) => entry.record.run.started_at.slice(0, 7);
+const stepsOf = (entry) => entry.record.summary.human_steps;
+const mean = (values) => (values.length ? values.reduce((a, b) => a + b, 0) / values.length : 0);
+const one = (n) => String(Math.round(n * 10) / 10);
+
+/** A record that is only on this machine says so, and says how to upload it. */
+const notUploaded = (entry) =>
+  entry.notUploaded
+    ? `<span class="state not-uploaded">not uploaded</span> ${code(`/orchestrate --upload ${entry.record.run.id}`)}`
+    : "";
+
+/** The figures of a set of runs. The top cause is the most common avoidable one: a by design step has nothing to fix. */
+function figures(entries) {
+  const causes = {};
+  for (const { record } of entries)
+    for (const [cause, n] of Object.entries(record.summary.by_cause))
+      if (CAUSE_INFO[cause].avoidable) causes[cause] = (causes[cause] ?? 0) + n;
+  const top = Object.entries(causes)
+    .filter(([, n]) => n > 0)
+    .sort((a, b) => b[1] - a[1] || CAUSE_LIST.indexOf(a[0]) - CAUSE_LIST.indexOf(b[0]))[0];
+  const merged = entries.filter((e) => e.record.run.outcome === "merged").length;
+  return {
+    runs: entries.length,
+    mergeRate: entries.length ? Math.round((merged / entries.length) * 100) : null,
+    perRun: mean(entries.map(stepsOf)),
+    topCause: top ? top[0] : null,
+  };
+}
+
+function kpis(entries) {
+  const f = figures(entries);
+  return `<div class="kpis">
+  <div class="kpi"><b>${f.runs}</b><span>${f.runs === 1 ? "run" : "runs"}</span></div>
+  <div class="kpi" data-kpi="merge-rate"><b>${f.mergeRate === null ? "n/a" : `${f.mergeRate}%`}</b><span>of runs merged</span></div>
+  <div class="kpi" data-kpi="steps-per-run"><b>${one(f.perRun)}</b><span>human steps per run</span></div>
+  <div class="kpi" data-kpi="top-cause"><span>top avoidable cause</span>${f.topCause ? `<div>${chip(f.topCause)}</div>` : `<b>none</b>`}</div>
+</div>`;
+}
+
+/** Runs, newest first, as a table. */
+function runsTable(entries, { withRepository, kind }) {
   const sorted = [...entries].sort(
     (a, b) => ms(b.record.run.started_at) - ms(a.record.run.started_at),
   );
+  return table(
+    [
+      "Run",
+      ...(withRepository ? ["Repository"] : []),
+      "Kind",
+      "Started",
+      "Length",
+      "Outcome",
+      "Human steps",
+      "Avoidable",
+      "Top cause",
+    ],
+    sorted.map((entry) => {
+      const { run, summary } = entry.record;
+      const top = Object.entries(summary.by_cause)
+        .filter(([, n]) => n > 0)
+        .sort((a, b) => b[1] - a[1])[0];
+      return `<tr><td>${link(runRoute(entry.slug) + "/summary", esc(run.id))} ${notUploaded(entry)}</td>${withRepository ? `<td>${esc(entry.repository ?? "")}</td>` : ""}<td>${esc(run.kind)}</td><td class="nowrap">${esc(run.started_at)}</td><td>${esc(duration(run.duration_seconds))}</td><td>${state(run.outcome)}</td><td class="num">${summary.human_steps}</td><td class="num">${summary.avoidable}</td><td>${top ? chip(top[0]) : ""}</td></tr>`;
+    }),
+    ` data-table="${kind}"`,
+  );
+}
+
+/** The share of human steps that were avoidable, month by month. Grey: it is not a cause. */
+function avoidableTrend(entries) {
+  const months = [...new Set(entries.map(month))].sort();
+  const rows = months.map((m) => {
+    const of = entries.filter((e) => month(e) === m);
+    const steps = of.reduce((n, e) => n + stepsOf(e), 0);
+    const avoidable = of.reduce((n, e) => n + e.record.summary.avoidable, 0);
+    const share = steps ? Math.round((avoidable / steps) * 100) : 0;
+    return `<div class="bar neutral"><span class="lbl">${esc(m)} <span class="muted small">${plural(of.length, "run")}</span></span><span class="track"><span class="fill" style="width:${share}%"></span></span><span class="val">${share}%</span></div>`;
+  });
+  return `<div data-chart="avoidable-trend">${rows.join("\n")}</div>`;
+}
+
+const DASHES = ["", "6 3", "2 3", "8 3 2 3", "1 4"];
+
+/** Human steps per run by month, one line per repository. Lines are told apart by dash and label, never colour. */
+function repositoryChart(entries, repositories) {
+  const months = [...new Set(entries.map(month))].sort();
+  const W = 760;
+  const H = 250;
+  const L = 44;
+  const R = 230;
+  const T = 14;
+  const B = 30;
+  const series = repositories.map((repository) =>
+    months.map((m) => {
+      const of = entries.filter((e) => e.repository === repository && month(e) === m);
+      return of.length ? mean(of.map(stepsOf)) : null;
+    }),
+  );
+  const top = Math.max(1, ...series.flat().filter((v) => v !== null));
+  const x = (i) =>
+    L + (months.length === 1 ? (W - L - R) / 2 : (i * (W - L - R)) / (months.length - 1));
+  const y = (v) => T + (H - T - B) * (1 - v / top);
+  const parts = [
+    `<line class="axis" x1="${L}" y1="${H - B}" x2="${W - R}" y2="${H - B}"/>`,
+    `<line class="axis" x1="${L}" y1="${T}" x2="${L}" y2="${H - B}"/>`,
+    `<text x="${L - 6}" y="${T + 4}" text-anchor="end">${one(top)}</text>`,
+    `<text x="${L - 6}" y="${H - B + 4}" text-anchor="end">0</text>`,
+    ...months.map(
+      (m, i) => `<text x="${x(i).toFixed(1)}" y="${H - 10}" text-anchor="middle">${esc(m)}</text>`,
+    ),
+  ];
+  repositories.forEach((repository, r) => {
+    const dash = DASHES[r % DASHES.length];
+    const points = series[r].map((v, i) => (v === null ? null : [x(i), y(v), v]));
+    const drawn = points.filter(Boolean);
+    if (drawn.length > 1)
+      parts.push(
+        `<polyline class="line" ${dash ? `stroke-dasharray="${dash}" ` : ""}points="${drawn.map(([px, py]) => `${px.toFixed(1)},${py.toFixed(1)}`).join(" ")}"/>`,
+      );
+    for (const [px, py, v] of drawn)
+      parts.push(
+        `<circle class="dot" cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="3"><title>${esc(`${repository}: ${one(v)} human steps per run`)}</title></circle>`,
+      );
+    const ly = T + 12 + r * 18;
+    parts.push(
+      `<line class="line" ${dash ? `stroke-dasharray="${dash}" ` : ""}x1="${W - R + 14}" y1="${ly - 4}" x2="${W - R + 44}" y2="${ly - 4}"/>`,
+      `<text x="${W - R + 50}" y="${ly}">${esc(repository)}</text>`,
+    );
+  });
+  return `<svg class="chart" data-chart="repositories" viewBox="0 0 ${W} ${H}" role="img" aria-label="Human steps per run by month, one line per repository">${parts.join("")}</svg>`;
+}
+
+/** Human steps of each run, stacked by cause. */
+function stackedChart(entries) {
+  const runs = [...entries]
+    .sort((a, b) => ms(a.record.run.started_at) - ms(b.record.run.started_at))
+    .slice(-40);
+  const BAR = 18;
+  const GAP = 6;
+  const L = 36;
+  const H = 220;
+  const T = 12;
+  const B = 24;
+  const top = Math.max(1, ...runs.map(stepsOf));
+  const unit = (H - T - B) / top;
+  const parts = [
+    `<line class="axis" x1="${L}" y1="${H - B}" x2="${L + runs.length * (BAR + GAP)}" y2="${H - B}"/>`,
+    `<text x="${L - 6}" y="${T + 4}" text-anchor="end">${top}</text>`,
+    `<text x="${L - 6}" y="${H - B + 4}" text-anchor="end">0</text>`,
+  ];
+  runs.forEach((entry, n) => {
+    const x = L + n * (BAR + GAP) + GAP / 2;
+    let floor = H - B;
+    const segments = CAUSE_LIST.filter((c) => entry.record.summary.by_cause[c] > 0).map((cause) => {
+      const count = entry.record.summary.by_cause[cause];
+      floor -= count * unit;
+      return `<rect class="seg c-${cause}" x="${x}" y="${floor.toFixed(1)}" width="${BAR}" height="${(count * unit).toFixed(1)}"><title>${esc(`${CAUSE_INFO[cause].label}: ${count}`)}</title></rect>`;
+    });
+    parts.push(
+      `<a href="#${esc(runRoute(entry.slug))}/summary"><title>${esc(`${entry.record.run.id}: ${plural(stepsOf(entry), "human step")}`)}</title>${segments.join("")}</a>`,
+    );
+  });
+  const width = L + runs.length * (BAR + GAP) + 10;
+  return `<svg class="chart" data-chart="steps-by-cause" viewBox="0 0 ${width} ${H}" role="img" aria-label="Human steps per run, stacked by cause">${parts.join("")}</svg>`;
+}
+
+/** host, then owner, then repository, then login, each with the runs under it. */
+function namespaceTree(entries) {
+  const tree = new Map();
+  for (const entry of entries) {
+    if (!entry.repository) continue;
+    const [host, owner, name] = entry.repository.split("/");
+    const login = entry.login ?? "(no login)";
+    const o = tree.get(host)?.get(owner) ?? new Map();
+    const r = o.get(name) ?? new Map();
+    r.set(login, (r.get(login) ?? 0) + 1);
+    o.set(name, r);
+    const h = tree.get(host) ?? new Map();
+    h.set(owner, o);
+    tree.set(host, h);
+  }
+  const list = (map, render) =>
+    `<ul class="tree">${[...map]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(render)
+      .join("")}</ul>`;
+  return `<ul class="tree" data-tree>${[...tree]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(
+      ([host, owners]) =>
+        `<li>${code(host)}${list(
+          owners,
+          ([owner, names]) =>
+            `<li>${code(owner)}${list(names, ([name, logins]) => {
+              const repository = `${host}/${owner}/${name}`;
+              const runs = [...logins.values()].reduce((a, b) => a + b, 0);
+              return `<li>${link(repoRoute(repository), esc(name))} <span class="muted small">${plural(runs, "run")}</span>${list(
+                logins,
+                ([login, n]) =>
+                  `<li><code>${esc(login)}</code> <span class="muted small">${plural(n, "run")}</span></li>`,
+              )}</li>`;
+            })}</li>`,
+        )}</li>`,
+    )
+    .join("")}</ul>`;
+}
+
+function allPage(entries, context, repositories) {
+  const skipped = context.skipped ?? [];
+  const where = context.sink
+    ? context.sink.read
+      ? `from this machine and from ${code(context.sink.name)}`
+      : `from this machine (${code(context.sink.name)} could not be read)`
+    : "from this machine";
   return page(
     "/",
-    `<h1>Runs</h1>
-<p class="muted">${plural(entries.length, "Run Record")} read from this machine. ${link("/key", "Key")}: what the colours and marks mean.</p>
+    `<h1>All repositories</h1>
+<p class="muted">${plural(entries.length, "Run Record")} read ${where}, across ${plural(repositories.length, "repository", "repositories")}. ${link("/key", "Key")}: what the colours and marks mean.</p>
 ${(context.warnings ?? []).map((w) => `<div class="warn">${esc(w)}</div>`).join("\n")}
-<div class="panel">${table(
-      [
-        "Run",
-        "Repository",
-        "Kind",
-        "Started",
-        "Length",
-        "Outcome",
-        "Human steps",
-        "Avoidable",
-        "Top cause",
-      ],
-      sorted.map(({ record }) => {
-        const { run, summary } = record;
-        const top = Object.entries(summary.by_cause)
-          .filter(([, n]) => n > 0)
-          .sort((a, b) => b[1] - a[1])[0];
-        return `<tr><td>${link(runRoute(run.id) + "/summary", esc(run.id))}</td><td>${esc(run.repo ?? "")}</td><td>${esc(run.kind)}</td><td class="nowrap">${esc(run.started_at)}</td><td>${esc(duration(run.duration_seconds))}</td><td>${state(run.outcome)}</td><td class="num">${summary.human_steps}</td><td class="num">${summary.avoidable}</td><td>${top ? chip(top[0]) : ""}</td></tr>`;
-      }),
-    )}</div>`,
+${kpis(entries)}
+<div class="panel"><h2>The avoidable trend</h2>
+<p class="muted small">The share of human steps that were avoidable, by month.</p>
+${avoidableTrend(entries)}</div>
+<div class="panel"><h2>Repositories over time</h2>
+<p class="muted small">Human steps per run, by month. Each repository has its own dash pattern and label.</p>
+${repositories.length ? repositoryChart(entries, repositories) : `<p class="muted">No run names its repository.</p>`}</div>
+<div class="panel"><h2>Recent runs</h2>${runsTable(
+      entries
+        .slice()
+        .sort((a, b) => ms(b.record.run.started_at) - ms(a.record.run.started_at))
+        .slice(0, 20),
+      { withRepository: true, kind: "recent-runs" },
+    )}</div>
+<div class="panel"><h2>Namespaces</h2>
+<p class="muted small">Found from the paths in the sink and the local records, nowhere else.</p>
+${repositories.length ? namespaceTree(entries) : `<p class="muted">None.</p>`}
+${
+  skipped.length
+    ? `<h3>Skipped paths</h3><p class="muted small">These paths in the sink do not read as ${code("records/<host>/<owner>/<repo>/<login>/<run-id>.json")}.</p><ul data-skipped>${skipped.map((p) => `<li>${code(p)}</li>`).join("")}</ul>`
+    : ""
+}</div>`,
   );
+}
+
+function repositoryPage(repository, entries) {
+  return page(
+    repoRoute(repository),
+    `<div class="crumbs"><a href="#/">All repositories</a> / ${esc(repository)}</div>
+<h1>${esc(repository)}</h1>
+<p class="muted">${plural(entries.length, "Run Record")}.</p>
+${kpis(entries)}
+<div class="panel"><h2>Human steps per run</h2>
+<p class="muted small">One bar per run, oldest first, stacked by cause.</p>
+${stackedChart(entries)}</div>
+<div class="panel"><h2>Runs</h2>${runsTable(entries, { withRepository: false, kind: "runs" })}</div>`,
+  );
+}
+
+/** Each entry's route key: its run id, or, when two runs share an id, that id under its repository and login. */
+function withSlugs(entries) {
+  const count = new Map();
+  for (const { record } of entries) count.set(record.run.id, (count.get(record.run.id) ?? 0) + 1);
+  return entries.map((entry) => ({
+    ...entry,
+    slug:
+      count.get(entry.record.run.id) === 1
+        ? entry.record.run.id
+        : `${entry.repository ?? "-"}/${entry.login ?? "-"}/${entry.record.run.id}`,
+  }));
 }
 
 // --- The whole dashboard.
 
 /**
- * @param {{record: object, repository?: string | null, login?: string | null, source?: string}[]} entries
- * @param {{vocabulary: {causes: Record<string, string>, stepKinds: readonly string[]}, logs?: Record<string, string> | null, warnings?: string[]}} context
+ * @param {{record: object, repository?: string | null, login?: string | null, source?: "local" | "sink" | "both", notUploaded?: boolean}[]} entries
+ *   `source` says where the record was read ("sink" only: never any prose); `notUploaded` is set on a
+ *   local record the sink was read without.
+ * @param {{vocabulary: {causes: Record<string, string>, stepKinds: readonly string[]}, logs?: Record<string, string> | null, warnings?: string[], skipped?: string[], home?: string | null, sink?: {name: string, read: boolean} | null}} context
  *   `logs` (run id to prose) is set only for a local-only page; `null` or absent means no prose at all.
+ *   `home` is the repository the page opens on.
  */
 export function buildPages(entries, context) {
   checkVocabulary(context.vocabulary);
-  const pages = [indexPage(entries, context)];
+  entries = withSlugs(entries);
+  const repositories = [...new Set(entries.map((e) => e.repository).filter(Boolean))].sort();
+  const pages = [allPage(entries, context, repositories)];
+  for (const repository of repositories)
+    pages.push(
+      repositoryPage(
+        repository,
+        entries.filter((e) => e.repository === repository),
+      ),
+    );
   for (const entry of entries) {
     const { record } = entry;
-    const id = record.run.id;
     const lines = eventLines(record);
     const tabPages = {
       summary: summaryTab,
@@ -718,15 +975,21 @@ export function buildPages(entries, context) {
       log: (e) => logTab(e, context),
       record: recordTab,
     };
-    for (const [tab] of TABS) pages.push(page(`${runRoute(id)}/${tab}`, tabPages[tab](entry)));
+    for (const [tab] of TABS)
+      pages.push(page(`${runRoute(entry.slug)}/${tab}`, tabPages[tab](entry)));
     for (const d of record.delegations) pages.push(delegationPage(entry, d));
     record.human_steps.forEach((s, n) => pages.push(stepPage(entry, s, n, lines)));
   }
   pages.push(keyPage());
+  const switcher = repositories.length
+    ? `<select id="repo-switch" class="switcher" aria-label="Repository"><option value="/">All repositories</option>${repositories.map((r) => `<option value="${esc(repoRoute(r))}">${esc(r)}</option>`).join("")}</select>`
+    : "";
   return {
     pages,
+    switcher,
+    home: context.home ? repoRoute(context.home) : null,
     nav: [
-      { href: "#/", label: "Runs" },
+      { href: "#/", label: "All repositories" },
       { href: "#/key", label: "Key" },
     ],
   };
@@ -740,15 +1003,27 @@ export function buildPages(entries, context) {
  */
 export function renderDashboard(
   entries,
-  { vocabulary, builtAt, rebuild, banner = null, logs = null, warnings = [] },
+  {
+    vocabulary,
+    builtAt,
+    rebuild,
+    banner = null,
+    logs = null,
+    warnings = [],
+    skipped = [],
+    home = null,
+    sink = null,
+  },
 ) {
-  const built = buildPages(entries, { vocabulary, logs, warnings });
+  const built = buildPages(entries, { vocabulary, logs, warnings, skipped, home, sink });
   return shell({
     title: "Run Records",
     builtAt,
     rebuild: `${code(rebuild.slash)} or ${code(rebuild.node)}`,
     banner,
     nav: built.nav,
+    switcher: built.switcher,
+    home: built.home,
     pages: built.pages,
   });
 }

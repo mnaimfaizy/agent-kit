@@ -470,7 +470,8 @@ const EVENT_USAGE =
 const DERIVE_USAGE = "usage: node records.mjs derive <run-folder>\n";
 const UPLOAD_USAGE = "usage: node records.mjs upload <run id or run folder> [--yes]\n";
 const PRUNE_USAGE = "usage: node records.mjs prune [--declined]\n";
-const DASHBOARD_USAGE = "usage: node records.mjs dashboard [--local-logs]\n";
+const DASHBOARD_USAGE =
+  "usage: node records.mjs dashboard [--repo <host/owner/repo>] [--local-logs]\n";
 const USAGE = `${EVENT_USAGE}${DERIVE_USAGE}${UPLOAD_USAGE}${PRUNE_USAGE}${DASHBOARD_USAGE}`;
 
 function appendEvent(args, io) {
@@ -1299,11 +1300,116 @@ function writeWhole(path, text) {
   renameSync(beside, path);
 }
 
+/** The sink path of a record, parsed: `records/<host>/<owner>/<repo>/<login>/<run-id>.json`. Null when it does not parse. */
+export function parseSinkPath(path) {
+  const parts = path.split("/");
+  if (parts.length !== 6 || parts[0] !== "records" || !parts[5].endsWith(".json")) return null;
+  const [, host, owner, repo, login, file] = parts;
+  const id = file.slice(0, -".json".length);
+  const named = [host, owner, repo, login].every((s) => segmentOf(s) === s);
+  const repository = `${host}/${owner}/${repo}`;
+  if (!named || !REPO.test(repository) || !LOGIN.test(login) || !ID.test(id) || DOTS.test(id))
+    return null;
+  return { repository, login, id };
+}
+
+/** Where the dashboard keeps the records it fetched: a folder that mirrors the sink's paths. Null when the sink's name is not a safe folder name. */
+function cacheFolder(runDir, sinkConfig) {
+  const { host, owner, name } = splitSinkRepo(sinkConfig.repo);
+  const segments = [host, owner, name].map(segmentOf);
+  if (!segments.every(Boolean)) return null;
+  if (sinkConfig.branch) segments.push(`@${encodeURIComponent(sinkConfig.branch)}`);
+  return join(runDir, "records-cache", ...segments);
+}
+
+/** A record's text, parsed and checked again. `{record}` or `{why}`. */
+function checkedRecord(text) {
+  try {
+    const record = JSON.parse(text);
+    const problems = checkRecord(record);
+    return problems.length ? { why: `fails the safe-field check (${problems[0]})` } : { record };
+  } catch {
+    return { why: "is not JSON" };
+  }
+}
+
+/**
+ * Read the configured sink: its records, through the adapter every upload
+ * uses, and the paths it skipped. Reads only paths the cache does not hold.
+ * A sink that cannot be read is one warning and no records.
+ */
+async function readSink(sinkConfig, { cache, exec }) {
+  const where = sinkConfig.repo;
+  const out = { read: false, found: new Map(), skipped: [], warnings: [] };
+  const sink = openSink(sinkConfig.type, { repo: where, branch: sinkConfig.branch, exec });
+  // The privacy check runs before anything is listed or read; a sink turned public warns, and the read goes ahead.
+  const privacy = await sink.privacy();
+  if (privacy.private === null) {
+    out.warnings.push(
+      `could not read \`${where}\`: it does not exist or you have no read access to it. The page is built from the local records only`,
+    );
+    return out;
+  }
+  if (!privacy.private)
+    out.warnings.push(
+      `\`${where}\` is not private (${privacy.visibility}): its records are read anyway, but make it private`,
+    );
+  const listed = await sink.list("records/");
+  if (listed === null) {
+    out.warnings.push(
+      `could not read \`${where}\`: its file list is not readable. The page is built from the local records only`,
+    );
+    return out;
+  }
+  out.read = true;
+  for (const path of listed) {
+    const parsed = parseSinkPath(path);
+    if (parsed === null) {
+      out.skipped.push(path);
+      continue;
+    }
+    const file = cache ? join(cache, ...path.split("/")) : null;
+    let text = null;
+    try {
+      if (file && existsSync(file)) text = readFileSync(file, "utf8");
+    } catch {
+      text = null;
+    }
+    if (text === null) {
+      const got = await sink.read(path);
+      if (got.status !== "found") {
+        out.warnings.push(
+          `skipped ${path}: ${got.status === "missing" ? "gone from the sink" : `could not be read (${got.detail})`}`,
+        );
+        continue;
+      }
+      text = got.text;
+      if (file)
+        try {
+          mkdirSync(dirname(file), { recursive: true });
+          writeWhole(file, text);
+        } catch {
+          // A cache that cannot be written only costs the next build a fetch.
+        }
+    }
+    out.found.set(path, { ...parsed, text });
+  }
+  return out;
+}
+
 async function dashboard(args, io) {
-  const localLogs = args.includes("--local-logs");
-  if (args.length !== (localLogs ? 1 : 0)) return { code: 2, out: DASHBOARD_USAGE };
+  let localLogs = false;
+  let only = null;
+  for (let n = 0; n < args.length; n += 1) {
+    if (args[n] === "--local-logs" && !localLogs) localLogs = true;
+    else if (args[n] === "--repo" && only === null && args[n + 1] && !args[n + 1].startsWith("--"))
+      only = args[(n += 1)].toLowerCase();
+    else return { code: 2, out: DASHBOARD_USAGE };
+  }
+  if (only !== null && !REPO.test(only)) return { code: 2, out: DASHBOARD_USAGE };
   const cwd = io.cwd ?? process.cwd();
   const env = io.env ?? process.env;
+  const exec = io.exec ?? defaultExec;
 
   const loaded = readConfig((path) => {
     try {
@@ -1313,91 +1419,139 @@ async function dashboard(args, io) {
     }
   });
   if (loaded.problems.length) return { code: 1, out: `${loaded.problems.join("\n")}\n` };
-  const runDir = resolve(cwd, effectiveConfig(loaded.config).run_dir);
+  const { records, run_dir } = effectiveConfig(loaded.config);
+  const runDir = resolve(cwd, run_dir);
   const recordsDir = join(runDir, "records");
+  const current = (records.repository ?? repoOf({ ...io, exec }))?.toLowerCase() ?? null;
 
   // The local records, each checked again: a record edited since it was derived is skipped, never shown.
   const sink = openSink("local", { dir: recordsDir });
-  const entries = [];
+  const locals = [];
   const warnings = [];
   const seen = new Set();
   for (const name of await sink.list()) {
     const found = await sink.read(name);
-    let record = null;
-    let why = "is not readable";
+    let checked = { why: "is not readable" };
     if (found.status === "found") {
-      try {
-        record = JSON.parse(found.text);
-        const problems = checkRecord(record);
-        if (problems.length) [record, why] = [null, `fails the safe-field check (${problems[0]})`];
-        else if (seen.has(record.run.id)) [record, why] = [null, "repeats a run id already shown"];
-      } catch {
-        why = "is not JSON";
-      }
+      checked = checkedRecord(found.text);
+      if (checked.record && seen.has(checked.record.run.id))
+        checked = { why: "repeats a run id already shown" };
     }
-    if (record === null) warnings.push(`skipped ${name}: ${why}`);
+    if (!checked.record) warnings.push(`skipped ${name}: ${checked.why}`);
     else {
-      seen.add(record.run.id);
-      entries.push({
-        record,
-        repository: record.run.repo,
-        login: record.run.operator,
-        source: "local",
-      });
+      seen.add(checked.record.run.id);
+      locals.push({ record: checked.record, text: found.text });
     }
   }
+
+  // The configured sink, if any: one more place the same records may be.
+  const configured = records.sink;
+  const far = configured
+    ? await readSink(configured, { cache: cacheFolder(runDir, configured), exec })
+    : null;
+  warnings.push(...(far?.warnings ?? []));
+
+  const entries = [];
+  const inSink = new Set();
+  for (const [path, got] of far?.found ?? []) {
+    const checked = checkedRecord(got.text);
+    if (!checked.record) {
+      warnings.push(`skipped ${path}: ${checked.why}`);
+      continue;
+    }
+    inSink.add(path);
+    entries.push({
+      record: checked.record,
+      repository: got.repository,
+      login: got.login,
+      source: "sink",
+      path,
+    });
+  }
+  for (const { record, text } of locals) {
+    const repository = (records.repository ?? record.run.repo ?? current)?.toLowerCase() ?? null;
+    const login = record.run.operator;
+    const path = repository && login ? sinkPath(repository, login, record.run.id) : null;
+    const twin = path === null ? undefined : far?.found.get(path);
+    if (twin) {
+      // Identical bytes are one record. When they differ the sink's copy, already added, wins.
+      if (twin.text !== text)
+        warnings.push(
+          `\`${path}\`: the local copy and the sink's copy differ; the sink's copy is shown`,
+        );
+      const shown = entries.find((e) => e.path === path);
+      if (shown) shown.source = "both";
+      continue;
+    }
+    entries.push({
+      record,
+      repository,
+      login,
+      source: "local",
+      ...(far?.read ? { notUploaded: true } : {}),
+    });
+  }
+  const skipped = far?.skipped ?? [];
+  const lines = [...warnings, ...skipped.map((p) => `skipped ${p}: not a Run Record path`)];
   if (entries.length === 0)
     return {
       code: 1,
-      out: `${warnings.map((w) => `${w}\n`).join("")}no Run Records in ${recordsDir}: derive one at close-out (\`records.mjs derive <run-folder>\`)\n`,
+      out: `${lines.map((w) => `${w}\n`).join("")}no Run Records in ${recordsDir}${configured ? ` or in \`${configured.repo}\`` : ""}: derive one at close-out (\`records.mjs derive <run-folder>\`)\n`,
     };
+
+  const namespaces = [...new Set(entries.map((e) => e.repository).filter(Boolean))].sort();
+  if (only !== null && !namespaces.includes(only))
+    return {
+      code: 1,
+      out: `${lines.map((w) => `${w}\n`).join("")}no Run Records for \`${only}\`. Repositories with records: ${namespaces.join(", ") || "none"}\n`,
+    };
+  const home = only ?? (namespaces.includes(current) ? current : null);
 
   const { renderDashboard } = await import("./pages/dashboard.mjs");
   const script = fileURLToPath(import.meta.url);
   const shown = relative(cwd, script);
   const path = shown.startsWith("..") || isAbsolute(shown) ? script : shown;
-  const node = `node ${/\s/.test(path) ? `"${path}"` : path} dashboard`;
+  const node = `node ${/\s/.test(path) ? `"${path}"` : path} dashboard${only ? ` --repo ${only}` : ""}`;
+  const slash = `/orchestrate --dashboard${only ? ` --repo ${only}` : ""}`;
   const builtAt = nowIso(io);
   mkdirSync(runDir, { recursive: true });
   const common = {
     vocabulary: { causes: CAUSES, stepKinds: STEP_KINDS },
     builtAt,
     warnings,
+    skipped,
+    home,
+    sink: configured ? { name: configured.repo, read: far.read } : null,
   };
 
-  const shared = join(runDir, "dashboard.html");
-  writeWhole(
-    shared,
-    renderDashboard(entries, {
-      ...common,
-      rebuild: { slash: "/orchestrate --dashboard", node },
-    }),
-  );
-  const links = [pathToFileURL(shared).href];
+  const sharedFile = join(runDir, "dashboard.html");
+  writeWhole(sharedFile, renderDashboard(entries, { ...common, rebuild: { slash, node } }));
+  const links = [pathToFileURL(sharedFile).href];
 
   if (localLogs) {
     // Prose only for a run whose folder, with its Activity Log, is still on this machine.
     const logs = {};
-    for (const { record } of entries) {
+    for (const { record } of locals) {
       const file = join(runDir, record.run.id, "activity.md");
       if (existsSync(file)) logs[record.run.id] = redact(readFileSync(file, "utf8"), env);
     }
-    const local = join(runDir, "dashboard.local.html");
+    const localFile = join(runDir, "dashboard.local.html");
     writeWhole(
-      local,
+      localFile,
       renderDashboard(entries, {
         ...common,
-        rebuild: { slash: "/orchestrate --dashboard --local-logs", node: `${node} --local-logs` },
+        rebuild: { slash: `${slash} --local-logs`, node: `${node} --local-logs` },
         banner: "contains private prose from this machine, don't share this file",
         logs,
       }),
     );
-    links.push(pathToFileURL(local).href);
+    links.push(pathToFileURL(localFile).href);
   }
 
+  const from = far?.read ? ` (local and \`${configured.repo}\`)` : "";
   return {
     code: 0,
-    out: `${warnings.map((w) => `${w}\n`).join("")}built the dashboard from ${plural(entries.length, "Run Record")}${localLogs ? "; the prose is only in the .local file, which holds private prose from this machine: do not share it" : ""}\n${links.join("\n")}\n`,
+    out: `${lines.map((w) => `${w}\n`).join("")}built the dashboard from ${plural(entries.length, "Run Record")}${from}${localLogs ? "; the prose is only in the .local file, which holds private prose from this machine: do not share it" : ""}\n${links.join("\n")}\n`,
   };
 }
 
