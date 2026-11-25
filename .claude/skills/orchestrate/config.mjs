@@ -213,7 +213,6 @@ export function harnessCandidates(env = process.env) {
   return HARNESS_ENV.filter((rule) => rule.when(env)).map((rule) => rule.harness);
 }
 
-/** `regate` as a mapping: the commands, and the tests that fail on the default branch too. */
 /** The `refusal` codes `land` prints (CONFIG.md names each one). */
 export const LAND_REFUSALS = /** @type {const} */ ([
   "unknown-ref",
@@ -224,6 +223,7 @@ export const LAND_REFUSALS = /** @type {const} */ ([
   "moved",
 ]);
 
+/** `regate` as a mapping: the commands, and the tests that fail on the default branch too. */
 export const REGATE_KEYS = /** @type {const} */ (["commands", "allowed_failures"]);
 export const ALLOWED_FAILURE_KEYS = /** @type {const} */ (["test", "reason"]);
 export const SPEC_KEYS = /** @type {const} */ (["landing", "integration_branch"]);
