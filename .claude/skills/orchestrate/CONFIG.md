@@ -57,7 +57,7 @@ Tabs, anchors, aliases, multi-line scalars, flow collections that span lines, a 
 | `run_dir`        | `tmp/orchestrate`   | Where run folders are kept, relative to the repository root. Keep it gitignored: nothing in it is committed. When it is not, the skill offers to add it to the root `.gitignore`, and writes nothing there without a yes. |
 | `read_first`     | none: asked         | The documents every Delegation reads before it plans: agent instructions, contributing guide, glossary. Each must be in the repository. `[]` for none.                                                                    |
 | `routes`         | see below           | How a Delegation commits and opens its pull request, and how the human merges.                                                                                                                                            |
-| `regate`         | none: asked         | The commands that re-check a finished branch, run from the repository root of a worktree at the branch's head. `[]` leaves it to CI.                                                                                      |
+| `regate`         | none: asked         | The commands that re-check a finished branch, run from the repository root of a worktree at the branch's head. `[]` leaves it to CI. A list of commands, or a mapping with `allowed_failures`: see below.                 |
 | `skills`         | none                | Companion skills a brief names. See below.                                                                                                                                                                                |
 | `triage_labels`  | each role's name    | The repository's own mapping of the five triage roles to its labels. See below.                                                                                                                                           |
 | `models`         | the harness default | The model for each kind of work. See below.                                                                                                                                                                               |
@@ -102,6 +102,35 @@ triage_labels:
 ```
 
 The roles are `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human` and `wontfix`. A role the mapping leaves out keeps its own name as its label. Two roles with one label, or a key that is not one of the five, is a problem. Unset, each role's label is its name.
+
+### `regate`
+
+A list of commands, or a mapping when some tests are known to fail:
+
+| Key                | Meaning                                                                                                                                                              |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `commands`         | The commands, as the list above. Required in the mapping form.                                                                                                       |
+| `allowed_failures` | Optional. Tests that fail on the default branch too, each `test` (its name as the runner prints it) with the `reason` it may fail. A name listed twice is a problem. |
+
+```yaml
+regate:
+  commands:
+    - uv run pytest
+    - npm test
+  allowed_failures:
+    - test: test_the_launcher_reads_the_key
+      reason: fails on main under macOS bash 3.2, tracked in #123
+```
+
+`node "<skill>/config.mjs" regate <sha> --out <file>` runs the commands and compares what failed to this list ([SKILL.md](SKILL.md#7-verify-each-report)). A failure that is not listed fails the re-gate, and is named. An entry only excuses named test failures: a command that exits with anything but 1 (pytest's 2 to 5 are not test failures), that prints a failure no test name accounts for (a coverage threshold, `--cov-fail-under`), or that counts more failures than it names, fails the re-gate even when every named test is listed. Give each command one test runner, since `cmd1; cmd2` hides a failure of `cmd2` behind the exit and names of `cmd1`; chain with `&&`. An entry is for a test that fails on the default branch as well: it stops a known failure from being read by eye each time, and a fix removes its entry. `check` prints the commands as `regate` and the list as `regate_allowed_failures`, `[]` when there is none.
+
+#### The commands
+
+Both run from the repository root, or with `--repo <dir>`, and print what they did.
+
+`node "<skill>/config.mjs" regate <sha> --out <file>` runs the `commands` in order, from a detached worktree at `<sha>`, made beside `<file>` and removed after, even when a command fails. `<file>` must be inside `run_dir`. The commands are the repository's own config, never the commit's. It writes each command's exit code and output to `<file>` as JSON. A failing command's tests are read from its output: Node's `failing tests:` summary and `ℹ fail <n>`, and pytest's `FAILED <id>` lines and its count. A name is matched whole, against the test's own name or its whole pytest id. It exits 1 when any failure is not on the list, naming it, which includes a command that fails with no test named and one that counts more failures than it names. Exit 2 is bad usage.
+
+`node "<skill>/config.mjs" land <branch> --cut <sha> --onto <integration> --fence <glob>...` is [SPEC.md](SPEC.md#on-an-integration-branch) item 5's landing. `<branch>` is a branch or a commit. It refuses unless the commit descends from `--cut`, every path changed since `--cut` matches a `--fence` glob (quote them, so the shell does not expand them; where `<integration>` is an ancestor of the commit, the paths checked are the ones the move changes on `<integration>`, so a path an earlier ticket landed counts if this branch's merge changed it back, and one it left identical does not), no worktree has `<integration>` checked out, and `<integration>` is an ancestor of the commit. Only then does it run `git update-ref refs/heads/<integration> <new> <old>`. It never merges, rebases or pushes. A refusal prints JSON with `landed: false`, a `refusal` code (`unknown-ref`, `not-descended`, `outside-fence`, `checked-out`, `not-fast-forward` or `moved`) and its `cause`, and exits 1.
 
 ### `models`
 

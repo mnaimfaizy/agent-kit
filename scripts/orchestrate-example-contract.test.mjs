@@ -36,7 +36,8 @@ function check() {
 
 /** Every key path in a parsed config, list indexes dropped: `routes.commit`. */
 function keyPaths(value, prefix = "") {
-  if (Array.isArray(value) || value === null || typeof value !== "object") return [];
+  if (Array.isArray(value)) return value.flatMap((item) => keyPaths(item, prefix));
+  if (value === null || typeof value !== "object") return [];
   return Object.entries(value).flatMap(([key, child]) => {
     const path = prefix ? `${prefix}.${key}` : key;
     return [path, ...keyPaths(child, path)];
@@ -109,6 +110,8 @@ describe("examples/orchestrate.config.yml", () => {
       ...sub("decisions", config.DECISION_KEYS),
       ...sub("ready_to_merge", config.READY_KEYS),
       ...sub("spec", config.SPEC_KEYS),
+      ...sub("regate", config.REGATE_KEYS),
+      ...sub("regate.allowed_failures", config.ALLOWED_FAILURE_KEYS),
     ];
     // Each section the reader resolves to a mapping of values (all but
     // `triage_labels`, whose effective form is derived) needs its keys shown
@@ -147,5 +150,36 @@ describe("examples/orchestrate.config.yml", () => {
     const values = JSON.stringify(config.parseConfig(FILE, EXAMPLE).config);
     assert.doesNotMatch(values, /password|token|secret/i);
     assert.doesNotMatch(values, /https?:\/\//);
+  });
+});
+
+describe("orchestrate.config.yml: this repository's allowed failures", () => {
+  const own = config.parseConfig(FILE, read(FILE));
+
+  it("reads with no problems", () => {
+    assert.deepEqual(own.problems, []);
+  });
+
+  it("names the five tests that fail on the default branch under macOS, each with a reason", () => {
+    const allowed = config.effectiveConfig(own.config).regate_allowed_failures;
+    assert.deepEqual(allowed.map((a) => a.test).sort(), [
+      "checks the report in the sandbox with a real sh, then tars that one file",
+      "test_the_check_refuses_a_bad_model_or_limit_and_a_sum_past_the_timeout",
+      "test_the_launcher_keeps_the_api_key_path_from_the_key",
+      "test_the_launcher_passes_the_effort_as_a_flag_only_when_it_is_set",
+      "test_the_launcher_selects_the_subscription_path_from_the_token",
+    ]);
+    for (const { reason } of allowed) assert.match(reason, /\S/);
+  });
+
+  it("keeps the commands it re-gated with, and adds the pre-commit run the PR template asks for", () => {
+    const { regate } = config.effectiveConfig(own.config);
+    assert.ok(regate.includes("uv run pytest"));
+    assert.ok(regate.includes("uv run pre-commit run --all-files"));
+    // Its local prettier hook needs the node_modules `npm ci` installs.
+    assert.ok(
+      regate.indexOf("uv run pre-commit run --all-files") > regate.indexOf("npm ci"),
+      "pre-commit runs after npm ci",
+    );
   });
 });

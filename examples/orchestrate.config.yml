@@ -29,9 +29,13 @@ routes: # how a Delegation commits and opens its pull request, and how you merge
   pull_request: "gh pr create --draft --fill; the body ends with Closes #<n>" # command or skill, and what the body carries
   merge: "gh pr merge <n> --merge" # printed in the close-out, once per pull request, in order; never run
 
-regate: # commands that re-check a finished branch from a worktree at its head; [] leaves it to CI
-  - uv run pytest
-  - npm test
+regate: # what re-checks a finished branch from a worktree at its head: a list of commands (alone), or this mapping; [] leaves it to CI
+  commands: # run from the repository root, in order, by `config.mjs regate <sha> --out <file>`
+    - uv run pytest
+    - npm test
+  allowed_failures: # tests that fail on the default branch too; any other failure fails the re-gate and is named
+    - test: test_a_known_failure # the test's name as the runner prints it (node's ✖ line, pytest's FAILED id after ::)
+      reason: fails on the default branch too, tracked in #123 # why it may fail, and where it is tracked
 
 skills: # Companion skills a brief names; each must be installed on the Executor's harness
   implement: tdd # what a building Delegation implements with
