@@ -237,8 +237,8 @@ export const TEAM_KEYS = /** @type {const} */ (["labels", "recent_activity"]);
 /** `records`' keys (CONFIG.md): the Run Record sink and whether close-out offers an upload. */
 export const RECORDS_KEYS = /** @type {const} */ (["repository", "upload", "sink"]);
 export const RECORDS_UPLOADS = /** @type {const} */ (["offer", "never"]);
-/** The Run Record sink types this reader knows. `gitlab` and `s3` arrive with their own sink files. */
-export const SINK_TYPES = /** @type {const} */ (["github"]);
+/** The Run Record sink types this reader knows. `s3` arrives with its own sink file. */
+export const SINK_TYPES = /** @type {const} */ (["github", "gitlab"]);
 export const SINK_KEYS = /** @type {const} */ (["type", "repo", "branch"]);
 /** `prune`'s keys (CONFIG.md): local pruning of closed-out run folders, off until `after_days` is set. */
 export const PRUNE_KEYS = /** @type {const} */ (["after_days"]);

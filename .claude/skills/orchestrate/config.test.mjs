@@ -1907,6 +1907,17 @@ test("a `records` section reads the same in YAML and JSON, with its defaults", (
   });
 });
 
+test("a `gitlab` sink reads in YAML and JSON, with both repo spellings", () => {
+  for (const repo of ["acme/run-records", "gitlab.acme.dev/acme/run-records"]) {
+    const fromYaml = yaml("records:", "  sink:", "    type: gitlab", `    repo: ${repo}`);
+    const fromJson = json(JSON.stringify({ records: { sink: { type: "gitlab", repo } } }));
+    assert.deepEqual([fromYaml.problems, fromJson.problems], [[], []], repo);
+    const want = { type: "gitlab", repo, branch: null };
+    assert.deepEqual(effectiveConfig(fromYaml.config).records.sink, want);
+    assert.deepEqual(effectiveConfig(fromJson.config).records.sink, want);
+  }
+});
+
 test("`records` problems, each with its line, in YAML", () => {
   const problems = (...lines) => yaml("records:", ...lines).problems.join("\n");
   assert.match(problems("  colour: red"), /^line 2: `records\.colour`: unknown key/);
@@ -1922,7 +1933,7 @@ test("`records` problems, each with its line, in YAML", () => {
   assert.match(problems("  sink: s3"), /`records\.sink`: expected a mapping/);
   assert.match(
     problems("  sink:", "    type: s3", "    repo: a/b"),
-    /line 3: `records\.sink\.type`: unknown sink type `s3`; expected one of: github/,
+    /line 3: `records\.sink\.type`: unknown sink type `s3`; expected one of: github, gitlab/,
   );
   assert.match(
     problems("  sink:", "    type: gitea", "    repo: a/b"),
@@ -1957,7 +1968,7 @@ test("`records` problems, in JSON, name their lines too", () => {
   ].join("\n");
   assert.deepEqual(json(text).problems, [
     "line 3: `records.upload`: expected one of: offer, never",
-    "line 4: `records.sink.type`: unknown sink type `s3`; expected one of: github",
+    "line 4: `records.sink.type`: unknown sink type `s3`; expected one of: github, gitlab",
   ]);
 });
 
