@@ -235,11 +235,12 @@ A `labels` mapping that leaves a state out, names a key that is not one of the s
 
 Read by the close-out, and by `--upload <run>` ([RUN.md](RUN.md#close-out)). A run with no `records` key keeps its Run Record on the machine and offers nothing.
 
-| Key          | Default                           | Meaning                                                                                                                                                                                                                                                                                   |
-| ------------ | --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `repository` | `host/owner/repo` from the remote | This repository's name in a sink's paths, for a renamed or mirrored repository: `host/owner/repo`, three plain segments. Unset, it is read from the `origin` remote (or the only remote; with several and none named `origin`, the run asks). Records are never moved between namespaces. |
-| `upload`     | `offer`                           | `offer`: once a sink is set, the close-out offers to upload the Run Record. `never`: it does not offer; `--upload <run>` still works.                                                                                                                                                     |
-| `sink`       | none: local only                  | The one private place Run Records are uploaded to, a mapping of the keys below. Unset, Run Records stay in `<run_dir>/records/`.                                                                                                                                                          |
+| Key          | Default                             | Meaning                                                                                                                                                                                                                                                                                   |
+| ------------ | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `repository` | `host/owner/repo` from the remote   | This repository's name in a sink's paths, for a renamed or mirrored repository: `host/owner/repo`, three plain segments. Unset, it is read from the `origin` remote (or the only remote; with several and none named `origin`, the run asks). Records are never moved between namespaces. |
+| `upload`     | `offer`                             | `offer`: once a sink is set, the close-out offers to upload the Run Record. `never`: it does not offer; `--upload <run>` still works.                                                                                                                                                     |
+| `raw`        | none: raw folders are never offered | `sink`: the one place raw run folders may go, a mapping of the keys below with `type: s3` only. Unset, raw folders are never offered. See [`raw`](#raw) below.                                                                                                                            |
+| `sink`       | none: local only                    | The one private place Run Records are uploaded to, a mapping of the keys below. Unset, Run Records stay in `<run_dir>/records/`.                                                                                                                                                          |
 
 `sink`'s keys:
 
@@ -261,6 +262,20 @@ records:
     repo: acme/run-records # owner/name or host/owner/name
     branch: main # default: that repo's default branch
 ```
+
+#### `raw`
+
+```yaml
+records:
+  raw: # unset: raw folders are never offered
+    sink:
+      type: s3 # s3 only
+      endpoint: https://<account>.r2.cloudflarestorage.com
+      bucket: acme-run-records
+      region: auto
+```
+
+`raw.sink` takes the keys of an `s3` sink (`type`, `endpoint`, `bucket`, `region`) and nothing else, and its `type` can only be `s3`: any other type is a problem, with the line. Why `s3` only: a raw run folder may quote private issue text, command output and file contents, so it goes only where the bucket's own lifecycle rule deletes it, and only a bucket can do that (a git sink cannot expire a file). It is independent of `records.sink`: a repository may set either, both, or neither, and it may be the same bucket. The same credentials are read, from the environment only, and a secret-looking value is a problem. Before uploading, the skill reads the bucket's lifecycle ([sinks/s3.md](sinks/s3.md#lifecycle)) and uploads nothing unless an enabled rule expires `raw/`; it never writes bucket configuration. The close-out asks for its own yes at every close-out, and the Dispatch Plan cannot list it as a routine write ([RUN.md](RUN.md#uploading-the-raw-run-folder)). Raw paths are `raw/<host>/<owner>/<repo>/<login>/<run-id>/<path>`, one object per file, every namespace segment lowercased.
 
 A record's path in the sink is `records/<host>/<owner>/<repo>/<login>/<run-id>.json`, every segment lowercased, so one sink serves many repositories and two never collide. The login is the tracker login, overridable only by the `ORCHESTRATE_OPERATOR` environment variable, and with none, nothing uploads. The config holds no credential: `gh` signs in as the person who runs it, and an `s3` sink reads its credentials only from the environment variables `ORCHESTRATE_S3_ACCESS_KEY_ID` and `ORCHESTRATE_S3_SECRET_ACCESS_KEY`, so a value in the config that looks like a secret is a problem. There is no local overlay, so a person opts out by answering "Not now" at close-out.
 

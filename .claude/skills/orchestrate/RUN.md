@@ -338,6 +338,30 @@ The count of people with access is left out when the sink cannot be read for it.
 
 **The path** is `records/<host>/<owner>/<repo>/<login>/<run-id>.json`, every segment lowercased. `<host>/<owner>/<repo>` is `records.repository`, or the record's own repository, read from the `origin` remote (or the only remote); `<login>` is `run.operator`. A run with no `records` keys writes the local record and offers nothing.
 
+### Uploading the raw run folder
+
+The raw run folder holds the prose the Run Record leaves out: it **may quote private issue text, command output and file contents**. It is offered only when the config sets `records.raw.sink` ([CONFIG.md](CONFIG.md#raw)), an `s3` bucket and nothing else, and only after the Run Record's own line has been answered, at every close-out. Without `records.raw`, nothing is offered and the run behaves as before. Load [sinks/s3.md](sinks/s3.md) before the first one. It goes through the records script:
+
+```bash
+node "<skill>/records.mjs" upload-raw <run>          # shows the line, uploads nothing
+node "<skill>/records.mjs" upload-raw <run> --list   # also lists every file
+node "<skill>/records.mjs" upload-raw <run> --yes    # shows it, then uploads
+```
+
+Run the first form and print its output as the question. The script reads the bucket's lifecycle before it prints the line, and quotes the days of the rule it found. The line is this, with the file count, the size, the bucket, the path and the days filled in by the script:
+
+> **Also upload the raw run folder?** 37 files, 1.8 MB, to bucket `acme-run-records` at `raw/github.com/acme/widgets/naim/2026-11-19-spec-344/`. It **may quote private issue text, command output and file contents**. The bucket's own rule deletes it after about 30 days. [List the files] [Upload] [Not now]
+
+The human answers with one button:
+
+- **[List the files]:** run the `--list` form, print it, then ask again.
+- **[Upload]:** run the `--yes` form, and say what it printed.
+- **[Not now]:** do nothing more. The folder stays on this machine.
+
+**Never a routine write.** The Dispatch Plan cannot list it, and approving the plan at "go" does not answer it: the close-out asks, with this line, at every close-out, and a yes at one close-out is not a yes at the next. The words are the script's; never reword them.
+
+**What stops it**, each printed by the script and relayed whole, with nothing uploaded: no enabled lifecycle rule expires `raw/`, or the lifecycle cannot be read (the skill never writes the bucket's configuration, so it tells the human to set the rule); the bucket is not private; the Run Record has no login; a file that is not UTF-8 text; different bytes already at a path, which nothing overwrites. Raw folders are never shown in the dashboard.
+
 ### The past-runs dashboard
 
 `--dashboard [--repo <host/owner/repo>] [--local-logs]` builds one self-contained page from the Run Records in `<run_dir>/records/` and from the config's `records.sink`, so a past run can be reviewed down to a Delegation and a human step, in one repository or in every repository the sink holds. It runs the records script, and prints what the script prints, the `file://` link of each page it wrote. It never launches a browser, since harnesses differ, and the page is never hosted.

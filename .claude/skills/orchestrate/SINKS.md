@@ -34,4 +34,6 @@ Then a `## Access` section giving the writer's access and the reader's, a `###` 
 
 A sink's Support Level is the one its own file states, and the Dispatch Plan and the disclosure name it while it is below `verified` ([RUN.md](RUN.md#uploading-the-run-record)): `gitlab` and `s3` ship at `documented` until a run has uploaded to them, and the first one that does moves it, citing its Activity Log.
 
+**Raw run folders** go only to an `s3` sink, set separately as `records.raw.sink`, and only when that bucket's own lifecycle rule expires `raw/`: the access the upload needs, and the lifecycle read, are in [sinks/s3.md](sinks/s3.md#raw-run-folders).
+
 **Moving a sink.** Copy `records/` to the new sink under the same paths; create-only makes a repeated copy safe. [sinks/s3.md](sinks/s3.md#moving-to-a-new-sink) shows how for a bucket. Azure Blob, Bitbucket, Gitea and Forgejo are not sinks today.

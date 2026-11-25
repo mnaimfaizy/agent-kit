@@ -113,6 +113,19 @@ team: # read only by a Team Run
 #     bucket: acme-run-records
 #     region: us-east-1 # R2: auto
 
+# Raw run folders are never uploaded unless you set this, and then only with
+# your own yes at every close-out. They go only to an S3-compatible bucket
+# whose own lifecycle rule expires `raw/` (the skill reads that rule and never
+# writes it), because a raw folder may quote private issue text, command output
+# and file contents. Same credentials as above, from the environment only.
+# records:
+#   raw: # unset: raw folders are never offered
+#     sink:
+#       type: s3 # s3 only
+#       endpoint: https://s3.us-east-1.amazonaws.com # R2: https://<account>.r2.cloudflarestorage.com
+#       bucket: acme-run-records
+#       region: us-east-1 # R2: auto
+
 # Local pruning is off. To delete closed-out run folders older than N days from
 # this machine at close-out (never the Run Records, never an open run),
 # uncomment this. Without it, the close-out asks once whether to prune at 90 days.

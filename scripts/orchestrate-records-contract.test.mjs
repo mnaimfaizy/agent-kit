@@ -567,3 +567,100 @@ describe("pruning closed-out run folders, on opt-in", () => {
     );
   });
 });
+
+// ── Raw run folders to an expiring bucket (issue #431) ──────────────────────
+
+const APPROVED_RAW_LINE =
+  "**Also upload the raw run folder?** 37 files, 1.8 MB, to bucket `acme-run-records` at `raw/github.com/acme/widgets/naim/2026-11-19-spec-344/`. It **may quote private issue text, command output and file contents**. The bucket's own rule deletes it after about 30 days. [List the files] [Upload] [Not now]";
+
+describe("uploading the raw run folder to an expiring bucket", () => {
+  const raw = flat(section(RUN, "### Uploading the raw run folder"));
+  const closeOut = flat(section(SKILL, "### 10. Close out"));
+
+  it("RUN.md and docs/orchestrate.md carry the approved raw line, word for word", () => {
+    assert.ok(raw.includes(`> ${APPROVED_RAW_LINE}`), "RUN.md's raw line");
+    assert.ok(flat(DOCS).includes(`> ${APPROVED_RAW_LINE}`), "the docs' raw line");
+  });
+
+  it("asks for the raw line only after the record line, in RUN.md and in the close-out", () => {
+    const run = flat(RUN);
+    assert.ok(
+      run.indexOf(`> ${APPROVED_DISCLOSURE}`) < run.indexOf(`> ${APPROVED_RAW_LINE}`),
+      "RUN.md shows the record line first",
+    );
+    assert.match(raw, /only after the Run Record's own line has been answered, at every close-out/);
+    assert.ok(
+      closeOut.indexOf("**upload it**") < closeOut.indexOf("offer the raw run folder"),
+      "the close-out offers the raw folder after the record",
+    );
+    assert.match(
+      closeOut,
+      /after the record's line has been answered, show the raw line from `upload-raw <run>`, and upload only on the human's "Upload", at every close-out/,
+    );
+  });
+
+  it("makes it never a routine write: the Dispatch Plan cannot list it", () => {
+    assert.match(
+      raw,
+      /\*\*Never a routine write\.\*\* The Dispatch Plan cannot list it, and approving the plan at "go" does not answer it/,
+    );
+    assert.match(closeOut, /It is never a routine write: the Dispatch Plan cannot list it/);
+    assert.match(
+      flat(SKILL),
+      /\*\*uploading the Run Record\*\* at close-out\)\. Uploading the raw run folder is never one of them\./,
+    );
+    assert.match(
+      flat(DOCS),
+      /\*\*never a routine write\*\*: approving the plan at "go" does not cover it/,
+    );
+    // The record's routine write is still the record's alone.
+    assert.doesNotMatch(flat(section(RUN, "### Uploading the Run Record")), /raw run folder/);
+  });
+
+  it("answers the three buttons, and offers [List the files]", () => {
+    assert.match(raw, /\*\*\[List the files\]:\*\* run the `--list` form/);
+    assert.match(raw, /\*\*\[Upload\]:\*\* run the `--yes` form/);
+    assert.match(raw, /\*\*\[Not now\]:\*\* do nothing more\. The folder stays on this machine\./);
+  });
+
+  it("is offered only with `records.raw.sink`, an `s3` bucket, and nothing otherwise", () => {
+    assert.match(
+      raw,
+      /It is offered only when the config sets `records\.raw\.sink` \(\[CONFIG\.md\]\(CONFIG\.md#raw\)\), an `s3` bucket and nothing else/,
+    );
+    assert.match(raw, /Without `records\.raw`, nothing is offered and the run behaves as before\./);
+  });
+
+  it("reads the lifecycle, never writes it, and uploads nothing without an expiring rule", () => {
+    assert.match(raw, /The script reads the bucket's lifecycle before it prints the line/);
+    assert.match(raw, /no enabled lifecycle rule expires `raw\/`, or the lifecycle cannot be read/);
+    assert.match(raw, /the skill never writes the bucket's configuration/);
+  });
+
+  it("DESIGN.md says why: s3 only, its own yes, never routine, read but never written", () => {
+    const design = flat(DESIGN);
+    assert.match(
+      design,
+      /only to an `s3` bucket, only after the bucket's own lifecycle rule is read/,
+    );
+    assert.match(design, /and only on a yes of its own at every close-out/);
+    assert.match(design, /It is never a routine write, because/);
+    assert.match(design, /The skill reads the lifecycle and never writes it/);
+  });
+
+  it("the s3 sink file and CONFIG.md say what access it needs and what `records.raw.sink` does", () => {
+    const s3 = flat(read(`${SKILL_DIR}/sinks/s3.md`));
+    assert.match(s3, /`s3:GetLifecycleConfiguration`\*\*/);
+    assert.match(s3, /They never need `s3:PutLifecycleConfiguration`/);
+    const configDoc = flat(read(`${SKILL_DIR}/CONFIG.md`));
+    assert.match(
+      configDoc,
+      /`raw\.sink` takes the keys of an `s3` sink .* any other type is a problem/,
+    );
+    assert.match(configDoc, /only a bucket can do that \(a git sink cannot expire a file\)/);
+    assert.match(
+      flat(read(`${SKILL_DIR}/SINKS.md`)),
+      /Raw run folders\*\* go only to an `s3` sink/,
+    );
+  });
+});

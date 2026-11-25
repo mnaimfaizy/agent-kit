@@ -109,7 +109,7 @@ describe("examples/orchestrate.config.yml", () => {
 
   it("names the `s3` sink in a commented block of its own, which reads with no problems once uncommented", () => {
     const lines = EXAMPLE.split("\n");
-    const start = lines.lastIndexOf("# records:");
+    const start = lines.indexOf("# records:", lines.indexOf("# records:") + 1);
     assert.ok(start > lines.indexOf("# records:"), "a second commented `records:` block");
     const block = [];
     for (const line of lines.slice(start)) {
@@ -128,6 +128,38 @@ describe("examples/orchestrate.config.yml", () => {
     ]);
     assert.equal(config.effectiveConfig(parsed).records.sink.type, "s3");
     assert.match(EXAMPLE, /ORCHESTRATE_S3_ACCESS_KEY_ID/);
+  });
+
+  it("names `records.raw.sink` in a commented block of its own, `s3` only, which reads with no problems once uncommented", () => {
+    const lines = EXAMPLE.split("\n");
+    const start = lines.lastIndexOf("# records:");
+    assert.ok(
+      start > lines.indexOf("# records:", lines.indexOf("# records:") + 1),
+      "a third `records:` block",
+    );
+    const block = [];
+    for (const line of lines.slice(start)) {
+      if (!line.startsWith("# ")) break;
+      block.push(line.slice(2));
+    }
+    const { config: parsed, problems } = config.parseConfig(FILE, block.join("\n"));
+    assert.deepEqual(problems, []);
+    assert.deepEqual(keyPaths(parsed).sort(), [
+      "records",
+      "records.raw",
+      "records.raw.sink",
+      "records.raw.sink.bucket",
+      "records.raw.sink.endpoint",
+      "records.raw.sink.region",
+      "records.raw.sink.type",
+    ]);
+    assert.equal(config.effectiveConfig(parsed).records.raw.sink.type, "s3");
+    // A repository that copies the example is never offered a raw upload.
+    assert.equal(
+      config.effectiveConfig(config.parseConfig(FILE, EXAMPLE).config).records.raw.sink,
+      null,
+    );
+    assert.match(EXAMPLE, /expires `raw\/`/);
   });
 
   it("shows the `prune` key as a commented block that reads with no problems once uncommented", () => {

@@ -281,6 +281,26 @@ You can read the record first, upload it, or say "Not now": the local record sta
 - **S3.** An `s3` sink needs `endpoint`, `bucket` and `region`, and reads its credentials only from `ORCHESTRATE_S3_ACCESS_KEY_ID` and `ORCHESTRATE_S3_SECRET_ACCESS_KEY` in the environment: a secret in the config is a problem. The writer needs `PutObject`, `GetObject` and `ListBucket` on `records/`; the reader (the dashboard) needs `ListBucket` and `GetObject` on `records/` ([`sinks/s3.md`](../.claude/skills/orchestrate/sinks/s3.md)). The bucket counts as private when it refuses an unsigned listing. Retention is the bucket's own: a lifecycle rule on `records/` can expire records, and the skill never writes bucket configuration. AWS S3, R2, GCS with HMAC keys, Backblaze B2, MinIO, Wasabi and DigitalOcean Spaces are untested hints, with links, in that file; Azure Blob, Bitbucket, Gitea and Forgejo are not sinks today. To move to a new sink, copy `records/` across under the same paths: create-only makes a repeated copy safe. Like GitLab, `s3` is at Support Level `documented` until a run has uploaded to it.
 - **GitLab is `documented`.** The `gitlab` sink is written from GitLab's and `glab`'s documentation and tested against a fake transport only, so it is at Support Level `documented` until a run has uploaded to it. GitLab documents no create-only write, so the skill reads the path before it creates it, and the rule above holds just the same.
 
+#### Raw run folders
+
+The Run Record holds no prose. The run folder does: it quotes issue text, command output and file contents. So it is never uploaded unless you opt in, and only to an `s3` bucket whose own rule deletes it. Set `records.raw.sink`:
+
+```yaml
+records:
+  raw: # unset: raw folders are never offered
+    sink:
+      type: s3 # s3 only
+      endpoint: https://<account>.r2.cloudflarestorage.com
+      bucket: acme-run-records
+      region: auto
+```
+
+`s3` is the only type that works here, and any other is a config problem: a git repository cannot expire a file, and only a bucket's lifecycle rule can delete a raw folder for you. After the Run Record's line, the close-out asks, at every close-out, with its own yes, using this wording:
+
+> **Also upload the raw run folder?** 37 files, 1.8 MB, to bucket `acme-run-records` at `raw/github.com/acme/widgets/naim/2026-11-19-spec-344/`. It **may quote private issue text, command output and file contents**. The bucket's own rule deletes it after about 30 days. [List the files] [Upload] [Not now]
+
+You can list the files first, upload, or say "Not now". It is **never a routine write**: approving the plan at "go" does not cover it, and the Dispatch Plan cannot list it. Before it uploads, the skill reads the bucket's lifecycle. With no enabled rule that expires `raw/`, or a lifecycle it cannot read, nothing is uploaded, and the skill never writes the bucket's configuration: you set the rule (about 30 days) yourself. Each file becomes one object, at `raw/<host>/<owner>/<repo>/<login>/<run-id>/<path>`, with every namespace segment lowercased. The key needs `GetObject` and `PutObject` on `raw/`, `ListBucket`, and `GetLifecycleConfiguration`, never `PutLifecycleConfiguration` ([`sinks/s3.md`](../.claude/skills/orchestrate/sinks/s3.md#access)). Raw folders are never shown in the dashboard. Why: [DESIGN.md](../.claude/skills/orchestrate/DESIGN.md#run-events-and-the-run-record).
+
 #### Pruning old run folders
 
 Run folders pile up under `tmp/orchestrate/`. Local pruning is **off** until you set `prune.after_days` in the config: setting it is the consent to delete. A run with no `prune` key deletes nothing, and asks once at close-out whether to prune at 90 days. Answer yes and the Chief of Staff writes `prune.after_days: 90` into the config; answer no and it is not asked again (the answer is remembered on your machine, in `<run_dir>/prune-declined`).
@@ -463,6 +483,7 @@ The repository's facts live in one file at its root: `orchestrate.config.yml`, `
 | `spec`           | `landing`: `ask` (default), `integration-branch` or `per-ticket`. `integration_branch`: the branch name, default `orchestrate/spec-<n>`.                                                                                                                   |
 | `tracker`        | Read only by a Team Run: `detect` (default, from the git remote's host), `github` or `gitlab`. Pin it for any host but `github.com` or `gitlab.com`.                                                                                                       |
 | `team`           | Read only by a Team Run. `labels`: the label for each of the six states (default `team: planned` and so on). `recent_activity`: milestones a Shared Board row keeps (default 5).                                                                           |
+| `records.raw`    | `sink`: the bucket raw run folders may be uploaded to, `type: s3` only, with its `endpoint`, `bucket` and `region`. Unset (default), raw folders are never offered. See [Raw run folders](#raw-run-folders).                                               |
 | `prune`          | `after_days`: delete closed-out run folders older than this many days, never `records/` or an open run (default unset: no pruning). Without it, the close-out asks once whether to prune at 90 days.                                                       |
 
 A route, command or skill name is free text: the brief carries it as written, so a route can be a command, a skill to use, or a sentence of convention.
