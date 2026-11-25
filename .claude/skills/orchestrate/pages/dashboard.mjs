@@ -160,7 +160,7 @@ export function duration(totalSeconds) {
 }
 
 /** A cause chip: the colour of its cause, its name, and avoidable or by design. */
-function chip(cause) {
+export function chip(cause) {
   const info = CAUSE_INFO[cause];
   const design = !info.avoidable;
   return `<span class="chip cause c-${cause}"><i class="sw"></i>${esc(info.label)} <span class="tag ${design ? "design" : "avoid"}">${design ? "by design" : "avoidable"}</span></span>`;

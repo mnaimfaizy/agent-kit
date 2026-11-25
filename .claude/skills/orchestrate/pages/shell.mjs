@@ -37,7 +37,7 @@ const SCRIPT = `
       const mine = [...switcher.options].find((o) => o.value !== "/" && page.id.startsWith(o.value));
       switcher.value = mine ? mine.value : page.id === "/" ? "/" : switcher.value;
     }
-    window.scrollTo(0, 0);
+    if (!id.startsWith("open=")) window.scrollTo(0, 0);
   };
   addEventListener("hashchange", route);
   route();
@@ -80,7 +80,7 @@ const SCRIPT = `
 `;
 
 /**
- * @param {{title: string, builtAt: string, rebuild: string, banner?: string | null, nav: {href: string, label: string}[], switcher?: string, home?: string | null, pages: {id: string, html: string}[]}} options
+ * @param {{title: string, brand?: string, head?: string, mainAttributes?: string, script?: string, builtAt: string, rebuild: string, banner?: string | null, nav: {href: string, label: string}[], switcher?: string, home?: string | null, pages: {id: string, html: string}[]}} options
  *   `rebuild` is HTML (already escaped), shown after "Rebuild:". `switcher` is HTML
  *   (already escaped) for the header; `home` is the page id the document opens on
  *   when its address names none.
@@ -94,6 +94,10 @@ export function shell({
   switcher = "",
   home = null,
   pages,
+  brand = title,
+  head = "",
+  mainAttributes = "",
+  script = "",
 }) {
   return `<!doctype html>
 <html lang="en" class="js-off">
@@ -102,19 +106,19 @@ export function shell({
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)}</title>
 <style>${STYLE}</style>
-</head>
+${head ? `${head}\n` : ""}</head>
 <body${home ? ` data-home="${esc(home)}"` : ""}>
 ${banner ? `<div class="banner" role="note">${esc(banner)}</div>\n` : ""}<header class="top">
-  <a class="brand" href="#/">${esc(title)}</a>
+  <a class="brand" href="#/">${esc(brand)}</a>
   ${nav.map((n) => `<a href="${esc(n.href)}">${esc(n.label)}</a>`).join("\n  ")}
   ${switcher ? `${switcher}\n  ` : ""}<span class="grow"></span>
   <span class="built">Built ${esc(builtAt)}. Rebuild: ${rebuild}</span>
   <button id="theme" type="button" title="Light or dark">◐</button>
 </header>
-<main class="main">
+<main class="main"${mainAttributes ? ` ${mainAttributes}` : ""}>
 ${pages.map((p) => p.html).join("\n")}
 </main>
-<script>document.documentElement.classList.remove("js-off");${SCRIPT}</script>
+<script>document.documentElement.classList.remove("js-off");${SCRIPT}</script>\n${script ? `<script>${script}</script>\n` : ""}
 </body>
 </html>
 `;

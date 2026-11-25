@@ -563,3 +563,133 @@ svg.spark .dot {
 table[data-table="people"] td > div {
   white-space: nowrap;
 }
+
+/* The live run board: a Kanban of Delegations, a Needs-you banner, a feed and a drawer. Colour still means cause. */
+.board-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 1100px) {
+  .board-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.kanban {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(150px, 1fr));
+  gap: 10px;
+  overflow-x: auto;
+}
+.col {
+  background: var(--soft);
+  border-radius: 8px;
+  padding: 8px;
+  min-height: 120px;
+}
+.col h2 {
+  font-size: 13px;
+  margin: 0 0 8px;
+}
+.col h2 .n,
+.panel h2 .n {
+  color: var(--muted);
+  font-weight: 400;
+}
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+.card .card-head {
+  color: var(--ink);
+  text-decoration: none;
+  display: block;
+  margin-bottom: 4px;
+}
+.card .wait,
+.card .badges {
+  margin-top: 6px;
+}
+.card.run-wait {
+  border-style: dashed;
+}
+.needs {
+  border: 1px solid var(--warn-ink);
+  background: var(--warn-bg);
+  color: var(--warn-ink);
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+}
+.needs.none {
+  border-color: var(--line);
+  background: var(--panel);
+  color: var(--muted);
+}
+.needs ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  color: var(--ink);
+}
+.stale-warning {
+  margin-bottom: 12px;
+  border-radius: 8px;
+  font-weight: 600;
+}
+.events {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 12px;
+}
+.events li {
+  padding: 3px 0;
+  border-bottom: 1px solid var(--line);
+}
+.state.ruling {
+  text-decoration: none;
+}
+.drawer {
+  display: none;
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(560px, 100vw);
+  overflow-y: auto;
+  background: var(--panel);
+  border-left: 1px solid var(--line);
+  box-shadow: -6px 0 24px rgba(0, 0, 0, 0.18);
+  padding: 16px 20px 40px;
+  z-index: 10;
+}
+.drawer.on {
+  display: block;
+}
+.drawer .close {
+  position: absolute;
+  top: 8px;
+  right: 14px;
+  font-size: 22px;
+  text-decoration: none;
+  color: var(--muted);
+}
+.drawer h3 {
+  font-size: 13px;
+  margin: 16px 0 6px;
+}
+.log {
+  font-family: var(--mono);
+  font-size: 12px;
+  white-space: pre-wrap;
+  background: var(--soft);
+  padding: 8px;
+  border-radius: 6px;
+  max-height: 360px;
+  overflow: auto;
+}

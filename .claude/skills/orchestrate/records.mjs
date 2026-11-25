@@ -10,6 +10,7 @@
  *   node records.mjs upload <run> [--yes]
  *   node records.mjs prune [--declined]
  *   node records.mjs dashboard [--local-logs]
+ *   node records.mjs board <run-folder> [--heartbeat <minutes|none>]
  *
  * `main(argv, io)` is the one seam. `io` injects the clock (`now`), the files
  * root (`cwd`, which relative paths resolve against), the environment (`env`)
@@ -475,7 +476,8 @@ const UPLOAD_USAGE = "usage: node records.mjs upload <run id or run folder> [--y
 const PRUNE_USAGE = "usage: node records.mjs prune [--declined]\n";
 const DASHBOARD_USAGE =
   "usage: node records.mjs dashboard [--repo <host/owner/repo>] [--local-logs]\n";
-const USAGE = `${EVENT_USAGE}${DERIVE_USAGE}${UPLOAD_USAGE}${UPLOAD_RAW_USAGE}${PRUNE_USAGE}${DASHBOARD_USAGE}`;
+const BOARD_USAGE = "usage: node records.mjs board <run-folder> [--heartbeat <minutes|none>]\n";
+const USAGE = `${EVENT_USAGE}${DERIVE_USAGE}${UPLOAD_USAGE}${UPLOAD_RAW_USAGE}${PRUNE_USAGE}${DASHBOARD_USAGE}${BOARD_USAGE}`;
 
 function appendEvent(args, io) {
   const given = pairs(args);
@@ -2209,6 +2211,130 @@ async function dashboard(args, io) {
   };
 }
 
+// --- The live run board, written beside `board.md` each time the Chief of Staff rewrites it.
+//
+// The page is built from the run folder alone: the Run Events, `board.md`'s
+// State column, the Ruling Ledger and the Activity Logs. It never reads a
+// sink or the tracker, and it is never hosted. The Activity Logs are private
+// prose, so they are redacted as the dashboard's local page redacts them, and
+// the page says it holds them.
+
+/** The Activity Log's tail: a long log would make the page slow, and the drawer shows what is recent. */
+const LOG_CHARS = 60_000;
+
+/** The heartbeat interval when none is given: HARNESSES.md's default of 10 minutes. */
+const HEARTBEAT_MINUTES = 10;
+
+/** The State column of `board.md`, by Delegation id. */
+export function boardStates(text) {
+  const states = {};
+  let columns = null;
+  for (const line of text.split(/\r?\n/)) {
+    if (!line.trimStart().startsWith("|")) {
+      columns = null;
+      continue;
+    }
+    const cells = line
+      .trim()
+      .replace(/^\||\|$/g, "")
+      .split("|")
+      .map((c) => c.trim());
+    if (columns === null) {
+      columns = cells[0] === "Delegation" && cells.includes("State") ? cells.indexOf("State") : -1;
+      continue;
+    }
+    if (columns < 0 || cells.every((c) => /^:?-+:?$/.test(c))) continue;
+    const id = cells[0];
+    const given = cells[columns]?.replace(/`/g, "").trim();
+    if (ID.test(id) && given) states[id] = given;
+  }
+  return states;
+}
+
+function readText(path) {
+  try {
+    return readFileSync(path, "utf8");
+  } catch {
+    return null;
+  }
+}
+
+async function board(args, io) {
+  let folder = null;
+  let heartbeat = HEARTBEAT_MINUTES;
+  for (let n = 0; n < args.length; n += 1) {
+    if (args[n] === "--heartbeat" && args[n + 1] !== undefined && !args[n + 1].startsWith("--")) {
+      const given = args[(n += 1)];
+      if (given === "none") heartbeat = null;
+      else if (/^[1-9]\d{0,3}$/.test(given)) heartbeat = Number(given);
+      else return { code: 2, out: BOARD_USAGE };
+    } else if (folder === null && !args[n].startsWith("--")) folder = args[n];
+    else return { code: 2, out: BOARD_USAGE };
+  }
+  if (folder === null) return { code: 2, out: BOARD_USAGE };
+  const cwd = io.cwd ?? process.cwd();
+  const env = io.env ?? process.env;
+  const runFolder = resolve(cwd, folder);
+  if (!existsSync(runFolder)) return { code: 2, out: `no run folder at \`${folder}\`\n` };
+  const { events, problems } = readEvents(runFolder);
+  if (problems.length) return { code: 1, out: `${problems.join("\n")}\n` };
+
+  const opened = events.find((e) => e.kind === "run-opened");
+  if (opened && !opened.repo) opened.repo = repoOf({ ...io, exec: io.exec ?? defaultExec });
+
+  const { boardModel, parseLedger, renderBoard } = await import("./pages/board.mjs");
+  const stateText = readText(join(runFolder, "board.md"));
+  const ledgerText = readText(join(runFolder, "rulings.md"));
+  const model = boardModel({
+    events,
+    now: (io.now ? io.now() : new Date()).valueOf(),
+    states: stateText === null ? {} : boardStates(stateText),
+    ledger: ledgerText === null ? null : parseLedger(redact(ledgerText, env)),
+    heartbeatMinutes: heartbeat,
+  });
+  const runId = basename(runFolder);
+  model.run.id = runId;
+
+  // Prose comes only from this run folder, never leaves it, and has no credential in it.
+  const logs = {};
+  const own = readText(join(runFolder, "activity.md"));
+  if (own !== null) logs.run = redact(own.slice(-LOG_CHARS), env);
+  for (const d of model.delegations) {
+    const text = readText(join(runFolder, "delegations", d.id, "activity.md"));
+    if (text !== null) logs[d.id] = redact(text.slice(-LOG_CHARS), env);
+  }
+
+  // The Shared Board is the spec issue's comments: the board links to it, never copies it.
+  const { run } = model;
+  const sharedBoardHref =
+    run.team && run.repo && run.spec
+      ? `https://${run.repo}/${run.tracker === "gitlab" ? "-/" : ""}issues/${run.spec}`
+      : null;
+  const script = fileURLToPath(import.meta.url);
+  const shown = relative(cwd, script);
+  const scriptPath = shown.startsWith("..") || isAbsolute(shown) ? script : shown;
+  const folderPath = relative(cwd, runFolder) || ".";
+  const quote = (text) => (/\s/.test(text) ? `"${text}"` : text);
+  const html = renderBoard(model, {
+    builtAt: nowIso(io),
+    rebuild: {
+      slash: "/orchestrate --status",
+      node: `node ${quote(scriptPath)} board ${quote(folderPath)}${heartbeat === HEARTBEAT_MINUTES ? "" : ` --heartbeat ${heartbeat ?? "none"}`}`,
+    },
+    logs,
+    dashboardHref: `../dashboard.html#/run/${runId}/summary`,
+    sharedBoardHref,
+    banner: "contains private prose from this machine, don't share this file",
+  });
+  const file = join(runFolder, "board.html");
+  writeWhole(file, html);
+  const waits = model.open.length;
+  return {
+    code: 0,
+    out: `wrote the board: ${plural(model.delegations.length, "Delegation")}, ${waits} ${waits === 1 ? "wait" : "waits"} on you${model.stale ? ", stale" : ""}\n${pathToFileURL(file).href}\n`,
+  };
+}
+
 /** The real transport: a command run to the end, its output and its error text. `options.input` goes to its stdin. */
 function defaultExec(command, args, options = {}) {
   try {
@@ -2240,6 +2366,7 @@ export async function main(argv, io = {}) {
   if (command === "upload-raw") return uploadRaw(rest, io);
   if (command === "prune") return prune(rest, io);
   if (command === "dashboard") return dashboard(rest, io);
+  if (command === "board") return board(rest, io);
   return { code: 2, out: USAGE };
 }
 

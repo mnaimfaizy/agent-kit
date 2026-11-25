@@ -4240,3 +4240,499 @@ describe("upload-raw: the disclosure line", () => {
     assert.doesNotMatch(result.out, /\[Upload\]/);
   });
 });
+
+// --- board: the live run board, written beside board.md.
+
+const TICKETS = ["d348", "d349", "d350", "d351", "d352", "d353"];
+const boardAt = (dir) => join(runFolder(dir), "board.html");
+
+/** The spec-344 run as it stood at `until`: every events file cut to the events at or before it. */
+function replayed(until) {
+  const dir = root();
+  const cut = (file) => {
+    const lines = readFileSync(file, "utf8").split("\n").filter(Boolean);
+    writeFileSync(
+      file,
+      lines
+        .filter((l) => JSON.parse(l).at <= until)
+        .map((l) => `${l}\n`)
+        .join(""),
+    );
+  };
+  cut(join(runFolder(dir), "events.jsonl"));
+  for (const d of readdirSync(join(runFolder(dir), "delegations")))
+    cut(join(runFolder(dir), "delegations", d, "events.jsonl"));
+  return dir;
+}
+const board = async (dir, args = [], io = {}) => {
+  const result = await main(["board", `tmp/orchestrate/${RUN}`, ...args], {
+    cwd: dir,
+    now: at(io.until ?? "2026-11-19T07:00:00Z"),
+    env: {},
+    ...io,
+  });
+  return { result, html: existsSync(boardAt(dir)) ? readFileSync(boardAt(dir), "utf8") : null };
+};
+/** The column each card is in, from the page. */
+function columns(html) {
+  const out = {};
+  for (const [, name, inner] of html.matchAll(
+    /<section class="col" data-column="([^"]+)">([\s\S]*?)<\/section>/g,
+  ))
+    for (const [, id] of inner.matchAll(/data-delegation="([^"]+)"/g)) out[id] = name;
+  return out;
+}
+const column = (html, name) =>
+  html.match(
+    new RegExp(`<section class="col" data-column="${name}">([\\s\\S]*?)</section>`),
+  )?.[1] ?? "";
+
+describe("board: writing board.html", () => {
+  it("writes board.html in the run folder, whole, and prints its file link", async () => {
+    const dir = replayed("2026-11-19T03:05:00Z");
+    const { result, html } = await board(dir, [], { until: "2026-11-19T03:05:00Z" });
+    assert.equal(result.code, 0, result.out);
+    assert.match(result.out, /file:\/\/.*\/2026-11-19-spec-344\/board\.html\n$/);
+    assert.ok(html.startsWith("<!doctype html>"));
+    assert.deepEqual(
+      readdirSync(runFolder(dir)).filter((f) => f.includes(".tmp")),
+      [],
+    );
+  });
+
+  it("carries its data inline and reloads itself about every 15 seconds", async () => {
+    const dir = replayed("2026-11-19T03:05:00Z");
+    const { html } = await board(dir, [], { until: "2026-11-19T03:05:00Z" });
+    assert.match(html, /id="board-data"/);
+    assert.match(html, /"reloadSeconds":15/);
+    assert.match(html, /location\.reload\(\)/);
+    assert.doesNotMatch(html, /<script[^>]+src=|<link[^>]+href="https?:|@import/);
+  });
+
+  it("shares the dashboard's shell and its stylesheet", async () => {
+    const dir = replayed("2026-11-19T03:05:00Z");
+    await board(dir, [], { until: "2026-11-19T03:05:00Z" });
+    const { html } = await board(dir, [], { until: "2026-11-19T03:05:00Z" });
+    const style = (page) => page.match(/<style>([\s\S]*?)<\/style>/)[1];
+    const shared = readFileSync(join(here, "pages", "shared.css"), "utf8");
+    assert.equal(style(html), shared);
+    assert.match(html, /<header class="top">/);
+  });
+
+  it("refuses a missing folder, a bad flag and a bad interval", async () => {
+    const dir = root();
+    assert.equal((await main(["board"], { cwd: dir })).code, 2);
+    assert.equal((await main(["board", "nowhere"], { cwd: dir })).code, 2);
+    assert.equal((await board(dir, ["--sink", "x"])).result.code, 2);
+    assert.equal((await board(dir, ["--heartbeat", "soon"])).result.code, 2);
+  });
+
+  it("names a Run Event that does not check, and writes nothing", async () => {
+    const dir = root();
+    appendFileSync(join(runFolder(dir), "events.jsonl"), '{"at":"x"}\n');
+    const { result, html } = await board(dir);
+    assert.equal(result.code, 1);
+    assert.equal(html, null);
+  });
+
+  it("runs as a script", () => {
+    const dir = root();
+    const result = spawnSync(
+      process.execPath,
+      [join(here, "records.mjs"), "board", `tmp/orchestrate/${RUN}`],
+      { cwd: dir, encoding: "utf8" },
+    );
+    assert.equal(result.status, 0, result.stderr);
+    assert.ok(existsSync(boardAt(dir)));
+  });
+});
+
+describe("board: the spec-344 stream replayed", () => {
+  it("puts each card in its column as the run goes", async () => {
+    const dir = replayed("2026-11-19T03:30:00Z");
+    const { html } = await board(dir, [], { until: "2026-11-19T03:30:00Z" });
+    assert.deepEqual(columns(html), {
+      d348: "Landed",
+      d349: "Landed",
+      d350: "Needs you",
+      d351: "Planned",
+      d352: "Planned",
+      d353: "Planned",
+    });
+    assert.match(html, /<h2>Needs you <span class="n">1<\/span>/);
+  });
+
+  it("moves a card through the columns: running, then landed", async () => {
+    const a = replayed("2026-11-19T03:35:00Z");
+    assert.equal(
+      columns((await board(a, [], { until: "2026-11-19T03:35:00Z" })).html).d350,
+      "Running",
+    );
+    const b = replayed("2026-11-19T03:45:00Z");
+    const cols = columns((await board(b, [], { until: "2026-11-19T03:45:00Z" })).html);
+    assert.equal(cols.d350, "Landed");
+    assert.equal(cols.d351, "Needs you");
+  });
+
+  it("shows the exact state and the time in it on each card", async () => {
+    const dir = replayed("2026-11-19T03:35:00Z");
+    const { html } = await board(dir, [], { until: "2026-11-19T03:35:00Z" });
+    const running = column(html, "Running");
+    assert.match(running, /data-delegation="d350" data-state="running"/);
+    assert.match(running, /<span class="state">running<\/span>/);
+    assert.match(running, /data-since="2026-11-19T03:33:20Z">1m 40s</);
+  });
+
+  it("shows a Needs-you wait with its cause chip, how and age", async () => {
+    const dir = replayed("2026-11-19T03:30:00Z");
+    const { html } = await board(dir, [], { until: "2026-11-19T03:30:00Z" });
+    const needs = column(html, "Needs you");
+    assert.match(needs, /data-delegation="d350"/);
+    assert.match(needs, /chip cause c-harness-limit/);
+    assert.match(needs, /Click the New task card task_184e1773 in the Chief of Staff session/);
+    assert.match(needs, /data-since="2026-11-19T03:26:30Z">3m 30s</);
+    // The banner says it too, and counts it.
+    assert.match(html, /<b>1 thing waits on you<\/b>/);
+    assert.match(html, /<li data-wait="w2">/);
+  });
+
+  it("makes a run-level wait a card of its own, with its cause and where to answer", async () => {
+    const dir = replayed("2026-11-19T03:05:00Z");
+    const { html } = await board(dir, [], { until: "2026-11-19T03:05:00Z" });
+    const needs = column(html, "Needs you");
+    assert.match(needs, /class="card run-wait" data-wait="w1"/);
+    assert.match(needs, /plan approval/);
+    assert.match(needs, /c-by-design/);
+    assert.match(needs, /Answer in the Chief of Staff chat/);
+    assert.match(needs, /data-since="2026-11-19T03:02:00Z">3m 0s</);
+    assert.deepEqual(
+      Object.values(columns(html)).sort(),
+      TICKETS.map(() => "Planned"),
+    );
+  });
+
+  it("counts the open waits in the tab title and the favicon", async () => {
+    const dir = replayed("2026-11-19T04:48:00Z");
+    const { html } = await board(dir, [], { until: "2026-11-19T04:48:00Z" });
+    assert.match(html, /<title>\(1\) Run 2026-11-19-spec-344<\/title>/);
+    assert.match(html, /<link rel="icon" href="data:image\/svg\+xml,[^"]*1[^"]*">/);
+    const done = await board(replayed("2026-11-19T06:30:00Z"), [], {
+      until: "2026-11-19T06:30:00Z",
+    });
+    assert.match(done.html, /<title>Run 2026-11-19-spec-344<\/title>/);
+  });
+
+  it("feeds the most recent Run Events, newest first", async () => {
+    const dir = replayed("2026-11-19T03:30:00Z");
+    const { html } = await board(dir, [], { until: "2026-11-19T03:30:00Z" });
+    const feed = html.match(/<section class="panel feed">([\s\S]*?)<\/section>/)[1];
+    assert.match(feed, /Recent Run Events/);
+    assert.ok(feed.indexOf("d350: waiting on you") < feed.indexOf("d349: landed"));
+  });
+
+  it("ends with every landed Delegation merged and no wait open", async () => {
+    const dir = replayed("2026-11-19T06:30:00Z");
+    const { html } = await board(dir, [], { until: "2026-11-19T06:30:00Z" });
+    assert.deepEqual(
+      Object.values(columns(html)),
+      [...TICKETS, "d344-fix1"].map(() => "Merged"),
+    );
+    assert.match(html, /Nothing waits on you/);
+  });
+
+  it("follows a Delegation sent back and landed again", async () => {
+    const dir = replayed("2026-11-19T05:30:00Z");
+    const { html } = await board(dir, [], { until: "2026-11-19T05:30:00Z" });
+    assert.match(column(html, "Needs you"), /data-delegation="d344-fix1" data-state="sent back"/);
+    assert.match(column(html, "Needs you"), /c-permission-refusal/);
+  });
+
+  it("takes the exact state of board.md where it has the row, and files it in its column", async () => {
+    const dir = replayed("2026-11-19T04:30:00Z");
+    writeFileSync(
+      join(runFolder(dir), "board.md"),
+      "# Run\n\n| Delegation | Issue | State |\n| --- | --- | --- |\n| d353 | #353 | reported |\n| d352 | #352 | `verified` |\n",
+    );
+    const { html } = await board(dir, [], { until: "2026-11-19T04:30:00Z" });
+    assert.match(column(html, "Checking"), /data-delegation="d353" data-state="reported"/);
+    assert.match(column(html, "Checking"), /data-delegation="d352" data-state="verified"/);
+  });
+});
+
+describe("board: the drawer", () => {
+  it("has a drawer per card, linkable as #open=d:<id>, with its facts, states, waits and events", async () => {
+    const dir = replayed("2026-11-19T03:45:00Z");
+    const { html } = await board(dir, [], { until: "2026-11-19T03:45:00Z" });
+    assert.match(html, /href="#open=d:d350"/);
+    const drawer = html.match(/<aside class="drawer" data-open="d:d350"[\s\S]*?<\/aside>/)[0];
+    assert.match(drawer, /<dt>Started from<\/dt><dd>a card you clicked<\/dd>/);
+    assert.match(drawer, /<dt>Issue<\/dt><dd>#350<\/dd>/);
+    assert.match(drawer, /<dt>Kind<\/dt><dd>building<\/dd>/);
+    // States with durations: planned, running, landed.
+    assert.match(
+      drawer,
+      /<span class="state">planned<\/span>[\s\S]*<span class="state">running<\/span>[\s\S]*<span class="state">landed<\/span>/,
+    );
+    assert.match(drawer, /8m 28s/); // running 03:33:20 to 03:41:48
+    // Its wait, closed, with how long it lasted.
+    assert.match(drawer, /Click the New task card task_184e1773/);
+    assert.match(drawer, /to 2026-11-19T03:33:10Z \(6m 40s\)/);
+    // Its Run Events.
+    assert.match(drawer, /d350: started \(building, from a card\)/);
+    assert.match(drawer, /d350: landed/);
+  });
+
+  it("says a direct start was not from a card", async () => {
+    const dir = replayed("2026-11-19T03:30:00Z");
+    const file = join(runFolder(dir), "delegations", "d348", "events.jsonl");
+    writeFileSync(
+      file,
+      readFileSync(file, "utf8").replace('"start_route":"card"', '"start_route":"direct"'),
+    );
+    const { html } = await board(dir, [], { until: "2026-11-19T03:30:00Z" });
+    const drawer = html.match(/<aside class="drawer" data-open="d:d348"[\s\S]*?<\/aside>/)[0];
+    assert.match(drawer, /<dd>the Chief of Staff, directly<\/dd>/);
+  });
+
+  it("shows the Delegation's local Activity Log, escaped, and not another's", async () => {
+    const dir = replayed("2026-11-19T03:45:00Z");
+    writeFileSync(
+      join(runFolder(dir), "delegations", "d350", "activity.md"),
+      "## 03:35 ran the suite <script>alert(1)</script>\n",
+    );
+    writeFileSync(join(runFolder(dir), "activity.md"), "CoS-only line\n");
+    const { html } = await board(dir, [], { until: "2026-11-19T03:45:00Z" });
+    const d350 = html.match(/<aside class="drawer" data-open="d:d350"[\s\S]*?<\/aside>/)[0];
+    const d351 = html.match(/<aside class="drawer" data-open="d:d351"[\s\S]*?<\/aside>/)[0];
+    assert.match(d350, /ran the suite &lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+    assert.doesNotMatch(html, /<script>alert/);
+    assert.doesNotMatch(d351, /ran the suite|CoS-only/);
+    assert.match(d351, /No Activity Log on this machine/);
+    assert.match(
+      html.match(/<aside class="drawer" data-open="run"[\s\S]*?<\/aside>/)[0],
+      /CoS-only line/,
+    );
+  });
+
+  it("opens the drawer from the address in its script", async () => {
+    const { html } = await board(replayed("2026-11-19T03:45:00Z"), [], {
+      until: "2026-11-19T03:45:00Z",
+    });
+    assert.match(html, /open=\(\.\+\)/);
+  });
+});
+
+const RULINGS = `# Ruling Ledger
+
+### R1: Keep the outcome definitions in one file?
+
+**Delegation:** d350, for #350
+**Question:** Keep them in one file or both?
+**Options:**
+
+1. One file: one place to change
+2. Both files: each reads alone
+
+**Choice:** 1, because the spec asks for one source of truth
+**Evidence:** RUN.md:212 at f17e566
+**Cites:** none
+**Commits:** none yet
+**Verdict:** unreviewed
+
+### R2: A row below the floor?
+
+**Delegation:** d352, for #352
+**Question:** Write n/a or keep the source?
+**Options:**
+
+1. Write n/a: never published
+2. Keep the source: can still be closed
+
+**Choice:** 2, because of the closed advisory
+**Evidence:** RUN.md:301 at 5159081
+**Cites:** R1
+**Commits:** none yet
+**Verdict:** upheld, 2026-11-19
+`;
+/** The replay with Rulings: spec-344's own plan-approved says autonomous. */
+function withRulings(until) {
+  const dir = replayed(until);
+  writeFileSync(join(runFolder(dir), "rulings.md"), RULINGS);
+  const own = join(runFolder(dir), "events.jsonl");
+  appendFileSync(
+    own,
+    [
+      '{"at":"2026-11-19T03:37:00Z","kind":"ruling-made","actor":"chief-of-staff","delegation":"d350","ruling":"R1"}',
+      '{"at":"2026-11-19T04:05:00Z","kind":"ruling-made","actor":"chief-of-staff","delegation":"d352","ruling":"R2"}',
+      '{"at":"2026-11-19T04:20:00Z","kind":"ruling-verdict","actor":"human","ruling":"R2","verdict":"upheld"}',
+    ]
+      .filter((l) => JSON.parse(l).at <= until)
+      .map((l) => `${l}\n`)
+      .join(""),
+  );
+  return dir;
+}
+
+describe("board: Rulings, in an autonomous run only", () => {
+  it("has a Rulings section with the unreviewed count, and a badge on each card", async () => {
+    const dir = withRulings("2026-11-19T04:30:00Z");
+    const { html } = await board(dir, [], { until: "2026-11-19T04:30:00Z" });
+    assert.match(
+      html,
+      /<section class="panel rulings" id="rulings"><h2>Rulings <span class="n">1 unreviewed<\/span>/,
+    );
+    assert.match(html, /<a class="state ruling" href="#open=r:R1">R1 unreviewed<\/a>/);
+    assert.match(column(html, "Landed"), /data-delegation="d350"[\s\S]*?R1 unreviewed/);
+  });
+
+  it("opens each Ruling in the drawer: question, options, choice, reason, evidence, cites and verdict history", async () => {
+    const dir = withRulings("2026-11-19T04:30:00Z");
+    const { html } = await board(dir, [], { until: "2026-11-19T04:30:00Z" });
+    const r2 = html.match(/<aside class="drawer" data-open="r:R2"[\s\S]*?<\/aside>/)[0];
+    assert.match(r2, /A row below the floor\?/);
+    assert.match(r2, /<li>Write n\/a: never published<\/li>/);
+    assert.match(r2, /<li>Keep the source: can still be closed<\/li>/);
+    assert.match(r2, /2, because of the closed advisory/);
+    assert.match(r2, /RUN\.md:301 at 5159081/);
+    assert.match(r2, /<a href="#open=r:R1">R1<\/a>/);
+    assert.match(r2, /04:20:00Z<\/time> upheld/);
+    assert.match(r2, /upheld, 2026-11-19/);
+    assert.match(r2, /read-only/);
+  });
+
+  it("is read-only: the board has no form, button or control that answers", async () => {
+    const dir = withRulings("2026-11-19T04:30:00Z");
+    const { html } = await board(dir, [], { until: "2026-11-19T04:30:00Z" });
+    const text = html
+      .replace(/<style[\s\S]*?<\/style>/g, "")
+      .replace(/<script[\s\S]*?<\/script>/g, "");
+    assert.doesNotMatch(text, /<form|<input|<textarea|<select/);
+    assert.doesNotMatch(text.replace(/<button id="theme"[^>]*>.*?<\/button>/, ""), /<button/);
+  });
+
+  it("has no Rulings section in a run that is not autonomous", async () => {
+    const dir = replayed("2026-11-19T03:05:00Z"); // before the plan was approved: still `relay`
+    writeFileSync(join(runFolder(dir), "rulings.md"), RULINGS);
+    const { html } = await board(dir, [], { until: "2026-11-19T03:05:00Z" });
+    assert.doesNotMatch(html, /class="panel rulings"|id="rulings"/);
+    assert.doesNotMatch(html, /data-open="r:/);
+    assert.doesNotMatch(html, /R1 unreviewed/);
+  });
+});
+
+describe("board: a quiet run and a stopped one", () => {
+  const LAST = "2026-11-19T03:30:00Z"; // the last Run Event of the replay below is at 03:26:40Z
+  it("warns that the run is stale when the last Run Event is older than the heartbeat allows", async () => {
+    const dir = replayed(LAST);
+    const { html } = await board(dir, ["--heartbeat", "5"], { until: "2026-11-19T04:00:00Z" });
+    assert.match(
+      html,
+      /<div class="banner stale-warning" role="alert">Stale: the last Run Event was 33m 20s ago, and the heartbeat is every 5 min\./,
+    );
+  });
+
+  it("does not warn when the last Run Event is fresh", async () => {
+    const dir = replayed(LAST);
+    const { html } = await board(dir, ["--heartbeat", "5"], { until: "2026-11-19T03:30:00Z" });
+    assert.doesNotMatch(html, /class="banner stale-warning"/);
+  });
+
+  it("allows one missed firing before it warns", async () => {
+    const dir = replayed(LAST);
+    // 3m 30s after... the last event is 03:26:40Z; 5-minute heartbeat; under 10m is within two intervals.
+    const near = await board(dir, ["--heartbeat", "5"], { until: "2026-11-19T03:35:40Z" });
+    assert.doesNotMatch(near.html, /class="banner stale-warning"/);
+    const far = await board(dir, ["--heartbeat", "5"], { until: "2026-11-19T03:37:00Z" });
+    assert.match(far.html, /class="banner stale-warning"/);
+  });
+
+  it("uses the 10 minute default of HARNESSES.md when none is given", async () => {
+    const dir = replayed(LAST);
+    const quiet = await board(dir, [], { until: "2026-11-19T03:40:00Z" });
+    assert.doesNotMatch(quiet.html, /class="banner stale-warning"/);
+    const stopped = await board(dir, [], { until: "2026-11-19T04:00:00Z" });
+    assert.match(stopped.html, /the heartbeat is every 10 min/);
+  });
+
+  it("never warns with no heartbeat armed, or once the run is closed", async () => {
+    const none = await board(replayed(LAST), ["--heartbeat", "none"], {
+      until: "2026-11-20T04:00:00Z",
+    });
+    assert.doesNotMatch(none.html, /class="banner stale-warning"/);
+    const closed = await board(replayed("2026-11-19T06:30:00Z"), [], {
+      until: "2026-11-21T00:00:00Z",
+    });
+    assert.doesNotMatch(closed.html, /class="banner stale-warning"/);
+  });
+
+  it("tells the page's own script when to warn, so a file left open still goes stale", async () => {
+    const { html } = await board(replayed(LAST), ["--heartbeat", "5"], { until: LAST });
+    assert.match(html, /"lastEventAt":"2026-11-19T03:26:40Z"/);
+    assert.match(html, /"staleAfterMs":600000/);
+  });
+});
+
+describe("board: links, and what never leaves the folder", () => {
+  it("links a closed run to its page in the dashboard", async () => {
+    const dir = replayed("2026-11-19T06:30:00Z");
+    const { html } = await board(dir, [], { until: "2026-11-19T06:30:00Z" });
+    assert.match(
+      html,
+      /<a href="\.\.\/dashboard\.html#\/run\/2026-11-19-spec-344\/summary">This run's page in the dashboard<\/a>/,
+    );
+    const open = await board(replayed("2026-11-19T03:30:00Z"), [], {
+      until: "2026-11-19T03:30:00Z",
+    });
+    assert.doesNotMatch(open.html, /dashboard\.html/);
+  });
+
+  it("links a Team Run to the Shared Board instead of copying it", async () => {
+    const dir = replayed("2026-11-19T03:30:00Z");
+    const file = join(runFolder(dir), "events.jsonl");
+    writeFileSync(file, readFileSync(file, "utf8").replace('"team":false', '"team":true'));
+    mkdirSync(join(runFolder(dir), "shared-board"));
+    writeFileSync(join(runFolder(dir), "shared-board", "350.md"), "TEAMMATE-ROW-PROSE\n");
+    const { html } = await board(dir, [], { until: "2026-11-19T03:30:00Z" });
+    assert.match(
+      html,
+      /<a href="https:\/\/github\.com\/mnaimfaizy\/agent-kit\/issues\/344">Shared Board<\/a>/,
+    );
+    assert.match(html, /--status --spec 344/);
+    assert.doesNotMatch(html, /TEAMMATE-ROW-PROSE/);
+    const solo = await board(replayed("2026-11-19T03:30:00Z"), [], {
+      until: "2026-11-19T03:30:00Z",
+    });
+    assert.doesNotMatch(solo.html, /Shared Board/);
+  });
+
+  it("carries no credential, and says it holds private prose", async () => {
+    const dir = replayed("2026-11-19T03:45:00Z");
+    const ghp = `ghp_${"a1B2".repeat(8)}`;
+    writeFileSync(
+      join(runFolder(dir), "delegations", "d350", "activity.md"),
+      `pushed with ${ghp} and ${SECRET}\n`,
+    );
+    writeFileSync(join(runFolder(dir), "activity.md"), `AKIA${"A".repeat(16)}\n`);
+    const { html } = await board(dir, [], {
+      until: "2026-11-19T03:45:00Z",
+      env: { GH_TOKEN: SECRET },
+    });
+    assert.doesNotMatch(html, new RegExp(`${ghp}|${SECRET}|AKIA${"A".repeat(16)}`));
+    assert.match(html, /\[redacted\]/);
+    assert.match(html, /contains private prose from this machine, don&#39;t share this file/);
+  });
+
+  it("holds no prose from outside the run folder: not the tracker, not a sink", async () => {
+    const calls = [];
+    const dir = replayed("2026-11-19T03:45:00Z");
+    await board(dir, [], {
+      until: "2026-11-19T03:45:00Z",
+      exec: (command, args) => (calls.push([command, ...args]), { code: 1, out: "", err: "" }),
+      fetch: () => assert.fail("the board never reads a sink"),
+    });
+    assert.deepEqual(
+      calls.filter(([c]) => c !== "git"),
+      [],
+    );
+  });
+});
