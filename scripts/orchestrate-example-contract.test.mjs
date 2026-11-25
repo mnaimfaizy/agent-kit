@@ -92,6 +92,21 @@ describe("examples/orchestrate.config.yml", () => {
     );
   });
 
+  it("names the `gitlab` sink in the commented block, and a block set to it reads with no problems", () => {
+    assert.match(EXAMPLE, /type: github # github \| gitlab/);
+    const lines = EXAMPLE.split("\n");
+    const start = lines.findIndex((line) => line === "# records:");
+    const block = [];
+    for (const line of lines.slice(start)) {
+      if (!line.startsWith("# ")) break;
+      block.push(line.slice(2));
+    }
+    const text = block.join("\n").replace("type: github", "type: gitlab");
+    const { config: parsed, problems } = config.parseConfig(FILE, text);
+    assert.deepEqual(problems, []);
+    assert.equal(config.effectiveConfig(parsed).records.sink.type, "gitlab");
+  });
+
   it("shows the `prune` key as a commented block that reads with no problems once uncommented", () => {
     const lines = EXAMPLE.split("\n");
     const start = lines.findIndex((line) => line === "# prune:");

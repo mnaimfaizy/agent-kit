@@ -259,7 +259,7 @@ A safe-field check runs when the record is derived. A record with a field outsid
 
 #### Uploading Run Records to a sink
 
-Run Records stay on your machine unless you set a sink. In `orchestrate.config.yml`, point `records.sink` at a **private** GitHub repository you own or your team shares (`type: github`, `repo: owner/name`, or `host/owner/name` for GitHub Enterprise, and optionally `branch`):
+Run Records stay on your machine unless you set a sink. In `orchestrate.config.yml`, point `records.sink` at a **private** GitHub repository, or a **private** GitLab project, that you own or your team shares (`type: github` or `type: gitlab`, `repo: owner/name`, or `host/owner/name` for GitHub Enterprise or a self-hosted GitLab, and optionally `branch`):
 
 ```yaml
 records:
@@ -276,8 +276,9 @@ You can read the record first, upload it, or say "Not now": the local record sta
 
 - **One sink, many repositories.** Each repository writes only into its own namespace, `records/<host>/<owner>/<repo>/<login>/<run-id>.json`, with every segment lowercased, so two repositories never collide, even with one run id or one login. The repository is read from the `origin` remote (or the only remote); `records.repository` pins a renamed or mirrored one. The login is your `gh` login, overridable only by the `ORCHESTRATE_OPERATOR` environment variable. With no login, nothing is uploaded.
 - **Create-only.** Nothing in the sink is ever overwritten. Identical bytes already there count as uploaded; different bytes stop the upload and are shown to you.
-- **Private only.** The skill checks the repository is private at every upload, and refuses one that is public (or `internal`), with no override.
-- **Access.** `gh` needs **Contents: write** on the sink repository to upload ([`sinks/github.md`](../.claude/skills/orchestrate/sinks/github.md)). Whoever can read the repository can read every record in it, and a git repository cannot expire a file, so the records are kept until someone deletes them by hand.
+- **Private only.** The skill checks the repository or project is private at every upload, and refuses one that is public (or `internal`), with no override.
+- **Access.** `gh` needs **Contents: write** on the sink repository to upload ([`sinks/github.md`](../.claude/skills/orchestrate/sinks/github.md)); for a `gitlab` sink, `glab` needs the **Developer** role on the project ([`sinks/gitlab.md`](../.claude/skills/orchestrate/sinks/gitlab.md)). Whoever can read the repository can read every record in it, and a git repository cannot expire a file, so the records are kept until someone deletes them by hand.
+- **GitLab is `documented`.** The `gitlab` sink is written from GitLab's and `glab`'s documentation and tested against a fake transport only, so it is at Support Level `documented` until a run has uploaded to it. GitLab documents no create-only write, so the skill reads the path before it creates it, and the rule above holds just the same.
 
 #### Pruning old run folders
 
@@ -300,7 +301,7 @@ node .claude/skills/orchestrate/records.mjs dashboard --repo github.com/acme/wid
 node .claude/skills/orchestrate/records.mjs dashboard --local-logs   # also dashboard.local.html
 ```
 
-- **What it reads.** Your local records, and the sink in `records.sink`, nothing else. You need only read access to the sink (for `github`, Contents: read), so you can be given read-only access to see the dashboard. The build checks the sink is private before it reads; a sink that has turned public shows a warning, and the read goes ahead. A sink that cannot be read (it does not exist, or you have no access) is one warning, and the page is built from your local records. Records the build fetched are kept in `tmp/orchestrate/records-cache/`, so a rebuild fetches only new ones.
+- **What it reads.** Your local records, and the sink in `records.sink`, nothing else. You need only read access to the sink (for `github`, Contents: read), so you can be given read-only access to see the dashboard. For a `gitlab` sink that is the Reporter role: it lists `records/` with the repository tree (recursive, paginated) and reads with Repository Files raw. The build checks the sink is private before it reads; a sink that has turned public shows a warning, and the read goes ahead. A sink that cannot be read (it does not exist, or you have no access) is one warning, and the page is built from your local records. Records the build fetched are kept in `tmp/orchestrate/records-cache/`, so a rebuild fetches only new ones.
 - **Repositories.** The Repository switcher offers _All repositories_ and every repository found in the sink's paths, and the page opens on the repository you run it in, or the one `--repo` names. A path that does not read as a record path is skipped and listed. _All repositories_ shows the merge rate, human steps per run, the avoidable trend, the top avoidable cause, a chart of the repositories over time, the recent runs and the namespace tree. A repository's page stacks its human steps per run by cause and lists its runs.
 - **Local and sink.** A record that is identical in both counts once. A record only on your machine is tagged "not uploaded", with the `--upload` command that sends it. If the bytes differ, the sink's copy is shown, with a warning.
 - **Runs.** Every record, newest first.

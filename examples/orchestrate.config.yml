@@ -91,14 +91,15 @@ team: # read only by a Team Run
 
 
 # Run Records are always written locally. To also upload each one to a private
-# GitHub repository you own or share, with a disclosure first and a "Not now"
-# at close-out, uncomment this. Nothing is uploaded without it.
+# GitHub repository (or GitLab project) you own or share, with a disclosure
+# first and a "Not now" at close-out, uncomment this. Nothing is uploaded
+# without it.
 # records:
 #   repository: github.com/acme/widgets # default: host/owner/repo from the git remote
 #   upload: offer # offer | never; default offer once a sink is set
 #   sink: # unset: local only
-#     type: github # github
-#     repo: acme/run-records # a private repository: owner/name or host/owner/name
+#     type: github # github | gitlab (a private GitLab project, written with glab api)
+#     repo: acme/run-records # a private repository or project: owner/name or host/owner/name
 #     branch: main # default: that repo's default branch
 
 # Local pruning is off. To delete closed-out run folders older than N days from

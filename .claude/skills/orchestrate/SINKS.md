@@ -24,4 +24,13 @@ Then a `## Access` section giving the writer's access and the reader's, a `###` 
 
 **The write is create-only.** Identical bytes already at the path count as already uploaded; different bytes stop the upload; a parallel-write conflict is retried.
 
-Sinks beyond `github` are later work: `gitlab` and `s3` each get a file here when they land.
+**The sinks, and their Support Level** (the level its own file states, in the vocabulary harness files use: [HARNESSES.md](HARNESSES.md#support-level)):
+
+| Sink     | Support Level | File                               |
+| -------- | ------------- | ---------------------------------- |
+| `github` | `documented`  | [sinks/github.md](sinks/github.md) |
+| `gitlab` | `documented`  | [sinks/gitlab.md](sinks/gitlab.md) |
+
+A sink's Support Level is the one its own file states, and the Dispatch Plan and the disclosure name it while it is below `verified` ([RUN.md](RUN.md#uploading-the-run-record)): `gitlab` ships at `documented` until a run has uploaded to it, and the first one that does moves it, citing its Activity Log.
+
+Sinks beyond these are later work: `s3` gets a file here when it lands.

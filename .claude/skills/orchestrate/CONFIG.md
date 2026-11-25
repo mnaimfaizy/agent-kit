@@ -243,11 +243,11 @@ Read by the close-out, and by `--upload <run>` ([RUN.md](RUN.md#close-out)). A r
 
 `sink`'s keys:
 
-| Key      | Default                  | Meaning                                                                                                                                                          |
-| -------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `type`   | none: required           | The sink's kind. `github`: a private GitHub repository, written with `gh api` Contents calls ([sinks/github.md](sinks/github.md)). Any other value is a problem. |
-| `repo`   | none: required           | The sink repository: `owner/name`, or `host/owner/name` for GitHub Enterprise.                                                                                   |
-| `branch` | the repository's default | The branch the records are written to.                                                                                                                           |
+| Key      | Default                  | Meaning                                                                                                                                                                                                                                                                                                                                                 |
+| -------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `type`   | none: required           | The sink's kind. `github`: a private GitHub repository, written with `gh api` Contents calls ([sinks/github.md](sinks/github.md)). `gitlab`: a private GitLab project, written with `glab api` Repository Files calls ([sinks/gitlab.md](sinks/gitlab.md)), at Support Level `documented` until a run has uploaded to it. Any other value is a problem. |
+| `repo`   | none: required           | The sink repository or project: `owner/name`, or `host/owner/name` for GitHub Enterprise or a self-hosted GitLab. Without a host it is on `github.com`, or on `gitlab.com` for a `gitlab` sink.                                                                                                                                                         |
+| `branch` | the repository's default | The branch the records are written to.                                                                                                                                                                                                                                                                                                                  |
 
 ```yaml
 records:

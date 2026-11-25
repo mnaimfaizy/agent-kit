@@ -429,6 +429,41 @@ describe("uploading the Run Record to a sink", () => {
       assert.match(index, new RegExp(`\\| \`${op}\``), op);
   });
 
+  it("the gitlab sink file mirrors the github one: both accesses, every operation, and Support Level `documented`", () => {
+    const sink = flat(read(`${SKILL_DIR}/sinks/gitlab.md`));
+    assert.match(
+      sink,
+      /^# GitLab - \*\*Id:\*\* `gitlab` - \*\*Support Level:\*\* `documented`\. No run has uploaded/,
+    );
+    assert.match(sink, /- \*\*Facts from:\*\*/);
+    assert.match(sink, /\*\*The writer\*\* needs the \*\*Developer\*\* role/);
+    assert.match(sink, /\*\*The reader\*\* \(the dashboard\) needs the \*\*Reporter\*\* role/);
+    for (const op of ["visibility", "access", "read", "create", "list"])
+      assert.match(sink, new RegExp(`### \`${op}\``), op);
+    assert.match(sink, /## Check before use/);
+    assert.match(sink, /GitLab does not document a create-only write, so the path is read first/);
+    assert.match(sink, /`internal` and `public` are refused/);
+  });
+
+  it("SINKS.md lists the gitlab sink and says where its Support Level is read", () => {
+    const index = flat(read(`${SKILL_DIR}/SINKS.md`));
+    assert.match(index, /\| `gitlab` \| `documented` \|/);
+    assert.match(
+      index,
+      /A sink's Support Level is the one its own file states, and the Dispatch Plan and the disclosure name it while it is below `verified` \\(\\[RUN\\.md\\]\\(RUN\\.md#uploading-the-run-record\\)\\): `gitlab` ships at `documented` until a run has uploaded to it/,
+    );
+  });
+
+  it("RUN.md and SKILL.md have the Dispatch Plan and the close-out say the sink's Support Level", () => {
+    const run = flat(read(`${SKILL_DIR}/RUN.md`));
+    assert.match(
+      run,
+      /When the sink's file states a Support Level below `verified` \(`gitlab` ships at `documented`\), the Dispatch Plan says so beside "upload the Run Record", and the close-out repeats it after the disclosure/,
+    );
+    assert.match(flat(SKILL), /the sink's Support Level \(\[SINKS\.md\]\(SINKS\.md\)\)/);
+    assert.match(flat(DESIGN), /`gitlab` sink ships at Support Level `documented`/);
+  });
+
   it("CONFIG.md documents the records keys, and the path and login rules", () => {
     const config = flat(read(`${SKILL_DIR}/CONFIG.md`));
     assert.match(

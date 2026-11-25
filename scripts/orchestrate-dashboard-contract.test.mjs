@@ -188,6 +188,13 @@ describe("DESIGN.md and docs/orchestrate.md say what it does and why", () => {
     assert.match(github, /it never writes/);
   });
 
+  it("sinks/gitlab.md gives the reader's access: Reporter, and no write", () => {
+    const gitlab = flat(read(`${SKILL_DIR}/sinks/gitlab.md`));
+    assert.match(gitlab, /\*\*The reader\*\* \(the dashboard\) needs the \*\*Reporter\*\* role/);
+    assert.match(gitlab, /it never writes/);
+    assert.match(gitlab, /recursive and paginated/);
+  });
+
   it("the docs table has the --dashboard row, and the docs have the section", () => {
     assert.match(
       flat(DOCS),
