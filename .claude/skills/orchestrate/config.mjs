@@ -203,6 +203,12 @@ export const TRACKERS = /** @type {const} */ (["detect", "github", "gitlab"]);
 /** The hosts detection knows. Any other host, a self-hosted GitLab included, needs the pin. */
 export const TRACKER_HOSTS = Object.freeze({ "github.com": "github", "gitlab.com": "gitlab" });
 export const TEAM_KEYS = /** @type {const} */ (["labels", "recent_activity"]);
+/** `records`' keys (CONFIG.md): the Run Record sink and whether close-out offers an upload. */
+export const RECORDS_KEYS = /** @type {const} */ (["repository", "upload", "sink"]);
+export const RECORDS_UPLOADS = /** @type {const} */ (["offer", "never"]);
+/** The Run Record sink types this reader knows. `gitlab` and `s3` arrive with their own sink files. */
+export const SINK_TYPES = /** @type {const} */ (["github"]);
+export const SINK_KEYS = /** @type {const} */ (["type", "repo", "branch"]);
 /** A Team Run's six coarse states, each mirrored by one state label on a ticket. */
 export const TEAM_STATES = /** @type {const} */ ([
   "planned",
@@ -249,6 +255,7 @@ export const DEFAULTS = Object.freeze({
   integration_branch: "orchestrate/spec-<n>",
   tracker: "detect",
   recent_activity: 5,
+  upload: "offer",
   team_labels: Object.freeze(
     Object.fromEntries(TEAM_STATES.map((state) => [state, `team: ${state.replaceAll("_", " ")}`])),
   ),
@@ -693,6 +700,29 @@ function branchPatternProblem(v) {
   return bad ? "expected a valid git branch name once `<n>` is filled in" : null;
 }
 
+/** `host/owner/repo`, three plain segments. */
+const REPOSITORY = /^[A-Za-z0-9][A-Za-z0-9.-]*\/[\w.-]+\/[\w.-]+$/;
+/** A sink repository: `owner/name`, or `host/owner/name` for another host. */
+const SINK_REPO = /^(?:[A-Za-z0-9][A-Za-z0-9.-]*\/)?[\w.-]+\/[\w.-]+$/;
+
+/** A repository name matching `pattern`, with no `.` or `..` segment. */
+const plainRepo = (pattern, v) =>
+  typeof v === "string" && pattern.test(v) && v.split("/").every((part) => !/^\.+$/.test(part));
+
+/** A branch name `git check-ref-format --branch` accepts, as far as the reader can tell without git. */
+function validBranch(v) {
+  if (!nonEmpty(v)) return false;
+  return !(
+    /[\x00-\x20\x7f~^:?*[\\]/.test(v) ||
+    v.startsWith("-") ||
+    v.includes("..") ||
+    v.includes("@{") ||
+    v === "@" ||
+    v.endsWith(".") ||
+    v.split("/").some((part) => part === "" || part.startsWith(".") || part.endsWith(".lock"))
+  );
+}
+
 const isCount = (v) =>
   (typeof v === "number" && Number.isSafeInteger(v) && v >= 1) ||
   (typeof v === "string" && /^[1-9]\d{0,8}$/.test(v));
@@ -887,6 +917,40 @@ export const SECTIONS = {
         sink.add(path, `\`${labels[state]}\` is also the label for \`${names.get(name)}\``);
       else names.set(name, state);
     }
+  },
+  records(sink, value) {
+    if (!isMapping(value)) return sink.add("records", "expected a mapping");
+    unknownKeys(sink, value, "records", RECORDS_KEYS);
+    if (
+      given(sink, value, "repository", "records.repository") &&
+      !REPOSITORY.test(value.repository)
+    )
+      sink.add(
+        "records.repository",
+        "expected `host/owner/repo`, such as `github.com/acme/widgets`",
+      );
+    if (given(sink, value, "upload", "records.upload") && !RECORDS_UPLOADS.includes(value.upload))
+      sink.add("records.upload", `expected one of: ${RECORDS_UPLOADS.join(", ")}`);
+    if (!given(sink, value, "sink", "records.sink")) return;
+    const s = value.sink;
+    if (!isMapping(s)) return sink.add("records.sink", "expected a mapping");
+    unknownKeys(sink, s, "records.sink", SINK_KEYS);
+    if (!given(sink, s, "type", "records.sink.type"))
+      sink.add("records.sink.type", `missing: one of ${SINK_TYPES.join(", ")}`);
+    else if (!SINK_TYPES.includes(s.type))
+      sink.add(
+        "records.sink.type",
+        `unknown sink type \`${s.type}\`; expected one of: ${SINK_TYPES.join(", ")}`,
+      );
+    if (!given(sink, s, "repo", "records.sink.repo"))
+      sink.add(
+        "records.sink.repo",
+        "missing: the private repository, `owner/name` or `host/owner/name`",
+      );
+    else if (!plainRepo(SINK_REPO, s.repo))
+      sink.add("records.sink.repo", "expected `owner/name` or `host/owner/name`");
+    if (given(sink, s, "branch", "records.sink.branch") && !validBranch(s.branch))
+      sink.add("records.sink.branch", "expected a valid git branch name");
   },
 };
 
@@ -1085,6 +1149,8 @@ export function effectiveConfig(config) {
   const ready = section("ready_to_merge");
   const spec = section("spec");
   const team = section("team");
+  const records = section("records");
+  const sinkValue = isMapping(records.sink) ? records.sink : null;
   return {
     run_dir: config.run_dir ?? DEFAULTS.run_dir,
     read_first: Array.isArray(config.read_first) ? config.read_first : null,
@@ -1111,6 +1177,17 @@ export function effectiveConfig(config) {
       integration_branch: spec.integration_branch ?? DEFAULTS.integration_branch,
     },
     tracker: config.tracker ?? DEFAULTS.tracker,
+    records: {
+      repository: records.repository ?? null,
+      upload: records.upload ?? DEFAULTS.upload,
+      sink: sinkValue
+        ? {
+            type: sinkValue.type ?? null,
+            repo: sinkValue.repo ?? null,
+            branch: sinkValue.branch ?? null,
+          }
+        : null,
+    },
     team: {
       // Trimmed, as the tracker trims a label name, so a run names and compares it as `check` did.
       labels: isMapping(team.labels)

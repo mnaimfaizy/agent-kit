@@ -69,6 +69,7 @@ Tabs, anchors, aliases, multi-line scalars, flow collections that span lines, a 
 | `spec`           | see below           | How a spec run (`--spec <n>`) lands its work. A run on a set of issues reads none of it.                                                                                                                                  |
 | `tracker`        | `detect`            | The issue tracker a Team Run (`--spec <n> --team`) reads its tickets from. See below.                                                                                                                                     |
 | `team`           | see below           | A Team Run's state labels, and how much a Shared Board row keeps. Only a Team Run reads it.                                                                                                                               |
+| `records`        | local only          | Where Run Records are kept off the machine, and whether close-out offers the upload. See below.                                                                                                                           |
 
 A value in any route, command or skill name is free text: the brief carries it as written, so a route can be a command, a skill to use, or a sentence of convention.
 
@@ -199,6 +200,36 @@ team:
 ```
 
 A `labels` mapping that leaves a state out, names a key that is not one of the six, or gives one label to two states (compared without case, as the tracker compares them) is a problem.
+
+### `records`
+
+Read by the close-out, and by `--upload <run>` ([RUN.md](RUN.md#close-out)). A run with no `records` key keeps its Run Record on the machine and offers nothing.
+
+| Key          | Default                           | Meaning                                                                                                                                                                                                                                                                                   |
+| ------------ | --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `repository` | `host/owner/repo` from the remote | This repository's name in a sink's paths, for a renamed or mirrored repository: `host/owner/repo`, three plain segments. Unset, it is read from the `origin` remote (or the only remote; with several and none named `origin`, the run asks). Records are never moved between namespaces. |
+| `upload`     | `offer`                           | `offer`: once a sink is set, the close-out offers to upload the Run Record. `never`: it does not offer; `--upload <run>` still works.                                                                                                                                                     |
+| `sink`       | none: local only                  | The one private place Run Records are uploaded to, a mapping of the keys below. Unset, Run Records stay in `<run_dir>/records/`.                                                                                                                                                          |
+
+`sink`'s keys:
+
+| Key      | Default                  | Meaning                                                                                                                                                          |
+| -------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `type`   | none: required           | The sink's kind. `github`: a private GitHub repository, written with `gh api` Contents calls ([sinks/github.md](sinks/github.md)). Any other value is a problem. |
+| `repo`   | none: required           | The sink repository: `owner/name`, or `host/owner/name` for GitHub Enterprise.                                                                                   |
+| `branch` | the repository's default | The branch the records are written to.                                                                                                                           |
+
+```yaml
+records:
+  repository: github.com/acme/widgets # default: host/owner/repo from the git remote
+  upload: offer # offer | never; default offer once a sink is set
+  sink: # unset: local only
+    type: github # github
+    repo: acme/run-records # owner/name or host/owner/name
+    branch: main # default: that repo's default branch
+```
+
+A record's path in the sink is `records/<host>/<owner>/<repo>/<login>/<run-id>.json`, every segment lowercased, so one sink serves many repositories and two never collide. The login is the tracker login, overridable only by the `ORCHESTRATE_OPERATOR` environment variable, and with none, nothing uploads. The config holds no credential: `gh` signs in as the person who runs it, and there is no local overlay, so a person opts out by answering "Not now" at close-out.
 
 ## Readiness check
 

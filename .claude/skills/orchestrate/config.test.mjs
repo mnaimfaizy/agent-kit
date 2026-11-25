@@ -169,6 +169,7 @@ test("each key's default, with an empty config", () => {
     ready_to_merge: { review: "settled", qa: "none", qa_labels: [], review_workflow: "detect" },
     spec: { landing: "ask", integration_branch: "orchestrate/spec-<n>" },
     tracker: "detect",
+    records: { repository: null, upload: "offer", sink: null },
     team: {
       labels: {
         planned: "team: planned",
@@ -722,7 +723,7 @@ test("JSON: each problem is named with its line, like YAML's", () => {
     "}",
   ].join("\n");
   assert.deepEqual(json(text).problems, [
-    "line 3: `routs`: unknown key (CONFIG.md documents: run_dir, read_first, routes, regate, skills, triage_labels, models, harness, executors, limits, decisions, ready_to_merge, spec, tracker, team)",
+    "line 3: `routs`: unknown key (CONFIG.md documents: run_dir, read_first, routes, regate, skills, triage_labels, models, harness, executors, limits, decisions, ready_to_merge, spec, tracker, team, records)",
     "line 10: `read_first[1]`: expected a relative path inside the repository",
     "line 6: `routes.push`: unknown key (CONFIG.md documents: commit, pull_request, merge)",
     "line 5: `routes.commit`: expected a non-empty string",
@@ -1743,5 +1744,122 @@ test("a self-hosted GitLab is not detected, and `check` reports the `tracker: gi
     remote: "origin",
     remote_host: "git.acme.internal",
     detected: null,
+  });
+});
+
+// ── Run Records: `records` ──────────────────────────────────────────────────
+
+test("a `records` section reads the same in YAML and JSON, with its defaults", () => {
+  const want = {
+    repository: "github.com/acme/widgets",
+    upload: "never",
+    sink: { type: "github", repo: "ghe.acme.dev/acme/run-records", branch: "main" },
+  };
+  const fromYaml = yaml(
+    "records:",
+    "  repository: github.com/acme/widgets",
+    "  upload: never",
+    "  sink:",
+    "    type: github",
+    "    repo: ghe.acme.dev/acme/run-records",
+    "    branch: main",
+  );
+  const fromJson = json(JSON.stringify({ records: want }));
+  assert.deepEqual([fromYaml.problems, fromJson.problems], [[], []]);
+  assert.deepEqual(effectiveConfig(fromYaml.config).records, want);
+  assert.deepEqual(effectiveConfig(fromJson.config).records, want);
+  // A sink with only its required keys: the offer is on, and the branch is the repository's default.
+  const bare = yaml("records:", "  sink:", "    type: github", "    repo: acme/run-records");
+  assert.deepEqual(bare.problems, []);
+  assert.deepEqual(effectiveConfig(bare.config).records, {
+    repository: null,
+    upload: "offer",
+    sink: { type: "github", repo: "acme/run-records", branch: null },
+  });
+  assert.deepEqual(effectiveConfig(yaml("records: {}").config).records, {
+    repository: null,
+    upload: "offer",
+    sink: null,
+  });
+});
+
+test("`records` problems, each with its line, in YAML", () => {
+  const problems = (...lines) => yaml("records:", ...lines).problems.join("\n");
+  assert.match(problems("  colour: red"), /^line 2: `records\.colour`: unknown key/);
+  assert.match(
+    problems("  repository: widgets"),
+    /line 2: `records\.repository`: expected `host\/owner\/repo`/,
+  );
+  assert.match(problems("  upload: always"), /`records\.upload`: expected one of: offer, never/);
+  assert.match(problems("  sink: s3"), /`records\.sink`: expected a mapping/);
+  assert.match(
+    problems("  sink:", "    type: s3", "    repo: a/b"),
+    /line 3: `records\.sink\.type`: unknown sink type `s3`; expected one of: github/,
+  );
+  assert.match(
+    problems("  sink:", "    type: gitea", "    repo: a/b"),
+    /`records\.sink\.type`: unknown sink type `gitea`/,
+  );
+  assert.match(problems("  sink:", "    repo: a/b"), /`records\.sink\.type`: missing/);
+  assert.match(problems("  sink:", "    type: github"), /`records\.sink\.repo`: missing/);
+  for (const repo of ["run-records", "a/b/c/d", "a//b", "a/ b", "a/../b"])
+    assert.match(
+      problems("  sink:", "    type: github", `    repo: "${repo}"`),
+      /`records\.sink\.repo`: expected `owner\/name` or `host\/owner\/name`/,
+      repo,
+    );
+  assert.match(
+    problems("  sink:", "    type: github", "    repo: a/b", "    branch: a..b"),
+    /`records\.sink\.branch`: expected a valid git branch name/,
+  );
+  assert.match(
+    problems("  sink:", "    type: github", "    repo: a/b", "    token: x"),
+    /`records\.sink\.token`: unknown key/,
+  );
+});
+
+test("`records` problems, in JSON, name their lines too", () => {
+  const text = [
+    "{",
+    '  "records": {',
+    '    "upload": "later",',
+    '    "sink": { "type": "s3", "repo": "a/b" }',
+    "  }",
+    "}",
+  ].join("\n");
+  assert.deepEqual(json(text).problems, [
+    "line 3: `records.upload`: expected one of: offer, never",
+    "line 4: `records.sink.type`: unknown sink type `s3`; expected one of: github",
+  ]);
+});
+
+test("`records` adds nothing the readiness check asks for or notes", () => {
+  const base = readiness(readConfig(reader({ "orchestrate.config.yml": READY_BASE.join("\n") })));
+  const records = readiness(
+    readConfig(
+      reader({
+        "orchestrate.config.yml": [
+          ...READY_BASE,
+          "records:",
+          "  sink:",
+          "    type: github",
+          "    repo: acme/run-records",
+        ].join("\n"),
+      }),
+    ),
+  );
+  assert.deepEqual(records, base);
+});
+
+test("CONFIG.md's `records` example reads with no problems", () => {
+  const block = [0, 1, 2, 3, 4]
+    .map((n) => configBlock("yaml", n))
+    .find((text) => text.startsWith("records:"));
+  const read = parseConfig("orchestrate.config.yml", block);
+  assert.deepEqual(read.problems, []);
+  assert.deepEqual(effectiveConfig(read.config).records, {
+    repository: "github.com/acme/widgets",
+    upload: "offer",
+    sink: { type: "github", repo: "acme/run-records", branch: "main" },
   });
 });
