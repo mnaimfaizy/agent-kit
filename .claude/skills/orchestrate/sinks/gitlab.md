@@ -4,7 +4,7 @@
 - **Support Level:** `documented`. No run has uploaded to a GitLab sink yet, and no command below has been run against a GitLab instance; the first run that does moves it, citing its Activity Log.
 - **Facts from:** the `glab` CLI, version 1.116.0 (`glab api` with `--method`, `--header`, `--input`, `--hostname`), and GitLab's REST API for projects, project members, the repository tree and Repository Files, as [SINKS.md](../SINKS.md) names them, read on 2026-11-25.
 
-Every command runs with `glab` signed in as the person who runs the skill (`glab auth login`, or `glab auth login --hostname <host>` for a self-hosted GitLab). `<project>` is the config's `records.sink.repo`, `owner/name` or `host/owner/name`, with the whole `owner/name` URL-encoded as one segment (`acme%2Frun-records`); the host is `gitlab.com` when none is given. Every command takes `--hostname <host>`, `gitlab.com` too, because inside a clone `glab api` otherwise sends the request to that clone's host. `<ref>` is `records.sink.branch`; unset, it is the project's `default_branch`, read once from `visibility`'s answer, because the Repository Files API always needs a ref. `<path>` is `records/<host>/<owner>/<repo>/<login>/<run-id>.json`, every segment lowercased ([CONFIG.md](../CONFIG.md#records)), URL-encoded as one segment (`records%2Fgitlab.com%2F…`). `glab api` has no `--jq`: the skill reads the JSON itself.
+Every command runs with `glab` signed in as the person who runs the skill (`glab auth login`, or `glab auth login --hostname <host>` for a self-hosted GitLab). `<project>` is the config's `records.sink.repo`, `owner/name` or `host/owner/name`, with the whole `owner/name` URL-encoded as one segment (`acme%2Frun-records`); the host is `gitlab.com` when none is given. Every command takes `--hostname <host>`, `gitlab.com` too, because inside a clone `glab api` otherwise sends the request to that clone's host. `<ref>` is `records.sink.branch`; unset, it is the project's `default_branch`, read once with one `glab api --hostname <host> projects/<project>` call, because the Repository Files API always needs a ref. `<path>` is `records/<host>/<owner>/<repo>/<login>/<run-id>.json`, every segment lowercased ([CONFIG.md](../CONFIG.md#records)), URL-encoded as one segment (`records%2Fgitlab.com%2F…`). `glab api` has no `--jq`: the skill reads the JSON itself.
 
 ## Access
 
@@ -41,7 +41,7 @@ The file's bytes. A `404` means the path is not there yet; any other failure sto
 ### `create`
 
 ```bash
-glab api --hostname <host> --method POST -H "Content-Type: application/json" "projects/<project>/repository/files/<path>" --input -
+glab api --hostname <host> -X POST -H "Content-Type: application/json" "projects/<project>/repository/files/<path>" --input -
 ```
 
 With a JSON body on standard input: `{"branch": "<ref>", "commit_message": "Add Run Record <run-id>", "encoding": "base64", "content": "<base64 of the record>"}`. GitLab does not document a create-only write, so the path is read first, every time (`read`, above), and the create is sent only when it is not there. A `400` saying the file already exists means it was created in between, and is read again the same way. A `409` is retried the same way: the path is read again first, and identical bytes there mean the upload is done.

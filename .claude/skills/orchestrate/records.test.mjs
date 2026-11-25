@@ -1838,6 +1838,19 @@ describe("sinks: the gitlab adapter behind the same interface", () => {
     assert.equal(await open(transport).list("records/"), null);
   });
 
+  it("does not take a failure that merely mentions 404 for a missing path", async () => {
+    const sink = openSink("gitlab", {
+      repo: "acme/run-records",
+      branch: "b",
+      exec: () => ({
+        code: 1,
+        out: "",
+        err: "glab: server error while reading run-404 (HTTP 500)",
+      }),
+    });
+    assert.equal((await sink.read("records/run-404.json")).status, "error");
+  });
+
   it("reports a failed read or create as an error with its first line", async () => {
     const transport = fakeGitlab();
     transport.repos["acme/run-records"].forbidden = true;

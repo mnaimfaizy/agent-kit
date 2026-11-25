@@ -1019,7 +1019,7 @@ function githubSink({ repo, branch = null, exec = defaultExec }) {
 }
 
 /** A GitLab 404: `glab api` prints the status in its message, or the body's own. */
-const GITLAB_NOT_FOUND = /\b404\b/;
+const GITLAB_NOT_FOUND = /HTTP 404|\b404 (?:[A-Za-z]+ )*Not Found/i;
 /** The most pages a listing follows: a stop for a server that never runs out. */
 const MAX_PAGES = 1000;
 
