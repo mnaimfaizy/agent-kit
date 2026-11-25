@@ -100,7 +100,7 @@ describe("RUN.md: the past-runs dashboard", () => {
     assert.match(text, /A path that does not parse is skipped and listed/);
     assert.match(
       text,
-      /offers \*All repositories\* and every namespace found, and the page opens on the current repository/,
+      /offers _All repositories_ and every namespace found, and the page opens on the current repository/,
     );
     assert.match(text, /or on `--repo`/);
   });
