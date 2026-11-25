@@ -261,15 +261,15 @@ _Avoid_: environment, stage
 
 ### Hosted targets
 
-How a `url` QA target names more than one address, and who confirms each: the terms [`manual-qa`](.claude/skills/manual-qa/SKILL.md) and the `orchestrate` Dispatch Plan share.
+How a `url` QA target names more than one address, and who confirms each: the terms [`manual-qa`](.claude/skills/manual-qa/SKILL.md) and the `orchestrate` Dispatch Plan share. `manual-qa` alone carries them, in its [`DESIGN.md`](.claude/skills/manual-qa/DESIGN.md#glossary), word for word, since it uses them; `scripts/qa-glossary-contract.test.py` keeps the two the same.
 
 **Host candidate**:
 A hosted address that a QA config lists under `run.hosts`. No config key confirms a hosted address, so it counts as a host only once the human types it, per host and per run (in chat, or in an approved-QA run's Dispatch Plan), and `adapter.mjs host` gives `hosted`.
 _Avoid_: configured host, saved host
 
 **Service**:
-A named hosted service of a `url` target, such as `billing`, that has an address of its own; a scenario picks it with **Service:**, and without one it uses the entry for its surface.
-_Avoid_: backend, microservice
+A named hosted service of a `url` target, such as `billing`, that has an address of its own; a scenario picks it with **Service:**, and without one it uses the entry for its surface. Not a QA Stack service, which is what `plan.suites[].services` names (a `postgres` a suite runs against).
+_Avoid_: backend, microservice, a suite's `services`
 
 ### Orchestration
 

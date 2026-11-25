@@ -34,10 +34,13 @@ TERMS = [
     "QA Report",
     "Place",
 ]
+# Under "Hosted targets": carried by `manual-qa` alone, which uses them.
+HOSTED_TERMS = ["Host candidate", "Service"]
+MANUAL_QA_DESIGN = DESIGNS[1]
 
 
-def glossary_terms() -> dict[str, str]:
-    section = GLOSSARY.read_text(encoding="utf-8").split("\n### Manual QA\n", 1)[1].split("\n### ", 1)[0]
+def glossary_terms(heading: str = "Manual QA") -> dict[str, str]:
+    section = GLOSSARY.read_text(encoding="utf-8").split(f"\n### {heading}\n", 1)[1].split("\n### ", 1)[0]
     return dict(re.findall(r"^\*\*(.+?)\*\*:\n(.+)$", section, re.MULTILINE))
 
 
@@ -52,10 +55,22 @@ def test_glossary_defines_the_qa_terms() -> None:
 
 def test_each_qa_skill_design_repeats_them_word_for_word() -> None:
     for design in DESIGNS:
-        assert design_terms(design) == glossary_terms(), design.parent.name
+        carried = design_terms(design)
+        assert {term: carried.get(term) for term in TERMS} == glossary_terms(), design.parent.name
+
+
+def test_manual_qa_design_carries_the_hosted_target_terms() -> None:
+    hosted = glossary_terms("Hosted targets")
+    assert list(hosted) == HOSTED_TERMS
+    carried = design_terms(MANUAL_QA_DESIGN)
+    assert {term: carried.get(term) for term in HOSTED_TERMS} == hosted
+    # The one skill that carries them says so where the glossary defines them.
+    intro = GLOSSARY.read_text(encoding="utf-8").split("\n### Hosted targets\n", 1)[1].split("\n**", 1)[0]
+    assert "`manual-qa`" in intro and "`DESIGN.md`" in intro
 
 
 if __name__ == "__main__":
     test_glossary_defines_the_qa_terms()
     test_each_qa_skill_design_repeats_them_word_for_word()
+    test_manual_qa_design_carries_the_hosted_target_terms()
     print("qa glossary contract: ok")
