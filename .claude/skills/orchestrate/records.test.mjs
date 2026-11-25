@@ -655,6 +655,18 @@ describe("derive: waits and Rulings as Run Events", () => {
     assert.equal(existsSync(recordPath(dir)), false);
   });
 
+  it("refuses an open harness-limit wait that names no card, though it never becomes a step", async () => {
+    const dir = root();
+    await emit(
+      dir,
+      "2026-11-19T06:10:00Z",
+      wait("w45", ["--step-kind", "card-start", "--cause", "harness-limit", "--how", "card"]),
+    );
+    const result = await derive(dir);
+    assert.equal(result.code, 1);
+    assert.match(result.out, /a `harness-limit` step must name its `card`/);
+  });
+
   it("refuses a teammate-blocker wait with no blocker ticket or login, or on another step kind", async () => {
     const dir = root();
     await emit(
@@ -672,7 +684,7 @@ describe("derive: waits and Rulings as Run Events", () => {
     );
   });
 
-  it("never counts a by-design cause as avoidable, and counts a teammate wait's seconds apart from the human's", async () => {
+  it("never counts a by-design cause as avoidable", async () => {
     const record = await derived();
     for (const s of record.human_steps) assert.equal(s.avoidable, CAUSES[s.cause] === "avoidable");
     assert.equal(record.summary.avoidable + record.summary.by_design, record.summary.human_steps);
@@ -784,7 +796,7 @@ describe("derive: waits and Rulings as Run Events", () => {
         "please start this card now",
       ]);
       assert.equal(result.code, 1, field);
-      assert.match(result.out, new RegExp(field.replace("-", "_")));
+      assert.match(result.out, new RegExp(field.replaceAll("-", "_")));
     }
   });
 });

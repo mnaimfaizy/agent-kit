@@ -725,10 +725,11 @@ function build(events, runId, operator) {
     }
   }
 
-  for (const s of steps)
+  // An open wait is held to the same rules as a closed one: it never becomes a step.
+  const opened = [...open.values()].map((o) => ({ ...o, kind: o.step_kind }));
+  for (const s of [...steps, ...opened]) {
     if (["plan-approval", "close-out"].includes(s.kind) && s.cause !== "by-design")
       problems.push(`human_steps: a \`${s.kind}\` step must have cause \`by-design\``);
-  for (const s of steps) {
     if (s.cause === "harness-limit" && s.card === undefined)
       problems.push("human_steps: a `harness-limit` step must name its `card`");
     if (s.cause === "teammate-blocker") {
