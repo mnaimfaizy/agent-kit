@@ -1,0 +1,815 @@
+/**
+ * Contract suite for the orchestrate records script. The claims under test:
+ * a Run Event is appended with the clock's time and a closed set of typed
+ * fields; the Run Record derived from a run's events carries the expected
+ * counts, causes and durations; a record that holds free text or a field
+ * outside the schema is refused with the field named, never stripped; and
+ * the record is written outside the run folder. Every test goes through
+ * `main(argv, io)` with an injected clock, files root and transport.
+ */
+
+import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import {
+  appendFileSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { after, describe, it } from "node:test";
+import { fileURLToPath } from "node:url";
+
+import { CAUSES, EVENT_KINDS, STEP_KINDS, checkRecord, main, repoFromRemote } from "./records.mjs";
+
+const here = dirname(fileURLToPath(import.meta.url));
+const FIXTURE = join(here, "fixtures", "records", "2026-11-19-spec-344");
+const RUN = "2026-11-19-spec-344";
+const made = [];
+after(() => made.forEach((dir) => rmSync(dir, { recursive: true, force: true })));
+
+/** A temp files root holding a copy of the spec-344 run folder under `tmp/orchestrate/`. */
+function root() {
+  const dir = mkdtempSync(join(tmpdir(), "orchestrate-records-"));
+  made.push(dir);
+  cpSync(FIXTURE, join(dir, "tmp", "orchestrate", RUN), { recursive: true });
+  return dir;
+}
+const runFolder = (dir) => join(dir, "tmp", "orchestrate", RUN);
+const recordPath = (dir) => join(dir, "tmp", "orchestrate", "records", `${RUN}.json`);
+const at = (iso) => () => new Date(iso);
+const derive = (dir, io = {}) =>
+  main(["derive", `tmp/orchestrate/${RUN}`], {
+    cwd: dir,
+    env: { ORCHESTRATE_OPERATOR: "naim" },
+    ...io,
+  });
+const derived = async (dir = root(), io) => {
+  const result = await derive(dir, io);
+  assert.equal(result.code, 0, result.out);
+  return JSON.parse(readFileSync(recordPath(dir), "utf8"));
+};
+
+describe("event: append one Run Event", () => {
+  it("appends a line with the clock's time, the kind, the actor and the typed fields", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "orchestrate-records-"));
+    made.push(dir);
+    const file = "tmp/orchestrate/r/delegations/d12/events.jsonl";
+    const result = await main(
+      [
+        "event",
+        "--file",
+        file,
+        "--kind",
+        "delegation-landed",
+        "--actor",
+        "delegation",
+        "--delegation",
+        "d12",
+        "--head",
+        "6fc67d7",
+      ],
+      { cwd: dir, now: at("2026-11-25T10:00:00.500Z") },
+    );
+    assert.equal(result.code, 0, result.out);
+    assert.deepEqual(JSON.parse(readFileSync(join(dir, file), "utf8")), {
+      at: "2026-11-25T10:00:00Z",
+      kind: "delegation-landed",
+      delegation: "d12",
+      head: "6fc67d7",
+      actor: "delegation",
+    });
+  });
+
+  it("appends: a second event goes on a new line and the first is kept", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "orchestrate-records-"));
+    made.push(dir);
+    const file = "events.jsonl";
+    for (const minute of ["01", "02"])
+      await main(
+        [
+          "event",
+          "--file",
+          file,
+          "--kind",
+          "pull-request",
+          "--actor",
+          "chief-of-staff",
+          "--pr",
+          "387",
+        ],
+        {
+          cwd: dir,
+          now: at(`2026-11-25T10:${minute}:00Z`),
+        },
+      );
+    const lines = readFileSync(join(dir, file), "utf8").trim().split("\n");
+    assert.equal(lines.length, 2);
+    assert.deepEqual(
+      lines.map((l) => JSON.parse(l).at),
+      ["2026-11-25T10:01:00Z", "2026-11-25T10:02:00Z"],
+    );
+  });
+
+  const refused = [
+    ["a field outside the schema", ["--kind", "pull-request", "--pr", "1", "--note", "x"], "note"],
+    [
+      "free text where an id belongs",
+      ["--kind", "decision-request", "--id", "should the export keep the old order"],
+      "id",
+    ],
+    ["a typed time", ["--kind", "pull-request", "--pr", "1", "--at", "2026-01-01T00:00:00Z"], "at"],
+    ["a number that is not a number", ["--kind", "pull-request", "--pr", "seven"], "pr"],
+    [
+      "an unknown cause",
+      [
+        "--kind",
+        "human-step",
+        "--step-kind",
+        "merge",
+        "--cause",
+        "the human was slow",
+        "--how",
+        "chat",
+      ],
+      "cause",
+    ],
+    ["an unknown kind", ["--kind", "lunch"], "kind"],
+    ["a missing required field", ["--kind", "pull-request"], "pr"],
+  ];
+  for (const [name, args, field] of refused)
+    it(`refuses ${name}, naming \`${field}\`, and writes nothing`, async () => {
+      const dir = mkdtempSync(join(tmpdir(), "orchestrate-records-"));
+      made.push(dir);
+      const result = await main(["event", "--file", "events.jsonl", "--actor", "human", ...args], {
+        cwd: dir,
+      });
+      assert.equal(result.code, 1, result.out);
+      assert.match(result.out, new RegExp(`(^|\\n)${field}:`));
+      assert.equal(existsSync(join(dir, "events.jsonl")), false);
+    });
+
+  it("refuses an event with no actor, and a file not named events.jsonl", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "orchestrate-records-"));
+    made.push(dir);
+    const none = await main(
+      ["event", "--file", "events.jsonl", "--kind", "pull-request", "--pr", "1"],
+      { cwd: dir },
+    );
+    assert.equal(none.code, 1);
+    assert.match(none.out, /actor: is missing/);
+    const named = await main(
+      ["event", "--file", "notes.md", "--kind", "pull-request", "--actor", "human", "--pr", "1"],
+      { cwd: dir },
+    );
+    assert.equal(named.code, 2);
+  });
+
+  it("has one entry for each kind the prose names", () => {
+    assert.deepEqual(Object.keys(EVENT_KINDS).sort(), [
+      "ci",
+      "decision-request",
+      "delegation-ended",
+      "delegation-landed",
+      "delegation-started",
+      "human-step",
+      "plan-approved",
+      "pull-request",
+      "qa-result",
+      "review",
+      "ruling-made",
+      "ruling-verdict",
+      "run-closed",
+      "run-opened",
+      "send-back",
+      "wait-closed",
+      "wait-opened",
+      "write",
+    ]);
+  });
+});
+
+describe("derive: the Run Record from a Run Event stream", () => {
+  it("derives the spec-344 record with the expected run, counts and durations", async () => {
+    const record = await derived();
+    assert.equal(record.schema, "run-record/1");
+    const { run } = record;
+    assert.equal(run.id, RUN);
+    assert.equal(run.repo, "github.com/mnaimfaizy/agent-kit");
+    assert.equal(run.operator, "naim");
+    assert.deepEqual(
+      [
+        run.kind,
+        run.spec,
+        run.team,
+        run.harness,
+        run.support_level,
+        run.decision_authority,
+        run.landing,
+        run.outcome,
+      ],
+      [
+        "spec",
+        344,
+        false,
+        "claude-code-desktop",
+        "verified",
+        "autonomous",
+        "integration-branch",
+        "merged",
+      ],
+    );
+    assert.deepEqual(run.tickets, [348, 349, 350, 351, 352, 353]);
+    assert.deepEqual(run.pull_requests, [387]);
+    assert.deepEqual(
+      [run.started_at, run.plan_approved_at, run.closed_at, run.duration_seconds, run.open_waits],
+      ["2026-11-19T01:44:00Z", "2026-11-19T03:08:30Z", "2026-11-19T06:27:30Z", 17010, 0],
+    );
+    assert.equal(Object.hasOwn(run, "team_run"), false);
+    assert.deepEqual(record.rulings, { made: 0, upheld: 0, overturned: 0 });
+    assert.deepEqual(
+      record.reviews.map((r) => [r.round, r.findings, r.fixed]),
+      [
+        [1, 7, 7],
+        [2, 1, 1],
+        [3, 0, 0],
+      ],
+    );
+    assert.deepEqual(
+      record.ci.map((c) => c.head),
+      ["75aa766", "b3609bb", "b779e0c"],
+    );
+    assert.equal(checkRecord(record).length, 0);
+  });
+
+  it("carries each Delegation's Executor kind, model, route and its real start and end", async () => {
+    const { delegations } = await derived();
+    assert.deepEqual(
+      delegations.map((d) => [
+        d.id,
+        d.kind,
+        d.executor,
+        d.model,
+        d.start_route,
+        d.started_at,
+        d.ended_at,
+        d.duration_seconds,
+      ]),
+      [
+        [
+          "d344-fix1",
+          "fix",
+          "live-session",
+          "default",
+          "card",
+          "2026-11-19T05:06:23Z",
+          "2026-11-19T06:08:30Z",
+          3727,
+        ],
+        [
+          "d348",
+          "building",
+          "live-session",
+          "default",
+          "direct",
+          "2026-11-19T03:09:50Z",
+          "2026-11-19T03:15:10Z",
+          320,
+        ],
+        [
+          "d349",
+          "building",
+          "live-session",
+          "default",
+          "direct",
+          "2026-11-19T03:19:40Z",
+          "2026-11-19T03:26:40Z",
+          420,
+        ],
+        [
+          "d350",
+          "building",
+          "live-session",
+          "default",
+          "card",
+          "2026-11-19T03:33:20Z",
+          "2026-11-19T03:42:10Z",
+          530,
+        ],
+        [
+          "d351",
+          "building",
+          "live-session",
+          "default",
+          "card",
+          "2026-11-19T03:49:30Z",
+          "2026-11-19T03:57:30Z",
+          480,
+        ],
+        [
+          "d352",
+          "building",
+          "live-session",
+          "default",
+          "card",
+          "2026-11-19T04:04:20Z",
+          "2026-11-19T04:08:00Z",
+          220,
+        ],
+        [
+          "d353",
+          "building",
+          "live-session",
+          "default",
+          "card",
+          "2026-11-19T04:23:50Z",
+          "2026-11-19T04:29:20Z",
+          330,
+        ],
+      ].sort((a, b) => (a[5] < b[5] ? -1 : 1)),
+    );
+    const fix = delegations.find((d) => d.id === "d344-fix1");
+    assert.deepEqual(
+      [fix.send_backs, fix.landed_at, fix.outcome],
+      [1, "2026-11-19T05:23:04Z", "landed"],
+    );
+  });
+
+  it("counts one human step per touch, each with its cause, avoidability, wait and covered Decision Requests", async () => {
+    const record = await derived();
+    assert.deepEqual(record.summary, {
+      human_steps: 13,
+      avoidable: 9,
+      by_design: 4,
+      by_cause: {
+        "by-design": 4,
+        "harness-limit": 5,
+        "missing-config": 1,
+        "spec-gap": 1,
+        "permission-refusal": 2,
+      },
+      human_wait_seconds: 6791,
+    });
+    const steps = record.human_steps;
+    assert.deepEqual(
+      steps.map((s) => s.kind),
+      [
+        "plan-approval",
+        "card-start",
+        "card-start",
+        "card-start",
+        "card-start",
+        "decision-request",
+        "decision-request",
+        "card-start",
+        "post-replies",
+        "post-replies",
+        "merge",
+        "close-out",
+        "close-out",
+      ],
+    );
+    const batch = steps.find((s) => s.wait_id === "w7");
+    assert.deepEqual(
+      [batch.covers, batch.waited_seconds, batch.cause, batch.avoidable],
+      [["dr3", "dr4", "dr5"], 1090, "spec-gap", true],
+    );
+    const card = steps.find((s) => s.wait_id === "w5");
+    assert.deepEqual(
+      [card.delegation, card.cause, card.how, card.card, card.waited_seconds, card.actor],
+      ["d353", "harness-limit", "card", "task_e0243937", 920, "human"],
+    );
+    const plan = steps[0];
+    assert.deepEqual(
+      [plan.delegation, plan.cause, plan.avoidable, plan.how],
+      [null, "by-design", false, "chat"],
+    );
+    const closeOut = steps.at(-1);
+    assert.deepEqual([closeOut.wait_id, closeOut.waited_seconds], [null, null]);
+  });
+
+  it("records every write with its actor, so a write made with the human's login is not the human's", async () => {
+    const { writes } = await derived();
+    assert.equal(writes.length, 5);
+    assert.ok(writes.every((w) => w.actor === "chief-of-staff" && w.as_human === true));
+  });
+
+  it("writes the record outside the run folder, and deleting the folder leaves it", async () => {
+    const dir = root();
+    const record = await derived(dir);
+    const path = recordPath(dir);
+    assert.equal(path.startsWith(`${runFolder(dir)}/`), false);
+    assert.deepEqual(readdirSync(join(dir, "tmp", "orchestrate", "records")), [`${RUN}.json`]);
+    rmSync(runFolder(dir), { recursive: true });
+    assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), record);
+  });
+
+  it("derives the same record twice", async () => {
+    const dir = root();
+    await derived(dir);
+    const one = readFileSync(recordPath(dir), "utf8");
+    await derived(dir);
+    assert.equal(readFileSync(recordPath(dir), "utf8"), one);
+  });
+});
+
+describe("derive: who the operator is", () => {
+  const noEnv = { env: {} };
+  const exec = (log, answers) => (command, args) => {
+    log.push([command, ...args].join(" "));
+    return answers[command] ?? { code: 1, out: "" };
+  };
+
+  it("is the `gh api user` login on GitHub", async () => {
+    const log = [];
+    const record = await derived(root(), {
+      ...noEnv,
+      exec: exec(log, { gh: { code: 0, out: '{"login":"sam"}' } }),
+    });
+    assert.equal(record.run.operator, "sam");
+    assert.deepEqual(log, ["gh api user"]);
+  });
+
+  it("is the `glab api user` username on GitLab", async () => {
+    const dir = root();
+    const file = join(runFolder(dir), "events.jsonl");
+    writeFileSync(
+      file,
+      readFileSync(file, "utf8").replace('"tracker":"github"', '"tracker":"gitlab"'),
+    );
+    const log = [];
+    const record = await derived(dir, {
+      ...noEnv,
+      exec: exec(log, { glab: { code: 0, out: '{"username":"kim"}' } }),
+    });
+    assert.equal(record.run.operator, "kim");
+    assert.deepEqual(log, ["glab api user"]);
+  });
+
+  it("is ORCHESTRATE_OPERATOR when set, and the tracker CLI is not asked", async () => {
+    const log = [];
+    const record = await derived(root(), {
+      env: { ORCHESTRATE_OPERATOR: "lee" },
+      exec: exec(log, {}),
+    });
+    assert.equal(record.run.operator, "lee");
+    assert.deepEqual(log, []);
+  });
+
+  it("is null, with a note, when there is no login: the record is kept, and nothing could be uploaded", async () => {
+    const dir = root();
+    const result = await derive(dir, { ...noEnv, exec: exec([], {}) });
+    assert.equal(result.code, 0);
+    assert.match(result.out, /run\.operator is null/);
+    assert.equal(JSON.parse(readFileSync(recordPath(dir), "utf8")).run.operator, null);
+  });
+
+  it("is never taken from any other environment variable", async () => {
+    const record = await derived(root(), {
+      env: { USER: "root", LOGNAME: "root", GITHUB_ACTOR: "bot" },
+      exec: exec([], { gh: { code: 0, out: '{"login":"sam"}' } }),
+    });
+    assert.equal(record.run.operator, "sam");
+  });
+
+  it("names the repository from the origin remote when the run did not", async () => {
+    const dir = root();
+    const file = join(runFolder(dir), "events.jsonl");
+    writeFileSync(
+      file,
+      readFileSync(file, "utf8").replace('"repo":"github.com/mnaimfaizy/agent-kit",', ""),
+    );
+    const git = (command, args) =>
+      args.includes("get-url")
+        ? { code: 0, out: "git@GitHub.com:Acme/Widgets.git\n" }
+        : { code: 0, out: "upstream\norigin\n" };
+    const record = await derived(dir, { exec: git });
+    assert.equal(record.run.repo, "github.com/acme/widgets");
+  });
+
+  it("reads host/owner/repo from https, ssh and scp-style remotes", () => {
+    assert.equal(repoFromRemote("https://github.com/Acme/Widgets.git"), "github.com/acme/widgets");
+    assert.equal(
+      repoFromRemote("ssh://git@ghe.example.com:2222/acme/widgets"),
+      "ghe.example.com/acme/widgets",
+    );
+    assert.equal(
+      repoFromRemote("git@gitlab.com:group/sub/widgets.git"),
+      "gitlab.com/group/sub/widgets",
+    );
+    assert.equal(repoFromRemote("nonsense"), null);
+  });
+});
+
+describe("derive: Team Runs, takeovers and waits on a teammate", () => {
+  it("carries team, spec and took_over, with no run.team_run", async () => {
+    const dir = root();
+    const file = join(runFolder(dir), "events.jsonl");
+    writeFileSync(
+      file,
+      readFileSync(file, "utf8")
+        .replace('"run_kind":"spec"', '"run_kind":"team"')
+        .replace('"team":false', '"team":true,"took_over":["2026-11-18-spec-344"]'),
+    );
+    const { run } = await derived(dir);
+    assert.deepEqual(
+      [run.kind, run.spec, run.team, run.took_over],
+      ["team", 344, true, ["2026-11-18-spec-344"]],
+    );
+    assert.equal(Object.hasOwn(run, "team_run"), false);
+  });
+
+  it("records a ticket parked on a teammate's ticket as a by-design wait with the blocker's id and login", async () => {
+    const dir = root();
+    const file = join(runFolder(dir), "events.jsonl");
+    const args = (more) => [
+      "event",
+      "--file",
+      `tmp/orchestrate/${RUN}/events.jsonl`,
+      "--actor",
+      "chief-of-staff",
+      ...more,
+    ];
+    await main(
+      args([
+        "--kind",
+        "wait-opened",
+        "--wait-id",
+        "w20",
+        "--delegation",
+        "d353",
+        "--step-kind",
+        "teammate-blocker",
+        "--cause",
+        "teammate-blocker",
+        "--how",
+        "github",
+        "--blocker",
+        "355",
+        "--blocker-login",
+        "sam",
+      ]),
+      { cwd: dir, now: at("2026-11-19T06:20:00Z") },
+    );
+    await main(args(["--kind", "wait-closed", "--wait-id", "w20"]), {
+      cwd: dir,
+      now: at("2026-11-19T06:25:00Z"),
+    });
+    const record = await derived(dir);
+    const step = record.human_steps.find((s) => s.wait_id === "w20");
+    assert.deepEqual(
+      [
+        step.cause,
+        step.avoidable,
+        step.blocker,
+        step.blocker_login,
+        step.waited_seconds,
+        step.actor,
+      ],
+      ["teammate-blocker", false, 355, "sam", 300, "chief-of-staff"],
+    );
+    assert.equal(record.summary.human_steps, 13, "a wait on a teammate is not a human step");
+  });
+
+  it("counts a wait still open at close-out, and does not make it a step", async () => {
+    const dir = root();
+    await main(
+      [
+        "event",
+        "--file",
+        `tmp/orchestrate/${RUN}/events.jsonl`,
+        "--kind",
+        "wait-opened",
+        "--actor",
+        "chief-of-staff",
+        "--wait-id",
+        "w30",
+        "--step-kind",
+        "merge",
+        "--cause",
+        "by-design",
+        "--how",
+        "github",
+      ],
+      { cwd: dir, now: at("2026-11-19T06:20:00Z") },
+    );
+    const record = await derived(dir);
+    assert.equal(record.run.open_waits, 1);
+    assert.equal(
+      record.human_steps.some((s) => s.wait_id === "w30"),
+      false,
+    );
+  });
+});
+
+describe("derive: the cause list", () => {
+  it("marks each cause avoidable or by design, and only by-design and teammate-blocker are by design", () => {
+    assert.deepEqual(
+      Object.entries(CAUSES)
+        .filter(([, v]) => v === "by-design")
+        .map(([k]) => k)
+        .sort(),
+      ["by-design", "teammate-blocker"],
+    );
+    assert.ok(Object.values(CAUSES).every((v) => v === "avoidable" || v === "by-design"));
+    for (const cause of [
+      "harness-limit",
+      "permission-refusal",
+      "tool-missing",
+      "skill-bug",
+      "spec-gap",
+      "missing-config",
+      "human-choice",
+    ])
+      assert.equal(CAUSES[cause], "avoidable");
+  });
+
+  it("groups QA step kinds under a `qa-` prefix and folds the rare ones into `other`", () => {
+    assert.ok(STEP_KINDS.includes("other"));
+    assert.ok(STEP_KINDS.filter((k) => k.startsWith("qa-")).length >= 4);
+  });
+});
+
+describe("the safe-field check", () => {
+  const good = async () => derived();
+
+  it("refuses a free-text field, naming it, and never strips it", async () => {
+    const record = await good();
+    record.human_steps[2].reason = "the harness refused to start the session";
+    const problems = checkRecord(record);
+    assert.deepEqual(problems, ["human_steps[2].reason: is outside the schema"]);
+    assert.equal(Object.hasOwn(record.human_steps[2], "reason"), true);
+  });
+
+  it("refuses prose in a field the schema does hold, naming the field and not repeating the prose", async () => {
+    const record = await good();
+    record.run.harness = "Claude Code on my laptop";
+    record.delegations[0].model = "the big one";
+    const problems = checkRecord(record);
+    assert.equal(problems.length, 2);
+    assert.match(problems[0], /^run\.harness: .*free text/);
+    assert.match(problems[1], /^delegations\[0\]\.model: /);
+    assert.ok(problems.every((p) => !p.includes("laptop") && !p.includes("big one")));
+  });
+
+  it("refuses a field outside the schema at the top, in a list item and in a count", async () => {
+    const record = await good();
+    record.title = "Write Run Events";
+    record.reviews[0].comment = "rename this";
+    record.summary.by_cause.vibes = 1;
+    record.run.team_run = true;
+    assert.deepEqual(checkRecord(record).sort(), [
+      "reviews[0].comment: is outside the schema",
+      "run.team_run: is outside the schema",
+      "summary.by_cause.vibes: is outside the schema",
+      "title: is outside the schema",
+    ]);
+  });
+
+  it("refuses a missing field and a wrong type", async () => {
+    const record = await good();
+    delete record.run.outcome;
+    record.run.tickets = "348";
+    assert.deepEqual(checkRecord(record).sort(), [
+      "run.outcome: is missing",
+      "run.tickets: must be a list",
+    ]);
+  });
+
+  it("derive refuses a hand-edited event line that carries prose, names the line, and writes no record", async () => {
+    const dir = root();
+    const file = join(runFolder(dir), "delegations", "d348", "events.jsonl");
+    appendFileSync(
+      file,
+      `${JSON.stringify({ at: "2026-11-19T03:16:00Z", kind: "send-back", actor: "chief-of-staff", delegation: "d348", why: "tests were thin" })}\n`,
+    );
+    const result = await derive(dir);
+    assert.equal(result.code, 1);
+    assert.match(result.out, /delegations\/d348\/events\.jsonl:4: why: is outside the schema/);
+    assert.equal(existsSync(recordPath(dir)), false);
+  });
+
+  it("derive refuses an event whose id field holds a sentence", async () => {
+    const dir = root();
+    const file = join(runFolder(dir), "events.jsonl");
+    appendFileSync(
+      file,
+      `${JSON.stringify({ at: "2026-11-19T06:27:31Z", kind: "decision-request", actor: "chief-of-staff", id: "should we merge this" })}\n`,
+    );
+    const result = await derive(dir);
+    assert.equal(result.code, 1);
+    assert.match(result.out, /events\.jsonl:\d+: id: must be an id/);
+  });
+});
+
+describe("derive: events that do not add up", () => {
+  const without = (dir, pattern) => {
+    const file = join(runFolder(dir), "events.jsonl");
+    writeFileSync(
+      file,
+      readFileSync(file, "utf8")
+        .split("\n")
+        .filter((l) => !pattern.test(l))
+        .join("\n") + "\n",
+    );
+  };
+
+  it("refuses a run with no run-closed event", async () => {
+    const dir = root();
+    without(dir, /run-closed/);
+    const result = await derive(dir);
+    assert.equal(result.code, 1);
+    assert.match(result.out, /no `run-closed` event/);
+  });
+
+  it("refuses a wait closed that was never opened", async () => {
+    const dir = root();
+    without(dir, /"wait_id":"w3".*wait-opened|wait-opened.*"wait_id":"w3"/);
+    const result = await derive(dir);
+    assert.equal(result.code, 1);
+    assert.match(result.out, /wait-closed: `w3` has no `wait-opened` event/);
+  });
+
+  it("refuses a step that covers a Decision Request nobody raised", async () => {
+    const dir = root();
+    without(dir, /"id":"dr6"/);
+    const result = await derive(dir);
+    assert.equal(result.code, 1);
+    assert.match(result.out, /covers: `dr6` names no `decision-request` event/);
+  });
+
+  it("refuses an event for a Delegation that never started", async () => {
+    const dir = root();
+    without(dir, /^$/);
+    appendFileSync(
+      join(runFolder(dir), "events.jsonl"),
+      `${JSON.stringify({ at: "2026-11-19T06:27:29Z", kind: "send-back", actor: "chief-of-staff", delegation: "d999" })}\n`,
+    );
+    const result = await derive(dir);
+    assert.equal(result.code, 1);
+    assert.match(result.out, /`d999` has no `delegation-started` event/);
+  });
+});
+
+describe("the command line", () => {
+  it("exits 2 with the usage on an unknown command or a missing run folder", async () => {
+    assert.equal((await main([])).code, 2);
+    assert.equal((await main(["upload"])).code, 2);
+    const missing = await main(["derive", "nowhere"], {
+      cwd: mkdtempSync(join(tmpdir(), "orchestrate-records-")),
+    });
+    assert.equal(missing.code, 2);
+  });
+
+  it("appends and derives when run as a script", () => {
+    const dir = root();
+    const env = { ...process.env, ORCHESTRATE_OPERATOR: "naim" };
+    const event = spawnSync(
+      process.execPath,
+      [
+        join(here, "records.mjs"),
+        "event",
+        "--file",
+        `tmp/orchestrate/${RUN}/events.jsonl`,
+        "--kind",
+        "write",
+        "--actor",
+        "chief-of-staff",
+        "--write-kind",
+        "other",
+        "--as-human",
+        "false",
+      ],
+      { cwd: dir, env, encoding: "utf8" },
+    );
+    assert.equal(event.status, 0, event.stdout + event.stderr);
+    const result = spawnSync(
+      process.execPath,
+      [join(here, "records.mjs"), "derive", `tmp/orchestrate/${RUN}`],
+      { cwd: dir, env, encoding: "utf8" },
+    );
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    assert.equal(JSON.parse(readFileSync(recordPath(dir), "utf8")).writes.length, 6);
+    const bad = spawnSync(
+      process.execPath,
+      [
+        join(here, "records.mjs"),
+        "event",
+        "--file",
+        "events.jsonl",
+        "--kind",
+        "lunch",
+        "--actor",
+        "human",
+      ],
+      { cwd: dir, env, encoding: "utf8" },
+    );
+    assert.equal(bad.status, 1);
+  });
+});
