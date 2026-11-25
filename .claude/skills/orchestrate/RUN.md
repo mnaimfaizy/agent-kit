@@ -395,7 +395,7 @@ The human answers with one button:
 
 ### The past-runs dashboard
 
-`--dashboard [--repo <host/owner/repo>] [--local-logs]` builds one self-contained page from the Run Records in `<run_dir>/records/` and from the config's `records.sink`, so a past run can be reviewed down to a Delegation and a human step, in one repository or in every repository the sink holds. It runs the records script, and prints what the script prints, the `file://` link of each page it wrote. It never launches a browser, since harnesses differ, and the page is never hosted.
+`--dashboard [--repo <host/owner/repo>] [--local-logs]` builds one self-contained page from the Run Records in `<run_dir>/records/` and from the config's `records.sink`, so a past run can be reviewed down to a Delegation and a human step, in one repository or in every repository the sink holds. It runs the records script, and prints what the script prints, the `file://` link of each page it wrote. It never launches a browser, since harnesses differ, and the skill never hosts the page. A team may host `dashboard.html` itself (never `dashboard.local.html`), behind its own access control: it holds every record it was built from, every login included, so its readers should be the sink's readers.
 
 ```bash
 node "<skill>/records.mjs" dashboard                # <run_dir>/dashboard.html
