@@ -1454,12 +1454,8 @@ export function failedTests(output) {
     if (node) count(node[1]);
     const py = /^(?:FAILED|ERROR) (\S+?)(?: - .*)?$/.exec(line);
     if (py) failed.push({ name: py[1].split("::").pop(), id: py[1] });
-    const tally = /^=*\s*(?:.*, )?(\d+) (failed|errors?)\b.* in [\d.]+s/.exec(line);
-    if (tally) {
-      count(tally[1]);
-      const more = /(\d+) errors?\b/.exec(line);
-      if (tally[2] === "failed" && more) count(more[1]);
-    }
+    if (/^=*\s*(?:\d+ \w+, )*\d+ \w+.* in [\d.]+s/.test(line))
+      for (const m of line.matchAll(/(\d+) (?:failed|errors?)\b/g)) count(m[1]);
   }
   return { failed, reported };
 }
@@ -1468,15 +1464,16 @@ export function failedTests(output) {
 function judge(command, code, output, allowedTests) {
   if (code === 0) return { allowed: [], unallowed: [] };
   const { failed, reported } = failedTests(output);
-  const names = [...new Set(failed.map((f) => f.name))];
-  const allowed = names.filter((name) =>
-    failed.some((f) => f.name === name && (allowedTests.has(f.name) || allowedTests.has(f.id))),
-  );
-  const unallowed = names.filter((name) => !allowed.includes(name));
-  if (!names.length) unallowed.push(`\`${command}\` exited ${code}, and named no failing test`);
-  else if (reported !== null && reported > failed.length)
+  const found = [...new Map(failed.map((f) => [f.id, f])).values()];
+  const listed = (f) => allowedTests.has(f.name) || allowedTests.has(f.id);
+  const allowed = found.filter(listed).map((f) => f.id);
+  const unallowed = found.filter((f) => !listed(f)).map((f) => f.id);
+  if (!found.length) unallowed.push(`\`${command}\` exited ${code}, and named no failing test`);
+  else if (reported === null)
+    unallowed.push(`\`${command}\` named failing tests but printed no count of them`);
+  else if (reported > found.length)
     unallowed.push(
-      `\`${command}\`: ${reported} failed, but only ${failed.length} named in its output`,
+      `\`${command}\`: ${reported} failed, but only ${found.length} named in its output`,
     );
   return { allowed, unallowed };
 }
@@ -1511,7 +1508,11 @@ function regateCommand(rest, io) {
   const results = [];
   mkdirSync(dirname(out), { recursive: true });
   const worktree = join(dirname(out), `regate-${sha.slice(0, 12)}-${process.pid}`);
-  git(repo, ["worktree", "add", "--detach", "--quiet", worktree, sha]);
+  try {
+    git(repo, ["worktree", "add", "--detach", "--quiet", worktree, sha]);
+  } catch (error) {
+    return refuse(`cannot make the worktree: ${String(error.stderr ?? error).trim()}`);
+  }
   try {
     for (const command of effective.regate) {
       const done = spawnSync(command, {

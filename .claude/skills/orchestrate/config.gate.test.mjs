@@ -206,6 +206,46 @@ describe("regate", () => {
     assert.match(out, /2 failed/);
   });
 
+  test("a pytest tally of failures and errors counts both, so an unnamed error is not excused", () => {
+    const dir = repo({
+      [CONFIG]: configText({
+        commands: [
+          "printf '%s\\n' 'FAILED a.py::test_x - boom' '=== 1 failed, 1 error, 3 passed in 0.5s ===' ; exit 1",
+        ],
+        allowed_failures: allowing("test_x"),
+      }),
+    });
+    const { code, out } = run(dir, "regate", "HEAD", "--out", OUT);
+    assert.equal(code, 1);
+    assert.match(out, /2 failed, but only 1 named/);
+  });
+
+  test("the same test name in two files is two failures: allowing one by its id does not excuse the other", () => {
+    const dir = repo({
+      [CONFIG]: configText({
+        commands: [
+          "printf '%s\\n' 'FAILED a.py::test_x - boom' 'FAILED b.py::test_x - boom' '2 failed in 0.5s'; exit 1",
+        ],
+        allowed_failures: allowing("a.py::test_x"),
+      }),
+    });
+    const { code, out } = run(dir, "regate", "HEAD", "--out", OUT);
+    assert.equal(code, 1);
+    assert.match(out, /b\.py::test_x/);
+  });
+
+  test("failing tests named with no count of them are never allowed", () => {
+    const dir = repo({
+      [CONFIG]: configText({
+        commands: ["printf '%s\\n' 'FAILED a.py::test_x - boom'; exit 1"],
+        allowed_failures: allowing("test_x"),
+      }),
+    });
+    const { code, out } = run(dir, "regate", "HEAD", "--out", OUT);
+    assert.equal(code, 1);
+    assert.match(out, /no count/);
+  });
+
   test("a command that passes is ok, whatever the allowed list holds", () => {
     const dir = repo({
       [CONFIG]: configText({ commands: ["true"], allowed_failures: allowing("never fails") }),
@@ -395,6 +435,15 @@ describe("land", () => {
     git(dir, "update-ref", "refs/heads/orchestrate/spec-1", moved);
     const body = refused(land(dir, cut, ...FENCE), "not-fast-forward", dir, moved);
     assert.match(body.cause, /not an ancestor/);
+  });
+
+  test("a moved integration branch is refused as such, not as a path outside the fence", () => {
+    const { dir, cut } = landing({ "src/a.txt": "a\n" });
+    git(dir, "switch", "-q", "-C", "scratch", "orchestrate/spec-1");
+    const moved = commit(dir, { "lib/earlier.txt": "e\n" }, "an earlier ticket landed");
+    git(dir, "switch", "-q", "main");
+    git(dir, "update-ref", "refs/heads/orchestrate/spec-1", moved);
+    refused(land(dir, cut, ...FENCE), "not-fast-forward", dir, moved);
   });
 
   test("refuses an unknown branch, cut or integration branch, naming it", () => {
