@@ -9,6 +9,7 @@
  *   node records.mjs derive <run-folder>
  *   node records.mjs upload <run> [--yes]
  *   node records.mjs prune [--declined]
+ *   node records.mjs dashboard [--local-logs]
  *
  * `main(argv, io)` is the one seam. `io` injects the clock (`now`), the files
  * root (`cwd`, which relative paths resolve against), the environment (`env`)
@@ -34,8 +35,8 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { effectiveConfig, readConfig } from "./config.mjs";
 
@@ -469,7 +470,8 @@ const EVENT_USAGE =
 const DERIVE_USAGE = "usage: node records.mjs derive <run-folder>\n";
 const UPLOAD_USAGE = "usage: node records.mjs upload <run id or run folder> [--yes]\n";
 const PRUNE_USAGE = "usage: node records.mjs prune [--declined]\n";
-const USAGE = `${EVENT_USAGE}${DERIVE_USAGE}${UPLOAD_USAGE}${PRUNE_USAGE}`;
+const DASHBOARD_USAGE = "usage: node records.mjs dashboard [--local-logs]\n";
+const USAGE = `${EVENT_USAGE}${DERIVE_USAGE}${UPLOAD_USAGE}${PRUNE_USAGE}${DASHBOARD_USAGE}`;
 
 function appendEvent(args, io) {
   const given = pairs(args);
@@ -1265,6 +1267,139 @@ function closedAt(path, runId) {
   }
 }
 
+const plural = (n, one) => `${n} ${n === 1 ? one : `${one}s`}`;
+
+// --- The past-runs dashboard, built from the local Run Records.
+//
+// The pages live in `pages/` (one shell, one stylesheet, the dashboard's page
+// builder); this is the command that reads the records, writes the files and
+// prints the links. It never opens a browser.
+
+const SECRET_NAME = /TOKEN|SECRET|PASSWORD|PASSWD|API_?KEY|ACCESS_KEY/i;
+const SECRET_SHAPES = [
+  /\bgh[pousr]_[A-Za-z0-9]{20,}/g,
+  /\bglpat-[A-Za-z0-9_-]{20,}/g,
+  /\bAKIA[0-9A-Z]{16}\b/g,
+];
+
+/** Prose with every credential the environment holds, and the usual token shapes, replaced. */
+function redact(text, env) {
+  let out = text;
+  for (const [name, value] of Object.entries(env))
+    if (SECRET_NAME.test(name) && typeof value === "string" && value.length >= 8)
+      out = out.split(value).join("[redacted]");
+  for (const shape of SECRET_SHAPES) out = out.replace(shape, "[redacted]");
+  return out;
+}
+
+/** Write a file whole or not at all: beside it first, then renamed over it. */
+function writeWhole(path, text) {
+  const beside = `${path}.${process.pid}.tmp`;
+  writeFileSync(beside, text);
+  renameSync(beside, path);
+}
+
+async function dashboard(args, io) {
+  const localLogs = args.includes("--local-logs");
+  if (args.length !== (localLogs ? 1 : 0)) return { code: 2, out: DASHBOARD_USAGE };
+  const cwd = io.cwd ?? process.cwd();
+  const env = io.env ?? process.env;
+
+  const loaded = readConfig((path) => {
+    try {
+      return readFileSync(resolve(cwd, path), "utf8");
+    } catch {
+      return null;
+    }
+  });
+  if (loaded.problems.length) return { code: 1, out: `${loaded.problems.join("\n")}\n` };
+  const runDir = resolve(cwd, effectiveConfig(loaded.config).run_dir);
+  const recordsDir = join(runDir, "records");
+
+  // The local records, each checked again: a record edited since it was derived is skipped, never shown.
+  const sink = openSink("local", { dir: recordsDir });
+  const entries = [];
+  const warnings = [];
+  const seen = new Set();
+  for (const name of await sink.list()) {
+    const found = await sink.read(name);
+    let record = null;
+    let why = "is not readable";
+    if (found.status === "found") {
+      try {
+        record = JSON.parse(found.text);
+        const problems = checkRecord(record);
+        if (problems.length) [record, why] = [null, `fails the safe-field check (${problems[0]})`];
+        else if (seen.has(record.run.id)) [record, why] = [null, "repeats a run id already shown"];
+      } catch {
+        why = "is not JSON";
+      }
+    }
+    if (record === null) warnings.push(`skipped ${name}: ${why}`);
+    else {
+      seen.add(record.run.id);
+      entries.push({
+        record,
+        repository: record.run.repo,
+        login: record.run.operator,
+        source: "local",
+      });
+    }
+  }
+  if (entries.length === 0)
+    return {
+      code: 1,
+      out: `${warnings.map((w) => `${w}\n`).join("")}no Run Records in ${recordsDir}: derive one at close-out (\`records.mjs derive <run-folder>\`)\n`,
+    };
+
+  const { renderDashboard } = await import("./pages/dashboard.mjs");
+  const script = fileURLToPath(import.meta.url);
+  const shown = relative(cwd, script);
+  const path = shown.startsWith("..") || isAbsolute(shown) ? script : shown;
+  const node = `node ${/\s/.test(path) ? `"${path}"` : path} dashboard`;
+  const builtAt = nowIso(io);
+  mkdirSync(runDir, { recursive: true });
+
+  const shared = join(runDir, "dashboard.html");
+  writeWhole(
+    shared,
+    renderDashboard(entries, {
+      vocabulary: { causes: CAUSES, stepKinds: STEP_KINDS },
+      builtAt,
+      rebuild: { slash: "/orchestrate --dashboard", node },
+      warnings,
+    }),
+  );
+  const links = [pathToFileURL(shared).href];
+
+  if (localLogs) {
+    // Prose only for a run whose folder, with its Activity Log, is still on this machine.
+    const logs = {};
+    for (const { record } of entries) {
+      const file = join(runDir, record.run.id, "activity.md");
+      if (existsSync(file)) logs[record.run.id] = redact(readFileSync(file, "utf8"), env);
+    }
+    const local = join(runDir, "dashboard.local.html");
+    writeWhole(
+      local,
+      renderDashboard(entries, {
+        vocabulary: { causes: CAUSES, stepKinds: STEP_KINDS },
+        builtAt,
+        rebuild: { slash: "/orchestrate --dashboard --local-logs", node: `${node} --local-logs` },
+        banner: "contains private prose from this machine, don't share this file",
+        logs,
+        warnings,
+      }),
+    );
+    links.push(pathToFileURL(local).href);
+  }
+
+  return {
+    code: 0,
+    out: `${warnings.map((w) => `${w}\n`).join("")}built the dashboard from ${plural(entries.length, "Run Record")}${localLogs ? "; the prose is only in the .local file, which holds private prose from this machine: do not share it" : ""}\n${links.join("\n")}\n`,
+  };
+}
+
 /** The real transport: a command run to the end, its output and its error text. `options.input` goes to its stdin. */
 function defaultExec(command, args, options = {}) {
   try {
@@ -1294,6 +1429,7 @@ export async function main(argv, io = {}) {
   if (command === "derive") return derive(rest, io);
   if (command === "upload") return upload(rest, io);
   if (command === "prune") return prune(rest, io);
+  if (command === "dashboard") return dashboard(rest, io);
   return { code: 2, out: USAGE };
 }
 

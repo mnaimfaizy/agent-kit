@@ -26,7 +26,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, describe, it } from "node:test";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import {
   CAUSES,
@@ -1742,5 +1742,418 @@ describe("prune --declined: a no is remembered, and writes no config", () => {
     const result = await prune(pruneRoot({ config: null }), ["--now"]);
     assert.equal(result.code, 2);
     assert.match(result.out, /usage: node records\.mjs prune/);
+  });
+});
+
+// --- dashboard: the past-runs page, built from local Run Records.
+
+const PROSE = "CANARY-PROSE the Chief of Staff said something private";
+const SECRET = "s3cr3t-key-value-0123456789";
+const OTHER_RUN = "2026-11-21-tickets-9";
+
+/** A root with the spec-344 record derived, an Activity Log beside its run folder, and a second record with no run folder. */
+async function readyToBuild() {
+  const dir = root();
+  await derived(dir);
+  writeFileSync(join(runFolder(dir), "activity.md"), `# Activity Log\n\n${PROSE}\n`);
+  const second = JSON.parse(readFileSync(recordPath(dir), "utf8"));
+  second.run.id = OTHER_RUN;
+  second.run.kind = "tickets";
+  second.run.outcome = "abandoned";
+  writeFileSync(
+    join(dir, "tmp", "orchestrate", "records", `${OTHER_RUN}.json`),
+    JSON.stringify(second),
+  );
+  return dir;
+}
+const BUILT_AT = at("2026-11-25T10:00:00Z");
+const dashboard = (dir, args = [], env = {}) =>
+  main(["dashboard", ...args], { cwd: dir, now: BUILT_AT, env });
+const page = (dir, name = "dashboard.html") =>
+  readFileSync(join(dir, "tmp", "orchestrate", name), "utf8");
+/** The page without its stylesheet and scripts: what a reader sees, and the attributes that carry colour. */
+const body = (html) =>
+  html.replace(/<style[\s\S]*?<\/style>/g, "").replace(/<script[\s\S]*?<\/script>/g, "");
+
+describe("dashboard: building the page", () => {
+  it("writes the page into the run directory and prints a file:// link, never opening a browser", async () => {
+    const dir = await readyToBuild();
+    const calls = [];
+    const result = await main(["dashboard"], {
+      cwd: dir,
+      now: BUILT_AT,
+      exec: (command, args) => (calls.push(command), { code: 1, out: "" }),
+    });
+    assert.equal(result.code, 0, result.out);
+    const file = join(dir, "tmp", "orchestrate", "dashboard.html");
+    assert.ok(existsSync(file));
+    assert.ok(result.out.split("\n").includes(pathToFileURL(file).href), result.out);
+    assert.match(result.out, /2 Run Records/);
+    assert.deepEqual(
+      calls.filter((c) => !["git", "gh", "glab"].includes(c)),
+      [],
+    );
+    assert.ok(!existsSync(join(dir, "tmp", "orchestrate", "dashboard.local.html")));
+  });
+
+  it("has one self-contained page: no external script, style or request", async () => {
+    const dir = await readyToBuild();
+    await dashboard(dir);
+    const html = page(dir);
+    assert.match(html, /^<!doctype html>/i);
+    assert.doesNotMatch(
+      html,
+      /<script[^>]+src=|<link[^>]+href=|@import|https?:\/\/(?!github\.com)/i,
+    );
+  });
+
+  it("shows when it was built and the rebuild command", async () => {
+    const dir = await readyToBuild();
+    await dashboard(dir);
+    const html = body(page(dir));
+    assert.match(html, /Built 2026-11-25T10:00:00Z/);
+    assert.match(html, /Rebuild: <code>\/orchestrate --dashboard<\/code>/);
+    assert.match(html, /records\.mjs dashboard/);
+  });
+
+  it("exits 1 and writes nothing when there are no Run Records", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "orchestrate-records-"));
+    made.push(dir);
+    const result = await dashboard(dir);
+    assert.equal(result.code, 1);
+    assert.match(result.out, /no Run Records/);
+    assert.ok(!existsSync(join(dir, "tmp", "orchestrate", "dashboard.html")));
+  });
+
+  it("skips a record that is not JSON or fails the safe-field check, names it, and builds the rest", async () => {
+    const dir = await readyToBuild();
+    const records = join(dir, "tmp", "orchestrate", "records");
+    writeFileSync(join(records, "broken.json"), "{not json");
+    const unsafe = JSON.parse(readFileSync(recordPath(dir), "utf8"));
+    unsafe.run.id = "2026-11-22-unsafe";
+    unsafe.run.outcome = "a sentence of free text";
+    writeFileSync(join(records, "2026-11-22-unsafe.json"), JSON.stringify(unsafe));
+    const result = await dashboard(dir);
+    assert.equal(result.code, 0, result.out);
+    assert.match(result.out, /skipped broken\.json/);
+    assert.match(result.out, /skipped 2026-11-22-unsafe\.json/);
+    assert.doesNotMatch(page(dir), /a sentence of free text/);
+  });
+
+  it("takes only --local-logs, and exits 2 with the usage on anything else", async () => {
+    const dir = await readyToBuild();
+    assert.equal((await dashboard(dir, ["--sink", "x"])).code, 2);
+    assert.equal((await dashboard(dir, ["extra"])).code, 2);
+    assert.equal((await dashboard(dir, ["--local-logs", "--local-logs"])).code, 2);
+  });
+
+  it("reads the run directory from the config", async () => {
+    const dir = await readyToBuild();
+    renameSync(join(dir, "tmp", "orchestrate"), join(dir, "runs"));
+    writeFileSync(join(dir, "orchestrate.config.yml"), "run_dir: runs\n");
+    const result = await dashboard(dir);
+    assert.equal(result.code, 0, result.out);
+    assert.ok(existsSync(join(dir, "runs", "dashboard.html")));
+  });
+});
+
+describe("dashboard: as a script", () => {
+  it("builds and prints the link when run from the command line", async () => {
+    const dir = await readyToBuild();
+    const result = spawnSync(process.execPath, [join(here, "records.mjs"), "dashboard"], {
+      cwd: dir,
+      encoding: "utf8",
+    });
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    assert.match(result.stdout, /^file:\/\/.*dashboard\.html$/m);
+    assert.ok(existsSync(join(dir, "tmp", "orchestrate", "dashboard.html")));
+  });
+});
+
+describe("dashboard: the pages and tabs", () => {
+  const TABS = ["summary", "timeline", "delegations", "steps", "reviews", "log", "record"];
+
+  it("has the Run page with every tab, for every run", async () => {
+    const dir = await readyToBuild();
+    await dashboard(dir);
+    const html = page(dir);
+    for (const run of [RUN, OTHER_RUN])
+      for (const tab of TABS) assert.match(html, new RegExp(`id="/run/${run}/${tab}"`), tab);
+    const labels = [
+      ...html.matchAll(/<a class="tab[^"]*" href="#\/run\/2026-11-19-spec-344\/\w+"[^>]*>([^<]+)/g),
+    ].map((m) => m[1].replace(/&amp;/g, "&").trim());
+    assert.deepEqual(
+      [...new Set(labels)],
+      ["Summary", "Timeline", "Delegations", "Human steps", "Reviews & CI", "Log", "Record (JSON)"],
+    );
+  });
+
+  it("has the Runs index, the Key page, and a page for every Delegation and human step", async () => {
+    const dir = await readyToBuild();
+    await dashboard(dir);
+    const html = page(dir);
+    const record = JSON.parse(readFileSync(recordPath(dir), "utf8"));
+    assert.match(html, /id="\/"/);
+    assert.match(html, /id="\/key"/);
+    for (const d of record.delegations)
+      assert.match(html, new RegExp(`id="/run/${RUN}/delegation/${d.id}"`));
+    record.human_steps.forEach((_, n) =>
+      assert.match(html, new RegExp(`id="/run/${RUN}/step/${n + 1}"`)),
+    );
+    assert.match(html, /href="#\/run\/2026-11-19-spec-344\/step\/1"/);
+  });
+
+  it("Summary has what to improve next run, why you were needed, the plan and the outcome", async () => {
+    const dir = await readyToBuild();
+    await dashboard(dir);
+    const html = page(dir);
+    const summary = html.split(`id="/run/${RUN}/summary"`)[1].split("</section>")[0];
+    for (const heading of ["Improve next run", "Why you were needed", "Plan", "Outcome"])
+      assert.match(summary, new RegExp(`<h2>${heading}</h2>`));
+    assert.match(summary, /13 human steps/);
+    assert.match(summary, /9 avoidable/);
+  });
+
+  it("Timeline has a Human lane, a Chief of Staff lane, a Reviews & CI lane and one lane per Delegation", async () => {
+    const dir = await readyToBuild();
+    await dashboard(dir);
+    const html = page(dir);
+    const record = JSON.parse(readFileSync(recordPath(dir), "utf8"));
+    const timeline = html.split(`id="/run/${RUN}/timeline"`)[1].split("</section>")[0];
+    const lanes = [...timeline.matchAll(/data-lane="([^"]+)"/g)].map((m) => m[1]);
+    assert.deepEqual(lanes, [
+      "human",
+      "chief-of-staff",
+      "reviews-ci",
+      ...record.delegations.map((d) => `delegation:${d.id}`),
+    ]);
+    // Writes are marked by their actor.
+    for (const write of record.writes)
+      assert.match(timeline, new RegExp(`class="mark write actor-${write.actor}"`));
+    assert.match(timeline, />Human</);
+    assert.match(timeline, />Chief of Staff</);
+  });
+
+  it("Human steps lists every step, each with its cause, kind and actor to filter on", async () => {
+    const dir = await readyToBuild();
+    await dashboard(dir);
+    const html = page(dir);
+    const record = JSON.parse(readFileSync(recordPath(dir), "utf8"));
+    const steps = html.split(`id="/run/${RUN}/steps"`)[1].split("</section>")[0];
+    const rows = [
+      ...steps.matchAll(/<tr [^>]*data-cause="([^"]+)" data-kind="([^"]+)" data-actor="([^"]+)"/g),
+    ];
+    assert.equal(rows.length, record.human_steps.length);
+    assert.deepEqual(
+      rows.map((m) => m[1]),
+      record.human_steps.map((s) => s.cause),
+    );
+    assert.match(steps, /<select[^>]+data-filter="cause"/);
+    assert.match(steps, /<select[^>]+data-filter="kind"/);
+  });
+
+  it("Reviews & CI lists each review round and each CI result", async () => {
+    const dir = await readyToBuild();
+    await dashboard(dir);
+    const html = page(dir);
+    const record = JSON.parse(readFileSync(recordPath(dir), "utf8"));
+    const tab = html.split(`id="/run/${RUN}/reviews"`)[1].split("</section>")[0];
+    assert.equal((tab.match(/<tr data-review/g) ?? []).length, record.reviews.length);
+    assert.equal((tab.match(/<tr data-ci/g) ?? []).length, record.ci.length);
+  });
+
+  it("the step page has the step in a sentence, its cause and fix, the events around it and the raw entry", async () => {
+    const dir = await readyToBuild();
+    await dashboard(dir);
+    const html = page(dir);
+    const record = JSON.parse(readFileSync(recordPath(dir), "utf8"));
+    const first = html.split(`id="/run/${RUN}/step/1"`)[1].split("</section>")[0];
+    assert.match(first, /class="sentence"/);
+    assert.match(first, /<h2>Cause and fix<\/h2>/);
+    assert.match(first, /<h2>Around it<\/h2>/);
+    assert.match(first, /<h2>Raw entry<\/h2>/);
+    assert.match(first, new RegExp(`&quot;kind&quot;: &quot;${record.human_steps[0].kind}&quot;`));
+  });
+
+  it("the Delegation page has its facts, its steps and its writes", async () => {
+    const dir = await readyToBuild();
+    await dashboard(dir);
+    const html = page(dir);
+    const record = JSON.parse(readFileSync(recordPath(dir), "utf8"));
+    const d = record.delegations[0];
+    const text = html.split(`id="/run/${RUN}/delegation/${d.id}"`)[1].split("</section>")[0];
+    assert.match(text, new RegExp(`<h1>Delegation ${d.id}`));
+    assert.match(text, /<h2>Facts<\/h2>/);
+    assert.match(text, /<h2>Human steps<\/h2>/);
+    assert.match(text, new RegExp(`Executor</dt><dd>${d.executor}`));
+  });
+
+  it("the Key page explains every cause, every step kind and every timeline mark", async () => {
+    const dir = await readyToBuild();
+    await dashboard(dir);
+    const html = page(dir);
+    const key = html.split('id="/key"')[1].split("</section>")[0];
+    for (const cause of Object.keys(CAUSES)) assert.match(key, new RegExp(`data-cause="${cause}"`));
+    for (const kind of STEP_KINDS) assert.match(key, new RegExp(`data-kind="${kind}"`));
+    for (const mark of ["human-step", "wait", "write", "delegation", "review", "ci"])
+      assert.match(key, new RegExp(`data-mark="${mark}"`));
+  });
+});
+
+describe("dashboard: colour means cause", () => {
+  it("every cause chip names its cause and says avoidable or by design", async () => {
+    const dir = await readyToBuild();
+    await dashboard(dir);
+    const html = body(page(dir));
+    const chips = [
+      ...html.matchAll(/<span class="chip cause c-([a-z-]+)">([\s\S]*?)<\/span><\/span>/g),
+    ].map((m) => [m[0], m[1], `${m[2]}</span>`]);
+    assert.ok(chips.length > 20, "there are chips");
+    for (const [, cause, inner] of chips) {
+      assert.ok(Object.hasOwn(CAUSES, cause), cause);
+      assert.match(inner, /class="tag (avoid|design)">(avoidable|by design)</);
+      const wanted = CAUSES[cause] === "avoidable" ? "avoidable" : "by design";
+      assert.ok(inner.includes(`>${wanted}<`), `${cause} is ${wanted}`);
+      assert.ok(inner.replace(/<[^>]+>/g, " ").trim().length > wanted.length, "it names the cause");
+    }
+  });
+
+  it("the stylesheet gives each cause one colour, and no page element carries a colour of its own", async () => {
+    const dir = await readyToBuild();
+    await dashboard(dir);
+    const html = page(dir);
+    const css = html.match(/<style>([\s\S]*?)<\/style>/)[1];
+    const colours = Object.keys(CAUSES).map((cause) => {
+      const m = css.match(new RegExp(`\\.c-${cause}\\s*\\{[^}]*--cause:\\s*(#[0-9a-f]{6})`, "i"));
+      assert.ok(m, `${cause} has a colour`);
+      return m[1].toLowerCase();
+    });
+    assert.equal(new Set(colours).size, colours.length, "no two causes share a colour");
+    assert.doesNotMatch(
+      body(html),
+      /#(?:[0-9a-f]{6}|[0-9a-f]{8})\b|rgb\(|hsl\(|style="[^"]*(?:color|fill|stroke|background)/i,
+    );
+  });
+
+  it("states are grey: a state chip never carries a cause class", async () => {
+    const dir = await readyToBuild();
+    await dashboard(dir);
+    const html = body(page(dir));
+    const states = [...html.matchAll(/<span class="([^"]*\bstate\b[^"]*)"/g)].map((m) => m[1]);
+    assert.ok(states.length > 0);
+    for (const cls of states) assert.doesNotMatch(cls, /\bc-|\bcause\b/);
+    const css = page(dir).match(/<style>([\s\S]*?)<\/style>/)[1];
+    assert.match(css, /\.state\s*\{[^}]*var\(--grey\)/);
+  });
+});
+
+describe("dashboard: the Log tab", () => {
+  it("has the Run Events as text derived from the record, to copy or download", async () => {
+    const dir = await readyToBuild();
+    await dashboard(dir);
+    const html = page(dir);
+    const log = html.split(`id="/run/${RUN}/log"`)[1].split("</section>")[0];
+    const events = log.match(/<pre class="log" id="events-[^"]+">([\s\S]*?)<\/pre>/)[1];
+    const lines = events.trim().split("\n");
+    assert.match(lines[0], /^2026-11-19T01:44:00Z\s+run-opened/);
+    assert.ok(
+      lines.some(
+        (l) => /human-step/.test(l) && /actor=human/.test(l) && /cause=harness-limit/.test(l),
+      ),
+    );
+    assert.ok(lines.some((l) => /delegation-started/.test(l) && /d348/.test(l)));
+    assert.match(lines.at(-1), /run-closed/);
+    const times = lines.map((l) => l.split(/\s+/)[0]);
+    assert.deepEqual(times, [...times].sort());
+    assert.match(log, /data-copy="events-/);
+    assert.match(
+      log,
+      /data-download="events-[^"]+" data-filename="2026-11-19-spec-344-events\.txt"/,
+    );
+  });
+
+  it("has the report text for the run", async () => {
+    const dir = await readyToBuild();
+    await dashboard(dir);
+    const html = page(dir);
+    const log = html.split(`id="/run/${RUN}/log"`)[1].split("</section>")[0];
+    const report = log.match(/<pre class="log" id="report-[^"]+">([\s\S]*?)<\/pre>/)[1];
+    assert.match(report, /^Run 2026-11-19-spec-344/m);
+    assert.match(report, /13 human steps \(9 avoidable, 4 by design\)/);
+    assert.match(report, /d348/);
+  });
+
+  it("has the Record as JSON, the same record that is on disk", async () => {
+    const dir = await readyToBuild();
+    await dashboard(dir);
+    const html = page(dir);
+    const tab = html.split(`id="/run/${RUN}/record"`)[1].split("</section>")[0];
+    const json = tab.match(/<pre class="log" id="record-[^"]+">([\s\S]*?)<\/pre>/)[1];
+    const text = json.replaceAll("&quot;", '"').replaceAll("&lt;", "<").replaceAll("&amp;", "&");
+    assert.deepEqual(JSON.parse(text), JSON.parse(readFileSync(recordPath(dir), "utf8")));
+  });
+});
+
+describe("dashboard: private prose, only with --local-logs and only in its own file", () => {
+  it("holds no prose without --local-logs", async () => {
+    const dir = await readyToBuild();
+    await dashboard(dir);
+    const html = page(dir);
+    assert.ok(!html.includes(PROSE));
+    assert.doesNotMatch(html, /contains private prose from this machine/);
+    assert.ok(!existsSync(join(dir, "tmp", "orchestrate", "dashboard.local.html")));
+  });
+
+  it("puts the prose Activity Log and the banner only in dashboard.local.html", async () => {
+    const dir = await readyToBuild();
+    const result = await dashboard(dir, ["--local-logs"]);
+    assert.equal(result.code, 0, result.out);
+    const local = page(dir, "dashboard.local.html");
+    assert.ok(local.includes(PROSE));
+    assert.match(
+      local,
+      /contains private prose from this machine, don&#39;t share this file|contains private prose from this machine, don't share this file/,
+    );
+    const shared = page(dir);
+    assert.ok(!shared.includes(PROSE));
+    assert.doesNotMatch(shared, /contains private prose from this machine/);
+    const links = result.out.split("\n").filter((l) => l.startsWith("file://"));
+    assert.equal(links.length, 2);
+    assert.match(links[1], /dashboard\.local\.html$/);
+  });
+
+  it("inlines prose only for a run whose folder still exists", async () => {
+    const dir = await readyToBuild();
+    await dashboard(dir, ["--local-logs"]);
+    const local = page(dir, "dashboard.local.html");
+    const log = (run) => local.split(`id="/run/${run}/log"`)[1].split("</section>")[0];
+    assert.match(log(RUN), /<h2>Activity Log \(local only\)<\/h2>/);
+    assert.doesNotMatch(log(OTHER_RUN), /Activity Log/);
+    assert.match(log(OTHER_RUN), /no run folder on this machine/);
+  });
+
+  it("escapes the prose, so it cannot add markup", async () => {
+    const dir = await readyToBuild();
+    writeFileSync(join(runFolder(dir), "activity.md"), "</pre><script>alert(1)</script>\n");
+    await dashboard(dir, ["--local-logs"]);
+    const local = page(dir, "dashboard.local.html");
+    assert.ok(!local.includes("<script>alert(1)"));
+    assert.ok(local.includes("&lt;script&gt;alert(1)"));
+  });
+
+  it("never shows a credential, in either file, even one quoted in the prose", async () => {
+    const dir = await readyToBuild();
+    writeFileSync(join(runFolder(dir), "activity.md"), `leaked ${SECRET} here\n`);
+    const env = {
+      ORCHESTRATE_S3_SECRET_ACCESS_KEY: SECRET,
+      ORCHESTRATE_S3_ACCESS_KEY_ID: "AKIAEXAMPLEKEYID0000",
+      GH_TOKEN: "ghp_exampletoken0123456789",
+    };
+    await dashboard(dir, ["--local-logs"], env);
+    for (const name of ["dashboard.html", "dashboard.local.html"]) {
+      const html = page(dir, name);
+      for (const value of Object.values(env)) assert.ok(!html.includes(value), `${name} ${value}`);
+    }
+    assert.match(page(dir, "dashboard.local.html"), /leaked \[redacted\] here/);
   });
 });
