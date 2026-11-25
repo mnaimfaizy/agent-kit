@@ -2,13 +2,13 @@
 
 A **Sink** is a store off the machine that receives Run Records. `local` is always on: the record is written to `<run_dir>/records/<run-id>.json`. One more sink may be set in the config's `records.sink` ([CONFIG.md](CONFIG.md#records)); the upload at close-out and `--upload <run>` write to it through the operations below, and only these. How each one is done on one sink is in that sink's own file under [sinks/](sinks/): load only the file for the sink the config names.
 
-| Operation    | Kind  | What it gives                                                                                                    |
-| ------------ | ----- | ---------------------------------------------------------------------------------------------------------------- |
-| `visibility` | read  | Whether the sink is private. Run before every read and write; anything but private is refused, with no override. |
-| `access`     | read  | How many people can read the sink, for the disclosure. Left out of the disclosure when it cannot be read.        |
-| `read`       | read  | The bytes at one path, or that the path is not there.                                                            |
-| `create`     | write | Create one file at a path, and nothing else: it never changes or deletes one.                                    |
-| `list`       | read  | Every path under a prefix, for the dashboard.                                                                    |
+| Operation    | Kind  | What it gives                                                                                                                                          |
+| ------------ | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `visibility` | read  | Whether the sink is private. Run before every read and write: an upload refuses anything but private, with no override; the dashboard warns and reads. |
+| `access`     | read  | How many people can read the sink, for the disclosure. Left out of the disclosure when it cannot be read.                                              |
+| `read`       | read  | The bytes at one path, or that the path is not there.                                                                                                  |
+| `create`     | write | Create one file at a path, and nothing else: it never changes or deletes one.                                                                          |
+| `list`       | read  | Every path under a prefix, for the dashboard.                                                                                                          |
 
 `sinks/<sink>.md` is named for a value of `records.sink.type`. It opens with these bullets, each on its own line in this form:
 
@@ -34,7 +34,7 @@ Then a `## Access` section giving the writer's access and the reader's, a `###` 
 | `gitlab` | `documented`  | [sinks/gitlab.md](sinks/gitlab.md) |
 | `s3`     | `documented`  | [sinks/s3.md](sinks/s3.md)         |
 
-A sink's Support Level is the one its own file states, and the Dispatch Plan and the disclosure name it while it is below `verified` ([RUN.md](RUN.md#uploading-the-run-record)): `gitlab` and `s3` ship at `documented` until a run has uploaded to them, and the first one that does moves it, citing its Activity Log.
+A sink's Support Level is the one its own file states, and the Dispatch Plan and the disclosure name it while it is below `verified` ([RUN.md](RUN.md#uploading-the-run-record)): all three sinks, `github`, `gitlab` and `s3`, ship at `documented` until a run has uploaded to them, and the first one that does moves it, citing its Activity Log.
 
 **Raw run folders** go only to an `s3` sink, set separately as `records.raw.sink`, and only when that bucket's own lifecycle rule expires `raw/`: the access the upload needs, and the lifecycle read, are in [sinks/s3.md](sinks/s3.md#raw-run-folders).
 

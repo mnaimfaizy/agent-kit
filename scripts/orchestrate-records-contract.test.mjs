@@ -502,7 +502,7 @@ describe("uploading the Run Record to a sink", () => {
     assert.match(index, /\| `gitlab` \| `documented` \|/);
     assert.match(
       index,
-      /A sink's Support Level is the one its own file states, and the Dispatch Plan and the disclosure name it while it is below `verified` \(\[RUN\.md\]\(RUN\.md#uploading-the-run-record\)\): `gitlab` and `s3` ship at `documented` until a run has uploaded to them/,
+      /A sink's Support Level is the one its own file states, and the Dispatch Plan and the disclosure name it while it is below `verified` \(\[RUN\.md\]\(RUN\.md#uploading-the-run-record\)\): all three sinks, `github`, `gitlab` and `s3`, ship at `documented` until a run has uploaded to them/,
     );
   });
 
@@ -510,10 +510,13 @@ describe("uploading the Run Record to a sink", () => {
     const run = flat(read(`${SKILL_DIR}/RUN.md`));
     assert.match(
       run,
-      /When the sink's file states a Support Level below `verified` \(`gitlab` and `s3` ship at `documented`\), the Dispatch Plan says so beside "upload the Run Record", and the close-out repeats it after the disclosure/,
+      /When the sink's file states a Support Level below `verified` \(all three sinks, `github`, `gitlab` and `s3`, ship at `documented`\), the Dispatch Plan says so beside "upload the Run Record", and the close-out repeats it after the disclosure/,
     );
     assert.match(flat(SKILL), /the sink's Support Level \(\[SINKS\.md\]\(SINKS\.md\)\)/);
-    assert.match(flat(DESIGN), /`gitlab` and `s3` sinks ship at Support Level `documented`/);
+    assert.match(
+      flat(DESIGN),
+      /all three sinks, `github`, `gitlab` and `s3`, ship at Support Level `documented`/,
+    );
   });
 
   it("CONFIG.md documents the records keys, and the path and login rules", () => {
