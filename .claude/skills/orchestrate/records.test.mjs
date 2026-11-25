@@ -1663,7 +1663,7 @@ describe("upload: create-only writes to a gitlab sink", () => {
       files[0].args.some((a) => a.includes("/raw")),
       "the first file call reads",
     );
-    assert.deepEqual(files[1].args.slice(0, 3), ["api", "-X", "POST"]);
+    assert.deepEqual(files[1].args.slice(0, 5), ["api", "--hostname", "gitlab.com", "-X", "POST"]);
     assert.ok(
       files[1].args.includes(
         `projects/acme%2Frun-records/repository/files/${encodeURIComponent(SINK_PATH)}`,
@@ -1743,7 +1743,12 @@ describe("upload: create-only writes to a gitlab sink", () => {
     assert.ok(transport.repos["gitlab.acme.dev/acme/run-records"].files.has(SINK_PATH));
     const home = fakeGitlab();
     await uploadGitlab(await readyToUpload({ config: GITLAB_CONFIG }), home);
-    assert.ok(home.calls.every((c) => !c.args.includes("--hostname")));
+    assert.ok(
+      home.calls.every(
+        (c) => c.command !== "glab" || c.args.join(" ").includes("--hostname gitlab.com"),
+      ),
+      "gitlab.com is named too, so a clone on another host cannot redirect the call",
+    );
   });
 
   for (const visibility of ["public", "internal"])

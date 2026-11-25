@@ -1025,14 +1025,14 @@ const MAX_PAGES = 1000;
 
 /**
  * A private GitLab project, written with `glab api` Repository Files calls.
+ * `--hostname` is always passed: inside a clone, `glab api` otherwise sends the request to that clone's host.
  * GitLab does not document create-only, so `createOnly` reads the path before
  * every create. Pages are followed by hand until one comes back empty, since a
  * server may cap `per_page` below what was asked.
  */
 function gitlabSink({ repo, branch = null, exec = defaultExec }) {
   const { host, owner, name } = splitSinkRepo(repo, "gitlab");
-  const glab = (args, options) =>
-    exec("glab", ["api", ...(host === "gitlab.com" ? [] : ["--hostname", host]), ...args], options);
+  const glab = (args, options) => exec("glab", ["api", "--hostname", host, ...args], options);
   const project = `projects/${encodeURIComponent(`${owner}/${name}`)}`;
   const file = (path) => `${project}/repository/files/${encodeURIComponent(path)}`;
   const detail = (r) => (r.err || r.out || `exit ${r.code}`).trim().split("\n")[0];
