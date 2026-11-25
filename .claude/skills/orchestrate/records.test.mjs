@@ -1112,7 +1112,7 @@ function fakeTransport({ repos = {}, remotes = {}, conflicts = 0 } = {}) {
           : { code: 0, out: JSON.stringify({ tree, truncated: false }) };
       }
       // One level: `sha` is the folder's path, and HEAD is the root.
-      const sha = rest[2].split("?")[0];
+      const sha = rest.slice(2).join("/").split("?")[0];
       const prefix = sha === "HEAD" ? "" : `${sha}/`;
       const level = new Map();
       for (const path of paths.filter((p) => p.startsWith(prefix))) {
