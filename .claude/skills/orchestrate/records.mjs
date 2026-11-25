@@ -7,6 +7,7 @@
  *
  *   node records.mjs event --file <events.jsonl> --kind <kind> --actor <actor> [--<field> <value>]...
  *   node records.mjs derive <run-folder>
+ *   node records.mjs upload <run> [--yes]
  *
  * `main(argv, io)` is the one seam. `io` injects the clock (`now`), the files
  * root (`cwd`, which relative paths resolve against), the environment (`env`)
@@ -32,6 +33,8 @@ import {
 } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { effectiveConfig, readConfig } from "./config.mjs";
 
 export const SCHEMA = "run-record/1";
 export const ACTORS = /** @type {const} */ (["human", "chief-of-staff", "delegation"]);
@@ -461,7 +464,8 @@ function pairs(args) {
 const EVENT_USAGE =
   "usage: node records.mjs event --file <events.jsonl> --kind <kind> --actor <human|chief-of-staff|delegation> [--<field> <value>]...\n";
 const DERIVE_USAGE = "usage: node records.mjs derive <run-folder>\n";
-const USAGE = `${EVENT_USAGE}${DERIVE_USAGE}`;
+const UPLOAD_USAGE = "usage: node records.mjs upload <run id or run folder> [--yes]\n";
+const USAGE = `${EVENT_USAGE}${DERIVE_USAGE}${UPLOAD_USAGE}`;
 
 function appendEvent(args, io) {
   const given = pairs(args);
@@ -859,27 +863,347 @@ function derive(args, io) {
   return { code: 0, out: `${lines.join("\n")}\n` };
 }
 
-function defaultExec(command, args) {
+// --- Sinks: one interface, `local` and `github` behind it.
+//
+//   list(prefix)          the paths under a prefix, as a sorted list
+//   read(path)            {status: "found", text} | {status: "missing"} | {status: "error", detail}
+//   create(path, text)    create-only: {status: "created"} | {status: "exists"} | {status: "conflict"} | {status: "error", detail}
+//   privacy()             {private, visibility}; both null when it cannot be read
+//   access()              how many people can read the sink, or null when it cannot be read
+//
+// `create` never overwrites: it reports `exists` and writes nothing. What a
+// caller does about an existing path (identical bytes count as uploaded,
+// different bytes stop) is `createOnly`, shared by every sink.
+
+const DOTS = /^\.+$/;
+/** A sink path segment: lowercase, and never empty or only dots. */
+const segmentOf = (value) => {
+  const segment = String(value).toLowerCase();
+  return segment === "" || DOTS.test(segment) || /[/\\\s]/.test(segment) ? null : segment;
+};
+
+/**
+ * Open a sink by type.
+ *
+ * @param {"local" | "github"} type
+ * @param {{dir?: string, repo?: string, branch?: string | null, exec?: Function}} options
+ */
+export function openSink(type, options = {}) {
+  if (type === "local") return localSink(options.dir);
+  if (type === "github") return githubSink(options);
+  throw new Error(`unknown sink type \`${type}\``);
+}
+
+/** The records folder on this machine: always on, never private to anyone but its owner. */
+function localSink(dir) {
+  const file = (path) => join(dir, path);
+  return {
+    name: "local",
+    async list(prefix = "") {
+      if (!existsSync(dir)) return [];
+      return readdirSync(dir)
+        .filter((name) => name.endsWith(".json") && name.startsWith(prefix))
+        .sort();
+    },
+    async read(path) {
+      try {
+        return { status: "found", text: readFileSync(file(path), "utf8") };
+      } catch (error) {
+        return error?.code === "ENOENT"
+          ? { status: "missing" }
+          : { status: "error", detail: String(error?.code ?? error) };
+      }
+    },
+    async create(path, text) {
+      mkdirSync(dirname(file(path)), { recursive: true });
+      try {
+        writeFileSync(file(path), text, { flag: "wx" });
+        return { status: "created" };
+      } catch (error) {
+        return error?.code === "EEXIST"
+          ? { status: "exists" }
+          : { status: "error", detail: String(error?.code ?? error) };
+      }
+    },
+    async privacy() {
+      return { private: true, visibility: "local" };
+    },
+    async access() {
+      return null;
+    },
+  };
+}
+
+/** `owner/name` or `host/owner/name`, as the config reader checked it. */
+function splitSinkRepo(repo) {
+  const parts = repo.split("/");
+  return parts.length === 3
+    ? { host: parts[0], owner: parts[1], name: parts[2] }
+    : { host: "github.com", owner: parts[0], name: parts[1] };
+}
+
+const NOT_FOUND = /HTTP 404|"status":\s*"404"/;
+
+/** A private GitHub repository, written with `gh api` Contents calls. */
+function githubSink({ repo, branch = null, exec = defaultExec }) {
+  const { host, owner, name } = splitSinkRepo(repo);
+  const gh = (args, options) =>
+    exec("gh", ["api", ...(host === "github.com" ? [] : ["--hostname", host]), ...args], options);
+  const base = `repos/${owner}/${name}`;
+  const contents = (path) =>
+    `${base}/contents/${path.split("/").map(encodeURIComponent).join("/")}`;
+  const ref = branch ? `?ref=${encodeURIComponent(branch)}` : "";
+  const detail = (r) => (r.err || r.out || `exit ${r.code}`).trim().split("\n")[0];
+  return {
+    name: repo,
+    async list(prefix = "") {
+      const first = gh([`${base}/git/trees/${branch ?? "HEAD"}?recursive=1`]);
+      if (first.code !== 0) return null;
+      let body;
+      try {
+        body = JSON.parse(first.out);
+      } catch {
+        return null;
+      }
+      // A truncated recursive listing is walked level by level instead.
+      const entries = body.truncated ? walkTree(gh, base, branch ?? "HEAD") : body.tree;
+      if (entries === null) return null;
+      return entries
+        .filter((entry) => entry.type === "blob" && entry.path.startsWith(prefix))
+        .map((entry) => entry.path)
+        .sort();
+    },
+    async read(path) {
+      const r = gh(["-H", "Accept: application/vnd.github.raw+json", `${contents(path)}${ref}`]);
+      if (r.code === 0) return { status: "found", text: r.out };
+      return NOT_FOUND.test(`${r.err}${r.out}`)
+        ? { status: "missing" }
+        : { status: "error", detail: detail(r) };
+    },
+    async create(path, text) {
+      const body = {
+        message: `Add Run Record ${basename(path, ".json")}`,
+        content: Buffer.from(text, "utf8").toString("base64"),
+        ...(branch ? { branch } : {}),
+      };
+      const r = gh(["-X", "PUT", contents(path), "--input", "-"], { input: JSON.stringify(body) });
+      if (r.code === 0) return { status: "created" };
+      const said = `${r.err}${r.out}`;
+      if (/HTTP 409/.test(said)) return { status: "conflict" };
+      // Contents refuses a create over an existing path with 422 (the sha it would need is missing).
+      if (/HTTP 422/.test(said)) return { status: "exists" };
+      return { status: "error", detail: detail(r) };
+    },
+    async privacy() {
+      const r = gh(["--jq", ".visibility", base]);
+      const visibility = r.code === 0 ? r.out.trim() : "";
+      return visibility === ""
+        ? { private: null, visibility: null }
+        : { private: visibility === "private", visibility };
+    },
+    async access() {
+      const r = gh(["--paginate", "--jq", ".[].login", `${base}/collaborators`]);
+      return r.code === 0 ? r.out.split(/\r?\n/).filter(Boolean).length : null;
+    },
+  };
+}
+
+/** Every blob under a tree, read one level at a time. Null when a level cannot be read. */
+function walkTree(gh, base, sha, prefix = "") {
+  const r = gh([`${base}/git/trees/${sha}`]);
+  if (r.code !== 0) return null;
+  let body;
+  try {
+    body = JSON.parse(r.out);
+  } catch {
+    return null;
+  }
+  const out = [];
+  for (const entry of body.tree) {
+    const path = `${prefix}${entry.path}`;
+    if (entry.type === "tree") {
+      const below = walkTree(gh, base, entry.sha ?? entry.path, `${path}/`);
+      if (below === null) return null;
+      out.push(...below);
+    } else out.push({ ...entry, path });
+  }
+  return out;
+}
+
+/**
+ * The create-only rule for any sink: identical bytes at the path count as
+ * already uploaded, different bytes stop the upload, and a conflict from
+ * parallel writes is retried (the next read decides again).
+ */
+async function createOnly(sink, path, text, tries = 4) {
+  let last = "";
+  for (let n = 0; n < tries; n += 1) {
+    const there = await sink.read(path);
+    if (there.status === "error") return { status: "error", detail: there.detail };
+    if (there.status === "found") return { status: there.text === text ? "already" : "different" };
+    const made = await sink.create(path, text);
+    if (made.status === "created") return { status: "created" };
+    if (made.status === "error") return { status: "error", detail: made.detail };
+    last = made.status;
+  }
+  return {
+    status: "error",
+    detail: `still ${last === "conflict" ? "a 409 conflict" : "in conflict"} after ${tries} tries`,
+  };
+}
+
+// --- Uploading a closed run's Run Record.
+
+const RECORD_KEPT = "It is kept indefinitely (git cannot expire it).";
+
+/** The namespaced sink path: `records/<host>/<owner>/<repo>/<login>/<run-id>.json`, every segment lowercased. */
+function sinkPath(repository, login, runId) {
+  const segments = [...repository.split("/"), login, runId].map(segmentOf);
+  return repository.split("/").length === 3 && segments.every(Boolean)
+    ? `records/${segments.join("/")}.json`
+    : null;
+}
+
+async function upload(args, io) {
+  const yes = args.includes("--yes");
+  const rest = args.filter((a) => a !== "--yes");
+  if (rest.length !== 1 || rest[0].startsWith("--")) return { code: 2, out: UPLOAD_USAGE };
+  const cwd = io.cwd ?? process.cwd();
+
+  // The config: a problem in it is named, and nothing is uploaded.
+  const read = (path) => {
+    try {
+      return readFileSync(resolve(cwd, path), "utf8");
+    } catch {
+      return null;
+    }
+  };
+  const loaded = readConfig(read);
+  if (loaded.problems.length) return { code: 1, out: `${loaded.problems.join("\n")}\n` };
+  const { records, run_dir: runDir } = effectiveConfig(loaded.config);
+
+  // Find the record: by id under the run folder, or beside a run folder given by path.
+  const arg = rest[0];
+  const asPath = arg.includes("/");
+  const runId = asPath ? basename(resolve(cwd, arg)) : arg;
+  const recordsDir = asPath
+    ? join(dirname(resolve(cwd, arg)), "records")
+    : resolve(cwd, runDir, "records");
+  const local = openSink("local", { dir: recordsDir });
+  const found = ID.test(runId) ? await local.read(`${runId}.json`) : { status: "missing" };
+  if (found.status !== "found")
+    return {
+      code: 1,
+      out: `no Run Record for \`${runId}\` in ${recordsDir}: derive it at close-out (\`records.mjs derive <run-folder>\`)\n`,
+    };
+  let record;
+  try {
+    record = JSON.parse(found.text);
+  } catch {
+    return { code: 1, out: `the Run Record for \`${runId}\` is not JSON: nothing uploaded\n` };
+  }
+  // The safe-field check runs again at upload: a record edited since it was derived is refused.
+  const unsafe = checkRecord(record);
+  if (unsafe.length) return { code: 1, out: `${unsafe.join("\n")}\nnothing uploaded\n` };
+
+  if (records.sink === null)
+    return {
+      code: 1,
+      out: `no \`records.sink\` in the config: the Run Record stays at ${join(recordsDir, `${runId}.json`)}\n`,
+    };
+
+  const login = record.run.operator;
+  if (login === null)
+    return {
+      code: 1,
+      out: "no tracker login: nothing is uploaded under no name. Sign in with `gh`, or set ORCHESTRATE_OPERATOR, and derive the record again\n",
+    };
+  const exec = io.exec ?? defaultExec;
+  const repository = (
+    records.repository ??
+    record.run.repo ??
+    repoOf({ ...io, exec })
+  )?.toLowerCase();
+  if (!repository) {
+    return {
+      code: 3,
+      out: "cannot tell which repository this run belongs to: there are several remotes and none is `origin`, or there is no remote. Ask which one, then pin it as `records.repository`\n",
+    };
+  }
+  const path = sinkPath(repository, login, record.run.id);
+  if (path === null)
+    return {
+      code: 1,
+      out: `\`${repository}\` is not a \`host/owner/repo\` name: nothing uploaded\n`,
+    };
+
+  const sink = openSink(records.sink.type, {
+    repo: records.sink.repo,
+    branch: records.sink.branch,
+    exec,
+  });
+
+  // The privacy check, at every upload: visibility can change, and there is no override.
+  const where = records.sink.repo;
+  const privacy = await sink.privacy();
+  if (privacy.private === null)
+    return {
+      code: 1,
+      out: `cannot read whether \`${where}\` is private: nothing uploaded\n`,
+    };
+  if (!privacy.private)
+    return {
+      code: 1,
+      out: `\`${where}\` is not private (${privacy.visibility}): a Run Record is never uploaded to it, and there is no override. Nothing uploaded\n`,
+    };
+
+  const people = await sink.access();
+  const access =
+    people === null ? "" : `, ${people} ${people === 1 ? "person" : "people"} with access`;
+  const steps = record.summary.human_steps;
+  const disclosure = `**Upload this run's Run Record?** To \`${where}\` (private GitHub repository${access}) at \`${path}\`. It holds counts, ids, times, outcomes and ${steps} human ${steps === 1 ? "step" : "steps"} with their kind and cause: no issue text, no command output, no prose. ${RECORD_KEPT} [Show the record] [Upload] [Not now]\n`;
+  if (!yes) return { code: 0, out: `${disclosure}record: ${join(recordsDir, `${runId}.json`)}\n` };
+
+  const done = await createOnly(sink, path, found.text);
+  if (done.status === "error")
+    return { code: 1, out: `${disclosure}upload failed: ${done.detail}\n` };
+  if (done.status === "different")
+    return {
+      code: 1,
+      out: `${disclosure}different bytes are already at \`${path}\` in \`${where}\`: the upload stopped and nothing was overwritten\n`,
+    };
+  const verb = done.status === "already" ? "already uploaded" : "uploaded";
+  return { code: 0, out: `${disclosure}${verb} \`${path}\` to \`${where}\`\n` };
+}
+
+/** The real transport: a command run to the end, its output and its error text. `options.input` goes to its stdin. */
+function defaultExec(command, args, options = {}) {
   try {
     const out = execFileSync(command, args, {
       encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
+      input: options.input,
+      stdio: [options.input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
     });
-    return { code: 0, out };
+    return { code: 0, out, err: "" };
   } catch (error) {
-    return { code: error?.status ?? 1, out: "" };
+    return {
+      code: error?.status ?? 1,
+      out: String(error?.stdout ?? ""),
+      err: String(error?.stderr ?? ""),
+    };
   }
 }
 
 /**
  * @param {string[]} argv the arguments after the script
- * @param {{now?: () => Date, cwd?: string, env?: Record<string, string | undefined>, exec?: (command: string, args: string[]) => {code: number, out: string}}} [io]
+ * @param {{now?: () => Date, cwd?: string, env?: Record<string, string | undefined>, exec?: (command: string, args: string[], options?: {input?: string}) => {code: number, out: string, err?: string}}} [io]
  * @returns {Promise<{code: number, out: string}>}
  */
 export async function main(argv, io = {}) {
   const [command, ...rest] = argv;
   if (command === "event") return appendEvent(rest, io);
   if (command === "derive") return derive(rest, io);
+  if (command === "upload") return upload(rest, io);
   return { code: 2, out: USAGE };
 }
 

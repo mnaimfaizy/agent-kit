@@ -26,7 +26,15 @@ import { dirname, join } from "node:path";
 import { after, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { CAUSES, EVENT_KINDS, STEP_KINDS, checkRecord, main, repoFromRemote } from "./records.mjs";
+import {
+  CAUSES,
+  EVENT_KINDS,
+  STEP_KINDS,
+  checkRecord,
+  main,
+  openSink,
+  repoFromRemote,
+} from "./records.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const FIXTURE = join(here, "fixtures", "records", "2026-11-19-spec-344");
@@ -1026,6 +1034,488 @@ describe("derive: events that do not add up", () => {
     const result = await derive(dir);
     assert.equal(result.code, 1);
     assert.match(result.out, /`d999` has no `delegation-started` event/);
+  });
+});
+
+// ── Upload ──────────────────────────────────────────────────────────────────
+
+const SINK_CONFIG = [
+  "records:",
+  "  sink:",
+  "    type: github",
+  "    repo: acme/run-records",
+  "",
+].join("\n");
+const SINK_PATH = `records/github.com/mnaimfaizy/agent-kit/naim/${RUN}.json`;
+
+/**
+ * A fake `gh` and `git`: the private repositories it holds and every call it
+ * was given. Nothing here touches the network. `repos` maps `owner/name` (or
+ * `host/owner/name`) to its visibility, collaborators and files.
+ */
+function fakeTransport({ repos = {}, remotes = {}, conflicts = 0 } = {}) {
+  const calls = [];
+  const state = {
+    calls,
+    conflicts,
+    repos: Object.fromEntries(
+      Object.entries({
+        "acme/run-records": {},
+        ...repos,
+      }).map(([name, repo]) => [
+        name,
+        {
+          visibility: "private",
+          collaborators: ["a", "b", "c", "d"],
+          files: new Map(),
+          ...repo,
+        },
+      ]),
+    ),
+    puts: () => calls.filter((c) => c.args.includes("PUT")),
+    contents: () => calls.filter((c) => c.args.some((a) => /\/contents\//.test(a))),
+  };
+  const missing = {
+    code: 1,
+    out: '{"message":"Not Found","status":"404"}',
+    err: "gh: Not Found (HTTP 404)",
+  };
+  state.exec = (command, args, options = {}) => {
+    calls.push({ command, args, input: options.input });
+    if (command === "git") {
+      const sub = args.slice(2);
+      if (sub[0] === "remote" && sub[1] === "get-url") {
+        const url = remotes[sub[2]];
+        return url ? { code: 0, out: `${url}\n` } : { code: 2, out: "" };
+      }
+      if (sub[0] === "remote") return { code: 0, out: `${Object.keys(remotes).join("\n")}\n` };
+    }
+    if (command !== "gh" || args[0] !== "api") return { code: 127, out: "" };
+    const host = args.includes("--hostname") ? args[args.indexOf("--hostname") + 1] : "github.com";
+    const endpoint = args.find((a) => /^repos\//.test(a));
+    const [, owner, name, ...rest] = endpoint.split("?")[0].split("/");
+    const key = host === "github.com" ? `${owner}/${name}` : `${host}/${owner}/${name}`;
+    const repo = state.repos[key];
+    if (!repo) return missing;
+    const kind = rest[0];
+    if (kind === undefined) return { code: 0, out: `${repo.visibility}\n` };
+    if (kind === "collaborators")
+      return repo.collaborators
+        ? { code: 0, out: repo.collaborators.map((l) => `${l}\n`).join("") }
+        : { code: 1, out: "", err: "gh: Must have push access (HTTP 403)" };
+    if (kind === "git" && rest[1] === "trees") {
+      const paths = [...repo.files.keys()];
+      if (endpoint.includes("recursive=1")) {
+        const tree = paths.map((path) => ({ path, type: "blob" }));
+        return repo.truncate
+          ? { code: 0, out: JSON.stringify({ tree: [], truncated: true }) }
+          : { code: 0, out: JSON.stringify({ tree, truncated: false }) };
+      }
+      // One level: `sha` is the folder's path, and HEAD is the root.
+      const sha = rest[2].split("?")[0];
+      const prefix = sha === "HEAD" ? "" : `${sha}/`;
+      const level = new Map();
+      for (const path of paths.filter((p) => p.startsWith(prefix))) {
+        const [head, ...more] = path.slice(prefix.length).split("/");
+        level.set(
+          head,
+          more.length
+            ? { path: head, type: "tree", sha: `${prefix}${head}` }
+            : { path: head, type: "blob" },
+        );
+      }
+      return { code: 0, out: JSON.stringify({ tree: [...level.values()], truncated: false }) };
+    }
+    if (kind !== "contents") return missing;
+    const path = decodeURIComponent(rest.slice(1).join("/"));
+    if (args.includes("PUT")) {
+      if (state.conflicts > 0) {
+        state.conflicts -= 1;
+        return { code: 1, out: "", err: "gh: is at abc but expected def (HTTP 409)" };
+      }
+      if (repo.files.has(path)) return { code: 1, out: "", err: "gh: Invalid request (HTTP 422)" };
+      const body = JSON.parse(options.input);
+      repo.files.set(path, Buffer.from(body.content, "base64").toString("utf8"));
+      repo.lastPut = body;
+      return { code: 0, out: "{}" };
+    }
+    return repo.files.has(path) ? { code: 0, out: repo.files.get(path) } : missing;
+  };
+  return state;
+}
+
+/** The dir with a derived record and the sink config; `extra` lines are added to `records:`. */
+async function readyToUpload({ config = SINK_CONFIG, operator = "naim", edit } = {}) {
+  const dir = root();
+  writeFileSync(join(dir, "orchestrate.config.yml"), config);
+  const result = await derive(dir, operator ? {} : { env: {}, exec: () => ({ code: 1, out: "" }) });
+  assert.equal(result.code, 0, result.out);
+  if (edit) {
+    const file = recordPath(dir);
+    writeFileSync(file, edit(readFileSync(file, "utf8")));
+  }
+  return dir;
+}
+const upload = (dir, transport, args = [RUN, "--yes"], env = {}) =>
+  main(["upload", ...args], { cwd: dir, env, exec: transport.exec });
+
+describe("upload: the disclosure", () => {
+  it("shows the approved wording, with the access count, and uploads nothing without a yes", async () => {
+    const dir = await readyToUpload();
+    const transport = fakeTransport();
+    const result = await upload(dir, transport, [RUN]);
+    assert.equal(result.code, 0, result.out);
+    assert.match(
+      result.out,
+      new RegExp(
+        "\\*\\*Upload this run's Run Record\\?\\*\\* To `acme/run-records` \\(private GitHub repository, 4 people with access\\) at `" +
+          SINK_PATH.replaceAll(".", "\\.") +
+          "`\\. It holds counts, ids, times, outcomes and 13 human steps with their kind and cause: no issue text, no command output, no prose\\. It is kept indefinitely \\(git cannot expire it\\)\\. \\[Show the record\\] \\[Upload\\] \\[Not now\\]",
+      ),
+    );
+    assert.equal(transport.puts().length, 0);
+    assert.equal(transport.repos["acme/run-records"].files.size, 0);
+  });
+
+  it("leaves the access count out when the sink cannot be read for it", async () => {
+    const dir = await readyToUpload();
+    const transport = fakeTransport({ repos: { "acme/run-records": { collaborators: null } } });
+    const result = await upload(dir, transport, [RUN]);
+    assert.equal(result.code, 0, result.out);
+    assert.match(result.out, /\(private GitHub repository\) at `records\//);
+    assert.doesNotMatch(result.out, /with access/);
+  });
+
+  it("says one person, not one people", async () => {
+    const dir = await readyToUpload();
+    const transport = fakeTransport({ repos: { "acme/run-records": { collaborators: ["naim"] } } });
+    assert.match((await upload(dir, transport, [RUN])).out, /1 person with access/);
+  });
+
+  it("is shown before an upload too, so the human is never surprised", async () => {
+    const dir = await readyToUpload();
+    const result = await upload(dir, fakeTransport());
+    assert.match(result.out, /^\*\*Upload this run's Run Record\?\*\*/);
+    assert.match(result.out, /\nuploaded `records\//);
+  });
+});
+
+describe("upload: create-only writes to a github sink", () => {
+  it("creates the record at its namespaced path with the record's exact bytes", async () => {
+    const dir = await readyToUpload();
+    const transport = fakeTransport();
+    const result = await upload(dir, transport);
+    assert.equal(result.code, 0, result.out);
+    assert.match(
+      result.out,
+      new RegExp(`uploaded \`${SINK_PATH.replaceAll(".", "\\.")}\` to \`acme/run-records\``),
+    );
+    assert.equal(
+      transport.repos["acme/run-records"].files.get(SINK_PATH),
+      readFileSync(recordPath(dir), "utf8"),
+    );
+    const [put] = transport.puts();
+    assert.deepEqual(put.args.slice(0, 3), ["api", "-X", "PUT"]);
+    assert.ok(put.args.includes(`repos/acme/run-records/contents/${SINK_PATH}`));
+    assert.equal(transport.repos["acme/run-records"].lastPut.sha, undefined, "create-only: no sha");
+  });
+
+  it("counts identical bytes already there as uploaded, and repeating is safe", async () => {
+    const dir = await readyToUpload();
+    const transport = fakeTransport();
+    assert.equal((await upload(dir, transport)).code, 0);
+    const again = await upload(dir, transport);
+    assert.equal(again.code, 0, again.out);
+    assert.match(again.out, /already uploaded/);
+    assert.equal(transport.puts().length, 1);
+  });
+
+  it("stops when different bytes are already at the path, and overwrites nothing", async () => {
+    const dir = await readyToUpload();
+    const transport = fakeTransport({
+      repos: { "acme/run-records": { files: new Map([[SINK_PATH, '{"someone":"else"}']]) } },
+    });
+    const result = await upload(dir, transport);
+    assert.equal(result.code, 1);
+    assert.match(result.out, /different bytes are already at `records\//);
+    assert.equal(transport.puts().length, 0);
+    assert.equal(transport.repos["acme/run-records"].files.get(SINK_PATH), '{"someone":"else"}');
+  });
+
+  it("retries a 409 from parallel Contents writes", async () => {
+    const dir = await readyToUpload();
+    const transport = fakeTransport({ conflicts: 2 });
+    const result = await upload(dir, transport);
+    assert.equal(result.code, 0, result.out);
+    assert.equal(transport.puts().length, 3);
+    assert.ok(transport.repos["acme/run-records"].files.has(SINK_PATH));
+  });
+
+  it("gives up, saying so, when every try is a 409", async () => {
+    const dir = await readyToUpload();
+    const transport = fakeTransport({ conflicts: 99 });
+    const result = await upload(dir, transport);
+    assert.equal(result.code, 1);
+    assert.match(result.out, /409/);
+    assert.equal(transport.repos["acme/run-records"].files.size, 0);
+  });
+
+  it("counts a record another writer created between the read and the write as uploaded when identical", async () => {
+    const dir = await readyToUpload();
+    const transport = fakeTransport({ conflicts: 1 });
+    const bytes = readFileSync(recordPath(dir), "utf8");
+    const exec = transport.exec;
+    transport.exec = (command, args, options) => {
+      const result = exec(command, args, options);
+      if (args.includes("PUT") && result.code !== 0)
+        transport.repos["acme/run-records"].files.set(SINK_PATH, bytes);
+      return result;
+    };
+    const result = await main(["upload", RUN, "--yes"], {
+      cwd: dir,
+      env: {},
+      exec: transport.exec,
+    });
+    assert.equal(result.code, 0, result.out);
+    assert.match(result.out, /already uploaded/);
+  });
+
+  it("writes to the configured branch, and reads from it", async () => {
+    const dir = await readyToUpload({ config: `${SINK_CONFIG}    branch: records\n` });
+    const transport = fakeTransport();
+    assert.equal((await upload(dir, transport)).code, 0);
+    assert.equal(transport.repos["acme/run-records"].lastPut.branch, "records");
+    assert.ok(
+      transport
+        .contents()
+        .every((c) => c.args.some((a) => a.includes("ref=records") || a === "PUT")),
+    );
+  });
+
+  it("uses the sink's own host for host/owner/name", async () => {
+    const dir = await readyToUpload({
+      config: SINK_CONFIG.replace("acme/run-records", "ghe.acme.dev/acme/run-records"),
+    });
+    const transport = fakeTransport({ repos: { "ghe.acme.dev/acme/run-records": {} } });
+    const result = await upload(dir, transport);
+    assert.equal(result.code, 0, result.out);
+    assert.ok(transport.calls.every((c) => c.command !== "gh" || c.args.includes("ghe.acme.dev")));
+    assert.ok(transport.repos["ghe.acme.dev/acme/run-records"].files.has(SINK_PATH));
+  });
+});
+
+describe("upload: never to a public repository", () => {
+  for (const visibility of ["public", "internal"])
+    it(`refuses a ${visibility} repository, with no override, before any read or write`, async () => {
+      const dir = await readyToUpload();
+      const transport = fakeTransport({ repos: { "acme/run-records": { visibility } } });
+      for (const args of [[RUN], [RUN, "--yes"]]) {
+        const result = await upload(dir, transport, args);
+        assert.notEqual(result.code, 0);
+        assert.doesNotMatch(result.out, /Upload this run's Run Record\?/);
+        assert.match(result.out, /is not private/);
+      }
+      assert.equal(transport.contents().length, 0);
+      // There is no flag that lifts it.
+      assert.equal((await upload(dir, transport, [RUN, "--yes", "--force"])).code, 2);
+      assert.equal(transport.contents().length, 0);
+    });
+
+  it("refuses when the visibility cannot be read, since it cannot be shown private", async () => {
+    const dir = await readyToUpload();
+    const transport = fakeTransport();
+    delete transport.repos["acme/run-records"];
+    const result = await upload(dir, transport);
+    assert.equal(result.code, 1);
+    assert.match(result.out, /cannot read whether `acme\/run-records` is private/);
+    assert.equal(transport.contents().length, 0);
+  });
+});
+
+describe("upload: the namespace and the login", () => {
+  it("uploads nothing with no login, and makes no call", async () => {
+    const dir = await readyToUpload({ operator: null });
+    const transport = fakeTransport();
+    const result = await upload(dir, transport);
+    assert.equal(result.code, 1);
+    assert.match(result.out, /no tracker login/);
+    assert.equal(transport.calls.length, 0);
+  });
+
+  it("lowercases every segment, and `records.repository` pins the repository", async () => {
+    const dir = await readyToUpload({
+      config: `records:\n  repository: GitHub.com/Acme/Widgets\n  sink:\n    type: github\n    repo: acme/run-records\n`,
+      operator: null,
+    });
+    // The record names its operator as written; the path is lowercased.
+    const file = recordPath(dir);
+    writeFileSync(
+      file,
+      readFileSync(file, "utf8").replace('"operator": null', '"operator": "Naim"'),
+    );
+    const transport = fakeTransport();
+    const result = await upload(dir, transport);
+    assert.equal(result.code, 0, result.out);
+    assert.deepEqual(
+      [...transport.repos["acme/run-records"].files.keys()],
+      [`records/github.com/acme/widgets/naim/${RUN}.json`],
+    );
+  });
+
+  it("reads the repository from the origin remote when the record names none", async () => {
+    const dir = await readyToUpload({
+      edit: (text) => text.replace(/"repo": "[^"]+"/, '"repo": null'),
+    });
+    const transport = fakeTransport({
+      remotes: { origin: "git@github.com:Acme/Widgets.git", fork: "https://github.com/me/widgets" },
+    });
+    const result = await upload(dir, transport);
+    assert.equal(result.code, 0, result.out);
+    assert.ok(
+      transport.repos["acme/run-records"].files.has(
+        `records/github.com/acme/widgets/naim/${RUN}.json`,
+      ),
+    );
+  });
+
+  it("asks, rather than guess, with several remotes and none named origin", async () => {
+    const dir = await readyToUpload({
+      edit: (text) => text.replace(/"repo": "[^"]+"/, '"repo": null'),
+    });
+    const transport = fakeTransport({
+      remotes: { upstream: "https://github.com/a/b", fork: "https://github.com/me/b" },
+    });
+    const result = await upload(dir, transport);
+    assert.equal(result.code, 3);
+    assert.match(result.out, /several remotes and none is `origin`/);
+    assert.equal(transport.contents().length, 0);
+  });
+});
+
+describe("upload: when there is nothing to upload", () => {
+  it("a run with no `records` keys behaves as today: the local record only, no call", async () => {
+    const dir = await readyToUpload({ config: "run_dir: tmp/orchestrate\n" });
+    const transport = fakeTransport();
+    const result = await upload(dir, transport);
+    assert.equal(result.code, 1);
+    assert.match(result.out, /no `records\.sink`/);
+    assert.equal(transport.calls.length, 0);
+    assert.ok(existsSync(recordPath(dir)));
+  });
+
+  it("derive is unchanged by a sink: it still only writes the local record", async () => {
+    const dir = root();
+    writeFileSync(join(dir, "orchestrate.config.yml"), SINK_CONFIG);
+    const transport = fakeTransport();
+    const result = await main(["derive", `tmp/orchestrate/${RUN}`], {
+      cwd: dir,
+      env: { ORCHESTRATE_OPERATOR: "naim" },
+      exec: transport.exec,
+    });
+    assert.equal(result.code, 0, result.out);
+    assert.equal(transport.calls.length, 0);
+  });
+
+  it("names a config problem and uploads nothing", async () => {
+    const dir = await readyToUpload({ config: "records:\n  sink:\n    type: s3\n    repo: a/b\n" });
+    const transport = fakeTransport();
+    const result = await upload(dir, transport);
+    assert.equal(result.code, 1);
+    assert.match(result.out, /unknown sink type `s3`/);
+    assert.equal(transport.calls.length, 0);
+  });
+
+  it("names a run with no record, and a record that holds free text, and uploads neither", async () => {
+    const dir = await readyToUpload();
+    const transport = fakeTransport();
+    const none = await upload(dir, transport, ["2026-01-01-nothing", "--yes"]);
+    assert.equal(none.code, 1);
+    assert.match(none.out, /no Run Record for `2026-01-01-nothing`/);
+    const file = recordPath(dir);
+    const record = JSON.parse(readFileSync(file, "utf8"));
+    record.run.note = "the issue said to drop the production table";
+    writeFileSync(file, JSON.stringify(record));
+    const unsafe = await upload(dir, transport);
+    assert.equal(unsafe.code, 1);
+    assert.match(unsafe.out, /run\.note: is outside the schema/);
+    assert.doesNotMatch(unsafe.out, /production table/);
+    assert.equal(transport.calls.length, 0);
+  });
+
+  it("exits 2 with the usage for a bad call", async () => {
+    const transport = fakeTransport();
+    for (const args of [[], ["a", "b"], [RUN, "--force"]])
+      assert.equal((await upload(root(), transport, args)).code, 2, args.join(" "));
+  });
+});
+
+describe("upload: answering Not now, and uploading later", () => {
+  it("keeps the local record, and `upload <run>` later uploads it", async () => {
+    const dir = await readyToUpload();
+    const transport = fakeTransport();
+    // "Not now": the disclosure was shown and the human declined; nothing was run with --yes.
+    assert.equal((await upload(dir, transport, [RUN])).code, 0);
+    assert.ok(existsSync(recordPath(dir)));
+    assert.equal(transport.puts().length, 0);
+    // Later, with the run folder gone: the record outlives it.
+    rmSync(runFolder(dir), { recursive: true });
+    const later = await upload(dir, transport, [RUN, "--yes"]);
+    assert.equal(later.code, 0, later.out);
+    assert.ok(transport.repos["acme/run-records"].files.has(SINK_PATH));
+  });
+
+  it("works from the run folder's path, and with `upload: never`", async () => {
+    const dir = await readyToUpload({
+      config: `records:\n  upload: never\n  sink:\n    type: github\n    repo: acme/run-records\n`,
+    });
+    const transport = fakeTransport();
+    const result = await upload(dir, transport, [`tmp/orchestrate/${RUN}`, "--yes"]);
+    assert.equal(result.code, 0, result.out);
+    assert.ok(transport.repos["acme/run-records"].files.has(SINK_PATH));
+  });
+});
+
+describe("sinks: one interface, local and github behind it", () => {
+  it("lists, reads and creates on the local sink, create-only", async () => {
+    const dir = await readyToUpload();
+    const local = openSink("local", { dir: join(dir, "tmp", "orchestrate", "records") });
+    assert.deepEqual(await local.list(""), [`${RUN}.json`]);
+    const text = readFileSync(recordPath(dir), "utf8");
+    assert.deepEqual(await local.read(`${RUN}.json`), { status: "found", text });
+    assert.deepEqual(await local.read("nope.json"), { status: "missing" });
+    assert.deepEqual(await local.create("new.json", "{}\n"), { status: "created" });
+    assert.deepEqual(await local.create("new.json", "{}\n"), { status: "exists" });
+    assert.deepEqual(await local.privacy(), { private: true, visibility: "local" });
+    assert.equal(await local.access(), null);
+  });
+
+  it("lists, reads and checks a github sink through gh api", async () => {
+    const transport = fakeTransport({
+      repos: { "acme/run-records": { files: new Map([["records/a/b.json", "{}"]]) } },
+    });
+    const sink = openSink("github", { repo: "acme/run-records", exec: transport.exec });
+    assert.deepEqual(await sink.privacy(), { private: true, visibility: "private" });
+    assert.equal(await sink.access(), 4);
+    assert.deepEqual(await sink.read("records/a/b.json"), { status: "found", text: "{}" });
+    assert.deepEqual(await sink.read("records/a/c.json"), { status: "missing" });
+    assert.deepEqual(await sink.list("records/"), ["records/a/b.json"]);
+    assert.deepEqual(await sink.list("raw/"), []);
+  });
+
+  it("walks a github sink level by level when the recursive listing is truncated", async () => {
+    const files = new Map(
+      ["records/h/o/r/naim/a.json", "records/h/o/r/lee/b.json", "raw/x"].map((p) => [p, "{}"]),
+    );
+    const transport = fakeTransport({ repos: { "acme/run-records": { files, truncate: true } } });
+    const sink = openSink("github", { repo: "acme/run-records", exec: transport.exec });
+    assert.deepEqual(await sink.list("records/"), [
+      "records/h/o/r/lee/b.json",
+      "records/h/o/r/naim/a.json",
+    ]);
+    assert.equal(
+      await openSink("github", { repo: "acme/nowhere", exec: transport.exec }).list(""),
+      null,
+    );
   });
 });
 
