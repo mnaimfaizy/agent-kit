@@ -18,7 +18,9 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
+  renameSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -1573,5 +1575,164 @@ describe("the command line", () => {
       { cwd: dir, env, encoding: "utf8" },
     );
     assert.equal(bad.status, 1);
+  });
+});
+
+// ── prune: closed-out run folders, on opt-in ────────────────────────────────
+
+const DAY = 86_400_000;
+const NOW = "2026-11-25T12:00:00Z";
+const ago = (days) => new Date(Date.parse(NOW) - days * DAY).toISOString().replace(/\.\d+Z$/, "Z");
+
+/** A temp root with a config, and the run folders `runs` names: `closedDaysAgo` null is an open run. */
+function pruneRoot({ config = ["prune:", "  after_days: 30"], runs = {} } = {}) {
+  const dir = mkdtempSync(join(tmpdir(), "orchestrate-prune-"));
+  made.push(dir);
+  if (config !== null) writeFileSync(join(dir, "orchestrate.config.yml"), `${config.join("\n")}\n`);
+  const base = join(dir, "tmp", "orchestrate");
+  mkdirSync(join(base, "records"), { recursive: true });
+  const template = JSON.parse(
+    readFileSync(join(here, "fixtures", "records", "template-record.json"), "utf8"),
+  );
+  for (const [id, closedDaysAgo] of Object.entries(runs)) {
+    mkdirSync(join(base, id, "delegations", "d1"), { recursive: true });
+    writeFileSync(join(base, id, "board.md"), "board\n");
+    writeFileSync(join(base, id, "delegations", "d1", "report.md"), "report\n");
+    if (closedDaysAgo === null) continue;
+    const record = { ...template, run: { ...template.run, id, closed_at: ago(closedDaysAgo) } };
+    writeFileSync(join(base, "records", `${id}.json`), `${JSON.stringify(record, null, 2)}\n`);
+  }
+  return dir;
+}
+const prune = (dir, args = []) => main(["prune", ...args], { cwd: dir, now: at(NOW) });
+const kept = (dir) => readdirSync(join(dir, "tmp", "orchestrate")).sort();
+
+describe("prune: only closed-out run folders older than prune.after_days", () => {
+  it("deletes a closed-out run past the age, and keeps every record", async () => {
+    const dir = pruneRoot({ runs: { "run-old": 40, "run-new": 10 } });
+    const result = await prune(dir);
+    assert.equal(result.code, 0, result.out);
+    assert.deepEqual(kept(dir), ["records", "run-new"]);
+    assert.deepEqual(readdirSync(join(dir, "tmp", "orchestrate", "records")).sort(), [
+      "run-new.json",
+      "run-old.json",
+    ]);
+    assert.match(result.out, /pruned run-old/);
+    assert.doesNotMatch(result.out, /pruned run-new/);
+  });
+
+  it("never deletes an open run, however old its folder, or a run with no valid record", async () => {
+    const dir = pruneRoot({ runs: { "run-open": null, "run-old": 400 } });
+    const base = join(dir, "tmp", "orchestrate");
+    // A record that is not JSON, one for another run, and one with no closing time.
+    for (const [id, text] of [
+      ["run-garbled", "{not json"],
+      ["run-other", JSON.stringify({ run: { id: "somebody-else", closed_at: ago(400) } })],
+      ["run-untimed", JSON.stringify({ run: { id: "run-untimed" } })],
+    ]) {
+      mkdirSync(join(base, id), { recursive: true });
+      writeFileSync(join(base, "records", `${id}.json`), text);
+    }
+    await prune(dir);
+    assert.deepEqual(kept(dir), ["records", "run-garbled", "run-open", "run-other", "run-untimed"]);
+  });
+
+  it("keeps a run closed exactly after_days ago, and prunes one a second older", async () => {
+    const dir = pruneRoot({ runs: { "run-edge": 30 } });
+    await prune(dir);
+    assert.deepEqual(kept(dir), ["records", "run-edge"]);
+    const later = await main(["prune"], { cwd: dir, now: at("2026-11-25T12:00:01Z") });
+    assert.equal(later.code, 0);
+    assert.deepEqual(kept(dir), ["records"]);
+  });
+
+  it("deletes nothing when the config has no prune key, or no config at all", async () => {
+    for (const config of [["limits:", "  building: 2"], null]) {
+      const dir = pruneRoot({ config, runs: { "run-old": 900 } });
+      const result = await prune(dir);
+      assert.equal(result.code, 0, result.out);
+      assert.match(result.out, /pruning is off/);
+      assert.deepEqual(kept(dir), ["records", "run-old"]);
+    }
+  });
+
+  it("reads the setting from a JSON config, and from a custom run_dir", async () => {
+    const dir = pruneRoot({ config: null });
+    writeFileSync(
+      join(dir, "orchestrate.config.json"),
+      JSON.stringify({ run_dir: "tmp/orchestrate", prune: { after_days: 5 } }),
+    );
+    const base = join(dir, "tmp", "orchestrate");
+    mkdirSync(join(base, "run-a"));
+    writeFileSync(
+      join(base, "records", "run-a.json"),
+      JSON.stringify({ run: { id: "run-a", closed_at: ago(6) } }),
+    );
+    await prune(dir);
+    assert.deepEqual(kept(dir), ["records"]);
+
+    const other = pruneRoot({ config: ["run_dir: runs/here", "prune:", "  after_days: 1"] });
+    const from = join(other, "tmp", "orchestrate");
+    renameSync(from, join(other, "runs-tmp"));
+    mkdirSync(join(other, "runs"), { recursive: true });
+    renameSync(join(other, "runs-tmp"), join(other, "runs", "here"));
+    mkdirSync(join(other, "runs", "here", "run-b"));
+    writeFileSync(
+      join(other, "runs", "here", "records", "run-b.json"),
+      JSON.stringify({ run: { id: "run-b", closed_at: ago(3) } }),
+    );
+    await prune(other);
+    assert.deepEqual(readdirSync(join(other, "runs", "here")), ["records"]);
+  });
+
+  it("leaves files and symlinks in the run folder alone, and never follows a link out", async () => {
+    const dir = pruneRoot({ runs: { "run-old": 99 } });
+    const base = join(dir, "tmp", "orchestrate");
+    const outside = mkdtempSync(join(tmpdir(), "orchestrate-outside-"));
+    made.push(outside);
+    writeFileSync(join(outside, "precious.txt"), "keep\n");
+    symlinkSync(outside, join(base, "run-link"));
+    writeFileSync(
+      join(base, "records", "run-link.json"),
+      JSON.stringify({ run: { id: "run-link", closed_at: ago(99) } }),
+    );
+    writeFileSync(join(base, "notes.txt"), "mine\n");
+    await prune(dir);
+    assert.deepEqual(kept(dir), ["notes.txt", "records", "run-link"]);
+    assert.equal(existsSync(join(outside, "precious.txt")), true);
+  });
+
+  it("refuses to delete anything when the config has a problem", async () => {
+    const dir = pruneRoot({ config: ["prune:", "  after_days: 0"], runs: { "run-old": 99 } });
+    const result = await prune(dir);
+    assert.equal(result.code, 1);
+    assert.match(result.out, /`prune\.after_days`: expected a whole number of 1 or more/);
+    assert.deepEqual(kept(dir), ["records", "run-old"]);
+  });
+
+  it("says what it deleted, and what it found nothing to delete", async () => {
+    const dir = pruneRoot({ runs: { "run-new": 1 } });
+    const result = await prune(dir);
+    assert.equal(result.code, 0);
+    assert.match(result.out, /nothing to prune/);
+  });
+});
+
+describe("prune --declined: a no is remembered, and writes no config", () => {
+  it("writes a marker file in the run directory that no later prune deletes", async () => {
+    const dir = pruneRoot({ config: null, runs: { "run-old": 900 } });
+    const result = await prune(dir, ["--declined"]);
+    assert.equal(result.code, 0, result.out);
+    const marker = join(dir, "tmp", "orchestrate", "prune-declined");
+    assert.equal(existsSync(marker), true);
+    assert.equal(existsSync(join(dir, "orchestrate.config.yml")), false);
+    await prune(dir);
+    assert.deepEqual(kept(dir), ["prune-declined", "records", "run-old"]);
+  });
+
+  it("exits 2 with the usage on an unknown flag", async () => {
+    const result = await prune(pruneRoot({ config: null }), ["--now"]);
+    assert.equal(result.code, 2);
+    assert.match(result.out, /usage: node records\.mjs prune/);
   });
 });

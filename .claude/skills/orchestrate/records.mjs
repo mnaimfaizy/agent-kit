@@ -8,6 +8,7 @@
  *   node records.mjs event --file <events.jsonl> --kind <kind> --actor <actor> [--<field> <value>]...
  *   node records.mjs derive <run-folder>
  *   node records.mjs upload <run> [--yes]
+ *   node records.mjs prune [--declined]
  *
  * `main(argv, io)` is the one seam. `io` injects the clock (`now`), the files
  * root (`cwd`, which relative paths resolve against), the environment (`env`)
@@ -24,11 +25,13 @@ import { execFileSync } from "node:child_process";
 import {
   appendFileSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   readFileSync,
   readdirSync,
   realpathSync,
   renameSync,
+  rmSync,
   writeFileSync,
 } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
@@ -465,7 +468,8 @@ const EVENT_USAGE =
   "usage: node records.mjs event --file <events.jsonl> --kind <kind> --actor <human|chief-of-staff|delegation> [--<field> <value>]...\n";
 const DERIVE_USAGE = "usage: node records.mjs derive <run-folder>\n";
 const UPLOAD_USAGE = "usage: node records.mjs upload <run id or run folder> [--yes]\n";
-const USAGE = `${EVENT_USAGE}${DERIVE_USAGE}${UPLOAD_USAGE}`;
+const PRUNE_USAGE = "usage: node records.mjs prune [--declined]\n";
+const USAGE = `${EVENT_USAGE}${DERIVE_USAGE}${UPLOAD_USAGE}${PRUNE_USAGE}`;
 
 function appendEvent(args, io) {
   const given = pairs(args);
@@ -1176,6 +1180,80 @@ async function upload(args, io) {
   return { code: 0, out: `${disclosure}${verb} \`${path}\` to \`${where}\`\n` };
 }
 
+// --- Pruning closed-out run folders, on opt-in.
+
+/** Where a "no" to the close-out's prune ask is remembered: a file beside the run folders, never a folder. */
+const PRUNE_DECLINED = "prune-declined";
+
+/**
+ * Delete the closed-out run folders older than `prune.after_days`, and
+ * nothing else. A run folder is closed out when its Run Record sits beside it
+ * in `records/` (derived at close-out) and names the same run; its age is the
+ * record's `closed_at` against the clock. An open run has no record, so it
+ * stays; `records/` and every file in the run directory stay; a link is
+ * never followed. Without the key nothing is deleted.
+ *
+ * `--declined` records the human's "no" to the close-out ask, so it is not asked again.
+ */
+function prune(args, io) {
+  const declined = args.includes("--declined");
+  if (args.length > (declined ? 1 : 0)) return { code: 2, out: PRUNE_USAGE };
+  const cwd = io.cwd ?? process.cwd();
+  const read = (path) => {
+    try {
+      return readFileSync(resolve(cwd, path), "utf8");
+    } catch {
+      return null;
+    }
+  };
+  const loaded = readConfig(read);
+  if (loaded.problems.length) return { code: 1, out: `${loaded.problems.join("\n")}\n` };
+  const { prune: setting, run_dir: runDir } = effectiveConfig(loaded.config);
+  const base = resolve(cwd, runDir);
+
+  if (declined) {
+    mkdirSync(base, { recursive: true });
+    writeFileSync(join(base, PRUNE_DECLINED), "declined at close-out; not asked again\n");
+    return { code: 0, out: `recorded that pruning was declined: ${join(base, PRUNE_DECLINED)}\n` };
+  }
+  if (setting.after_days === null)
+    return {
+      code: 0,
+      out: "pruning is off: set `prune.after_days` to turn it on. Nothing deleted\n",
+    };
+  if (!existsSync(base)) return { code: 0, out: "nothing to prune\n" };
+
+  const cutoff = Date.parse(nowIso(io)) - setting.after_days * 86_400_000;
+  const deleted = [];
+  for (const name of readdirSync(base).sort()) {
+    if (name === "records" || !ID.test(name)) continue;
+    const folder = join(base, name);
+    if (!lstatSync(folder).isDirectory()) continue;
+    const record = closedAt(join(base, "records", `${name}.json`), name);
+    if (record === null || record >= cutoff) continue;
+    rmSync(folder, { recursive: true, force: true });
+    deleted.push(name);
+  }
+  if (deleted.length === 0) return { code: 0, out: "nothing to prune\n" };
+  return {
+    code: 0,
+    out: `${deleted.map((name) => `pruned ${name}`).join("\n")}\n${deleted.length} closed-out run ${deleted.length === 1 ? "folder" : "folders"} older than ${setting.after_days} days deleted; every Run Record kept\n`,
+  };
+}
+
+/** When a run closed (ms), from its Run Record. Null when the record is missing, unreadable, another run's, or has no valid time. */
+function closedAt(path, runId) {
+  try {
+    const record = JSON.parse(readFileSync(path, "utf8"));
+    const closed = record?.run?.closed_at;
+    if (record?.run?.id !== runId || typeof closed !== "string" || !ISO.test(closed)) return null;
+    const time = Date.parse(closed);
+    return Number.isNaN(time) ? null : time;
+  } catch {
+    return null;
+  }
+}
+
 /** The real transport: a command run to the end, its output and its error text. `options.input` goes to its stdin. */
 function defaultExec(command, args, options = {}) {
   try {
@@ -1204,6 +1282,7 @@ export async function main(argv, io = {}) {
   if (command === "event") return appendEvent(rest, io);
   if (command === "derive") return derive(rest, io);
   if (command === "upload") return upload(rest, io);
+  if (command === "prune") return prune(rest, io);
   return { code: 2, out: USAGE };
 }
 
