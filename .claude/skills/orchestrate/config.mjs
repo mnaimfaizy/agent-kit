@@ -237,9 +237,19 @@ export const TEAM_KEYS = /** @type {const} */ (["labels", "recent_activity"]);
 /** `records`' keys (CONFIG.md): the Run Record sink and whether close-out offers an upload. */
 export const RECORDS_KEYS = /** @type {const} */ (["repository", "upload", "sink"]);
 export const RECORDS_UPLOADS = /** @type {const} */ (["offer", "never"]);
-/** The Run Record sink types this reader knows. `s3` arrives with its own sink file. */
-export const SINK_TYPES = /** @type {const} */ (["github", "gitlab"]);
-export const SINK_KEYS = /** @type {const} */ (["type", "repo", "branch"]);
+/** The Run Record sink types this reader knows. */
+export const SINK_TYPES = /** @type {const} */ (["github", "gitlab", "s3"]);
+export const SINK_KEYS = /** @type {const} */ ([
+  "type",
+  "repo",
+  "branch",
+  "endpoint",
+  "bucket",
+  "region",
+]);
+/** The keys only an `s3` sink uses, and the keys only a git sink uses. */
+const S3_SINK_KEYS = ["endpoint", "bucket", "region"];
+const GIT_SINK_KEYS = ["repo", "branch"];
 /** `prune`'s keys (CONFIG.md): local pruning of closed-out run folders, off until `after_days` is set. */
 export const PRUNE_KEYS = /** @type {const} */ (["after_days"]);
 /** A Team Run's six coarse states, each mirrored by one state label on a ticket. */
@@ -738,6 +748,52 @@ const REPOSITORY = /^[A-Za-z0-9][A-Za-z0-9.-]*\/[\w.-]+\/[\w.-]+$/;
 /** A sink repository: `owner/name`, or `host/owner/name` for another host. */
 const SINK_REPO = /^(?:[A-Za-z0-9][A-Za-z0-9.-]*\/)?[\w.-]+\/[\w.-]+$/;
 
+/**
+ * A value shaped like a credential: an AWS access key id or secret, a token,
+ * a private key, a password in a URL, or a presigned signature. The check is on
+ * shape, never on the key's name, and the value is never echoed.
+ */
+function looksLikeSecret(value) {
+  if (typeof value !== "string") return false;
+  if (/\b(?:AKIA|ASIA|AGPA|AIDA|AROA)[A-Z0-9]{16}\b/.test(value)) return true;
+  if (
+    /(?:gh[pousr]_|github_pat_)[A-Za-z0-9_]{20,}|glpat-[\w-]{20,}|xox[abprs]-|sk-[A-Za-z0-9]{20,}/.test(
+      value,
+    )
+  )
+    return true;
+  if (/-----BEGIN [A-Z ]*PRIVATE KEY/.test(value)) return true;
+  if (/:\/\/[^/\s@]*@/.test(value)) return true;
+  if (/X-Amz-(?:Signature|Credential|Security-Token)=/i.test(value)) return true;
+  return (value.match(/[A-Za-z0-9/+=]{40,}/g) ?? []).some(
+    (run) => /[a-z]/.test(run) && /[A-Z]/.test(run) && /\d/.test(run),
+  );
+}
+
+/** A bucket name: 3 to 63 lowercase letters, digits, dots and hyphens, as S3 and its compatibles accept. */
+const BUCKET = /^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/;
+/** A region: `us-east-1`, `eu-central-1`, R2's `auto`. */
+const REGION = /^[a-z][a-z0-9-]{1,30}$/;
+
+/** An endpoint: an https URL with a host, no credentials, no query and no path (`http` only on this machine). */
+function validEndpoint(value) {
+  if (typeof value !== "string") return false;
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  const local = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+  return (
+    (url.protocol === "https:" || (url.protocol === "http:" && local)) &&
+    url.username === "" &&
+    url.password === "" &&
+    url.search === "" &&
+    url.hash === ""
+  );
+}
+
 /** A repository name matching `pattern`, with no `.` or `..` segment. */
 const plainRepo = (pattern, v) =>
   typeof v === "string" && pattern.test(v) && v.split("/").every((part) => !/^\.+$/.test(part));
@@ -998,14 +1054,50 @@ export const SECTIONS = {
         "records.sink.type",
         `unknown sink type \`${s.type}\`; expected one of: ${SINK_TYPES.join(", ")}`,
       );
+    const secret = new Set(
+      Object.entries(s)
+        .filter(([, v]) => looksLikeSecret(v))
+        .map(([k]) => k),
+    );
+    for (const key of secret)
+      sink.add(
+        `records.sink.${key}`,
+        "looks like a secret: credentials come only from ORCHESTRATE_S3_ACCESS_KEY_ID and ORCHESTRATE_S3_SECRET_ACCESS_KEY, never from the config. Remove it",
+      );
+    const here = (key) => given(sink, s, key, `records.sink.${key}`) && !secret.has(key);
+    if (s.type === "s3") {
+      for (const key of GIT_SINK_KEYS)
+        if (here(key)) sink.add(`records.sink.${key}`, "not used by an `s3` sink: delete it");
+      for (const key of S3_SINK_KEYS)
+        if (!given(sink, s, key, `records.sink.${key}`))
+          sink.add(
+            `records.sink.${key}`,
+            `missing: ${{ endpoint: "the store's https URL, such as `https://<account>.r2.cloudflarestorage.com`", bucket: "the bucket's name", region: "the bucket's region, such as `us-east-1` (`auto` for R2)" }[key]}`,
+          );
+      if (here("endpoint") && !validEndpoint(s.endpoint))
+        sink.add(
+          "records.sink.endpoint",
+          "expected an https URL with a host and nothing else: no password, path or query (http only for localhost)",
+        );
+      if (here("bucket") && !(typeof s.bucket === "string" && BUCKET.test(s.bucket)))
+        sink.add(
+          "records.sink.bucket",
+          "expected a bucket name: 3 to 63 lowercase letters, digits, dots or hyphens",
+        );
+      if (here("region") && !(typeof s.region === "string" && REGION.test(s.region)))
+        sink.add("records.sink.region", "expected a region, such as `us-east-1` or `auto`");
+      return;
+    }
+    for (const key of S3_SINK_KEYS)
+      if (here(key)) sink.add(`records.sink.${key}`, "only an `s3` sink uses this: delete it");
     if (!given(sink, s, "repo", "records.sink.repo"))
       sink.add(
         "records.sink.repo",
         "missing: the private repository, `owner/name` or `host/owner/name`",
       );
-    else if (!plainRepo(SINK_REPO, s.repo))
+    else if (!secret.has("repo") && !plainRepo(SINK_REPO, s.repo))
       sink.add("records.sink.repo", "expected `owner/name` or `host/owner/name`");
-    if (given(sink, s, "branch", "records.sink.branch") && !validBranch(s.branch))
+    if (here("branch") && !validBranch(s.branch))
       sink.add("records.sink.branch", "expected a valid git branch name");
   },
   prune(sink, value) {
@@ -1245,11 +1337,18 @@ export function effectiveConfig(config) {
       repository: records.repository ?? null,
       upload: records.upload ?? DEFAULTS.upload,
       sink: sinkValue
-        ? {
-            type: sinkValue.type ?? null,
-            repo: sinkValue.repo ?? null,
-            branch: sinkValue.branch ?? null,
-          }
+        ? sinkValue.type === "s3"
+          ? {
+              type: "s3",
+              endpoint: sinkValue.endpoint ?? null,
+              bucket: sinkValue.bucket ?? null,
+              region: sinkValue.region ?? null,
+            }
+          : {
+              type: sinkValue.type ?? null,
+              repo: sinkValue.repo ?? null,
+              branch: sinkValue.branch ?? null,
+            }
         : null,
     },
     prune: {

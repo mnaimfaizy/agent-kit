@@ -1918,6 +1918,106 @@ test("a `gitlab` sink reads in YAML and JSON, with both repo spellings", () => {
   }
 });
 
+const S3_SINK = {
+  type: "s3",
+  endpoint: "https://acme.r2.cloudflarestorage.com",
+  bucket: "acme-run-records",
+  region: "auto",
+};
+
+test("an `s3` sink reads in YAML and JSON, and reads back its three keys", () => {
+  const fromYaml = yaml(
+    "records:",
+    "  sink:",
+    "    type: s3",
+    `    endpoint: ${S3_SINK.endpoint}`,
+    `    bucket: ${S3_SINK.bucket}`,
+    "    region: auto",
+  );
+  const fromJson = json(JSON.stringify({ records: { sink: S3_SINK } }));
+  assert.deepEqual([fromYaml.problems, fromJson.problems], [[], []]);
+  const want = { ...S3_SINK };
+  assert.deepEqual(effectiveConfig(fromYaml.config).records.sink, want);
+  assert.deepEqual(effectiveConfig(fromJson.config).records.sink, want);
+});
+
+test("an `s3` sink names each missing key, and refuses a `repo`, a `branch` or a secret", () => {
+  const problems = (sink) => json(JSON.stringify({ records: { sink } })).problems.join("\n");
+  for (const key of ["endpoint", "bucket", "region"]) {
+    const { [key]: _gone, ...rest } = S3_SINK;
+    assert.match(problems(rest), new RegExp(`\`records\\.sink\\.${key}\`: missing`));
+  }
+  assert.match(
+    problems({ ...S3_SINK, repo: "a/b" }),
+    /`records\.sink\.repo`: not used by an `s3` sink/,
+  );
+  assert.match(
+    problems({ ...S3_SINK, branch: "main" }),
+    /`records\.sink\.branch`: not used by an `s3` sink/,
+  );
+  assert.match(
+    problems({ ...S3_SINK, endpoint: "acme.example.com" }),
+    /`records\.sink\.endpoint`: expected an https URL/,
+  );
+  assert.match(
+    problems({ ...S3_SINK, endpoint: "http://s3.example.com" }),
+    /`records\.sink\.endpoint`: expected an https URL/,
+  );
+  assert.deepEqual(
+    json(JSON.stringify({ records: { sink: { ...S3_SINK, endpoint: "http://localhost:9000" } } }))
+      .problems,
+    [],
+  );
+  assert.match(
+    problems({ ...S3_SINK, bucket: "Not A Bucket" }),
+    /`records\.sink\.bucket`: expected a bucket name/,
+  );
+  assert.match(
+    problems({ ...S3_SINK, region: "us east" }),
+    /`records\.sink\.region`: expected a region/,
+  );
+  // Endpoint keys on a git sink are problems too.
+  assert.match(
+    problems({ type: "github", repo: "a/b", bucket: "x" }),
+    /`records\.sink\.bucket`: only an `s3` sink uses this/,
+  );
+});
+
+test("a secret-looking value anywhere in the sink is a problem, and the value is not echoed", () => {
+  const AKIA = "AKIAIOSFODNN7EXAMPLE";
+  const SECRET = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
+  const cases = [
+    { ...S3_SINK, region: AKIA },
+    { ...S3_SINK, endpoint: `https://${AKIA}:${SECRET}@acme.example.com` },
+    { ...S3_SINK, endpoint: `https://acme.example.com/?X-Amz-Signature=${"a".repeat(64)}` },
+    { ...S3_SINK, access_key_id: AKIA },
+    { ...S3_SINK, secret_access_key: SECRET },
+    { type: "github", repo: "a/b", branch: "ghp_" + "a".repeat(36) },
+    { type: "github", repo: "a/b", branch: SECRET },
+  ];
+  for (const sink of cases) {
+    const found = json(JSON.stringify({ records: { sink } })).problems.join("\n");
+    assert.match(
+      found,
+      /looks like a secret: credentials come only from ORCHESTRATE_S3_ACCESS_KEY_ID and ORCHESTRATE_S3_SECRET_ACCESS_KEY/,
+      JSON.stringify(sink),
+    );
+    assert.ok(!found.includes(AKIA) && !found.includes(SECRET) && !found.includes("ghp_"), found);
+  }
+  // The same in YAML, with its line.
+  assert.match(
+    yaml(
+      "records:",
+      "  sink:",
+      "    type: s3",
+      "    endpoint: https://a.example.com",
+      "    bucket: acme",
+      `    region: ${AKIA}`,
+    ).problems.join("\n"),
+    /line 6: `records\.sink\.region`: looks like a secret/,
+  );
+});
+
 test("`records` problems, each with its line, in YAML", () => {
   const problems = (...lines) => yaml("records:", ...lines).problems.join("\n");
   assert.match(problems("  colour: red"), /^line 2: `records\.colour`: unknown key/);
@@ -1932,8 +2032,8 @@ test("`records` problems, each with its line, in YAML", () => {
   assert.match(problems("  upload: always"), /`records\.upload`: expected one of: offer, never/);
   assert.match(problems("  sink: s3"), /`records\.sink`: expected a mapping/);
   assert.match(
-    problems("  sink:", "    type: s3", "    repo: a/b"),
-    /line 3: `records\.sink\.type`: unknown sink type `s3`; expected one of: github, gitlab/,
+    problems("  sink:", "    type: azure", "    repo: a/b"),
+    /line 3: `records\.sink\.type`: unknown sink type `azure`; expected one of: github, gitlab, s3/,
   );
   assert.match(
     problems("  sink:", "    type: gitea", "    repo: a/b"),
@@ -1962,13 +2062,13 @@ test("`records` problems, in JSON, name their lines too", () => {
     "{",
     '  "records": {',
     '    "upload": "later",',
-    '    "sink": { "type": "s3", "repo": "a/b" }',
+    '    "sink": { "type": "azure", "repo": "a/b" }',
     "  }",
     "}",
   ].join("\n");
   assert.deepEqual(json(text).problems, [
     "line 3: `records.upload`: expected one of: offer, never",
-    "line 4: `records.sink.type`: unknown sink type `s3`; expected one of: github, gitlab",
+    "line 4: `records.sink.type`: unknown sink type `azure`; expected one of: github, gitlab, s3",
   ]);
 });
 
