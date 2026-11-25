@@ -107,6 +107,29 @@ describe("examples/orchestrate.config.yml", () => {
     assert.equal(config.effectiveConfig(parsed).records.sink.type, "gitlab");
   });
 
+  it("names the `s3` sink in a commented block of its own, which reads with no problems once uncommented", () => {
+    const lines = EXAMPLE.split("\n");
+    const start = lines.lastIndexOf("# records:");
+    assert.ok(start > lines.indexOf("# records:"), "a second commented `records:` block");
+    const block = [];
+    for (const line of lines.slice(start)) {
+      if (!line.startsWith("# ")) break;
+      block.push(line.slice(2));
+    }
+    const { config: parsed, problems } = config.parseConfig(FILE, block.join("\n"));
+    assert.deepEqual(problems, []);
+    assert.deepEqual(keyPaths(parsed).sort(), [
+      "records",
+      "records.sink",
+      "records.sink.bucket",
+      "records.sink.endpoint",
+      "records.sink.region",
+      "records.sink.type",
+    ]);
+    assert.equal(config.effectiveConfig(parsed).records.sink.type, "s3");
+    assert.match(EXAMPLE, /ORCHESTRATE_S3_ACCESS_KEY_ID/);
+  });
+
   it("shows the `prune` key as a commented block that reads with no problems once uncommented", () => {
     const lines = EXAMPLE.split("\n");
     const start = lines.findIndex((line) => line === "# prune:");

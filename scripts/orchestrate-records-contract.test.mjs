@@ -445,12 +445,64 @@ describe("uploading the Run Record to a sink", () => {
     assert.match(sink, /`internal` and `public` are refused/);
   });
 
+  it("the s3 sink file mirrors the others: both accesses, every operation, Other storage, and moving a sink", () => {
+    const sink = flat(read(`${SKILL_DIR}/sinks/s3.md`));
+    assert.match(
+      sink,
+      /^# S3 - \*\*Id:\*\* `s3` - \*\*Support Level:\*\* `documented`\. No run has uploaded/,
+    );
+    assert.match(sink, /- \*\*Facts from:\*\*/);
+    assert.match(
+      sink,
+      /\*\*The writer\*\* needs `s3:PutObject` and `s3:GetObject` on `records\/\*`/,
+    );
+    assert.match(
+      sink,
+      /\*\*The reader\*\* \(the dashboard\) needs `s3:ListBucket` and `s3:GetObject` on `records\/`/,
+    );
+    assert.match(sink, /ORCHESTRATE_S3_ACCESS_KEY_ID` and `ORCHESTRATE_S3_SECRET_ACCESS_KEY`/);
+    for (const op of ["visibility", "access", "read", "create", "list"])
+      assert.match(sink, new RegExp(`### \`${op}\``), op);
+    assert.match(sink, /## Check before use/);
+    assert.match(sink, /`ListObjectsV2`, paginated/);
+    assert.match(sink, /retried once with the current repository's prefix/);
+    assert.match(sink, /## Other storage/);
+    for (const name of [
+      "AWS S3",
+      "Cloudflare R2",
+      "Google Cloud Storage with HMAC keys",
+      "Backblaze B2",
+      "MinIO",
+      "Wasabi",
+      "DigitalOcean Spaces",
+    ])
+      assert.match(sink, new RegExp(`\\*\\*${name}\\*\\*: \\[`), name);
+    assert.match(sink, /untested hints/);
+    assert.match(sink, /Not sinks today:\*\* Azure Blob.*Bitbucket.*Gitea and Forgejo/);
+    assert.match(
+      sink,
+      /## Moving to a new sink\s+Copy `records\/` to the new sink under the same paths/,
+    );
+  });
+
+  it("SINKS.md lists the s3 sink, and CONFIG.md, the example and the docs name it", () => {
+    assert.match(
+      flat(read(`${SKILL_DIR}/SINKS.md`)),
+      /\| `s3` \| `documented` \| \[sinks\/s3\.md\]/,
+    );
+    const config = flat(read(`${SKILL_DIR}/CONFIG.md`));
+    assert.match(config, /`s3`: any S3-compatible bucket, signed with SigV4/);
+    for (const key of ["endpoint", "bucket", "region"])
+      assert.match(config, new RegExp(`\\| \`${key}\` +\\| none: required for \`s3\``), key);
+    assert.match(flat(DESIGN), /The `s3` sink is any S3-compatible bucket, signed with SigV4/);
+  });
+
   it("SINKS.md lists the gitlab sink and says where its Support Level is read", () => {
     const index = flat(read(`${SKILL_DIR}/SINKS.md`));
     assert.match(index, /\| `gitlab` \| `documented` \|/);
     assert.match(
       index,
-      /A sink's Support Level is the one its own file states, and the Dispatch Plan and the disclosure name it while it is below `verified` \(\[RUN\.md\]\(RUN\.md#uploading-the-run-record\)\): `gitlab` ships at `documented` until a run has uploaded to it/,
+      /A sink's Support Level is the one its own file states, and the Dispatch Plan and the disclosure name it while it is below `verified` \(\[RUN\.md\]\(RUN\.md#uploading-the-run-record\)\): `gitlab` and `s3` ship at `documented` until a run has uploaded to them/,
     );
   });
 
@@ -458,10 +510,10 @@ describe("uploading the Run Record to a sink", () => {
     const run = flat(read(`${SKILL_DIR}/RUN.md`));
     assert.match(
       run,
-      /When the sink's file states a Support Level below `verified` \(`gitlab` ships at `documented`\), the Dispatch Plan says so beside "upload the Run Record", and the close-out repeats it after the disclosure/,
+      /When the sink's file states a Support Level below `verified` \(`gitlab` and `s3` ship at `documented`\), the Dispatch Plan says so beside "upload the Run Record", and the close-out repeats it after the disclosure/,
     );
     assert.match(flat(SKILL), /the sink's Support Level \(\[SINKS\.md\]\(SINKS\.md\)\)/);
-    assert.match(flat(DESIGN), /`gitlab` sink ships at Support Level `documented`/);
+    assert.match(flat(DESIGN), /`gitlab` and `s3` sinks ship at Support Level `documented`/);
   });
 
   it("CONFIG.md documents the records keys, and the path and login rules", () => {

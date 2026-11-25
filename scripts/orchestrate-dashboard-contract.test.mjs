@@ -195,6 +195,17 @@ describe("DESIGN.md and docs/orchestrate.md say what it does and why", () => {
     assert.match(gitlab, /recursive and paginated/);
   });
 
+  it("sinks/s3.md gives the reader's access: ListBucket and GetObject on records/, and no write", () => {
+    const s3 = flat(read(`${SKILL_DIR}/sinks/s3.md`));
+    assert.match(
+      s3,
+      /\*\*The reader\*\* \(the dashboard\) needs `s3:ListBucket` and `s3:GetObject` on `records\/`/,
+    );
+    assert.match(s3, /it never writes/);
+    assert.match(s3, /`ListObjectsV2`, paginated/);
+    assert.match(s3, /nothing about other repositories/);
+  });
+
   it("the docs table has the --dashboard row, and the docs have the section", () => {
     assert.match(
       flat(DOCS),

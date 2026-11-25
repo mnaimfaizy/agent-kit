@@ -30,7 +30,8 @@ Then a `## Access` section giving the writer's access and the reader's, a `###` 
 | -------- | ------------- | ---------------------------------- |
 | `github` | `documented`  | [sinks/github.md](sinks/github.md) |
 | `gitlab` | `documented`  | [sinks/gitlab.md](sinks/gitlab.md) |
+| `s3`     | `documented`  | [sinks/s3.md](sinks/s3.md)         |
 
-A sink's Support Level is the one its own file states, and the Dispatch Plan and the disclosure name it while it is below `verified` ([RUN.md](RUN.md#uploading-the-run-record)): `gitlab` ships at `documented` until a run has uploaded to it, and the first one that does moves it, citing its Activity Log.
+A sink's Support Level is the one its own file states, and the Dispatch Plan and the disclosure name it while it is below `verified` ([RUN.md](RUN.md#uploading-the-run-record)): `gitlab` and `s3` ship at `documented` until a run has uploaded to them, and the first one that does moves it, citing its Activity Log.
 
-Sinks beyond these are later work: `s3` gets a file here when it lands.
+**Moving a sink.** Copy `records/` to the new sink under the same paths; create-only makes a repeated copy safe. [sinks/s3.md](sinks/s3.md#moving-to-a-new-sink) shows how for a bucket. Azure Blob, Bitbucket, Gitea and Forgejo are not sinks today.

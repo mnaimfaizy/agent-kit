@@ -98,9 +98,20 @@ team: # read only by a Team Run
 #   repository: github.com/acme/widgets # default: host/owner/repo from the git remote
 #   upload: offer # offer | never; default offer once a sink is set
 #   sink: # unset: local only
-#     type: github # github | gitlab (a private GitLab project, written with glab api)
+#     type: github # github | gitlab (a private GitLab project, written with glab api) | s3 (below)
 #     repo: acme/run-records # a private repository or project: owner/name or host/owner/name
 #     branch: main # default: that repo's default branch
+
+# Or an S3-compatible bucket (AWS S3, R2, MinIO, ...) instead of the block
+# above. Credentials come only from the environment variables
+# ORCHESTRATE_S3_ACCESS_KEY_ID and ORCHESTRATE_S3_SECRET_ACCESS_KEY, never
+# from this file: a secret-looking value here is a problem.
+# records:
+#   sink:
+#     type: s3
+#     endpoint: https://s3.us-east-1.amazonaws.com # R2: https://<account>.r2.cloudflarestorage.com
+#     bucket: acme-run-records
+#     region: us-east-1 # R2: auto
 
 # Local pruning is off. To delete closed-out run folders older than N days from
 # this machine at close-out (never the Run Records, never an open run),
