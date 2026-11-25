@@ -22,7 +22,11 @@ routes:
 #
 # `allowed_failures` are five tests that fail on main too, on macOS: four under
 # bash 3.2, one under the sandbox's sh. `config.mjs regate` treats exactly
-# these as allowed and names any other failure. A fix removes its entry.
+# these as allowed and names any other failure. A fix removes its entry. An
+# entry excuses only a named test failure: a command that exits other than 1,
+# or prints a non-test failure (a coverage threshold), still fails the re-gate.
+#
+# pre-commit runs after npm ci, so its prettier hook uses the pinned prettier.
 regate:
   commands:
     - uv run pytest
