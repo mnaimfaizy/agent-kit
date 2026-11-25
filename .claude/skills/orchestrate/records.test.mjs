@@ -36,6 +36,7 @@ import {
   checkRecord,
   main,
   openSink,
+  parseSinkPath,
   rawExpiry,
   repoFromRemote,
   signRequest,
@@ -1791,6 +1792,98 @@ describe("upload: create-only writes to a gitlab sink", () => {
     assert.match(none.out, /\(private GitLab project\) at `records\//);
     const paged = await uploadGitlab(dir, fakeGitlab({ pageSize: 2 }), [RUN]);
     assert.match(paged.out, /4 people with access/);
+  });
+});
+
+describe("GitLab subgroups: a project at host/group/sub/project (F2)", () => {
+  const SUB = "gitlab.com/grp/sub/proj";
+  const subgroupRemote = (command, args) =>
+    args.includes("get-url")
+      ? { code: 0, out: "git@gitlab.com:Grp/Sub/Proj.git\n" }
+      : { code: 0, out: "origin\n" };
+  const withoutRepo = (dir) => {
+    const file = join(runFolder(dir), "events.jsonl");
+    writeFileSync(
+      file,
+      readFileSync(file, "utf8").replace('"repo":"github.com/mnaimfaizy/agent-kit",', ""),
+    );
+    return dir;
+  };
+
+  it("derives a Run Record from a subgroup remote", async () => {
+    const record = await derived(withoutRepo(root()), { exec: subgroupRemote });
+    assert.equal(record.run.repo, SUB);
+  });
+
+  it("still refuses a repository with no owner", () => {
+    assert.ok(
+      checkRecord({ run: { repo: "gitlab.com/proj" } }).includes(
+        "run.repo: must be host/owner/repo",
+      ),
+    );
+  });
+
+  it("parses a sink path from the end: the namespace is everything between records/ and the login", () => {
+    assert.deepEqual(parseSinkPath(`records/${SUB}/naim/${RUN}.json`), {
+      repository: SUB,
+      login: "naim",
+      id: RUN,
+    });
+    // A github or s3 path still has exactly host/owner/repo, and parses as before.
+    assert.deepEqual(parseSinkPath(`records/github.com/acme/widgets/naim/${RUN}.json`), {
+      repository: "github.com/acme/widgets",
+      login: "naim",
+      id: RUN,
+    });
+    assert.equal(parseSinkPath(`records/github.com/acme/naim/${RUN}.json`), null);
+    assert.equal(parseSinkPath(`records/github.com/acme/../naim/${RUN}.json`), null);
+  });
+
+  it("uploads a subgroup project's record to a gitlab sink in a subgroup, read as a namespace", async () => {
+    const dir = await readyToUpload({
+      config: [
+        "records:",
+        `  repository: ${SUB}`,
+        "  sink:",
+        "    type: gitlab",
+        "    repo: acme/records/run-records",
+        "",
+      ].join("\n"),
+    });
+    const transport = fakeGitlab({ projects: { "acme/records/run-records": {} } });
+    const result = await uploadGitlab(dir, transport);
+    assert.equal(result.code, 0, result.out);
+    const path = `records/${SUB}/naim/${RUN}.json`;
+    assert.ok(transport.repos["acme/records/run-records"].files.has(path), result.out);
+    const post = transport.puts()[0].args;
+    assert.deepEqual(post.slice(0, 3), ["api", "--hostname", "gitlab.com"]);
+    assert.ok(
+      post.includes(
+        `projects/acme%2Frecords%2Frun-records/repository/files/${encodeURIComponent(path)}`,
+      ),
+    );
+  });
+
+  it("takes the host from a sink repo only when its first segment has a dot", async () => {
+    const dir = await readyToUpload({
+      config: [
+        "records:",
+        "  sink:",
+        "    type: gitlab",
+        "    repo: gitlab.example.com/acme/records/run-records",
+        "",
+      ].join("\n"),
+    });
+    const transport = fakeGitlab({
+      projects: { "gitlab.example.com/acme/records/run-records": {} },
+    });
+    const result = await uploadGitlab(dir, transport);
+    assert.equal(result.code, 0, result.out);
+    assert.deepEqual(transport.puts()[0].args.slice(0, 3), [
+      "api",
+      "--hostname",
+      "gitlab.example.com",
+    ]);
   });
 });
 

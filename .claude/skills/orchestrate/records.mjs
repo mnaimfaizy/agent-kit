@@ -130,7 +130,8 @@ const WRITE_KINDS = [
 const ISO = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z$/;
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/;
 const LOGIN = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,38}$/;
-const REPO = /^[a-z0-9][a-z0-9.-]*\/[a-z0-9][\w.-]*\/[\w.-]+$/;
+/** `host/owner/repo`, or `host/<group>/…/<project>` for a GitLab project in a subgroup. */
+const REPO = /^[a-z0-9][a-z0-9.-]*(?:\/[a-z0-9][\w.-]*){1,20}\/[\w.-]+$/;
 const SHA = /^[0-9a-f]{7,64}$/;
 
 const t = {
@@ -962,12 +963,25 @@ function localSink(dir) {
   };
 }
 
-/** `owner/name` or `host/owner/name`, as the config reader checked it. */
+/**
+ * `owner/name` or `host/owner/name`, as the config reader checked it. A
+ * `gitlab` repo may sit in subgroups (`group/sub/name`), so its first segment
+ * is a host only when it has a dot, and `owner` is the whole namespace.
+ */
 function splitSinkRepo(repo, type = "github") {
   const parts = repo.split("/");
+  if (type === "gitlab") {
+    const hosted = parts.length > 2 && parts[0].includes(".");
+    const rest = hosted ? parts.slice(1) : parts;
+    return {
+      host: hosted ? parts[0] : "gitlab.com",
+      owner: rest.slice(0, -1).join("/"),
+      name: rest.at(-1),
+    };
+  }
   return parts.length === 3
     ? { host: parts[0], owner: parts[1], name: parts[2] }
-    : { host: type === "gitlab" ? "gitlab.com" : "github.com", owner: parts[0], name: parts[1] };
+    : { host: "github.com", owner: parts[0], name: parts[1] };
 }
 
 /** What a configured sink is called to the human: `owner/name`, or `s3://bucket`. */
@@ -1452,10 +1466,10 @@ const RECORD_KEPT = "It is kept indefinitely (git cannot expire it).";
 const RECORD_KEPT_S3 =
   "It is kept until the bucket's own rule deletes it, and indefinitely when it has none.";
 
-/** The namespaced sink path: `records/<host>/<owner>/<repo>/<login>/<run-id>.json`, every segment lowercased. */
+/** The namespaced sink path: `records/<host>/<owner>/<repo>/<login>/<run-id>.json`, every segment lowercased; `<owner>` may be a GitLab group and its subgroups. */
 function sinkPath(repository, login, runId) {
   const segments = [...repository.split("/"), login, runId].map(segmentOf);
-  return repository.split("/").length === 3 && segments.every(Boolean)
+  return repository.split("/").length >= 3 && segments.every(Boolean)
     ? `records/${segments.join("/")}.json`
     : null;
 }
@@ -1610,10 +1624,10 @@ export function rawExpiry(xml) {
   return days === null ? null : { days };
 }
 
-/** The namespaced raw prefix: `raw/<host>/<owner>/<repo>/<login>/<run-id>/`, every segment lowercased. */
+/** The namespaced raw prefix: `raw/<host>/<owner>/<repo>/<login>/<run-id>/`, every segment lowercased; `<owner>` may be a GitLab group and its subgroups. */
 function rawPrefix(repository, login, runId) {
   const segments = [...repository.split("/"), login, runId].map(segmentOf);
-  return repository.split("/").length === 3 && segments.every(Boolean)
+  return repository.split("/").length >= 3 && segments.every(Boolean)
     ? `${RAW_ROOT}${segments.join("/")}/`
     : null;
 }
@@ -1933,14 +1947,20 @@ function writeWhole(path, text) {
   renameSync(beside, path);
 }
 
-/** The sink path of a record, parsed: `records/<host>/<owner>/<repo>/<login>/<run-id>.json`. Null when it does not parse. */
+/**
+ * The sink path of a record, parsed from the end: `records/<namespace>/<login>/<run-id>.json`,
+ * where the namespace is `host/owner/repo`, or `host/<group>/…/<project>` for a GitLab subgroup.
+ * Null when it does not parse.
+ */
 export function parseSinkPath(path) {
   const parts = path.split("/");
-  if (parts.length !== 6 || parts[0] !== "records" || !parts[5].endsWith(".json")) return null;
-  const [, host, owner, repo, login, file] = parts;
+  if (parts.length < 6 || parts[0] !== "records" || !parts.at(-1).endsWith(".json")) return null;
+  const file = parts.at(-1);
+  const login = parts.at(-2);
+  const namespace = parts.slice(1, -2);
   const id = file.slice(0, -".json".length);
-  const named = [host, owner, repo, login].every((s) => segmentOf(s) === s);
-  const repository = `${host}/${owner}/${repo}`;
+  const named = [...namespace, login].every((s) => segmentOf(s) === s);
+  const repository = namespace.join("/");
   if (!named || !REPO.test(repository) || !LOGIN.test(login) || !ID.test(id) || DOTS.test(id))
     return null;
   return { repository, login, id };
@@ -1956,7 +1976,7 @@ function cacheFolder(runDir, sinkConfig) {
     return segments.every(Boolean) ? join(runDir, "records-cache", "s3", ...segments) : null;
   }
   const { host, owner, name } = splitSinkRepo(sinkConfig.repo, sinkConfig.type);
-  const segments = [host, owner, name].map(segmentOf);
+  const segments = [host, ...owner.split("/"), name].map(segmentOf);
   if (!segments.every(Boolean)) return null;
   if (sinkConfig.branch) segments.push(`@${encodeURIComponent(sinkConfig.branch)}`);
   return join(runDir, "records-cache", ...segments);

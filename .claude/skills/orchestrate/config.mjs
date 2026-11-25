@@ -747,10 +747,12 @@ function branchPatternProblem(v) {
   return bad ? "expected a valid git branch name once `<n>` is filled in" : null;
 }
 
-/** `host/owner/repo`, three plain segments. */
-const REPOSITORY = /^[A-Za-z0-9][A-Za-z0-9.-]*\/[\w.-]+\/[\w.-]+$/;
+/** `host/owner/repo`, three plain segments, or `host/<group>/…/<project>` for a GitLab project in a subgroup. */
+const REPOSITORY = /^[A-Za-z0-9][A-Za-z0-9.-]*(?:\/[\w.-]+){1,20}\/[\w.-]+$/;
 /** A sink repository: `owner/name`, or `host/owner/name` for another host. */
 const SINK_REPO = /^(?:[A-Za-z0-9][A-Za-z0-9.-]*\/)?[\w.-]+\/[\w.-]+$/;
+/** A `gitlab` sink project may sit in subgroups: `group/sub/name`, with an optional `host/` in front. */
+const GITLAB_SINK_REPO = /^[\w.-]+(?:\/[\w.-]+){1,21}$/;
 
 /**
  * A value shaped like a credential: an AWS access key id or secret, a token,
@@ -880,8 +882,16 @@ function checkSink(sink, s, base, types, expected) {
     if (here(key)) sink.add(`${base}.${key}`, "only an `s3` sink uses this: delete it");
   if (!given(sink, s, "repo", `${base}.repo`))
     sink.add(`${base}.repo`, "missing: the private repository, `owner/name` or `host/owner/name`");
-  else if (!secret.has("repo") && !plainRepo(SINK_REPO, s.repo))
-    sink.add(`${base}.repo`, "expected `owner/name` or `host/owner/name`");
+  else if (
+    !secret.has("repo") &&
+    !plainRepo(s.type === "gitlab" ? GITLAB_SINK_REPO : SINK_REPO, s.repo)
+  )
+    sink.add(
+      `${base}.repo`,
+      s.type === "gitlab"
+        ? "expected `group/name` or `host/group/name`, with any subgroups between"
+        : "expected `owner/name` or `host/owner/name`",
+    );
   if (here("branch") && !validBranch(s.branch))
     sink.add(`${base}.branch`, "expected a valid git branch name");
 }
@@ -1109,7 +1119,7 @@ export const SECTIONS = {
     )
       sink.add(
         "records.repository",
-        "expected `host/owner/repo`, such as `github.com/acme/widgets`",
+        "expected `host/owner/repo`, such as `github.com/acme/widgets`, or `host/group/sub/project` for a GitLab subgroup",
       );
     if (given(sink, value, "upload", "records.upload") && !RECORDS_UPLOADS.includes(value.upload))
       sink.add("records.upload", `expected one of: ${RECORDS_UPLOADS.join(", ")}`);

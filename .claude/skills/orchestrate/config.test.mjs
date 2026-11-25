@@ -1921,6 +1921,33 @@ test("a `gitlab` sink reads in YAML and JSON, with both repo spellings", () => {
   }
 });
 
+test("a GitLab project in a subgroup can be pinned and can be a `gitlab` sink (F2)", () => {
+  const pinned = yaml("records:", "  repository: gitlab.com/grp/sub/proj");
+  assert.deepEqual(pinned.problems, []);
+  assert.equal(effectiveConfig(pinned.config).records.repository, "gitlab.com/grp/sub/proj");
+  for (const repo of ["grp/sub/run-records", "gitlab.acme.dev/grp/sub/deeper/run-records"]) {
+    const read = yaml("records:", "  sink:", "    type: gitlab", `    repo: ${repo}`);
+    assert.deepEqual(read.problems, [], repo);
+    assert.equal(effectiveConfig(read.config).records.sink.repo, repo);
+  }
+  const problems = (...lines) => yaml("records:", ...lines).problems.join("\n");
+  for (const repo of ["run-records", "a//b", "a/../b", "a/ b"])
+    assert.match(
+      problems("  sink:", "    type: gitlab", `    repo: "${repo}"`),
+      /`records\.sink\.repo`: expected `group\/name` or `host\/group\/name`/,
+      repo,
+    );
+  // GitHub has no subgroups: a github sink is still `owner/name` or `host/owner/name`.
+  assert.match(
+    problems("  sink:", "    type: github", "    repo: a/b/c/d"),
+    /`records\.sink\.repo`: expected `owner\/name` or `host\/owner\/name`/,
+  );
+  assert.match(
+    problems("  repository: gitlab.com/proj"),
+    /`records\.repository`: expected `host\/owner\/repo`/,
+  );
+});
+
 const S3_SINK = {
   type: "s3",
   endpoint: "https://acme.r2.cloudflarestorage.com",
