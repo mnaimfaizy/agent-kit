@@ -26,11 +26,12 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   renameSync,
   writeFileSync,
 } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 
 export const SCHEMA = "run-record/1";
 export const ACTORS = /** @type {const} */ (["human", "chief-of-staff", "delegation"]);
@@ -184,14 +185,14 @@ function check(type, value, path, problems) {
       Object.entries(type.fields).map(([key, inner]) => [key.replace(/\?$/, ""), [key, inner]]),
     );
     for (const key of Object.keys(value)) {
-      if (!known.has(key)) problems.push(`${join_(path, key)}: is outside the schema`);
+      if (!known.has(key)) problems.push(`${dotted(path, key)}: is outside the schema`);
     }
     for (const [name, [key, inner]] of known) {
       if (!Object.hasOwn(value, name)) {
-        if (!key.endsWith("?")) problems.push(`${join_(path, name)}: is missing`);
+        if (!key.endsWith("?")) problems.push(`${dotted(path, name)}: is missing`);
         continue;
       }
-      check(inner, value[name], join_(path, name), problems);
+      check(inner, value[name], dotted(path, name), problems);
     }
     return;
   }
@@ -204,8 +205,9 @@ function check(type, value, path, problems) {
     if (value === null || typeof value !== "object" || Array.isArray(value))
       return void problems.push(`${path}: must be an object of counts`);
     for (const [key, count] of Object.entries(value)) {
-      if (!type.keys.includes(key)) problems.push(`${join_(path, key)}: is outside the schema`);
-      else if (violates(t.int, count)) problems.push(`${join_(path, key)}: must be a whole number`);
+      if (!type.keys.includes(key)) problems.push(`${dotted(path, key)}: is outside the schema`);
+      else if (violates(t.int, count))
+        problems.push(`${dotted(path, key)}: must be a whole number`);
     }
     return;
   }
@@ -215,7 +217,7 @@ function check(type, value, path, problems) {
   if (reason) problems.push(`${path}: ${reason}`);
 }
 
-const join_ = (path, key) => (path === "" ? key : `${path}.${key}`);
+const dotted = (path, key) => (path === "" ? key : `${path}.${key}`);
 
 // --- The Run Record schema.
 
@@ -531,7 +533,11 @@ function readEvents(runFolder) {
         events.push({ ...event, order: events.length });
       });
   }
-  events.sort((a, b) => Date.parse(a.at) - Date.parse(b.at) || a.order - b.order);
+  // Times have one-second resolution, so a Delegation's start sorts first among events of its second.
+  const rank = (e) => (e.kind === "delegation-started" ? 0 : 1);
+  events.sort(
+    (a, b) => Date.parse(a.at) - Date.parse(b.at) || rank(a) - rank(b) || a.order - b.order,
+  );
   return { events, problems };
 }
 
@@ -551,12 +557,14 @@ function operatorOf(io, tracker) {
   const env = io.env ?? process.env;
   if (env.ORCHESTRATE_OPERATOR) return env.ORCHESTRATE_OPERATOR;
   const exec = io.exec ?? defaultExec;
+  // GitHub unless the run says it is on GitLab.
   const [command, args, field] =
     tracker === "gitlab" ? ["glab", ["api", "user"], "username"] : ["gh", ["api", "user"], "login"];
   const result = exec(command, args);
   if (result.code !== 0) return null;
   try {
-    return JSON.parse(result.out)[field] ?? null;
+    const login = JSON.parse(result.out)[field];
+    return typeof login === "string" && LOGIN.test(login) ? login : null;
   } catch {
     return null;
   }
@@ -714,18 +722,20 @@ function build(events, runId, operator) {
       case "pull-request":
         pulls.add(e.pr);
         break;
-      default:
     }
   }
 
+  for (const s of steps)
+    if (["plan-approval", "close-out"].includes(s.kind) && s.cause !== "by-design")
+      problems.push(`human_steps: a \`${s.kind}\` step must have cause \`by-design\``);
   for (const s of steps)
     for (const id of s.covers)
       if (!dr.has(id)) problems.push(`covers: \`${id}\` names no \`decision-request\` event`);
 
   const approved = first("plan-approved");
   const byCause = {};
-  for (const s of steps) byCause[s.cause] = (byCause[s.cause] ?? 0) + 1;
   const human = steps.filter((s) => s.actor === "human");
+  for (const s of human) byCause[s.cause] = (byCause[s.cause] ?? 0) + 1;
   const verdicts = [...rulings.values()];
   const record = {
     schema: SCHEMA,
@@ -768,7 +778,7 @@ function build(events, runId, operator) {
       avoidable: human.filter((s) => s.avoidable).length,
       by_design: human.filter((s) => !s.avoidable).length,
       by_cause: byCause,
-      human_wait_seconds: steps.reduce((sum, s) => sum + (s.waited_seconds ?? 0), 0),
+      human_wait_seconds: human.reduce((sum, s) => sum + (s.waited_seconds ?? 0), 0),
     },
   };
   return { record, problems };
@@ -858,7 +868,15 @@ export async function main(argv, io = {}) {
   return { code: 2, out: USAGE };
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+const realOrSelf = (path) => {
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
+};
+
+if (process.argv[1] && realOrSelf(fileURLToPath(import.meta.url)) === realOrSelf(process.argv[1])) {
   const { code, out } = await main(process.argv.slice(2));
   process.stdout.write(out);
   process.exitCode = code;

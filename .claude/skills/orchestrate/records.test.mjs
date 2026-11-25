@@ -608,6 +608,81 @@ describe("derive: Team Runs, takeovers and waits on a teammate", () => {
   });
 });
 
+describe("derive: ordering, summary and by-design steps", () => {
+  it("puts a Delegation's start before a Chief of Staff event of the same second that names it", async () => {
+    const dir = root();
+    const stamp = "2026-11-19T06:20:00Z";
+    appendFileSync(
+      join(runFolder(dir), "events.jsonl"),
+      `${JSON.stringify({ at: stamp, kind: "send-back", actor: "chief-of-staff", delegation: "d777" })}\n`,
+    );
+    mkdirSync(join(runFolder(dir), "delegations", "d777"), { recursive: true });
+    writeFileSync(
+      join(runFolder(dir), "delegations", "d777", "events.jsonl"),
+      `${JSON.stringify({ at: stamp, kind: "delegation-started", actor: "delegation", delegation: "d777", delegation_kind: "fix", executor: "headless", model: "default", start_route: "direct" })}\n`,
+    );
+    const record = await derived(dir);
+    assert.equal(record.delegations.find((d) => d.id === "d777").send_backs, 1);
+  });
+
+  it("counts only human steps in the totals, so a wait on a teammate is not in by_cause", async () => {
+    const dir = root();
+    const a = [
+      "event",
+      "--file",
+      `tmp/orchestrate/${RUN}/events.jsonl`,
+      "--actor",
+      "chief-of-staff",
+    ];
+    await main(
+      [
+        ...a,
+        "--kind",
+        "wait-opened",
+        "--wait-id",
+        "w20",
+        "--step-kind",
+        "teammate-blocker",
+        "--cause",
+        "teammate-blocker",
+        "--how",
+        "github",
+      ],
+      { cwd: dir, now: at("2026-11-19T06:20:00Z") },
+    );
+    await main([...a, "--kind", "wait-closed", "--wait-id", "w20"], {
+      cwd: dir,
+      now: at("2026-11-19T06:25:00Z"),
+    });
+    const { summary } = await derived(dir);
+    assert.equal(summary.by_cause["teammate-blocker"], undefined);
+    assert.equal(summary.human_wait_seconds, 6791);
+  });
+
+  it("refuses a plan-approval or close-out step whose cause is not by-design", async () => {
+    const dir = root();
+    const file = join(runFolder(dir), "events.jsonl");
+    writeFileSync(
+      file,
+      readFileSync(file, "utf8").replace(
+        '"step_kind":"plan-approval","cause":"by-design"',
+        '"step_kind":"plan-approval","cause":"human-choice"',
+      ),
+    );
+    const result = await derive(dir);
+    assert.equal(result.code, 1);
+    assert.match(result.out, /a `plan-approval` step must have cause `by-design`/);
+  });
+
+  it("is null for a login that is not a login, rather than failing the derive", async () => {
+    const record = await derived(root(), {
+      env: {},
+      exec: () => ({ code: 0, out: '{"login":"not a login!"}' }),
+    });
+    assert.equal(record.run.operator, null);
+  });
+});
+
 describe("derive: the cause list", () => {
   it("marks each cause avoidable or by design, and only by-design and teammate-blocker are by design", () => {
     assert.deepEqual(
