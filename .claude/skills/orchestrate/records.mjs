@@ -728,6 +728,20 @@ function build(events, runId, operator) {
   for (const s of steps)
     if (["plan-approval", "close-out"].includes(s.kind) && s.cause !== "by-design")
       problems.push(`human_steps: a \`${s.kind}\` step must have cause \`by-design\``);
+  for (const s of steps) {
+    if (s.cause === "harness-limit" && s.card === undefined)
+      problems.push("human_steps: a `harness-limit` step must name its `card`");
+    if (s.cause === "teammate-blocker") {
+      if (s.kind !== "teammate-blocker")
+        problems.push(
+          "human_steps: a `teammate-blocker` step must have step kind `teammate-blocker`",
+        );
+      if (s.blocker === undefined || s.blocker_login === undefined)
+        problems.push(
+          "human_steps: a `teammate-blocker` step must name its `blocker` ticket and `blocker_login`",
+        );
+    }
+  }
   for (const s of steps)
     for (const id of s.covers)
       if (!dr.has(id)) problems.push(`covers: \`${id}\` names no \`decision-request\` event`);
@@ -781,7 +795,7 @@ function build(events, runId, operator) {
       human_wait_seconds: human.reduce((sum, s) => sum + (s.waited_seconds ?? 0), 0),
     },
   };
-  return { record, problems };
+  return { record, problems, open: [...open.values()] };
 }
 
 /** One human step: the touch that closed a wait, or a touch with no wait. */
@@ -838,7 +852,7 @@ function derive(args, io) {
   const s = built.record.summary;
   const lines = [
     `wrote ${out}`,
-    `${built.record.delegations.length} Delegations, ${s.human_steps} human steps (${s.avoidable} avoidable, ${s.by_design} by design), ${built.record.run.open_waits} waits still open`,
+    `${built.record.delegations.length} Delegations, ${s.human_steps} human steps (${s.avoidable} avoidable, ${s.by_design} by design), ${built.record.run.open_waits} waits still open${built.open.length ? `: ${built.open.map((o) => `${o.wait_id} (${o.step_kind})`).join(", ")}` : ""}`,
     ...notes,
   ];
   return { code: 0, out: `${lines.join("\n")}\n` };

@@ -608,6 +608,187 @@ describe("derive: Team Runs, takeovers and waits on a teammate", () => {
   });
 });
 
+describe("derive: waits and Rulings as Run Events", () => {
+  /** Append one event to the Chief of Staff's events file at a clock time. */
+  const emit = (dir, time, more, actor = "chief-of-staff") =>
+    main(["event", "--file", `tmp/orchestrate/${RUN}/events.jsonl`, "--actor", actor, ...more], {
+      cwd: dir,
+      now: at(time),
+    });
+  const wait = (id, extra) => ["--kind", "wait-opened", "--wait-id", id, ...extra];
+
+  it("derives a run-level wait with delegation null, its how and its waited seconds", async () => {
+    const dir = root();
+    await emit(
+      dir,
+      "2026-11-19T06:10:00Z",
+      wait("w40", ["--step-kind", "review-label", "--cause", "by-design", "--how", "github"]),
+    );
+    await emit(dir, "2026-11-19T06:12:30Z", ["--kind", "wait-closed", "--wait-id", "w40"], "human");
+    const step = (await derived(dir)).human_steps.find((s) => s.wait_id === "w40");
+    assert.deepEqual(
+      [step.delegation, step.kind, step.how, step.waited_seconds, step.actor, step.avoidable],
+      [null, "review-label", "github", 150, "human", false],
+    );
+  });
+
+  it("derives a refused card start as a harness-limit wait with the card's id, avoidable", async () => {
+    const dir = root();
+    const step = (await derived(dir)).human_steps.find((s) => s.wait_id === "w2");
+    assert.deepEqual(
+      [step.cause, step.how, step.card, step.avoidable, step.delegation],
+      ["harness-limit", "card", "task_184e1773", true, "d350"],
+    );
+  });
+
+  it("refuses a harness-limit wait that names no card", async () => {
+    const dir = root();
+    await emit(
+      dir,
+      "2026-11-19T06:10:00Z",
+      wait("w41", ["--step-kind", "card-start", "--cause", "harness-limit", "--how", "card"]),
+    );
+    await emit(dir, "2026-11-19T06:11:00Z", ["--kind", "wait-closed", "--wait-id", "w41"], "human");
+    const result = await derive(dir);
+    assert.equal(result.code, 1);
+    assert.match(result.out, /human_steps: a `harness-limit` step must name its `card`/);
+    assert.equal(existsSync(recordPath(dir)), false);
+  });
+
+  it("refuses a teammate-blocker wait with no blocker ticket or login, or on another step kind", async () => {
+    const dir = root();
+    await emit(
+      dir,
+      "2026-11-19T06:10:00Z",
+      wait("w42", ["--step-kind", "other", "--cause", "teammate-blocker", "--how", "github"]),
+    );
+    await emit(dir, "2026-11-19T06:11:00Z", ["--kind", "wait-closed", "--wait-id", "w42"]);
+    const result = await derive(dir);
+    assert.equal(result.code, 1);
+    assert.match(result.out, /a `teammate-blocker` step must have step kind `teammate-blocker`/);
+    assert.match(
+      result.out,
+      /a `teammate-blocker` step must name its `blocker` ticket and `blocker_login`/,
+    );
+  });
+
+  it("never counts a by-design cause as avoidable, and counts a teammate wait's seconds apart from the human's", async () => {
+    const record = await derived();
+    for (const s of record.human_steps) assert.equal(s.avoidable, CAUSES[s.cause] === "avoidable");
+    assert.equal(record.summary.avoidable + record.summary.by_design, record.summary.human_steps);
+  });
+
+  it("derives the Rulings counts from ruling-made and ruling-verdict, and each Delegation's own", async () => {
+    const dir = root();
+    for (const [n, who] of [
+      ["R1", "d350"],
+      ["R2", "d350"],
+      ["R3", "d351"],
+    ])
+      await emit(dir, "2026-11-19T06:00:00Z", [
+        "--kind",
+        "ruling-made",
+        "--delegation",
+        who,
+        "--ruling",
+        n,
+      ]);
+    await emit(
+      dir,
+      "2026-11-19T06:05:00Z",
+      ["--kind", "ruling-verdict", "--ruling", "R1", "--verdict", "upheld"],
+      "human",
+    );
+    await emit(
+      dir,
+      "2026-11-19T06:05:00Z",
+      ["--kind", "ruling-verdict", "--ruling", "R2", "--verdict", "overturned"],
+      "human",
+    );
+    const record = await derived(dir);
+    assert.deepEqual(record.rulings, { made: 3, upheld: 1, overturned: 1 });
+    assert.deepEqual(
+      record.delegations.filter((d) => d.rulings).map((d) => [d.id, d.rulings]),
+      [
+        ["d350", 2],
+        ["d351", 1],
+      ],
+    );
+  });
+
+  it("refuses a verdict for a Ruling nobody made", async () => {
+    const dir = root();
+    await emit(
+      dir,
+      "2026-11-19T06:05:00Z",
+      ["--kind", "ruling-verdict", "--ruling", "R9", "--verdict", "upheld"],
+      "human",
+    );
+    const result = await derive(dir);
+    assert.equal(result.code, 1);
+    assert.match(result.out, /ruling-verdict: `R9` has no `ruling-made` event before it/);
+  });
+
+  it("reports each wait still open at close-out by id and step kind", async () => {
+    const dir = root();
+    await emit(
+      dir,
+      "2026-11-19T06:20:00Z",
+      wait("w43", ["--step-kind", "merge", "--cause", "by-design", "--how", "github"]),
+    );
+    const result = await derive(dir);
+    assert.equal(result.code, 0, result.out);
+    assert.match(result.out, /1 waits still open: w43 \(merge\)/);
+  });
+
+  it("refuses prose in every new field, naming it", async () => {
+    const dir = root();
+    for (const [field, kind, extra] of [
+      [
+        "blocker-login",
+        "wait-opened",
+        [
+          "--wait-id",
+          "w44",
+          "--step-kind",
+          "teammate-blocker",
+          "--cause",
+          "teammate-blocker",
+          "--how",
+          "github",
+          "--blocker",
+          "355",
+        ],
+      ],
+      [
+        "card",
+        "wait-opened",
+        [
+          "--wait-id",
+          "w44",
+          "--step-kind",
+          "card-start",
+          "--cause",
+          "harness-limit",
+          "--how",
+          "card",
+        ],
+      ],
+      ["ruling", "ruling-made", ["--delegation", "d350"]],
+    ]) {
+      const result = await emit(dir, "2026-11-19T06:20:00Z", [
+        "--kind",
+        kind,
+        ...extra,
+        `--${field}`,
+        "please start this card now",
+      ]);
+      assert.equal(result.code, 1, field);
+      assert.match(result.out, new RegExp(field.replace("-", "_")));
+    }
+  });
+});
+
 describe("derive: ordering, summary and by-design steps", () => {
   it("puts a Delegation's start before a Chief of Staff event of the same second that names it", async () => {
     const dir = root();
@@ -647,6 +828,10 @@ describe("derive: ordering, summary and by-design steps", () => {
         "teammate-blocker",
         "--how",
         "github",
+        "--blocker",
+        "355",
+        "--blocker-login",
+        "sam",
       ],
       { cwd: dir, now: at("2026-11-19T06:20:00Z") },
     );
