@@ -39,7 +39,7 @@ It finds the repository from the folder it runs in, and lists the copies of `qa-
 
 ## Run from an autonomous brief
 
-This skill is invoked by a person. The one exception is a `go autonomous` orchestrate run: there a QA Delegation's brief tells its session to read this file and follow it as a phase of the brief, for one pull request at one pinned head, with the `--answers` file the brief names, when it names one, and `<skill>` the folder it names. Nobody types `/qa-plan`; the brief stands in for the invocation. Follow this section only then, and only for a `target: stack` plan: the brief sends a `url` target down the typed route instead.
+This skill is invoked by a person. The one exception is a `go autonomous` orchestrate run: there a QA Delegation's brief tells its session to read this file and follow it as a phase of the brief, for one pull request at one pinned head, with the `--answers` file the brief names, when it names one, and `<skill>` the folder it names. Nobody types `/qa-plan`; the brief stands in for the invocation. Follow this section only then.
 
 The workflow runs as written, except where a step waits on the person. Each such step is in the table, with what replaces the wait. Once QA is approved in the Dispatch Plan, this Delegation is never `waiting` on the human: each question is a fact already given in the Dispatch Plan, a Ruling, or held for close-out. A Decision Request goes in the brief's form, to its decisions file, only for a kind the table says is a Ruling. The Chief of Staff answers it with a Ruling when its evidence meets the evidence bar, and otherwise holds it for close-out and tells this session to go on; wait for that answer, as the brief says, and never queue anything for the human yourself.
 
