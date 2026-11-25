@@ -195,6 +195,9 @@ export function harnessCandidates(env = process.env) {
   return HARNESS_ENV.filter((rule) => rule.when(env)).map((rule) => rule.harness);
 }
 
+/** `regate` as a mapping: the commands, and the tests that fail on the default branch too. */
+export const REGATE_KEYS = /** @type {const} */ (["commands", "allowed_failures"]);
+export const ALLOWED_FAILURE_KEYS = /** @type {const} */ (["test", "reason"]);
 export const SPEC_KEYS = /** @type {const} */ (["landing", "integration_branch"]);
 export const LANDINGS = /** @type {const} */ (["ask", "integration-branch", "per-ticket"]);
 
@@ -721,7 +724,30 @@ export const SECTIONS = {
     stringMapping(sink, value, "routes", ROUTE_KEYS);
   },
   regate(sink, value) {
-    distinctList(sink, value, "regate", nonEmpty, "a command", "commands");
+    // A list of commands, or a mapping of `commands` and `allowed_failures`.
+    if (!isMapping(value))
+      return distinctList(sink, value, "regate", nonEmpty, "a command", "commands");
+    unknownKeys(sink, value, "regate", REGATE_KEYS);
+    if (!Object.hasOwn(value, "commands"))
+      sink.add("regate.commands", "expected a list of commands");
+    else if (given(sink, value, "commands", "regate.commands"))
+      distinctList(sink, value.commands, "regate.commands", nonEmpty, "a command", "commands");
+    if (!given(sink, value, "allowed_failures", "regate.allowed_failures")) return;
+    const list = value.allowed_failures;
+    const path = "regate.allowed_failures";
+    if (!Array.isArray(list)) return sink.add(path, "expected a list of failing tests");
+    const seen = new Set();
+    list.forEach((item, n) => {
+      const at = `${path}[${n}]`;
+      if (!isMapping(item)) return sink.add(at, "expected a mapping with `test` and `reason`");
+      unknownKeys(sink, item, at, ALLOWED_FAILURE_KEYS);
+      for (const key of ALLOWED_FAILURE_KEYS)
+        if (!nonEmpty(item[key])) sink.add(`${at}.${key}`, "expected a non-empty string");
+      if (nonEmpty(item.test)) {
+        if (seen.has(item.test)) sink.add(at, `\`${item.test}\` is listed twice`);
+        seen.add(item.test);
+      }
+    });
   },
   skills(sink, value) {
     stringMapping(sink, value, "skills", SKILL_KEYS);
@@ -1089,7 +1115,8 @@ export function effectiveConfig(config) {
     run_dir: config.run_dir ?? DEFAULTS.run_dir,
     read_first: Array.isArray(config.read_first) ? config.read_first : null,
     routes: pick(routes, ROUTE_KEYS),
-    regate: Array.isArray(config.regate) ? config.regate : null,
+    regate: regateCommands(config.regate),
+    regate_allowed_failures: regateAllowed(config.regate),
     skills: pick(section("skills"), SKILL_KEYS),
     triage_labels: triageLabels(config.triage_labels),
     models: pick(section("models"), MODEL_KEYS),
@@ -1210,6 +1237,20 @@ export function readiness({ path, config, problems, qaConfig = null }) {
       `the triage roles' labels are read from \`${effective.triage_labels.document}\` at the start of the run`,
     );
   return { ready: needs.length === 0, needs, notes };
+}
+
+/** The re-gate commands, whether `regate` is a list or a mapping; null when unset. */
+function regateCommands(value) {
+  const list = isMapping(value) ? value.commands : value;
+  return Array.isArray(list) ? list : null;
+}
+
+/** The tests the re-gate may see fail, each `{ test, reason }`; none when `regate` is a list. */
+function regateAllowed(value) {
+  const list = isMapping(value) ? value.allowed_failures : null;
+  return Array.isArray(list)
+    ? list.filter(isMapping).map(({ test, reason }) => ({ test, reason }))
+    : [];
 }
 
 const SKILL_NOTES = {

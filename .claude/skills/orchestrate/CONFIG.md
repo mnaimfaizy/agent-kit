@@ -57,7 +57,7 @@ Tabs, anchors, aliases, multi-line scalars, flow collections that span lines, a 
 | `run_dir`        | `tmp/orchestrate`   | Where run folders are kept, relative to the repository root. Keep it gitignored: nothing in it is committed. When it is not, the skill offers to add it to the root `.gitignore`, and writes nothing there without a yes. |
 | `read_first`     | none: asked         | The documents every Delegation reads before it plans: agent instructions, contributing guide, glossary. Each must be in the repository. `[]` for none.                                                                    |
 | `routes`         | see below           | How a Delegation commits and opens its pull request, and how the human merges.                                                                                                                                            |
-| `regate`         | none: asked         | The commands that re-check a finished branch, run from the repository root of a worktree at the branch's head. `[]` leaves it to CI.                                                                                      |
+| `regate`         | none: asked         | The commands that re-check a finished branch, run from the repository root of a worktree at the branch's head. `[]` leaves it to CI. A list of commands, or a mapping with `allowed_failures`: see below.                 |
 | `skills`         | none                | Companion skills a brief names. See below.                                                                                                                                                                                |
 | `triage_labels`  | each role's name    | The repository's own mapping of the five triage roles to its labels. See below.                                                                                                                                           |
 | `models`         | the harness default | The model for each kind of work. See below.                                                                                                                                                                               |
@@ -101,6 +101,27 @@ triage_labels:
 ```
 
 The roles are `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human` and `wontfix`. A role the mapping leaves out keeps its own name as its label. Two roles with one label, or a key that is not one of the five, is a problem. Unset, each role's label is its name.
+
+### `regate`
+
+A list of commands, or a mapping when some tests are known to fail:
+
+| Key                | Meaning                                                                                                                                                              |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `commands`         | The commands, as the list above. Required in the mapping form.                                                                                                       |
+| `allowed_failures` | Optional. Tests that fail on the default branch too, each `test` (its name as the runner prints it) with the `reason` it may fail. A name listed twice is a problem. |
+
+```yaml
+regate:
+  commands:
+    - uv run pytest
+    - npm test
+  allowed_failures:
+    - test: test_the_launcher_reads_the_key
+      reason: fails on main under macOS bash 3.2, tracked in #123
+```
+
+`node "<skill>/config.mjs" regate <sha> --out <file>` runs the commands and compares what failed to this list ([SKILL.md](SKILL.md#7-verify-each-report)). A failure that is not listed fails the re-gate, and is named. An entry is for a test that fails on the default branch as well: it stops a known failure from being read by eye each time, and a fix removes its entry. `check` prints the commands as `regate` and the list as `regate_allowed_failures`, `[]` when there is none.
 
 ### `models`
 
