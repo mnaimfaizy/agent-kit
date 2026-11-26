@@ -23,6 +23,7 @@ TERMS = [
     "Live Session",
     "Brief Contract",
     "Decision Request",
+    "Pending Message",
     "Ruling",
     "Ruling Ledger",
     "Ruling Review",
