@@ -707,7 +707,7 @@ export function readReport(text) {
     for (const { line, n } of rows.slice(2)) {
       const row = cells(line);
       const [scenario = "", result = ""] = row;
-      const before = beforeAt === 2 ? (row[2] ?? "") : "";
+      const before = beforeAt === 2 ? row[2] ?? "" : "";
       const [evidence = "", ...notes] = row.slice(beforeAt === 2 ? 3 : 2);
       const id = /^S(\d+)\b/.exec(scenario)?.[0];
       if (!id) {
@@ -1138,6 +1138,10 @@ const linkLabel = (path) => {
   return posix.basename(normal);
 };
 
+/** `a`, `a and b`, `a, b and c`. */
+const listed = (items) =>
+  items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;
+
 /**
  * The summary the pull request gets (ADR 0033, prototype variant A): marker,
  * header, one run line, a three-column table, failures, and what is left for a
@@ -1187,9 +1191,7 @@ function summaryBody(report, places, links) {
     `left-for-person=${holding.length}; deferred=${items.length - holding.length}`;
   const where = [
     report.target === "stack" ? "QA Stack" : report.target === "url" ? "hosted URL" : null,
-    ...(report.surfaces.length
-      ? [report.surfaces.map((surface) => `\`${surface}\``).join(", ")]
-      : []),
+    ...(report.surfaces.length ? [listed(report.surfaces.map((surface) => `\`${surface}\``))] : []),
     report.date,
   ].filter(Boolean);
   const run =
@@ -1197,7 +1199,7 @@ function summaryBody(report, places, links) {
     `${where.length ? ` (${where.join(", ")})` : ""}. Result: **${failed ? "QA failed" : "QA passed"}**`;
 
   const rows = report.results.map((row) => {
-    const note = row.result === "PASS" ? (row.limits ?? "") : briefNote(row.notes);
+    const note = row.result === "PASS" ? row.limits ?? "" : briefNote(row.notes);
     const linked = row.evidence
       .filter((path) => Object.hasOwn(links, path))
       .map((path) => `[${linkLabel(path)}](${links[path]})`);

@@ -255,6 +255,7 @@ test("SKILL.md step 6 picks each scenario's surface from what its expected resul
   assert.match(flat, /The app itself is seen on `desktop` or `mobile`/);
   assert.match(flat, /The Run brief's \*\*Surface:\*\* is the one most scenarios use/);
   assert.match(flat, /`run\.surface` in the config is only the starting default/);
+  assert.match(flat, /When `run\.surface` lists several Surfaces/);
   assert.match(flat, /\[ANATOMY\.md\]\(ANATOMY\.md#scenarios\)/);
 });
 
@@ -273,6 +274,10 @@ test("SKILL.md step 6 writes **Observes:** when not every driver of the surface 
   assert.match(
     flat,
     /`local-file` on a surface whose driver can open a `file:\/\/` address, as `manual-qa`'s step 4 table gives it/,
+  );
+  assert.match(
+    flat,
+    /one scenario per Surface, each with its own setup so neither depends on the other's state/,
   );
 });
 

@@ -243,15 +243,15 @@ test("step 2: a plan with no scenarios needs none of the run answers (#221)", ()
   );
 });
 
-test("step 2 asks the surface question as the need words it (#223)", () => {
+test("step 2 asks the surface question as the need words it (#223, #378)", () => {
   const step = /### 2\. Read the config\n([\s\S]*?)\n### 3\./.exec(skill)?.[1] ?? "";
   assert.match(
     step,
-    /A `run\.surface:` need, raised when the config's `run\.surface` and the plan's Run brief name different surfaces, offers only those two/,
+    /A `run\.surface:` need, raised when the config's `run\.surface` does not include the plan's Run brief's surface, offers the Run brief's surface and each configured one \(only those two when each names one\)/,
   );
   assert.match(
     step,
-    /with the config's surface, the scenarios whose effective surface is the Run brief's \(it names them by id\) drive the config's instead; with the Run brief's, they stay on the surface the plan's author chose from what those scenarios must observe/,
+    /with a configured surface, the scenarios whose effective surface is the Run brief's \(it names them by id\) drive that surface instead; with the Run brief's, they stay on the surface the plan's author chose from what those scenarios must observe/,
   );
   assert.match(
     step,

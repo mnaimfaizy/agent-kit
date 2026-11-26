@@ -625,8 +625,39 @@ export function runProblems(config, lines) {
   unknownKeys(sink, run, "run", RUN_KEYS);
   if (present(run.target) && !TARGETS.includes(run.target))
     sink.add("run.target", `expected one of: ${TARGETS.join(", ")}`);
-  if (present(run.surface) && !SURFACES.includes(run.surface))
-    sink.add("run.surface", `expected one of: ${SURFACES.join(", ")}`);
+  if (present(run.surface)) {
+    if (typeof run.surface === "string") {
+      if (!SURFACES.includes(run.surface))
+        sink.add("run.surface", `expected one of: ${SURFACES.join(", ")}`);
+    } else if (Array.isArray(run.surface)) {
+      if (!run.surface.length)
+        sink.add("run.surface", `expected a non-empty list of: ${SURFACES.join(", ")}`);
+      else {
+        const seen = new Set();
+        for (const item of run.surface) {
+          if (typeof item !== "string" || !SURFACES.includes(item)) {
+            sink.add(
+              "run.surface",
+              typeof item === "string"
+                ? `\`${item}\`: expected one of: ${SURFACES.join(", ")}`
+                : `expected one of: ${SURFACES.join(", ")}`,
+            );
+            break;
+          }
+          if (seen.has(item)) {
+            sink.add("run.surface", `\`${item}\` is listed twice`);
+            break;
+          }
+          seen.add(item);
+        }
+      }
+    } else {
+      sink.add(
+        "run.surface",
+        `expected one of: ${SURFACES.join(", ")}, or a non-empty list of them`,
+      );
+    }
+  }
 
   if (present(run.stack)) {
     if (!isMapping(run.stack))
@@ -905,32 +936,56 @@ const STACK_NEEDS = {
 const listed = (items) =>
   items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;
 
+/** `a`, `a or b`, `a, b or c`. */
+const orListed = (items) =>
+  items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} or ${items.at(-1)}`;
+
+/** Normalize `run.surface` (string or list of strings) to a list of surface names. */
+const configuredSurfaces = (value) =>
+  typeof value === "string" ? [value] : Array.isArray(value) ? value : [];
+
 /**
- * The readiness need when the config's `run.surface` differs from the Run
- * brief's (#223): the two surfaces in dispute, the scenarios each answer moves
+ * The readiness need when the config's `run.surface` does not include the Run
+ * brief's (#223, #378): the surfaces in dispute, the scenarios each answer moves
  * (those whose effective surface is the Run brief's, as step 4 applies it), and
  * those that keep their own **Surface:** whatever the answer.
  *
- * @param {string} configured the config's surface
+ * @param {string | string[]} configured the config's surface or surfaces
  * @param {string} briefed the Run brief's surface
  * @param {{id: string, surface: string | null}[]} scenarios
  */
 function surfaceQuestion(configured, briefed, scenarios) {
+  const list = configuredSurfaces(configured);
   const moving = scenarios.filter((s) => s.surface === briefed).map((s) => s.id);
   const keeping = scenarios.filter((s) => s.surface !== briefed);
   const one = moving.length === 1;
-  const moves = moving.length
-    ? `With \`${configured}\`, ${listed(moving)} ${one ? "drives" : "drive"} \`${configured}\`; ` +
-      `with \`${briefed}\`, ${one ? "it drives" : "they drive"} \`${briefed}\`, the surface the ` +
-      `plan's author chose from what ${one ? "that scenario" : "those scenarios"} must observe.`
-    : "No scenario drives the Run brief's surface, so neither answer moves one.";
   const keeps = keeping.length
     ? `${listed(keeping.map((s) => `${s.id} (\`${s.surface}\`)`))} ` +
       `${keeping.length === 1 ? "keeps its" : "keep their"} own **Surface:** whatever the answer.`
     : "No scenario keeps its own **Surface:** whatever the answer.";
+  if (list.length === 1) {
+    const only = list[0];
+    const moves = moving.length
+      ? `With \`${only}\`, ${listed(moving)} ${one ? "drives" : "drive"} \`${only}\`; ` +
+        `with \`${briefed}\`, ${one ? "it drives" : "they drive"} \`${briefed}\`, the surface the ` +
+        `plan's author chose from what ${one ? "that scenario" : "those scenarios"} must observe.`
+      : "No scenario drives the Run brief's surface, so neither answer moves one.";
+    return (
+      `run.surface: the config says \`${only}\` but the plan's Run brief says \`${briefed}\`; ` +
+      `say which this run uses, \`${only}\` or \`${briefed}\`. ${moves} ${keeps}`
+    );
+  }
+  const choices = orListed([briefed, ...list].map((s) => `\`${s}\``));
+  const allowed = listed(list.map((s) => `\`${s}\``));
+  const orAllowed = orListed(list.map((s) => `\`${s}\``));
+  const moves = moving.length
+    ? `With ${orAllowed}, ${listed(moving)} ${one ? "drives" : "drive"} that surface; ` +
+      `with \`${briefed}\`, ${one ? "it drives" : "they drive"} \`${briefed}\`, the surface the ` +
+      `plan's author chose from what ${one ? "that scenario" : "those scenarios"} must observe.`
+    : "No scenario drives the Run brief's surface, so no answer moves one.";
   return (
-    `run.surface: the config says \`${configured}\` but the plan's Run brief says \`${briefed}\`; ` +
-    `say which this run uses, \`${configured}\` or \`${briefed}\`. ${moves} ${keeps}`
+    `run.surface: the config allows ${allowed} but the plan's Run brief says \`${briefed}\`; ` +
+    `say which this run uses, ${choices}. ${moves} ${keeps}`
   );
 }
 
@@ -1042,9 +1097,17 @@ export function runReadiness(
         isMapping(role) && typeof role.id === "string" ? [role.id] : [],
       )
     : [];
+  const configured = configuredSurfaces(run.surface);
+  const defaultSurface =
+    configured.length === 1
+      ? configured[0]
+      : brief?.surface && configured.includes(brief.surface)
+        ? brief.surface
+        : configured[0] ?? brief?.surface ?? null;
   const effective = {
     target: run.target ?? brief?.target ?? null,
-    surface: run.surface ?? brief?.surface ?? null,
+    surface: defaultSurface,
+    ...(configured.length > 1 ? { surfaces: configured } : {}),
     roles: declared,
   };
   if (problems.length)
@@ -1068,23 +1131,23 @@ export function runReadiness(
     return { ready: true, needs, notes, run: effective };
   }
 
-  for (const [key, choices, what] of [
-    [
-      "target",
-      TARGETS,
-      "`stack` (a local QA Stack this run starts) or `url` (a hosted test environment)",
-    ],
-    ["surface", SURFACES, "what the scenarios drive: `web`, `desktop`, `mobile` or `api`"],
-  ]) {
-    if (!effective[key]) needs.push(`run.${key}: ${what}`);
-    else if (present(run[key]) && brief?.[key] && run[key] !== brief[key])
-      needs.push(
-        key === "surface"
-          ? surfaceQuestion(run.surface, brief.surface, plan?.scenarios ?? [])
-          : `run.${key}: the config says \`${run[key]}\` but the plan's Run brief says \`${brief[key]}\`; ` +
-              `say which this run uses (${choices.join(" or ")})`,
-      );
-  }
+  if (!effective.target)
+    needs.push(
+      "run.target: `stack` (a local QA Stack this run starts) or `url` (a hosted test environment)",
+    );
+  else if (present(run.target) && brief?.target && run.target !== brief.target)
+    needs.push(
+      `run.target: the config says \`${run.target}\` but the plan's Run brief says \`${brief.target}\`; ` +
+        `say which this run uses (${TARGETS.join(" or ")})`,
+    );
+
+  const surfaceConflict = Boolean(
+    brief?.surface && configured.length && !configured.includes(brief.surface),
+  );
+  if (!effective.surface)
+    needs.push("run.surface: what the scenarios drive: `web`, `desktop`, `mobile` or `api`");
+  else if (surfaceConflict)
+    needs.push(surfaceQuestion(configured, brief.surface, plan?.scenarios ?? []));
 
   if (!declared.length)
     needs.push("run.accounts.roles: each role a scenario signs in as, by `id` and `purpose`");
@@ -1160,13 +1223,15 @@ export function runReadiness(
     );
   // The `web` driver's tools are optional: each note says what the run loses without one.
   // With a plan, the scenarios' surfaces, and the config's when the surface question
-  // could move scenarios onto it; with none, the effective surface.
+  // could move scenarios onto it; with none, the configured list (or effective surface).
   const surfaces = plan?.scenarios?.length
     ? [
         ...plan.scenarios.map((scenario) => scenario.surface),
-        ...(brief?.surface && run.surface !== brief.surface ? [run.surface] : []),
+        ...(surfaceConflict ? configured : []),
       ]
-    : [effective.surface];
+    : configured.length
+      ? configured
+      : [effective.surface];
   if (tools && surfaces.includes("web")) {
     const found = tools();
     notes.push(
@@ -1285,8 +1350,7 @@ export function parseHazardPack(text) {
 
   const body = lines.slice(end + 1);
   const fenced = fencedLines(body);
-  const headingLevel = (n) =>
-    fenced[n] ? 0 : (/^ {0,3}(#{1,6})\s/.exec(body[n])?.[1].length ?? 0);
+  const headingLevel = (n) => (fenced[n] ? 0 : /^ {0,3}(#{1,6})\s/.exec(body[n])?.[1].length ?? 0);
   for (const [key, title] of SECTIONS) {
     const pattern = new RegExp(`^#{2,6}\\s+${title}\\s*#*\\s*$`, "i");
     const start = body.findIndex((line, n) => !fenced[n] && pattern.test(line.trim()));
@@ -1422,6 +1486,13 @@ export const OBSERVES = /** @type {const} */ ([
   "screen",
   "local-file",
 ]);
+/** What each Surface's drivers can observe, from `qa-plan` and `manual-qa` SKILL.md (#378). */
+export const SURFACE_OBSERVES = /** @type {const} */ ({
+  api: ["headers", "cookies", "httponly-cookies", "status", "body", "local-file"],
+  web: ["body", "screen", "local-file"],
+  desktop: ["screen", "local-file"],
+  mobile: ["screen", "local-file"],
+});
 /**
  * The optional field (format=3) saying what evidence a run keeps for a scenario: right
  * after its **Observes:**, or wherever **Observes:** would sit when it has none, before
@@ -2235,17 +2306,34 @@ export function validatePlan(text, { places } = {}) {
         else if (listed.text === "") at(listed.n, `${what} is empty`);
         else if (!idList(listed.inline).length)
           at(listed.n, `${what} expected one or more of: ${OBSERVES.join(", ")}`);
-        else
+        else {
+          let badValue = false;
           for (const value of idList(listed.inline)) {
             const stuck = stuckMark(value, (candidate) => OBSERVES.includes(candidate));
             if (value === "")
               at(listed.n, `${what} has an empty value: a comma with nothing after it`);
-            else if (stuck) at(listed.n, `${what} read ${stuck}`);
-            else if (!OBSERVES.includes(value))
+            else if (stuck) {
+              at(listed.n, `${what} read ${stuck}`);
+              badValue = true;
+            } else if (!OBSERVES.includes(value)) {
               at(listed.n, `${what} \`${value}\`: expected one of: ${OBSERVES.join(", ")}`);
-            else if (observes.includes(value)) at(listed.n, `${what} \`${value}\` is named twice`);
+              badValue = true;
+            } else if (observes.includes(value))
+              at(listed.n, `${what} \`${value}\` is named twice`);
             else observes.push(value);
           }
+          if (
+            !badValue &&
+            observes.length &&
+            !SURFACES.some((candidate) =>
+              observes.every((value) => SURFACE_OBSERVES[candidate].includes(value)),
+            )
+          )
+            at(
+              listed.n,
+              `${what} ${observes.map((v) => `\`${v}\``).join(", ")}: no single Surface's drivers can observe all of them; split it into one scenario per Surface`,
+            );
+        }
       }
       // What a run keeps (#233): after Observes, or wherever Observes would sit.
       const defaultCapture = surface === "api" ? "transcript" : "screenshot";
@@ -2920,7 +3008,7 @@ export function renderConfigUpdate(loaded, answers) {
   const forRun = keys.includes("run");
   const forPlan = !forRun || keys.some((key) => key !== "run");
   const unique = (lists) => [...new Set(lists.flat())];
-  const before = unique([forPlan ? loaded.problems : [], forRun ? (loaded.runProblems ?? []) : []]);
+  const before = unique([forPlan ? loaded.problems : [], forRun ? loaded.runProblems ?? [] : []]);
   if (before.length)
     throw new Error(`${loaded.path} has problems; fix them first:\n- ${before.join("\n- ")}`);
   const check = (config) =>
