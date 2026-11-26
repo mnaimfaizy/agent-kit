@@ -1952,6 +1952,17 @@ test("a GitLab project in a subgroup can be pinned and can be a `gitlab` sink (F
   );
 });
 
+test("a pinned repository's group may start with `_`, as records.mjs's REPO takes it, and not with a dot or hyphen", () => {
+  for (const repository of ["gitlab.com/_team/proj", "gitlab.com/_team/_sub/proj"])
+    assert.deepEqual(yaml("records:", `  repository: ${repository}`).problems, [], repository);
+  for (const repository of ["gitlab.com/.team/proj", "gitlab.com/-team/proj"])
+    assert.match(
+      yaml("records:", `  repository: ${repository}`).problems.join("\n"),
+      /`records\.repository`: expected `host\/owner\/repo`/,
+      repository,
+    );
+});
+
 const S3_SINK = {
   type: "s3",
   endpoint: "https://acme.r2.cloudflarestorage.com",
@@ -1997,6 +2008,17 @@ test("an `s3` sink names each missing key, and refuses a `repo`, a `branch` or a
     problems({ ...S3_SINK, endpoint: "http://s3.example.com" }),
     /`records\.sink\.endpoint`: expected an https URL/,
   );
+  for (const endpoint of ["https://s3.example.com/foo", "https://s3.example.com/foo/"])
+    assert.match(
+      problems({ ...S3_SINK, endpoint }),
+      /`records\.sink\.endpoint`: expected an https URL with a host and nothing else/,
+      endpoint,
+    );
+  assert.deepEqual(
+    json(JSON.stringify({ records: { sink: { ...S3_SINK, endpoint: "https://s3.example.com/" } } }))
+      .problems,
+    [],
+  );
   assert.deepEqual(
     json(JSON.stringify({ records: { sink: { ...S3_SINK, endpoint: "http://localhost:9000" } } }))
       .problems,
@@ -2015,6 +2037,30 @@ test("an `s3` sink names each missing key, and refuses a `repo`, a `branch` or a
     problems({ type: "github", repo: "a/b", bucket: "x" }),
     /`records\.sink\.bucket`: only an `s3` sink uses this/,
   );
+});
+
+test("a long mixed-case name in `repo`, `bucket` or `endpoint` is not read as a secret", () => {
+  for (const sink of [
+    { type: "github", repo: "AcmeCorp/OrchestrateRunRecords2026Private" },
+    { type: "gitlab", repo: "AcmeCorp/Platform/OrchestrateRunRecords2026Private" },
+    { type: "github", repo: "ghe.example.com/AcmeCorp/OrchestrateRunRecordsArchive2026Private" },
+    { ...S3_SINK, endpoint: "https://AcmeCorpStorage2026EuropeWestRegion01Primary.example.com" },
+  ])
+    assert.deepEqual(
+      json(JSON.stringify({ records: { sink } })).problems,
+      [],
+      JSON.stringify(sink),
+    );
+  // The shapes that are always credentials are still caught in these keys.
+  for (const sink of [
+    { type: "github", repo: "a/ghp_" + "a".repeat(36) },
+    { ...S3_SINK, bucket: "AKIAIOSFODNN7EXAMPLE" },
+  ])
+    assert.match(
+      json(JSON.stringify({ records: { sink } })).problems.join("\n"),
+      /looks like a secret/,
+      JSON.stringify(sink),
+    );
 });
 
 test("a secret-looking value anywhere in the sink is a problem, and the value is not echoed", () => {

@@ -747,8 +747,11 @@ function branchPatternProblem(v) {
   return bad ? "expected a valid git branch name once `<n>` is filled in" : null;
 }
 
-/** `host/owner/repo`, three plain segments, or `host/<group>/…/<project>` for a GitLab project in a subgroup. */
-const REPOSITORY = /^[A-Za-z0-9][A-Za-z0-9.-]*(?:\/[\w.-]+){1,20}\/[\w.-]+$/;
+/**
+ * `host/owner/repo`, three plain segments, or `host/<group>/…/<project>` for a GitLab project in a subgroup.
+ * An owner or group starts with a letter, a digit or `_`, as `records.mjs`'s REPO has it.
+ */
+const REPOSITORY = /^[A-Za-z0-9][A-Za-z0-9.-]*(?:\/\w[\w.-]*){1,20}\/[\w.-]+$/;
 /** A sink repository: `owner/name`, or `host/owner/name` for another host. */
 const SINK_REPO = /^(?:[A-Za-z0-9][A-Za-z0-9.-]*\/)?[\w.-]+\/[\w.-]+$/;
 /** A `gitlab` sink project may sit in subgroups: `group/sub/name`, with an optional `host/` in front. */
@@ -757,9 +760,11 @@ const GITLAB_SINK_REPO = /^[\w.-]+(?:\/[\w.-]+){1,21}$/;
 /**
  * A value shaped like a credential: an AWS access key id or secret, a token,
  * a private key, a password in a URL, or a presigned signature. The check is on
- * shape, never on the key's name, and the value is never echoed.
+ * shape, never on the key's name, and the value is never echoed. A name
+ * (`repo`, `bucket`, `endpoint`) skips the last check, a long mixed-case run,
+ * which an ordinary repository or host name can match.
  */
-function looksLikeSecret(value) {
+function looksLikeSecret(value, { name = false } = {}) {
   if (typeof value !== "string") return false;
   if (/\b(?:AKIA|ASIA|AGPA|AIDA|AROA)[A-Z0-9]{16}\b/.test(value)) return true;
   if (
@@ -771,10 +776,14 @@ function looksLikeSecret(value) {
   if (/-----BEGIN [A-Z ]*PRIVATE KEY/.test(value)) return true;
   if (/:\/\/[^/\s@]*@/.test(value)) return true;
   if (/X-Amz-(?:Signature|Credential|Security-Token)=/i.test(value)) return true;
+  if (name) return false;
   return (value.match(/[A-Za-z0-9/+=]{40,}/g) ?? []).some(
     (run) => /[a-z]/.test(run) && /[A-Z]/.test(run) && /\d/.test(run),
   );
 }
+
+/** The sink keys that hold a name, not a value that could be a credential. */
+const NAME_KEYS = ["repo", "bucket", "endpoint"];
 
 /** A bucket name: 3 to 63 lowercase letters, digits, dots and hyphens, as S3 and its compatibles accept. */
 const BUCKET = /^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/;
@@ -796,7 +805,8 @@ function validEndpoint(value) {
     url.username === "" &&
     url.password === "" &&
     url.search === "" &&
-    url.hash === ""
+    url.hash === "" &&
+    url.pathname === "/"
   );
 }
 
@@ -845,7 +855,7 @@ function checkSink(sink, s, base, types, expected) {
     );
   const secret = new Set(
     Object.entries(s)
-      .filter(([, v]) => looksLikeSecret(v))
+      .filter(([k, v]) => looksLikeSecret(v, { name: NAME_KEYS.includes(k) }))
       .map(([k]) => k),
   );
   for (const key of secret)
