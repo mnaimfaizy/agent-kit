@@ -121,6 +121,17 @@ describe("examples/qa.config.yml", () => {
     assert.doesNotMatch(values, /password|token|secret/i);
     assert.doesNotMatch(values, /https?:\/\//);
   });
+
+  it("documents every `run:` key in docs/qa.md's keys table (#378)", () => {
+    const qaDoc = read("docs/qa.md");
+    const runRow = qaDoc.split("\n").find((l) => l.startsWith("| `run:`"));
+    assert.ok(runRow, "docs/qa.md has a `run:` row");
+    for (const key of runAdapter.RUN_KEYS)
+      assert.ok(
+        runRow.includes(`\`${key}\``) || runRow.includes(`\`${key}.`),
+        `docs/qa.md lacks run.${key}`,
+      );
+  });
 });
 
 describe("examples/qa-hazards", () => {

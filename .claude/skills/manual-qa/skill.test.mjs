@@ -13,7 +13,6 @@ import { fileURLToPath } from "node:url";
 import {
   OBSERVES,
   PROJECT_SKILL_DIRS,
-  RUN_KEYS,
   SURFACES,
   SURFACE_OBSERVES,
   main,
@@ -547,16 +546,6 @@ test("SURFACE_OBSERVES in adapter.mjs matches SKILL.md's driver table (#378)", (
       new Set(SURFACE_OBSERVES[surface]),
       fromTable[surface],
       `SURFACE_OBSERVES.${surface} drifted from SKILL.md's driver table`,
-    );
-
-  // Every RUN_KEYS entry also remains documented in docs/qa.md's keys table.
-  const qaDoc = readFileSync(join(HERE, "..", "..", "..", "docs", "qa.md"), "utf8");
-  const runRow = qaDoc.split("\n").find((l) => l.startsWith("| `run:`"));
-  assert.ok(runRow, "docs/qa.md has a `run:` row");
-  for (const key of RUN_KEYS)
-    assert.ok(
-      runRow.includes(`\`${key}\``) || runRow.includes(`\`${key}.`),
-      `docs/qa.md lacks run.${key}`,
     );
 });
 
