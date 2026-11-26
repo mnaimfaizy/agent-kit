@@ -43,11 +43,13 @@ export function routeOf(hash, { home = null, aliases = {} } = {}) {
 
 /**
  * The Repository switcher's option a page belongs to: the repository's page or a page under it,
- * never another repository whose name only begins the same. Null when none is.
- * It runs in the page as written: it must use nothing outside itself.
+ * never another repository whose name only begins the same. A page outside every repository's
+ * route (a run's tabs, its Delegation and step pages) names its `owner` option instead.
+ * Null when none is. It runs in the page as written: it must use nothing outside itself.
  */
-export function switcherFor(pageId, values) {
-  return values.find((v) => v !== "/" && (pageId === v || pageId.startsWith(v + "/"))) ?? null;
+export function switcherFor(pageId, values, owner = null) {
+  const under = values.find((v) => v !== "/" && (pageId === v || pageId.startsWith(v + "/")));
+  return under ?? (owner && owner !== "/" && values.includes(owner) ? owner : null);
 }
 
 const SCRIPT = `
@@ -65,7 +67,7 @@ const SCRIPT = `
     pages.forEach((p) => p.classList.toggle("on", p === page));
     const switcher = document.getElementById("repo-switch");
     if (switcher) {
-      const mine = switcherFor(page.id, [...switcher.options].map((o) => o.value));
+      const mine = switcherFor(page.id, [...switcher.options].map((o) => o.value), page.dataset.repo);
       switcher.value = mine ? mine : page.id === "/" ? "/" : switcher.value;
     }
     if (!id.startsWith("open=")) window.scrollTo(0, 0);

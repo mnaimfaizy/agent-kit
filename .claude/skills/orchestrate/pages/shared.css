@@ -157,6 +157,13 @@ code {
   font-size: 12px;
   color: var(--muted);
 }
+/* On a wide screen the long rebuild text wraps in its own box, so the theme button stays on the row. */
+@media (min-width: 900px) {
+  .top .built {
+    max-width: min(48rem, 60%);
+    text-align: right;
+  }
+}
 .top button {
   font: inherit;
   background: var(--soft);
