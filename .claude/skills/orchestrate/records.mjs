@@ -483,8 +483,22 @@ function pairs(args) {
   return out;
 }
 
-const EVENT_USAGE =
-  "usage: node records.mjs event --file <events.jsonl> --kind <kind> --actor <human|chief-of-staff|delegation> [--<field> <value>]...\n";
+/** The field flags of one event kind, as `event` takes them: `--write-kind`, and `[--head]` when optional. */
+export function eventFlags(kind) {
+  if (!Object.hasOwn(EVENT_KINDS, kind)) return null;
+  return Object.keys(EVENT_KINDS[kind])
+    .filter((name) => name !== "actor")
+    .map((name) => {
+      const flag = `--${name.replace(/\?$/, "").replaceAll("_", "-")}`;
+      return name.endsWith("?") ? `[${flag}]` : flag;
+    });
+}
+
+const EVENT_USAGE = `usage: node records.mjs event --file <events.jsonl> --kind <kind> --actor <human|chief-of-staff|delegation> [--<field> <value>]...
+  the fields of each kind ([optional]):
+${Object.keys(EVENT_KINDS)
+  .map((kind) => `    ${kind}: ${eventFlags(kind).join(" ") || "none"}\n`)
+  .join("")}`;
 const DERIVE_USAGE = "usage: node records.mjs derive <run-folder>\n";
 const UPLOAD_RAW_USAGE =
   "usage: node records.mjs upload-raw <run id or run folder> [--list] [--yes]\n";

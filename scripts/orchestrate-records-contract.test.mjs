@@ -14,7 +14,12 @@ import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { CAUSES, EVENT_KINDS, STEP_KINDS } from "../.claude/skills/orchestrate/records.mjs";
+import {
+  CAUSES,
+  EVENT_KINDS,
+  STEP_KINDS,
+  eventFlags,
+} from "../.claude/skills/orchestrate/records.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (p) => readFileSync(join(root, p), "utf8");
@@ -251,6 +256,24 @@ describe("BRIEF.md: when each Delegation writes its events", () => {
       item,
       /A Delegation never writes the Chief of Staff's events file or another Delegation's/,
     );
+  });
+});
+
+describe("RUN.md's event table names each kind's field flags, as `event` takes them (C19)", () => {
+  it("has a Flags cell per kind equal to the schema's flags", () => {
+    const rows = new Map(
+      RUN.split("\n")
+        .filter((l) => /^\| `[a-z-]+` +\|/.test(l))
+        .map((l) => l.split("|").map((c) => c.trim()))
+        .map((cells) => [cells[1].replaceAll("`", ""), cells.at(-2)]),
+    );
+    for (const kind of Object.keys(EVENT_KINDS)) {
+      const expected =
+        eventFlags(kind)
+          .map((f) => `\`${f}\``)
+          .join(" ") || "none";
+      assert.equal(rows.get(kind), expected, kind);
+    }
   });
 });
 

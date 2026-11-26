@@ -221,6 +221,15 @@ describe("event: append one Run Event", () => {
     );
     assert.equal(result.code, 2, result.out);
     assert.match(result.out, /^usage: node records\.mjs event/);
+    // The usage line names each kind's field flags, from the schema (C19).
+    assert.match(result.out, /\n {4}write: \[--delegation\] --write-kind --as-human\n/);
+    assert.match(
+      result.out,
+      /\n {4}wait-opened: --wait-id \[--delegation\] --step-kind --cause --how/,
+    );
+    assert.match(result.out, /\n {4}heartbeat: none\n/);
+    for (const kind of Object.keys(EVENT_KINDS))
+      assert.match(result.out, new RegExp(`\\n {4}${kind}: `), kind);
     assert.equal(existsSync(join(dir, "events.jsonl")), false);
   });
 
