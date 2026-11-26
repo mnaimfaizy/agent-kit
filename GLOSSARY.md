@@ -224,7 +224,7 @@ A QA Plan scenario's field giving one sentence per Scene, in order and in the pr
 _Avoid_: narrative, script, synopsis
 
 **Surface**:
-What a scenario drives (`web`, `desktop`, `mobile` or `api`). The Run brief gives the plan's default; a scenario may override it.
+What a scenario drives (`web`, `desktop`, `mobile` or `api`). Each scenario drives exactly one. The Run brief gives the plan's default; a scenario may override it. A run may drive several, one per scenario, and a promise that needs two is planned as two scenarios.
 _Avoid_: platform, channel
 
 **Driver**:
