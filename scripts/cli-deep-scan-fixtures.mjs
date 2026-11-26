@@ -701,10 +701,6 @@ export const ALL_RUNTIMES = {
 export const without = (...names) =>
   Object.fromEntries(Object.entries(ALL_RUNTIMES).filter(([k]) => !names.includes(k)));
 
-// --- Pre-flight refusals (#368) --------------------------------------------
-
-// --- The process allowlist (ADR 0019) --------------------------------------
-
 // --- The sandbox lifecycle (#369) -------------------------------------------
 
 /** The docker commands a run sent after choosing the runtime, as arg lists. */
@@ -901,8 +897,6 @@ export const gvisorWithOp = (answer) =>
   });
 
 export const startedAnything = (res) => lifecycle(res).length > 0;
-
-// --- What the agent is handed (#370) ----------------------------------------
 
 // --- The real agent step, behind the model proxy (#370) ---------------------
 
@@ -1177,8 +1171,6 @@ export function assertNeverHanded(res, secret) {
   }
   for (const data of stdinFilesOf(res)) assert.ok(!data.includes(secret));
 }
-
-// --- The model and effort the agent runs on, and the model that answered ---
 
 // --- Review fixes from pull request #390 -------------------------------------
 
