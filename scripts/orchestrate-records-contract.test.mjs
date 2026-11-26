@@ -14,8 +14,18 @@ import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { SECTIONS } from "../.claude/skills/orchestrate/config.mjs";
 import {
+  PRUNE_KEYS,
+  RAW_KEYS,
+  RAW_SINK_TYPES,
+  RECORDS_KEYS,
+  RECORDS_UPLOADS,
+  SECTIONS,
+  SINK_TYPES,
+} from "../.claude/skills/orchestrate/config.mjs";
+import { COLUMNS } from "../.claude/skills/orchestrate/pages/board.mjs";
+import {
+  ACTORS,
   CAUSES,
   EVENT_KINDS,
   STEP_KINDS,
@@ -293,6 +303,44 @@ const anchors = (text) =>
           .replaceAll(" ", "-"),
       ),
   );
+
+describe("docs/orchestrate.md's lists match the code's constants (C23)", () => {
+  /** `a`, `b` or `c`, as the docs write a closed list. */
+  const words = (list, quote = (w) => `\`${w}\``, last = "or") =>
+    list.length === 1
+      ? quote(list[0])
+      : `${list.slice(0, -1).map(quote).join(", ")} ${last} ${quote(list.at(-1))}`;
+  const row = (key) => {
+    const line = DOCS.split("\n").find((l) => l.startsWith(`| \`${key}\` `));
+    assert.ok(line, key);
+    return line;
+  };
+
+  it("names the board's columns as pages/board.mjs's COLUMNS", () => {
+    assert.ok(DOCS.includes(`- **Kanban.** ${words(COLUMNS, (w) => w, "and")}.`));
+  });
+
+  it("names the actors as records.mjs's ACTORS", () => {
+    assert.ok(DOCS.includes(`and an \`actor\`: ${words(ACTORS)}.`));
+  });
+
+  it("gives the `records` and `prune` rows the keys and values config.mjs takes", () => {
+    const records = row("records");
+    for (const key of RECORDS_KEYS.filter((k) => k !== "raw"))
+      assert.match(records, new RegExp(`\`${key}\`: `), key);
+    assert.ok(
+      records.includes(
+        `\`upload\`: \`${RECORDS_UPLOADS[0]}\` (default) or ${words(RECORDS_UPLOADS.slice(1))}`,
+      ),
+    );
+    assert.ok(records.includes(`\`type: ${SINK_TYPES[0]}\`, ${words(SINK_TYPES.slice(1))}`));
+    const raw = row("records.raw");
+    for (const key of RAW_KEYS) assert.match(raw, new RegExp(`\`${key}\`: `), key);
+    assert.ok(raw.includes(`${words(RAW_SINK_TYPES.map((t) => `type: ${t}`))} only`));
+    const prune = row("prune");
+    for (const key of PRUNE_KEYS) assert.match(prune, new RegExp(`\`${key}\`: `), key);
+  });
+});
 
 describe("SINKS.md's operations are the closed list each sink file has (C28)", () => {
   const SINKS = read(`${SKILL_DIR}/SINKS.md`);
