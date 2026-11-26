@@ -392,8 +392,7 @@ export const EVENT_KINDS = Object.freeze({
   "delegation-landed": { delegation: t.id, "head?": t.sha },
   "delegation-ended": { delegation: t.id, outcome: t.enum(DELEGATION_OUTCOMES) },
   "send-back": { delegation: t.id },
-  /** Written by the Chief of Staff alone, when it queues a Decision Request: its own, or a Delegation's. */
-  "decision-request": { actor: t.enum(["chief-of-staff"]), "delegation?": t.id, id: t.id },
+  "decision-request": { "delegation?": t.id, id: t.id },
   "ruling-made": { delegation: t.id, ruling: t.id },
   "ruling-verdict": { ruling: t.id, verdict: t.enum(VERDICTS) },
   "wait-opened": {
