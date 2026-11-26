@@ -46,7 +46,7 @@ regate:
     - test: test_the_launcher_passes_the_effort_as_a_flag_only_when_it_is_set
       reason: scripts/deep-scan-workflow-contract.test.py; fails on main under macOS bash 3.2 (unbound empty array)
     - test: checks the report in the sandbox with a real sh, then tars that one file
-      reason: scripts/cli-deep-scan-contract.test.mjs; fails on main under macOS, where the archive holds two files
+      reason: scripts/cli-deep-scan-relay.test.mjs; fails on main under macOS, where the archive holds two files
 
 skills:
   implement: tdd

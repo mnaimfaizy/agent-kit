@@ -31,6 +31,8 @@ Everything CI runs, locally:
 | Workflows                | `actionlint` (pre-commit bundles it; CI uses the digest-pinned image)                                 |
 | All lint hooks at once   | `uv run pre-commit run --all-files`                                                                   |
 
+The full suites are slow locally, much slower on Windows than on CI's Linux, because many tests start real `git` processes. While you work, run only the suites your change touches, and leave the full run to CI: `node --test scripts/cli-deep-scan-*.test.mjs`, `node --test --test-name-pattern='<test name>' <file>`, `uv run pytest scripts/<area>-contract.test.py -k <name>`. `node --test` runs files in parallel but the tests within one file one after another, so split a suite that grows into one long file (as the `cli-deep-scan-*` suites share `cli-deep-scan-fixtures.mjs`).
+
 CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs three jobs on every PR and push to `main`: **Tests**, **Lint and format**, **Internal links**. External links are checked weekly by [links.yml](.github/workflows/links.yml), which opens a tracking issue on failure.
 
 ## Repository layout
