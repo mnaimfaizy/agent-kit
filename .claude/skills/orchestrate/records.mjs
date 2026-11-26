@@ -2464,7 +2464,7 @@ const recordRepository = (pinned, record, fallback) =>
  * The run's key in the dashboard, made as the dashboard makes it for a local record: under its
  * repository (`records.repository`, else the record's) and login. That key resolves whatever other
  * runs share the id; a record with no login is under `-`, as the dashboard keys it. With no local
- * record yet, or no repository, the run id alone.
+ * record yet, one with no `run`, or no repository, the run id alone.
  */
 function dashboardSlug(runFolder, runId, cwd, repo, qualifiedSlug) {
   const text = readText(join(dirname(runFolder), "records", `${runId}.json`));
@@ -2474,7 +2474,7 @@ function dashboardSlug(runFolder, runId, cwd, repo, qualifiedSlug) {
   } catch {
     record = null;
   }
-  if (!record) return runId;
+  if (!record?.run) return runId;
   const loaded = readConfig((path) => readText(resolve(cwd, path)));
   const pinned = loaded.problems.length ? null : effectiveConfig(loaded.config).records.repository;
   const repository = recordRepository(pinned, record, repo);

@@ -3320,6 +3320,15 @@ describe("board: the closed run's link opens its dashboard page, whatever runs s
     assert.ok(sections(page(dir)).has(hash), hash);
   });
 
+  it("links the bare run id when the local record has no `run`, and still writes the board", async () => {
+    const dir = replayed(CLOSED);
+    mkdirSync(join(dir, "tmp", "orchestrate", "records"), { recursive: true });
+    writeFileSync(recordPath(dir), "{}");
+    const { result, html } = await board(dir, [], { until: CLOSED });
+    assert.equal(result.code, 0, result.out);
+    assert.equal(target(html, "../dashboard.html"), `/run/${RUN}/summary`);
+  });
+
   it("links the served board the same way", async () => {
     const dir = await closedWithRecord();
     const server = await serving(dir);
