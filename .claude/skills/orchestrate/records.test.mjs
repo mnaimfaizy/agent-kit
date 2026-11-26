@@ -3301,6 +3301,24 @@ describe("board: the closed run's link opens its dashboard page, whatever runs s
     assert.ok(sections(two).has(routeOf(`#${hash}`, { aliases: aliasesOf(two) })));
   });
 
+  it("links under the repository with `-` for no login, and opens that page beside a teammate's run of the same id (D8)", async () => {
+    const dir = replayed(CLOSED);
+    writeFileSync(join(dir, "orchestrate.config.yml"), SINK_CONFIG);
+    assert.equal((await derive(dir, { env: {}, exec: () => ({ code: 1, out: "" }) })).code, 0);
+    assert.equal(JSON.parse(readFileSync(recordPath(dir), "utf8")).run.operator, null);
+    const { html } = await board(dir, [], { until: CLOSED });
+    const hash = target(html, "../dashboard.html");
+    assert.equal(hash, `/run/github.com/mnaimfaizy/agent-kit/-/${RUN}/summary`);
+    const stencil = readFileSync(recordPath(dir), "utf8");
+    const lee = recordBytes(stencil, { repo: NS_A, login: "lee", id: RUN });
+    const shared = fakeTransport({
+      remotes: ORIGIN,
+      repos: { "acme/run-records": { files: new Map([[sinkFile(NS_A, "lee", RUN), lee]]) } },
+    });
+    await build(dir, shared);
+    assert.ok(sections(page(dir)).has(hash), hash);
+  });
+
   it("links the served board the same way", async () => {
     const dir = await closedWithRecord();
     const server = await serving(dir);
