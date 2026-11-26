@@ -307,6 +307,10 @@ _Avoid_: brief template, prompt template
 A question a Delegation, or a Factory task, cannot settle from its brief, raised to the human (through the Chief of Staff, or on the issue with `factory:needs-decision`) or, in an autonomous run, answered by a Ruling; self-contained, with options, evidence and a recommendation.
 _Avoid_: question, escalation, blocker
 
+**Pending Message**:
+Text the Chief of Staff has decided to send to an Executor (an answer, a Ruling, a nudge, a send-back, a merge order) that its harness cannot deliver until that Executor's run has ended.
+_Avoid_: queued message (queued is a Decision Request waiting on the human), held message (held is for close-out)
+
 **Ruling**:
 A Decision Request the Chief of Staff answers itself in an autonomous run, because the human handed it that kind at "go" and the evidence it cites picks one option; it stands until the Ruling Review.
 _Avoid_: auto-decision, CoS decision, judgement
