@@ -173,6 +173,35 @@ describe("event: append one Run Event", () => {
       assert.equal(existsSync(join(dir, "events.jsonl")), false);
     });
 
+  it("takes a `decision-request` from the Chief of Staff only: it is the one writer (C8)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "orchestrate-records-"));
+    made.push(dir);
+    const ask = (actor) =>
+      main(
+        [
+          "event",
+          "--file",
+          "events.jsonl",
+          "--kind",
+          "decision-request",
+          "--actor",
+          actor,
+          "--id",
+          "dr1",
+          "--delegation",
+          "d12",
+        ],
+        { cwd: dir, now: at("2026-11-25T10:00:00Z") },
+      );
+    for (const actor of ["delegation", "human"]) {
+      const refused = await ask(actor);
+      assert.equal(refused.code, 1, refused.out);
+      assert.match(refused.out, /actor:/);
+    }
+    assert.equal(existsSync(join(dir, "events.jsonl")), false);
+    assert.equal((await ask("chief-of-staff")).code, 0);
+  });
+
   it("refuses a repeated flag with the usage line, and writes nothing", async () => {
     const dir = mkdtempSync(join(tmpdir(), "orchestrate-records-"));
     made.push(dir);

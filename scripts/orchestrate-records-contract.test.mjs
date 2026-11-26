@@ -254,6 +254,26 @@ describe("BRIEF.md: when each Delegation writes its events", () => {
   });
 });
 
+describe("one writer for `decision-request`: the Chief of Staff, as it queues the request (C8)", () => {
+  it("says so alike in BRIEF.md, SKILL.md and RUN.md", () => {
+    const brief = flat(section(BRIEF, "## The Brief Contract"));
+    assert.match(
+      brief,
+      /It writes no `decision-request`: when it raises a Decision Request, the Chief of Staff writes that event as it queues the request, with the next run-wide id `dr<n>`/,
+    );
+    assert.doesNotMatch(brief, /`dr<n>` the brief gives it/);
+    const loop = flat(section(SKILL, "### 6. Run the loop"));
+    assert.match(
+      loop,
+      /a Decision Request queued, the run's own or a Delegation's, is `decision-request`, which only the Chief of Staff writes, with the next run-wide id `dr<n>` \(a Delegation writes none\)/,
+    );
+    const row = RUN.split("\n").find((l) => l.startsWith("| `decision-request`"));
+    assert.match(row, /^\| `decision-request`\s+\| Chief of Staff\s+\|/);
+    assert.match(row, /A Delegation writes none/);
+    assert.doesNotMatch(RUN, /whoever raises it/);
+  });
+});
+
 describe("DESIGN.md and the docs page say what a run now writes, and why", () => {
   it("DESIGN.md has a Run Events and the Run Record section giving the reasons", () => {
     const text = flat(section(DESIGN, "## Run Events and the Run Record"));
