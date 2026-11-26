@@ -1103,7 +1103,7 @@ export function runReadiness(
       ? configured[0]
       : brief?.surface && configured.includes(brief.surface)
         ? brief.surface
-        : configured[0] ?? brief?.surface ?? null;
+        : (configured[0] ?? brief?.surface ?? null);
   const effective = {
     target: run.target ?? brief?.target ?? null,
     surface: defaultSurface,
@@ -1350,7 +1350,8 @@ export function parseHazardPack(text) {
 
   const body = lines.slice(end + 1);
   const fenced = fencedLines(body);
-  const headingLevel = (n) => (fenced[n] ? 0 : /^ {0,3}(#{1,6})\s/.exec(body[n])?.[1].length ?? 0);
+  const headingLevel = (n) =>
+    fenced[n] ? 0 : (/^ {0,3}(#{1,6})\s/.exec(body[n])?.[1].length ?? 0);
   for (const [key, title] of SECTIONS) {
     const pattern = new RegExp(`^#{2,6}\\s+${title}\\s*#*\\s*$`, "i");
     const start = body.findIndex((line, n) => !fenced[n] && pattern.test(line.trim()));
@@ -3008,7 +3009,7 @@ export function renderConfigUpdate(loaded, answers) {
   const forRun = keys.includes("run");
   const forPlan = !forRun || keys.some((key) => key !== "run");
   const unique = (lists) => [...new Set(lists.flat())];
-  const before = unique([forPlan ? loaded.problems : [], forRun ? loaded.runProblems ?? [] : []]);
+  const before = unique([forPlan ? loaded.problems : [], forRun ? (loaded.runProblems ?? []) : []]);
   if (before.length)
     throw new Error(`${loaded.path} has problems; fix them first:\n- ${before.join("\n- ")}`);
   const check = (config) =>

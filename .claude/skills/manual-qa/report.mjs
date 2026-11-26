@@ -707,7 +707,7 @@ export function readReport(text) {
     for (const { line, n } of rows.slice(2)) {
       const row = cells(line);
       const [scenario = "", result = ""] = row;
-      const before = beforeAt === 2 ? row[2] ?? "" : "";
+      const before = beforeAt === 2 ? (row[2] ?? "") : "";
       const [evidence = "", ...notes] = row.slice(beforeAt === 2 ? 3 : 2);
       const id = /^S(\d+)\b/.exec(scenario)?.[0];
       if (!id) {
@@ -1199,7 +1199,7 @@ function summaryBody(report, places, links) {
     `${where.length ? ` (${where.join(", ")})` : ""}. Result: **${failed ? "QA failed" : "QA passed"}**`;
 
   const rows = report.results.map((row) => {
-    const note = row.result === "PASS" ? row.limits ?? "" : briefNote(row.notes);
+    const note = row.result === "PASS" ? (row.limits ?? "") : briefNote(row.notes);
     const linked = row.evidence
       .filter((path) => Object.hasOwn(links, path))
       .map((path) => `[${linkLabel(path)}](${links[path]})`);
