@@ -196,7 +196,6 @@ Pass each of the subject issue's labels. It prints `to`, and the rule that chose
 
 - **`working-copy`:** the file from step 7 is the plan. Give the person its path to hand on.
 - **`tracker-issue`:** one issue per subject. Find the one already there before creating one, in this order, and accept a candidate only when its body's first line starts with `<!-- qa-plan format=1 subject=#<n> `, `<!-- qa-plan format=2 subject=#<n> `, `<!-- qa-plan format=3 subject=#<n> ` or `<!-- qa-plan format=4 subject=#<n> ` (a plan written in an older format is still the one to replace):
-
   1. the issue named in the pull request's link comment (the comment whose body starts with `<!-- qa-plan-link -->`);
   2. with a rule `label`, each issue carrying it: `gh issue list --state all --label <label> --limit 200 --json number,body`;
   3. otherwise a search, `gh issue list --state all --search "qa-plan subject=#<n> in:body" --json number,body`, which can lag behind an issue created minutes ago.

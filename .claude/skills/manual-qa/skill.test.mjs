@@ -10,7 +10,15 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { PROJECT_SKILL_DIRS, main, parseConfig } from "./adapter.mjs";
+import {
+  OBSERVES,
+  PROJECT_SKILL_DIRS,
+  RUN_KEYS,
+  SURFACES,
+  SURFACE_OBSERVES,
+  main,
+  parseConfig,
+} from "./adapter.mjs";
 import { HEADLINES, RESULTS, main as report } from "./report.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -496,6 +504,60 @@ test("a scenario's **Observes:** is checked against each driver before the run s
     /\| A driver that can open a `file:\/\/` address \| `local-file` \|/,
   ])
     assert.match(flat, row);
+});
+
+test("SURFACE_OBSERVES in adapter.mjs matches SKILL.md's driver table (#378)", () => {
+  const tableBlock = /\n\| Driver[^\n]*\n\| -+[^\n]*\n([\s\S]*?)\n\n/.exec(skill)?.[1] ?? "";
+  const rows = tableBlock
+    .split("\n")
+    .filter((line) => line.startsWith("|"))
+    .map((line) => {
+      const cells = line.split("|").map((c) => c.trim());
+      return {
+        driver: cells[1],
+        observes: [...cells[2].matchAll(/`([^`]+)`/g)].map((m) => m[1]),
+      };
+    });
+  assert.equal(rows.length, 7);
+
+  // Which Surfaces each row in SKILL.md's driver table can drive.
+  const driverSurfaces = [
+    ["`web.mjs`", ["web"]],
+    ["The host's built-in browser, by its network reader", ["web"]],
+    ["Claude in Chrome", ["web"]],
+    ["`http.mjs`, and `curl`", ["api"]],
+    ["Desktop control", ["desktop", "mobile"]],
+    ["Any other browser tool", ["web"]],
+    ["A driver that can open a `file://` address", [...SURFACES]],
+  ];
+  assert.deepEqual(
+    rows.map((r) => r.driver),
+    driverSurfaces.map(([name]) => name),
+  );
+
+  const fromTable = Object.fromEntries(SURFACES.map((s) => [s, new Set()]));
+  rows.forEach((row, i) => {
+    for (const value of row.observes) {
+      assert.ok(OBSERVES.includes(value), `unknown observable \`${value}\` in driver table`);
+      for (const surface of driverSurfaces[i][1]) fromTable[surface].add(value);
+    }
+  });
+  for (const surface of SURFACES)
+    assert.deepEqual(
+      new Set(SURFACE_OBSERVES[surface]),
+      fromTable[surface],
+      `SURFACE_OBSERVES.${surface} drifted from SKILL.md's driver table`,
+    );
+
+  // Every RUN_KEYS entry also remains documented in docs/qa.md's keys table.
+  const qaDoc = readFileSync(join(HERE, "..", "..", "..", "docs", "qa.md"), "utf8");
+  const runRow = qaDoc.split("\n").find((l) => l.startsWith("| `run:`"));
+  assert.ok(runRow, "docs/qa.md has a `run:` row");
+  for (const key of RUN_KEYS)
+    assert.ok(
+      runRow.includes(`\`${key}\``) || runRow.includes(`\`${key}.`),
+      `docs/qa.md lacks run.${key}`,
+    );
 });
 
 test("a `Review:` box runs nothing, is never a result, and is listed for a person (#205)", () => {
