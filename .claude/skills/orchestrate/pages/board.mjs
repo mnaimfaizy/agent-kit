@@ -229,11 +229,12 @@ export function boardModel({ events, now, states = {}, ledger = null, heartbeatM
         // A Delegation that is working and stops on a wait is `waiting`; one not yet started stays `planned`.
         // A wait on a teammate's ticket waits on nobody here: it parks the Delegation instead.
         // A teammate wait on a Delegation not started yet leaves it `planned`; its card still shows it.
+        // A parked Delegation that then waits on the human is `waiting`; it returns to `parked` after.
         const parks = onTeammate(wait);
         if (d.state === "running" || d.state === "sent back") {
           d.before = d.state;
           track(d, parks ? "parked" : "waiting", e.at);
-        }
+        } else if (d.state === "parked" && !parks) track(d, "waiting", e.at);
       }
     } else if (e.kind === "wait-closed") {
       const wait = waits.get(e.wait_id);
@@ -312,7 +313,24 @@ export function boardModel({ events, now, states = {}, ledger = null, heartbeatM
     d.rulings = rulings.filter((r) => r.delegation === d.id);
   }
 
-  const open = [...waits.values()].filter((w) => !w.closedAt && !onTeammate(w));
+  // What waits on the human, from the one source the Needs you column is drawn from: each open wait
+  // on the human, and each card board.md puts in Needs you (`stalled`, `crashed`) with no wait open.
+  // The banner, the tab title, the favicon and the notifications all count this list.
+  const open = [
+    ...[...waits.values()].filter((w) => !w.closedAt && !onTeammate(w)),
+    ...[...delegations.values()]
+      .filter((d) => d.column === "Needs you" && !d.open.length)
+      .map((d) => ({
+        id: `state:${d.id}`,
+        delegation: d.id,
+        state: d.state,
+        stepKind: null,
+        cause: null,
+        how: null,
+        openedAt: d.sinceAt,
+        closedAt: null,
+      })),
+  ];
   const last = events.at(-1)?.at ?? null;
   const staleAfterMs =
     heartbeatMinutes && !run.closed ? heartbeatMinutes * STALE_INTERVALS * 60_000 : null;
@@ -345,6 +363,7 @@ const onTeammate = (w) => w.cause === "teammate-blocker";
 
 /** Where the human answers a wait, in words. */
 function howText(w) {
+  if (w.state) return "Look at it in the Chief of Staff chat";
   if (onTeammate(w))
     return `Waits for ${w.blocker ? `#${w.blocker}` : "a teammate's ticket"} to merge${w.blockerLogin ? ` (@${w.blockerLogin}'s ticket)` : ""}: nothing to answer`;
   if (w.how === "card")
@@ -354,9 +373,11 @@ function howText(w) {
 }
 
 const waitTitle = (w) =>
-  w.cause === "teammate-blocker" && w.blocker
-    ? `Parked on #${w.blocker}${w.blockerLogin ? ` (@${w.blockerLogin})` : ""}`
-    : stepName(w.stepKind);
+  w.state
+    ? `${w.delegation} is ${w.state}`
+    : w.cause === "teammate-blocker" && w.blocker
+      ? `Parked on #${w.blocker}${w.blockerLogin ? ` (@${w.blockerLogin})` : ""}`
+      : stepName(w.stepKind);
 
 /** One Run Event as a line, from its safe fields only. */
 export function eventText(e) {
@@ -456,7 +477,7 @@ function banner(model) {
   const rows = open
     .map(
       (w) =>
-        `<li data-wait="${esc(w.id)}">${chip(w.cause)} <b>${esc(waitTitle(w))}</b>${w.delegation ? ` <a href="#open=d:${esc(w.delegation)}">${esc(w.delegation)}</a>` : ` <span class="muted">(the run)</span>`} · ${waitLine(w, now)}</li>`,
+        `<li data-wait="${esc(w.id)}">${w.cause ? chip(w.cause) : stateTag(w.state)} <b>${esc(waitTitle(w))}</b>${w.delegation ? ` <a href="#open=d:${esc(w.delegation)}">${esc(w.delegation)}</a>` : ` <span class="muted">(the run)</span>`} · ${waitLine(w, now)}</li>`,
     )
     .join("");
   return `<div class="needs" id="needs"><b>${open.length} ${open.length === 1 ? "thing waits" : "things wait"} on you</b><ul>${rows}</ul></div>`;

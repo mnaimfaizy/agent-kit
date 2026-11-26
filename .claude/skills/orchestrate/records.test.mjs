@@ -4792,6 +4792,85 @@ describe("board: the spec-344 stream replayed", () => {
     assert.doesNotMatch(card, /Parked on #355/);
   });
 
+  it("counts a card board.md puts in Needs you in the banner, the tab title, the favicon and the notifications (C7)", async () => {
+    const dir = replayed("2026-11-19T03:35:00Z");
+    const before = await board(dir, [], { until: "2026-11-19T03:35:00Z" });
+    writeFileSync(
+      join(runFolder(dir), "board.md"),
+      "# Run\n\n| Delegation | Issue | State |\n| --- | --- | --- |\n| d353 | #353 | stalled |\n",
+    );
+    const { html } = await board(dir, [], { until: "2026-11-19T03:35:00Z" });
+    assert.match(column(html, "Needs you"), /data-delegation="d353" data-state="stalled"/);
+    const title = (h) => /<title>(.*?)<\/title>/.exec(h)[1];
+    const icon = (h) => /<link rel="icon" href="([^"]*)">/.exec(h)[1];
+    const needs = (h) => /<div class="needs[^"]*" id="needs">[\s\S]*?<\/div>/.exec(h)[0];
+    const data = (h) =>
+      JSON.parse(/<script type="application\/json" id="board-data">(.*?)<\/script>/s.exec(h)[1]);
+    const was = data(before.html).open;
+    assert.equal(data(html).open, was + 1);
+    assert.equal(title(html), `(${was + 1}) Run ${RUN}`);
+    assert.notEqual(icon(html), icon(before.html));
+    assert.match(needs(html), new RegExp(`<b>${was + 1} things? waits? on you</b>`));
+    assert.match(needs(html), /<li data-wait="state:d353">[\s\S]*?d353[\s\S]*?stalled/);
+    assert.ok(data(html).waits.some((w) => w.id === "state:d353"));
+    // Each Needs you card, and each wait of the run, is counted in the column header too.
+    const header = Number(/<h2>Needs you <span class="n">(\d+)<\/span>/.exec(html)[1]);
+    assert.ok(header >= 1);
+  });
+
+  it("says Nothing waits on you only when Needs you is empty (C7)", async () => {
+    const dir = replayed("2026-11-19T06:30:00Z");
+    writeFileSync(
+      join(runFolder(dir), "board.md"),
+      "# Run\n\n| Delegation | Issue | State |\n| --- | --- | --- |\n| d348 | #348 | crashed |\n",
+    );
+    const { html } = await board(dir, [], { until: "2026-11-19T06:30:00Z" });
+    assert.match(column(html, "Needs you"), /data-delegation="d348" data-state="crashed"/);
+    assert.doesNotMatch(html, /Nothing waits on you/);
+    assert.match(html, /<h2>Needs you <span class="n">1<\/span>/);
+    assert.match(/<title>(.*?)<\/title>/.exec(html)[1], /^\(1\) /);
+  });
+
+  it("moves a parked Delegation that opens a wait on the human to `waiting`, and back to `parked` once it closes (C7)", async () => {
+    const dir = replayed("2026-11-19T03:35:00Z");
+    const file = join(runFolder(dir), "events.jsonl");
+    const add = (event) => appendFileSync(file, `${JSON.stringify(event)}\n`);
+    add({
+      at: "2026-11-19T03:34:00Z",
+      kind: "wait-opened",
+      actor: "chief-of-staff",
+      wait_id: "w90",
+      delegation: "d350",
+      step_kind: "teammate-blocker",
+      cause: "teammate-blocker",
+      how: "github",
+      blocker: 355,
+      blocker_login: "sam",
+    });
+    add({
+      at: "2026-11-19T03:34:20Z",
+      kind: "wait-opened",
+      actor: "chief-of-staff",
+      wait_id: "w92",
+      delegation: "d350",
+      step_kind: "decision-request",
+      cause: "spec-gap",
+      how: "chat",
+    });
+    const open = await board(dir, [], { until: "2026-11-19T03:35:00Z" });
+    assert.equal(columns(open.html).d350, "Needs you");
+    assert.match(column(open.html, "Needs you"), /data-delegation="d350" data-state="waiting"/);
+    add({
+      at: "2026-11-19T03:34:40Z",
+      kind: "wait-closed",
+      actor: "chief-of-staff",
+      wait_id: "w92",
+    });
+    const closed = await board(dir, [], { until: "2026-11-19T03:35:00Z" });
+    assert.equal(columns(closed.html).d350, "Planned");
+    assert.match(closed.html, /data-delegation="d350" data-state="parked"/);
+  });
+
   it("takes the exact state of board.md where it has the row, and files it in its column", async () => {
     const dir = replayed("2026-11-19T04:30:00Z");
     writeFileSync(
