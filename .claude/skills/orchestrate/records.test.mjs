@@ -33,6 +33,7 @@ import {
   CAUSES,
   EVENT_KINDS,
   STEP_KINDS,
+  checkEvent,
   checkRecord,
   main,
   openSink,
@@ -155,6 +156,8 @@ describe("event: append one Run Event", () => {
       "cause",
     ],
     ["an unknown kind", ["--kind", "lunch"], "kind"],
+    ["a kind named after an object property", ["--kind", "constructor"], "kind"],
+    ["a kind named `toString`", ["--kind", "toString"], "kind"],
     ["a missing required field", ["--kind", "pull-request"], "pr"],
   ];
   for (const [name, args, field] of refused)
@@ -168,6 +171,37 @@ describe("event: append one Run Event", () => {
       assert.match(result.out, new RegExp(`(^|\\n)${field}:`));
       assert.equal(existsSync(join(dir, "events.jsonl")), false);
     });
+
+  it("refuses a repeated flag with the usage line, and writes nothing", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "orchestrate-records-"));
+    made.push(dir);
+    const result = await main(
+      [
+        "event",
+        "--file",
+        "events.jsonl",
+        "--kind",
+        "send-back",
+        "--kind",
+        "run-closed",
+        "--actor",
+        "chief-of-staff",
+      ],
+      { cwd: dir },
+    );
+    assert.equal(result.code, 2, result.out);
+    assert.match(result.out, /^usage: node records\.mjs event/);
+    assert.equal(existsSync(join(dir, "events.jsonl")), false);
+  });
+
+  it("checkEvent refuses a kind named after an object property", () => {
+    for (const kind of ["constructor", "toString", "__proto__", "hasOwnProperty"])
+      assert.deepEqual(
+        checkEvent({ at: "2026-11-25T10:00:00Z", kind, actor: "human" }),
+        [`kind: must be one of ${Object.keys(EVENT_KINDS).join(" | ")}`],
+        kind,
+      );
+  });
 
   it("refuses an event with no actor, and a file not named events.jsonl", async () => {
     const dir = mkdtempSync(join(tmpdir(), "orchestrate-records-"));
@@ -607,6 +641,16 @@ describe("derive: who the operator is", () => {
       "gitlab.com/group/sub/widgets",
     );
     assert.equal(repoFromRemote("nonsense"), null);
+  });
+
+  it("reads an all-digit owner in an scp-style remote as the owner, not a port", () => {
+    assert.equal(repoFromRemote("git@github.com:12345/repo.git"), "github.com/12345/repo");
+    assert.equal(repoFromRemote("gitlab.com:12345/sub/repo"), "gitlab.com/12345/sub/repo");
+    // A port is read only after a scheme.
+    assert.equal(
+      repoFromRemote("https://ghe.example.com:8443/12345/repo.git"),
+      "ghe.example.com/12345/repo",
+    );
   });
 });
 
@@ -1901,6 +1945,38 @@ describe("GitLab subgroups: a project at host/group/sub/project (F2)", () => {
   it("derives a Run Record from a subgroup remote", async () => {
     const record = await derived(withoutRepo(root()), { exec: subgroupRemote });
     assert.equal(record.run.repo, SUB);
+  });
+
+  it("takes a group whose path starts with `_`, as config.mjs does", async () => {
+    assert.deepEqual(
+      checkRecord({ run: { repo: "gitlab.com/_team/proj" } }).filter((p) =>
+        p.startsWith("run.repo"),
+      ),
+      [],
+    );
+    assert.deepEqual(
+      checkRecord({ run: { repo: "gitlab.com/_team/_sub/proj" } }).filter((p) =>
+        p.startsWith("run.repo"),
+      ),
+      [],
+    );
+    const underscore = (command, args) =>
+      args.includes("get-url")
+        ? { code: 0, out: "git@gitlab.com:_team/proj.git\n" }
+        : { code: 0, out: "origin\n" };
+    const record = await derived(withoutRepo(root()), { exec: underscore });
+    assert.equal(record.run.repo, "gitlab.com/_team/proj");
+    assert.deepEqual(parseSinkPath(`records/gitlab.com/_team/proj/naim/${RUN}.json`), {
+      repository: "gitlab.com/_team/proj",
+      login: "naim",
+      id: RUN,
+    });
+    // Both still refuse a group that starts with a dot or a hyphen.
+    for (const repo of ["gitlab.com/.team/proj", "gitlab.com/-team/proj"])
+      assert.ok(
+        checkRecord({ run: { repo } }).some((p) => p.startsWith("run.repo: must be")),
+        repo,
+      );
   });
 
   it("still refuses a repository with no owner", () => {

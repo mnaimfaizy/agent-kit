@@ -130,8 +130,11 @@ const WRITE_KINDS = [
 const ISO = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z$/;
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/;
 const LOGIN = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,38}$/;
-/** `host/owner/repo`, or `host/<group>/…/<project>` for a GitLab project in a subgroup. */
-const REPO = /^[a-z0-9][a-z0-9.-]*(?:\/[a-z0-9][\w.-]*){1,20}\/[\w.-]+$/;
+/**
+ * `host/owner/repo`, or `host/<group>/…/<project>` for a GitLab project in a subgroup.
+ * An owner or group starts with a letter, a digit or `_`, as `config.mjs`'s REPOSITORY has it.
+ */
+const REPO = /^[a-z0-9][a-z0-9.-]*(?:\/[a-z0-9_][\w.-]*){1,20}\/[\w.-]+$/;
 const SHA = /^[0-9a-f]{7,64}$/;
 /** A repository name REPO takes, where a `github.com` one has exactly `host/owner/repo`: GitHub has no subgroups. */
 const plainRepository = (value) =>
@@ -440,7 +443,7 @@ export function checkEvent(event) {
   const problems = [];
   if (event === null || typeof event !== "object" || Array.isArray(event))
     return ["event: must be an object"];
-  const fields = EVENT_KINDS[event.kind];
+  const fields = Object.hasOwn(EVENT_KINDS, event.kind) ? EVENT_KINDS[event.kind] : null;
   if (!fields) return [`kind: must be one of ${Object.keys(EVENT_KINDS).join(" | ")}`];
   check(t.object({ ...COMMON, kind: t.enum([event.kind]), ...fields }), event, "", problems);
   return problems;
@@ -472,7 +475,8 @@ function pairs(args) {
   const out = {};
   for (let n = 0; n < args.length; n += 2) {
     const [name, value] = [args[n], args[n + 1]];
-    if (!name?.startsWith("--") || value === undefined || Object.hasOwn(out, name)) return null;
+    if (!name?.startsWith("--") || value === undefined || Object.hasOwn(out, name.slice(2)))
+      return null;
     out[name.slice(2)] = value;
   }
   return out;
@@ -499,7 +503,7 @@ function appendEvent(args, io) {
   if (!file || !kind) return { code: 2, out: EVENT_USAGE };
   if (basename(file) !== "events.jsonl")
     return { code: 2, out: "the events file must be named `events.jsonl`\n" };
-  const fields = EVENT_KINDS[kind];
+  const fields = Object.hasOwn(EVENT_KINDS, kind) ? EVENT_KINDS[kind] : null;
   if (!fields)
     return {
       code: 1,
@@ -582,7 +586,10 @@ export function repoFromRemote(url) {
     .trim()
     .replace(/\/+$/, "")
     .replace(/\.git$/i, "");
-  const match = /^(?:[a-z+]+:\/\/)?(?:[^@/]+@)?([^/:]+)(?::\d+)?[:/](.+)$/i.exec(bare);
+  // A port follows the host only in a URL with a scheme: in scp-style `user@host:path` the colon ends the host.
+  const match =
+    /^[a-z+]+:\/\/(?:[^@/]+@)?([^/:]+)(?::\d+)?\/(.+)$/i.exec(bare) ??
+    /^(?![a-z+]+:\/\/)(?:[^@/]+@)?([^/:]+)[:/](.+)$/i.exec(bare);
   if (!match || !match[2].includes("/")) return null;
   return `${match[1]}/${match[2]}`.toLowerCase();
 }
