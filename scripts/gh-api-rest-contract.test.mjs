@@ -114,6 +114,8 @@ describe("each updated file names the expected gh api REST method and path", () 
     const setState = section(text, "### `set-state`");
     assert.match(setState, /gh api[^\n]*-X POST[^\n]*repos\/<owner>\/<repo>\/issues\/<n>\/labels/);
     assert.match(setState, /labels\[\]=<new>/);
+    assert.match(setState, /node -p 'encodeURIComponent\(process\.argv\[1\]\)' "<old>"/);
+    assert.match(setState, /\[ -n "\$encoded" \]/);
     assert.match(
       setState,
       /gh api[^\n]*-X DELETE[^\n]*repos\/<owner>\/<repo>\/issues\/<n>\/labels\//,
@@ -123,6 +125,7 @@ describe("each updated file names the expected gh api REST method and path", () 
     assert.match(setState, /creates/i);
     assert.match(setState, /only[^.\n]*labels the repository (?:already )?has/i);
     assert.doesNotMatch(setState, /\bcomma\b/i);
+    assert.doesNotMatch(setState, /\bjq -rn\b/);
     assert.doesNotMatch(setState, /--add-label/);
     assert.doesNotMatch(setState, /--remove-label/);
 
@@ -163,9 +166,10 @@ describe("each updated file names the expected gh api REST method and path", () 
       text,
       /gh api -X POST repos\/\{owner\}\/\{repo\}\/issues\/<number>\/labels -f "labels\[\]=<name>"/,
     );
+    assert.match(text, /node -p 'encodeURIComponent\(process\.argv\[1\]\)' "<name>"/);
     assert.match(
       text,
-      /gh api -X DELETE "repos\/\{owner\}\/\{repo\}\/issues\/<number>\/labels\/<url-encoded-name>"/,
+      /gh api -X DELETE "repos\/\{owner\}\/\{repo\}\/issues\/<number>\/labels\/\$encoded"/,
     );
     assert.match(text, /404/);
     assert.match(
@@ -273,6 +277,11 @@ if (argv[0] === "api") {
     process.exit(0);
   }
 
+  if (method === "DELETE" && /^repos\\/[^/]+\\/[^/]+\\/issues\\/\\d+\\/labels\\/$/.test(endpoint)) {
+    process.stderr.write("BAD: empty label name on DELETE /labels/\\n");
+    process.exit(2);
+  }
+
   const delMatch = /^repos\\/[^/]+\\/[^/]+\\/issues\\/\\d+\\/labels\\/(.+)$/.exec(endpoint);
   if (method === "DELETE" && delMatch) {
     const name = decodeURIComponent(delMatch[1]);
@@ -318,17 +327,65 @@ process.exit(1);
     return { logFile, stateFile };
   }
 
+  /** Find a working `bash` binary (always present on Linux/macOS CI; may be blocked in Windows sandbox). */
+  function findWorkingBash() {
+    const candidates =
+      process.platform === "win32" ? ["C:\\Program Files\\Git\\bin\\bash.exe", "bash"] : ["bash"];
+    for (const candidate of candidates) {
+      const probe = spawnSync(candidate, ["-c", "printf ok"], { encoding: "utf8" });
+      if (!probe.error && probe.status === 0 && probe.stdout === "ok") return candidate;
+    }
+    return null;
+  }
+
+  /** Split a simple shell command line into argv tokens (handles double/single quotes). */
+  function splitShellArgs(line) {
+    const tokens = [];
+    let current = "";
+    let quote = null;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (quote) {
+        if (ch === quote) quote = null;
+        else current += ch;
+      } else if (ch === '"' || ch === "'") {
+        quote = ch;
+      } else if (/\s/.test(ch)) {
+        if (current) {
+          tokens.push(current);
+          current = "";
+        }
+      } else {
+        current += ch;
+      }
+    }
+    if (current) tokens.push(current);
+    return tokens;
+  }
+
   /** Invoke `gh` via `PATH` cleanly on Windows and POSIX. */
   function runGh(args, extraEnv) {
     const env = {
       ...process.env,
       ...extraEnv,
-      PATH: `${binDir}${delimiter}${process.env.PATH ?? ""}`,
+      PATH: `${binDir}${delimiter}${dirname(process.execPath)}${delimiter}${process.env.PATH ?? ""}`,
     };
     if (process.platform === "win32") {
       return spawnSync("cmd.exe", ["/d", "/c", "gh", ...args], { env, encoding: "utf8" });
     }
     return spawnSync("gh", args, { env, encoding: "utf8" });
+  }
+
+  /** Run a bash script file against `binDir` on `PATH` when `bash` works. */
+  function runBashScript(bashBin, scriptText, extraEnv) {
+    const scriptPath = join(scratch, "run-step.sh");
+    writeFileSync(scriptPath, `set -euo pipefail\n${scriptText}\n`, "utf8");
+    const env = {
+      ...process.env,
+      ...extraEnv,
+      PATH: `${binDir}${delimiter}${dirname(process.execPath)}${delimiter}${process.env.PATH ?? ""}`,
+    };
+    return spawnSync(bashBin, [scriptPath], { env, encoding: "utf8" });
   }
 
   it("fake gh reproduces the Projects (classic) error on issue edit / pr edit", () => {
@@ -341,7 +398,7 @@ process.exit(1);
     }
   });
 
-  it("orchestrate set-state commands from trackers/github.md succeed (add, remove, 404-as-removed, read-back)", () => {
+  it("orchestrate set-state commands extracted from trackers/github.md succeed (add, remove, 404-as-removed, empty-guard, read-back)", () => {
     const { logFile, stateFile } = setupFakeGh(["bug", "team: running"]);
     const env = { FAKE_GH_LOG: logFile, FAKE_GH_STATE: stateFile };
 
@@ -351,68 +408,76 @@ process.exit(1);
     );
     const bashMatch = /```bash\n([\s\S]*?)```/.exec(setState);
     assert.ok(bashMatch, "set-state has a bash code block");
-    const block = bashMatch[1];
+    const blockLines = bashMatch[1].trim().split("\n");
+    assert.equal(
+      blockLines.length,
+      4,
+      "set-state block has add, encode, guarded delete, read-back",
+    );
 
-    // Verify the documented bash commands match the REST operations we execute.
-    assert.match(
-      block,
-      /gh api -X POST repos\/<owner>\/<repo>\/issues\/<n>\/labels -f "labels\[\]=<new>"/,
-    );
-    assert.match(
-      block,
-      /gh api -X DELETE "repos\/<owner>\/<repo>\/issues\/<n>\/labels\/\$encoded"/,
-    );
-    assert.match(block, /gh issue view <n> --json labels --jq '\.labels\[\]\.name'/);
+    const fill = (line, oldLabel) =>
+      line
+        .replaceAll("<owner>/<repo>", "acme/app")
+        .replaceAll("<n>", "42")
+        .replaceAll("<new>", "team: ready to merge")
+        .replaceAll("<old>", oldLabel);
 
-    // 1. Add the new state label.
-    const addRes = runGh(
-      [
-        "api",
-        "-X",
-        "POST",
-        "repos/acme/app/issues/42/labels",
-        "-f",
-        "labels[]=team: ready to merge",
-      ],
-      env,
-    );
-    assert.equal(addRes.status, 0, addRes.stderr);
+    const [addTemplate, encodeTemplate, deleteTemplate, viewTemplate] = blockLines;
+    // Build the exact sequence: add new label, remove present label, remove absent label (404),
+    // skip empty label via [ -n "$encoded" ] guard, then read labels back.
+    const concreteLines = [
+      fill(addTemplate, ""),
+      fill(encodeTemplate, "team: running"),
+      fill(deleteTemplate, "team: running"),
+      fill(encodeTemplate, "team: parked"),
+      fill(deleteTemplate, "team: parked"),
+      fill(encodeTemplate, ""),
+      fill(deleteTemplate, ""),
+      fill(viewTemplate, ""),
+    ];
 
-    // 2. Remove the old state label (present on the issue).
-    const delPresent = runGh(
-      [
-        "api",
-        "-X",
-        "DELETE",
-        `repos/acme/app/issues/42/labels/${encodeURIComponent("team: running")}`,
-      ],
-      env,
-    );
-    assert.equal(delPresent.status, 0, delPresent.stderr);
+    const workingBash = findWorkingBash();
+    let stdout;
+    if (workingBash) {
+      const res = runBashScript(workingBash, concreteLines.join("\n"), env);
+      assert.equal(res.status, 0, `bash exited ${res.status}: ${res.stderr}`);
+      stdout = res.stdout;
+    } else {
+      // Restricted Windows sandbox fallback: execute the exact extracted `node -p` expression and `gh` lines.
+      const addRes = runGh(splitShellArgs(concreteLines[0]).slice(1), env);
+      assert.equal(addRes.status, 0, addRes.stderr);
 
-    // 3. Removing a label the issue doesn't carry returns HTTP 404, which counts as success.
-    const delAbsent = runGh(
-      [
-        "api",
-        "-X",
-        "DELETE",
-        `repos/acme/app/issues/42/labels/${encodeURIComponent("team: parked")}`,
-      ],
-      env,
-    );
-    assert.equal(delAbsent.status, 1);
-    assert.match(delAbsent.stderr, /HTTP 404/);
+      const nodeCodeMatch = /node -p '([^']+)'/.exec(encodeTemplate);
+      assert.ok(nodeCodeMatch, "extracted node -p expression");
+      const nodeExpr = nodeCodeMatch[1];
 
-    // 4. Read labels back.
-    const viewRes = runGh(
-      ["issue", "view", "42", "--json", "labels", "--jq", ".labels[].name"],
-      env,
-    );
-    assert.equal(viewRes.status, 0, viewRes.stderr);
-    const labels = viewRes.stdout.trim().split(/\r?\n/);
+      for (const oldLabel of ["team: running", "team: parked", ""]) {
+        const encRes = spawnSync(process.execPath, ["-p", nodeExpr, oldLabel], {
+          encoding: "utf8",
+        });
+        assert.equal(encRes.status, 0, encRes.stderr);
+        const encoded = encRes.stdout.trim();
+        if (!encoded) continue; // Mirrors `[ -n "$encoded" ]` guard in extracted delete line.
+        const deleteCmdMatch = /\$\((gh api -X DELETE [^)]+) 2>&1\)/.exec(
+          fill(deleteTemplate, oldLabel).replaceAll("$encoded", encoded),
+        );
+        assert.ok(deleteCmdMatch, "extracted DELETE gh command");
+        const delRes = runGh(splitShellArgs(deleteCmdMatch[1]).slice(1), env);
+        if (delRes.status !== 0) {
+          assert.match(delRes.stderr, /HTTP 404/, `expected 404 or success, got: ${delRes.stderr}`);
+        }
+      }
+
+      const viewRes = runGh(splitShellArgs(concreteLines.at(-1)).slice(1), env);
+      assert.equal(viewRes.status, 0, viewRes.stderr);
+      stdout = viewRes.stdout;
+    }
+
+    const labels = stdout.trim().split(/\r?\n/);
     assert.deepEqual(labels, ["bug", "team: ready to merge"]);
 
-    // Verify only expected gh api calls (and read-back gh issue view) were made.
+    // Verify only expected gh api calls (and read-back gh issue view) were made,
+    // and that the empty label guard prevented any DELETE .../labels/ call.
     const calls = readFileSync(logFile, "utf8")
       .trim()
       .split("\n")
@@ -439,25 +504,32 @@ process.exit(1);
     assert.deepEqual(calls[3].slice(0, 2), ["issue", "view"]);
   });
 
-  it("qa-plan body update command from qa-plan/SKILL.md succeeds via REST PATCH", () => {
+  it("qa-plan body update command extracted from qa-plan/SKILL.md succeeds via REST PATCH", () => {
     const { logFile, stateFile } = setupFakeGh([]);
     const env = { FAKE_GH_LOG: logFile, FAKE_GH_STATE: stateFile };
 
     const qaSkill = read(".claude/skills/qa-plan/SKILL.md");
-    assert.match(
-      qaSkill,
-      /gh api -X PATCH repos\/\{owner\}\/\{repo\}\/issues\/<m> -F body=@<plan>/,
-    );
+    const cmdMatch =
+      /`(gh api -X PATCH repos\/\{owner\}\/\{repo\}\/issues\/<m> -F body=@<plan>)`/.exec(qaSkill);
+    assert.ok(cmdMatch, "qa-plan/SKILL.md documents PATCH body update command");
 
     const planFile = join(scratch, "qa-plan-pr-42.md");
     const planContent = "<!-- qa-plan format=4 subject=#10 pr=42 -->\n# QA Plan\n";
     writeFileSync(planFile, planContent, "utf8");
 
-    const patchRes = runGh(
-      ["api", "-X", "PATCH", "repos/acme/app/issues/10", "-F", `body=@${planFile}`],
-      env,
-    );
-    assert.equal(patchRes.status, 0, patchRes.stderr);
+    const concreteCmd = cmdMatch[1]
+      .replace("{owner}/{repo}", "acme/app")
+      .replace("<m>", "10")
+      .replace("<plan>", `"${planFile.replace(/\\/g, "/")}"`);
+
+    const workingBash = findWorkingBash();
+    if (workingBash) {
+      const res = runBashScript(workingBash, concreteCmd, env);
+      assert.equal(res.status, 0, res.stderr);
+    } else {
+      const patchRes = runGh(splitShellArgs(concreteCmd).slice(1), env);
+      assert.equal(patchRes.status, 0, patchRes.stderr);
+    }
 
     const state = JSON.parse(readFileSync(stateFile, "utf8"));
     assert.equal(state.body, planContent);
@@ -473,7 +545,7 @@ process.exit(1);
       "PATCH",
       "repos/acme/app/issues/10",
       "-F",
-      `body=@${planFile}`,
+      `body=@${planFile.replace(/\\/g, "/")}`,
     ]);
   });
 });

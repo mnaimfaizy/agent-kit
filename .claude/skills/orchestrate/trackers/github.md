@@ -89,12 +89,12 @@ An edit of a comment that was deleted fails with `HTTP 404`: the row is re-creat
 
 ```bash
 gh api -X POST repos/<owner>/<repo>/issues/<n>/labels -f "labels[]=<new>"
-encoded="$(jq -rn --arg l "<old>" '$l | @uri')"
-gh api -X DELETE "repos/<owner>/<repo>/issues/<n>/labels/$encoded"
+encoded="$(node -p 'encodeURIComponent(process.argv[1])' "<old>")"
+[ -n "$encoded" ] && { err="$(gh api -X DELETE "repos/<owner>/<repo>/issues/<n>/labels/$encoded" 2>&1)" || case "$err" in *"HTTP 404"*) ;; *) printf '%s\n' "$err" >&2; false ;; esac; }
 gh issue view <n> --json labels --jq '.labels[].name'
 ```
 
-First adds the label for the ticket's coarse state with `POST`, then removes each other state label it carries with `DELETE` (`<url-encoded old>` via `jq -rn --arg l "<old>" '$l | @uri'`); a label the ticket does not carry is not named, and an `HTTP 404` on `DELETE` counts as already removed, not as a failure. Last, reads the labels back. GitHub drops a label change silently, with no error, when the teammate has no Triage or Write access to the repository: when the read-back does not show exactly the new state label among the six, each name compared ignoring case and spaces at either end, as GitHub compares label names, the label write did not hold, and the row comment stays the record ([TEAM.md](../TEAM.md#states-and-labels)). REST `POST .../labels` creates any named label the repository does not have, so `set-state` must still only ever name labels the repository already has.
+First adds the label for the ticket's coarse state with `POST`, then encodes each other state label it carries with Node (`encodeURIComponent`, so no standalone `jq` is needed) and removes it with `DELETE` only when `encoded` is non-empty (an empty path would hit `DELETE .../labels/`, which strips every label); a label the ticket does not carry is not named, and an `HTTP 404` on `DELETE` counts as already removed, not as a failure. Last, reads the labels back. GitHub drops a label change silently, with no error, when the teammate has no Triage or Write access to the repository: when the read-back does not show exactly the new state label among the six, each name compared ignoring case and spaces at either end, as GitHub compares label names, the label write did not hold, and the row comment stays the record ([TEAM.md](../TEAM.md#states-and-labels)). REST `POST .../labels` creates any named label the repository does not have, so `set-state` must still only ever name labels the repository already has.
 
 ### `pull-head`
 
