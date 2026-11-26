@@ -20,7 +20,7 @@ These are word for word the definitions in Agent-kit's root glossary, where a co
 
 **Brief Contract**: The eight items every Delegation's brief carries: what to read first, the goal and what done means, phases with explicit stop points, scope fences, the repository's command routes, the rules for writes, the Decision Request form, and the Delegation's report and log files.
 
-**Decision Request**: A question a Delegation cannot settle from its brief, raised to the human through the Chief of Staff (or, in an autonomous run, answered by a Ruling), self-contained, with options, evidence and a recommendation.
+**Decision Request**: A question a Delegation, or a Factory task, cannot settle from its brief, raised to the human (through the Chief of Staff, or on the issue with `factory:needs-decision`) or, in an autonomous run, answered by a Ruling; self-contained, with options, evidence and a recommendation.
 
 **Ruling**: A Decision Request the Chief of Staff answers itself in an autonomous run, because the human handed it that kind at "go" and the evidence it cites picks one option; it stands until the Ruling Review.
 
@@ -42,7 +42,7 @@ These are word for word the definitions in Agent-kit's root glossary, where a co
 
 **Run Summary**: The account of a finished run, offered after the human merges, for the issue that groups the run's work.
 
-**Run Record**: The structured, machine-readable account of one run, written at close-out and holding only fields that are safe to publish (counts, ids, durations, outcomes, and each Human step with its kind and cause), never quoted issue text or command output; what a Consumer may keep or upload once the raw run folder is gone.
+**Run Record**: The structured, machine-readable account of one run (an `orchestrate` run, or one Stage run of a Factory task, on either Factory engine), written at close-out and holding only fields that are safe to publish (counts, ids, durations, outcomes, and each Human step with its kind and cause), never quoted issue text or command output; what a Consumer may keep or upload once the raw run folder is gone.
 
 **Run Event**: One timestamped, structured entry for a single step of a run (a spawn, a human step, a land, a review, a CI result), written as it happens by whoever did it; the Run Record is derived from a run's Run Events.
 
