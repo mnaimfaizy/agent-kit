@@ -201,7 +201,7 @@ describe("SKILL.md: when the Chief of Staff writes each event", () => {
       "ci",
       "teammate-blocker",
     ])
-      assert.ok(step.includes(`\`${kind}\``) || step.includes(kind), kind);
+      assert.ok(step.includes(`\`${kind}\``), kind);
     assert.match(
       step,
       /each write made in the human's name is a `write` with `as-human` true and actor `chief-of-staff`/,
