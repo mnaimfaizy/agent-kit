@@ -28,6 +28,7 @@ import { dirname, join } from "node:path";
 import { after, afterEach, describe, it } from "node:test";
 import { request } from "node:http";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { HEARTBEAT_MINUTES } from "./pages/board.mjs";
 import { routeOf, switcherFor } from "./pages/shell.mjs";
 
 import {
@@ -5411,6 +5412,18 @@ describe("board: a quiet run and a stopped one", () => {
     assert.doesNotMatch(near.html, /class="banner stale-warning"/);
     const far = await board(dir, ["--heartbeat", "5"], { until: "2026-11-19T03:37:00Z" });
     assert.match(far.html, /class="banner stale-warning"/);
+  });
+
+  it("takes its default from the board page's one constant (D7)", async () => {
+    const dir = replayed(LAST);
+    const { html } = await board(dir, [], { until: "2026-11-19T04:00:00Z" });
+    assert.match(html, new RegExp(`the heartbeat is every ${HEARTBEAT_MINUTES} min`));
+    // Given as the default, the rebuild command leaves the flag out; any other value it names.
+    assert.doesNotMatch(html, /board [^<]*--heartbeat/);
+    const other = await board(dir, ["--heartbeat", String(HEARTBEAT_MINUTES + 1)], {
+      until: "2026-11-19T04:00:00Z",
+    });
+    assert.match(other.html, new RegExp(`board [^<]*--heartbeat ${HEARTBEAT_MINUTES + 1}<`));
   });
 
   it("uses the 10 minute default of HARNESSES.md when none is given", async () => {

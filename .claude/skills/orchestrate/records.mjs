@@ -2331,9 +2331,6 @@ async function dashboard(args, io) {
 /** The Activity Log's tail: a long log would make the page slow, and the drawer shows what is recent. */
 const LOG_CHARS = 60_000;
 
-/** The heartbeat interval when none is given: HARNESSES.md's default of 10 minutes. */
-const HEARTBEAT_MINUTES = 10;
-
 /** The State column of `board.md`, by Delegation id. */
 export function boardStates(text) {
   const states = {};
@@ -2368,9 +2365,12 @@ function readText(path) {
   }
 }
 
-/** `<run-folder> [--heartbeat <minutes|none>]`, and the flags `extra` names. Null on anything else. */
+/**
+ * `<run-folder> [--heartbeat <minutes|none>]`, and the flags `extra` names. Null on anything else.
+ * With no `--heartbeat`, `heartbeat` is undefined, and `buildBoard` takes the board page's default.
+ */
 function boardArgs(args, extra = []) {
-  const out = { folder: null, heartbeat: HEARTBEAT_MINUTES };
+  const out = { folder: null, heartbeat: undefined };
   const seen = new Set();
   for (let n = 0; n < args.length; n += 1) {
     const flag = args[n];
@@ -2397,7 +2397,7 @@ function boardArgs(args, extra = []) {
 async function buildBoard(
   runFolder,
   io,
-  { heartbeat, dashboard = "../dashboard.html", live = null },
+  { heartbeat: given, dashboard = "../dashboard.html", live = null },
 ) {
   const cwd = io.cwd ?? process.cwd();
   const env = io.env ?? process.env;
@@ -2407,7 +2407,10 @@ async function buildBoard(
   const opened = events.find((e) => e.kind === "run-opened");
   if (opened && !opened.repo) opened.repo = repoOf({ ...io, exec: io.exec ?? defaultExec });
 
-  const { boardModel, parseLedger, renderBoard } = await import("./pages/board.mjs");
+  const { HEARTBEAT_MINUTES, boardModel, parseLedger, renderBoard } = await import(
+    "./pages/board.mjs"
+  );
+  const heartbeat = given === undefined ? HEARTBEAT_MINUTES : given;
   const { qualifiedSlug } = await import("./pages/dashboard.mjs");
   const stateText = readText(join(runFolder, "board.md"));
   const ledgerText = readText(join(runFolder, "rulings.md"));
