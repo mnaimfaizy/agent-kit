@@ -1,6 +1,6 @@
 # Run Record sinks
 
-A **Sink** is a store off the machine that receives Run Records. `local` is always on: the record is written to `<run_dir>/records/<run-id>.json`. One more sink may be set in the config's `records.sink` ([CONFIG.md](CONFIG.md#records)); the upload at close-out and `--upload <run>` write to it through the operations below, and only these. How each one is done on one sink is in that sink's own file under [sinks/](sinks/): load only the file for the sink the config names.
+A **Sink** is a store off the machine that receives Run Records. `local` is always on: the record is written to `<run_dir>/records/<run-id>.json`. One more sink may be set in the config's `records.sink` ([CONFIG.md](CONFIG.md#records)); the upload at close-out and `--upload <run>` write to it through the operations below, and only these: the first five on every sink, and `lifecycle` on an `s3` sink alone. How each one is done on one sink is in that sink's own file under [sinks/](sinks/): load only the file for the sink the config names.
 
 | Operation    | Kind  | What it gives                                                                                                                                          |
 | ------------ | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -9,6 +9,7 @@ A **Sink** is a store off the machine that receives Run Records. `local` is alwa
 | `read`       | read  | The bytes at one path, or that the path is not there.                                                                                                  |
 | `create`     | write | Create one file at a path, and nothing else: it never changes or deletes one.                                                                          |
 | `list`       | read  | Every path under a prefix, for the dashboard.                                                                                                          |
+| `lifecycle`  | read  | `s3` only: the bucket's lifecycle rules, which raw-folder upload reads to find a rule that expires `raw/`. Never written.                              |
 
 `sinks/<sink>.md` is named for a value of `records.sink.type`. It opens with these bullets, each on its own line in this form:
 
@@ -16,7 +17,7 @@ A **Sink** is a store off the machine that receives Run Records. `local` is alwa
 - `- **Support Level:** \`<level>\``, then what it rests on, in the vocabulary harness files use ([HARNESSES.md](HARNESSES.md#support-level)).
 - `- **Facts from:**` where and when each fact was read.
 
-Then a `## Access` section giving the writer's access and the reader's, a `###` section for each operation above, headed with its name in backticks, giving the command and how to read its output, and a `## Check before use` section for every fact no run has confirmed yet.
+Then a `## Access` section giving the writer's access and the reader's, a `###` section for each operation above that the sink has (`lifecycle` in `sinks/s3.md` alone), headed with its name in backticks, giving the command and how to read its output, and a `## Check before use` section for every fact no run has confirmed yet.
 
 **The path** is `records/<host>/<owner>/<repo>/<login>/<run-id>.json`, every segment lowercased: the host keeps different forges apart, so two repositories never collide in one shared sink, even with one run id or one login. `<owner>` is the whole namespace of a GitLab project in a subgroup (`gitlab.com/grp/sub/widgets`), so a path is parsed from its end. `<host>/<owner>/<repo>` is `records.repository`, or the `origin` remote (or the only remote; with several and none named `origin`, the run asks which). `<login>` is the tracker login, which is also the record's `run.operator`, overridden only by `ORCHESTRATE_OPERATOR`; with no login, nothing is uploaded.
 

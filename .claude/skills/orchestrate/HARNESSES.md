@@ -80,7 +80,7 @@ How far `orchestrate` has been proven on a harness, a tracker or a sink. Each ha
 | `tried`      | A run happened on it, and found gaps, named in the file.                                                                             |
 | `documented` | Written from the harness's, tracker's or sink's documentation alone; no run has tried it.                                            |
 
-Below `verified`, the Dispatch Plan opens with the level and what it means for this run, and waits for the human's "go" even when the invocation carried `go`. A level moves up only when a run's Activity Log records the evidence, and the change to the harness or tracker file cites that run.
+Below `verified`, the Dispatch Plan opens with the level and what it means for this run, and waits for the human's "go" even when the invocation carried `go`. A level moves up only when a run's Activity Log records the evidence, and the change to the harness, tracker or sink file cites that run.
 
 ### Facts and check before use
 

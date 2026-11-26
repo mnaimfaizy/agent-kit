@@ -294,6 +294,56 @@ const anchors = (text) =>
       ),
   );
 
+describe("SINKS.md's operations are the closed list each sink file has (C28)", () => {
+  const SINKS = read(`${SKILL_DIR}/SINKS.md`);
+  const ops = [...SINKS.matchAll(/^\| `([a-z]+)` +\| (read|write) +\|(.*)\|$/gm)].map((m) => ({
+    op: m[1],
+    s3Only: /^\s*`s3` only/.test(m[3]),
+  }));
+
+  it("lists lifecycle as an `s3`-only operation, and the file-format rule says so", () => {
+    assert.deepEqual(
+      ops.map((o) => o.op),
+      ["visibility", "access", "read", "create", "list", "lifecycle"],
+    );
+    assert.deepEqual(
+      ops.filter((o) => o.s3Only).map((o) => o.op),
+      ["lifecycle"],
+    );
+    assert.match(
+      flat(SINKS),
+      /and only these: the first five on every sink, and `lifecycle` on an `s3` sink alone/,
+    );
+    assert.match(
+      flat(SINKS),
+      /a `###` section for each operation above that the sink has \(`lifecycle` in `sinks\/s3\.md` alone\)/,
+    );
+  });
+
+  it("each sink file has a section for each operation it has, and no other", () => {
+    for (const sink of ["github", "gitlab", "s3"]) {
+      const text = read(`${SKILL_DIR}/sinks/${sink}.md`);
+      const headed = [...text.matchAll(/^### `([a-z]+)`$/gm)].map((m) => m[1]);
+      const expected = ops.filter((o) => sink === "s3" || !o.s3Only).map((o) => o.op);
+      assert.deepEqual(headed, expected, sink);
+    }
+  });
+});
+
+describe("DESIGN.md and HARNESSES.md stand alone (C24, C29)", () => {
+  it("DESIGN.md names a Stage's record as a later schema, with no ADR number", () => {
+    assert.match(flat(DESIGN), /a Stage's record is a later schema\./);
+    assert.doesNotMatch(DESIGN, /ADR 0036|Factory Stage/);
+  });
+
+  it("HARNESSES.md moves a sink's Support Level up the way it moves a harness's or a tracker's", () => {
+    assert.match(
+      flat(read(`${SKILL_DIR}/HARNESSES.md`)),
+      /the change to the harness, tracker or sink file cites that run/,
+    );
+  });
+});
+
 describe("CONFIG.md: its key sections and its links (C20, C21)", () => {
   const CONFIG = read(`${SKILL_DIR}/CONFIG.md`);
 
