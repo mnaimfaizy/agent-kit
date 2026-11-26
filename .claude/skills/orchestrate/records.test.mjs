@@ -173,6 +173,36 @@ describe("event: append one Run Event", () => {
       assert.equal(existsSync(join(dir, "events.jsonl")), false);
     });
 
+  it("refuses one flag written once with `-` and once with `_` (D9)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "orchestrate-records-"));
+    made.push(dir);
+    const result = await main(
+      [
+        "event",
+        "--file",
+        "events.jsonl",
+        "--kind",
+        "ci",
+        "--actor",
+        "chief-of-staff",
+        "--pr",
+        "7",
+        "--head",
+        "a".repeat(40),
+        "--result",
+        "fail",
+        "--failed-checks",
+        "1",
+        "--failed_checks",
+        "2",
+      ],
+      { cwd: dir },
+    );
+    assert.equal(result.code, 2, result.out);
+    assert.match(result.out, /^usage: node records\.mjs event/);
+    assert.equal(existsSync(join(dir, "events.jsonl")), false);
+  });
+
   it("refuses a repeated flag with the usage line, and writes nothing", async () => {
     const dir = mkdtempSync(join(tmpdir(), "orchestrate-records-"));
     made.push(dir);

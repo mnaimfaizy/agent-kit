@@ -478,9 +478,10 @@ function pairs(args) {
   const out = {};
   for (let n = 0; n < args.length; n += 2) {
     const [name, value] = [args[n], args[n + 1]];
-    if (!name?.startsWith("--") || value === undefined || Object.hasOwn(out, name.slice(2)))
-      return null;
-    out[name.slice(2)] = value;
+    // `--failed-checks` and `--failed_checks` set one field, so they are one name.
+    const key = name?.slice(2).replaceAll("_", "-");
+    if (!name?.startsWith("--") || value === undefined || Object.hasOwn(out, key)) return null;
+    out[key] = value;
   }
   return out;
 }
