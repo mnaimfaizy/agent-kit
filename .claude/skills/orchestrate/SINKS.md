@@ -31,11 +31,11 @@ Then a `## Access` section giving the writer's access and the reader's, a `###` 
 
 | Sink     | Support Level | File                               |
 | -------- | ------------- | ---------------------------------- |
-| `github` | `documented`  | [sinks/github.md](sinks/github.md) |
+| `github` | `verified`    | [sinks/github.md](sinks/github.md) |
 | `gitlab` | `documented`  | [sinks/gitlab.md](sinks/gitlab.md) |
 | `s3`     | `documented`  | [sinks/s3.md](sinks/s3.md)         |
 
-A sink's Support Level is the one its own file states, and the Dispatch Plan and the disclosure name it while it is below `verified` ([RUN.md](RUN.md#uploading-the-run-record)): all three sinks, `github`, `gitlab` and `s3`, ship at `documented` until a run has uploaded to them, and the first one that does moves it, citing its Activity Log. For a sink, `verified` means a run uploaded a record to it and the dashboard read that record back from it.
+A sink's Support Level is the one its own file states, and the Dispatch Plan and the disclosure name it while it is below `verified` ([RUN.md](RUN.md#uploading-the-run-record)): `github` is `verified`, while `gitlab` and `s3` ship at `documented` until a run has uploaded to them and the dashboard has read the record back, citing its Activity Log. For a sink, `verified` means a run uploaded a record to it and the dashboard read that record back from it.
 
 **Raw run folders** go only to an `s3` sink, set separately as `records.raw.sink`, and only when that bucket's own lifecycle rule expires `raw/`: the access the upload needs, and the lifecycle read, are in [sinks/s3.md](sinks/s3.md#raw-run-folders).
 

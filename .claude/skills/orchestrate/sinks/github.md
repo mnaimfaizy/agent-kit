@@ -1,8 +1,8 @@
 # GitHub
 
 - **Id:** `github`
-- **Support Level:** `documented`. No run has uploaded to a GitHub sink yet; the first one that does moves it, citing its Activity Log.
-- **Facts from:** the `gh` CLI, version 2.102.0, read on 2026-11-25 (`gh api` with `-X`, `--input`, `--jq`, `--hostname`, `--paginate`), and GitHub's REST API for repository contents, git trees, repository visibility and collaborators, as [SINKS.md](../SINKS.md) names them, read on 2026-11-25.
+- **Support Level:** `verified`. It rests on `/orchestrate #378 #389` on `mnaimfaizy/agent-kit`, 2026-11-26 (run `2026-11-26-378-389`): `records.mjs upload` verified private visibility, read collaborator count (`1 person with access`) and created `records/github.com/mnaimfaizy/agent-kit/mnaimfaizy/2026-11-26-378-389.json` in `mnaimfaizy/orchestrate-run-records`, and `records.mjs dashboard` read that record back from the sink. Its Activity Log is in that run's folder, which is not committed.
+- **Facts from:** the `gh` CLI, version 2.102.0, read on 2026-11-25 (`gh api` with `-X`, `--input`, `--jq`, `--hostname`, `--paginate`), and GitHub's REST API for repository contents, git trees, repository visibility and collaborators, as [SINKS.md](../SINKS.md) names them, read on 2026-11-25. `visibility`, `access`, `read`, `create` (`--input -`), and `list` (dashboard read-back) were confirmed in run `2026-11-26-378-389` on 2026-11-26.
 
 Every command runs with `gh` signed in as the person who runs the skill. `<owner>/<repo>` is the config's `records.sink.repo`: `owner/name`, or `host/owner/name` for GitHub Enterprise, where every command also takes `--hostname <host>`. `<ref>` is `records.sink.branch`; unset, the calls leave `ref` and `branch` out and GitHub uses the repository's default branch. `<path>` is `records/<host>/<owner>/<repo>/<login>/<run-id>.json`, every segment lowercased ([CONFIG.md](../CONFIG.md#records)), with each segment URL-encoded.
 
@@ -66,5 +66,5 @@ A git repository cannot expire a file, and the disclosure says so: a record uplo
 
 ## Check before use
 
-- The upload has not run against a real GitHub repository yet: `--input -` with a body on standard input, the raw `Accept` header and the `409` retry are read from `gh`'s and GitHub's documentation, and are exercised in tests against a fake transport only.
+- Parallel-write `409`/`422` retries on `create` have only been exercised in tests against a fake transport (`visibility`, `access`, `read`, `create` with `--input -`, and `list` were confirmed against `mnaimfaizy/orchestrate-run-records` in run `2026-11-26-378-389`).
 - Whether an `internal` repository should be accepted on GitHub Enterprise: it is refused for now, as it is on GitLab.
