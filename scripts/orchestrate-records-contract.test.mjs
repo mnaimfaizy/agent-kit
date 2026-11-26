@@ -14,6 +14,7 @@ import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { SECTIONS } from "../.claude/skills/orchestrate/config.mjs";
 import {
   CAUSES,
   EVENT_KINDS,
@@ -274,6 +275,43 @@ describe("RUN.md's event table names each kind's field flags, as `event` takes t
           .join(" ") || "none";
       assert.equal(rows.get(kind), expected, kind);
     }
+  });
+});
+
+/** GitHub's anchor for each heading of a Markdown file, code blocks left out. */
+const anchors = (text) =>
+  new Set(
+    text
+      .replace(/^```[\s\S]*?^```/gm, "")
+      .split("\n")
+      .filter((l) => /^#{1,6} /.test(l))
+      .map((l) =>
+        l
+          .replace(/^#+ /, "")
+          .toLowerCase()
+          .replace(/[^\w\- ]/g, "")
+          .replaceAll(" ", "-"),
+      ),
+  );
+
+describe("CONFIG.md: its key sections and its links (C20, C21)", () => {
+  const CONFIG = read(`${SKILL_DIR}/CONFIG.md`);
+
+  it("every link into RUN.md, SKILL.md or CONFIG.md itself names a heading that exists", () => {
+    const files = { "RUN.md": RUN, "SKILL.md": SKILL, "": CONFIG, "CONFIG.md": CONFIG };
+    const links = [...CONFIG.matchAll(/\]\(((?:RUN|SKILL|CONFIG)\.md)?#([^)]+)\)/g)];
+    assert.ok(links.length > 5);
+    for (const [, file = "", anchor] of links)
+      assert.ok(anchors(files[file]).has(anchor), `${file}#${anchor}`);
+  });
+
+  it("documents `records` and `prune` under `## Keys`, last, in the order of config.mjs's SECTIONS", () => {
+    const keys = section(CONFIG, "## Keys");
+    const headed = [...keys.matchAll(/^### `([a-z_]+)`$/gm)].map((m) => m[1]);
+    const order = Object.keys(SECTIONS);
+    assert.deepEqual(headed.slice(-3), order.slice(-3));
+    assert.deepEqual(order.slice(-2), ["records", "prune"]);
+    assert.doesNotMatch(section(CONFIG, "## Readiness check"), /^### `prune`/m);
   });
 });
 

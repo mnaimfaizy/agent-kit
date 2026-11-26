@@ -233,7 +233,7 @@ A `labels` mapping that leaves a state out, names a key that is not one of the s
 
 ### `records`
 
-Read by the close-out, and by `--upload <run>` ([RUN.md](RUN.md#close-out)). A run with no `records` key keeps its Run Record on the machine and offers nothing.
+Read by the close-out ([SKILL.md](SKILL.md#10-close-out)), and by `--upload <run>` ([RUN.md](RUN.md#uploading-the-run-record)). A run with no `records` key keeps its Run Record on the machine and offers nothing.
 
 | Key          | Default                             | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | ------------ | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -246,7 +246,7 @@ Read by the close-out, and by `--upload <run>` ([RUN.md](RUN.md#close-out)). A r
 
 | Key        | Default                  | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | ---------- | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `type`     | none: required           | The sink's kind. `github`: a private GitHub repository, written with `gh api` Contents calls ([sinks/github.md](sinks/github.md)). `gitlab`: a private GitLab project, written with `glab api` Repository Files calls ([sinks/gitlab.md](sinks/gitlab.md)), `s3`: any S3-compatible bucket, signed with SigV4 ([sinks/s3.md](sinks/s3.md)). All three are at Support Level `documented` until a run has uploaded to them. Any other value is a problem.                                                                    |
+| `type`     | none: required           | The sink's kind. `github`: a private GitHub repository, written with `gh api` Contents calls ([sinks/github.md](sinks/github.md)). `gitlab`: a private GitLab project, written with `glab api` Repository Files calls ([sinks/gitlab.md](sinks/gitlab.md)). `s3`: any S3-compatible bucket, signed with SigV4 ([sinks/s3.md](sinks/s3.md)). All three are at Support Level `documented` until a run has uploaded to them. Any other value is a problem.                                                                    |
 | `repo`     | none: required           | The sink repository or project: `owner/name`, or `host/owner/name` for GitHub Enterprise or a self-hosted GitLab. Without a host it is on `github.com`, or on `gitlab.com` for a `gitlab` sink. A `gitlab` project may sit in subgroups (`group/sub/name`, or `host/group/sub/name`): its first segment is read as the host only when it has a dot, so a group whose name has a dot is written with its host in front (`gitlab.com/my.group/sub/name`). Required for `github` and `gitlab`, and a problem on an `s3` sink. |
 | `branch`   | the repository's default | The branch the records are written to. Not used by an `s3` sink.                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `endpoint` | none: required for `s3`  | An `s3` sink's store: its https URL, such as `https://<account>.r2.cloudflarestorage.com`, with no path, query or password (`http` only for `localhost`). A problem on a `github` or `gitlab` sink.                                                                                                                                                                                                                                                                                                                        |
@@ -279,6 +279,21 @@ records:
 
 A record's path in the sink is `records/<host>/<owner>/<repo>/<login>/<run-id>.json`, every segment lowercased, so one sink serves many repositories and two never collide. The login is the tracker login, overridable only by the `ORCHESTRATE_OPERATOR` environment variable, and with none, nothing uploads. The config holds no credential: `gh` signs in as the person who runs it, and an `s3` sink reads its credentials only from the environment variables `ORCHESTRATE_S3_ACCESS_KEY_ID` and `ORCHESTRATE_S3_SECRET_ACCESS_KEY`, so a value in the config that looks like a secret is a problem. There is no local overlay, so a person opts out by answering "Not now" at close-out.
 
+### `prune`
+
+Read by the close-out ([SKILL.md](SKILL.md#10-close-out)) and by `node records.mjs prune`. A run with no `prune` key deletes nothing.
+
+| Key          | Default          | Meaning                                                                                                                                                                     |
+| ------------ | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `after_days` | none: no pruning | A whole number of 1 or more. Closed-out run folders whose Run Record closed more than this many days ago are deleted from `<run_dir>`. Setting it is the consent to delete. |
+
+```yaml
+prune:
+  after_days: 90 # unset: no pruning; setting it is the consent
+```
+
+Only a **closed-out** run folder is deleted: one with a Run Record beside it in `<run_dir>/records/`, whose `closed_at` is older than `after_days`. An open run (no Run Record yet), a closed run newer than the setting, and `<run_dir>/records/` with every record in it are never touched. With no `prune` key, the close-out asks once whether to prune at 90 days, and writes `prune.after_days: 90` into the config only on a yes. A "no" is remembered in `<run_dir>/prune-declined` on this machine, and is not asked again.
+
 ## Readiness check
 
 `node "<skill>/config.mjs" check` prints JSON: the config's `path` (null when there is none), its `problems`, the `effective` values with every default applied, the `harness` report ([HARNESSES.md](HARNESSES.md#finding-the-harness)), the `tracker` report ([above](#tracker)), and `readiness`: what the run still **needs** (asked for, in one message) and **notes** (said, and the run goes on). It needs `read_first`, `routes.commit`, `routes.pull_request` and `regate`, and `ready_to_merge.qa` when a QA config (`qa.config.yml`, `qa.config.yaml` or `qa.config.json`) is at the repository root and the config does not set it. With a QA config and `qa: none` set, it notes that the run plans no QA. `qa_config` in the output is that file's name, or null. It exits 1 on any problem and 2 on bad usage; `--repo <dir>` reads another repository.
@@ -296,18 +311,3 @@ With no config, or one that leaves out what the run needs, the skill asks. The a
 ```
 
 They are laid over the config: a mapping answered for a mapping is merged key by key (`routes.commit` replaces only that route), and anything else replaces the config's value. A problem in an answer is named with the answers file and its line. The answers file must be inside `run_dir` (its merged value, since an answer may set it), so it is never committed and `--resume` finds it again. Writing the answers into the config file is a separate step, taken only on the human's yes.
-
-### `prune`
-
-Read by the close-out ([SKILL.md](SKILL.md#10-close-out)) and by `node records.mjs prune`. A run with no `prune` key deletes nothing.
-
-| Key          | Default          | Meaning                                                                                                                                                                     |
-| ------------ | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `after_days` | none: no pruning | A whole number of 1 or more. Closed-out run folders whose Run Record closed more than this many days ago are deleted from `<run_dir>`. Setting it is the consent to delete. |
-
-```yaml
-prune:
-  after_days: 90 # unset: no pruning; setting it is the consent
-```
-
-Only a **closed-out** run folder is deleted: one with a Run Record beside it in `<run_dir>/records/`, whose `closed_at` is older than `after_days`. An open run (no Run Record yet), a closed run newer than the setting, and `<run_dir>/records/` with every record in it are never touched. With no `prune` key, the close-out asks once whether to prune at 90 days, and writes `prune.after_days: 90` into the config only on a yes. A "no" is remembered in `<run_dir>/prune-declined` on this machine, and is not asked again.
