@@ -192,9 +192,10 @@ const TABS = [
   ["record", "Record (JSON)"],
 ];
 
-const page = (id, html) => ({
+/** A page. `repository` names the switcher option a run's page belongs to (its `data-repo`). */
+const page = (id, html, repository = null) => ({
   id,
-  html: `<section class="page" id="${esc(id)}">\n${html}\n</section>`,
+  html: `<section class="page" id="${esc(id)}"${repository ? ` data-repo="${esc(repoRoute(repository))}"` : ""}>\n${html}\n</section>`,
 });
 
 // --- The text derived from a record: Run Events as text, and the report.
@@ -607,6 +608,7 @@ function stepPage(entry, s, n, lines) {
 <pre class="log">${esc(around.join("\n"))}</pre></div>
 <div class="panel"><h2>Raw entry</h2>
 <pre class="log">${esc(JSON.stringify(s, null, 2))}</pre></div>`,
+    entry.repository,
   );
 }
 
@@ -645,6 +647,7 @@ function delegationPage(entry, d) {
         ? `<ul>${writes.map((w) => `<li>${esc(w.at)}: ${esc(w.kind)} by ${esc(w.actor)}</li>`).join("")}${qa.map((q) => `<li>QA on ${esc(q.target)} by ${esc(q.route)}: ${state(q.result)}</li>`).join("")}</ul>`
         : `<p class="muted">None recorded.</p>`
     }</div>`,
+    entry.repository,
   );
 }
 
@@ -1040,7 +1043,7 @@ export function buildPages(entries, context) {
       record: recordTab,
     };
     for (const [tab] of TABS)
-      pages.push(page(`${runRoute(entry.slug)}/${tab}`, tabPages[tab](entry)));
+      pages.push(page(`${runRoute(entry.slug)}/${tab}`, tabPages[tab](entry), entry.repository));
     for (const d of record.delegations) pages.push(delegationPage(entry, d));
     record.human_steps.forEach((s, n) => pages.push(stepPage(entry, s, n, lines)));
   }

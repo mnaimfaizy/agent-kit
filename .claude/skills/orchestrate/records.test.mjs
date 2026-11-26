@@ -3355,6 +3355,30 @@ describe("dashboard: the Repository switcher and the pages", () => {
     assert.match(html, new RegExp(`<body data-home="/repo/${NS_A}"`));
   });
 
+  it("names the run's repository on a run page and a Delegation page opened by address", async () => {
+    const values = ["/", `/repo/${NS_A}`, `/repo/${NS_B}`];
+    // A run's pages are not under its repository's route: the page names its owner.
+    assert.equal(switcherFor("/run/r1/summary", values, `/repo/${NS_B}`), `/repo/${NS_B}`);
+    assert.equal(switcherFor("/run/r1/delegation/d1", values, `/repo/${NS_A}`), `/repo/${NS_A}`);
+    assert.equal(switcherFor("/run/r1/summary", values), null);
+    assert.equal(switcherFor("/run/r1/summary", values, "/repo/github.com/not/offered"), null);
+
+    const { dir, transport } = await readyToRead();
+    await build(dir, transport);
+    const html = body(page(dir));
+    const tag = (id) => html.split(`<section class="page" id="${id}"`)[1].split(">")[0];
+    const run = "/run/2026-11-02-tickets-2";
+    const delegation = html.match(new RegExp(`id="(${run}/delegation/[^"]+)"`))?.[1];
+    assert.ok(delegation, "the fixture run has a Delegation page");
+    for (const id of [`${run}/summary`, `${run}/log`, delegation])
+      assert.match(tag(id), new RegExp(`data-repo="/repo/${NS_A}"`), id);
+    assert.doesNotMatch(tag(`/repo/${NS_A}`), /data-repo=/);
+    assert.ok(
+      page(dir).includes("o.value), page.dataset.repo)"),
+      "the routing script passes the owner",
+    );
+  });
+
   it("--repo picks the repository the page opens on", async () => {
     const { dir, transport } = await readyToRead();
     const result = await build(dir, transport, ["--repo", NS_B]);
