@@ -28,7 +28,7 @@ These are word for word the definitions in Agent-kit's root glossary, where a co
 
 **Story**: A QA Plan scenario's field giving one sentence per Scene, in order and in the product's own words; each sentence opens its Scene on a Title card in the MP4 and heads that Scene's steps in the Storyboard.
 
-**Surface**: What a scenario drives (`web`, `desktop`, `mobile` or `api`). The Run brief gives the plan's default; a scenario may override it.
+**Surface**: What a scenario drives (`web`, `desktop`, `mobile` or `api`). Each scenario drives exactly one. The Run brief gives the plan's default; a scenario may override it. A run may drive several, one per scenario, and a promise that needs two is planned as two scenarios.
 
 **Driver**: The tool a run uses to drive a Surface. It can observe some things and not others.
 
