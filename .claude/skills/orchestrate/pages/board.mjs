@@ -732,7 +732,8 @@ export function renderBoard(
       name === "Needs you"
         ? model.open.filter((w) => !w.delegation).map((w) => runWaitCard(w, now))
         : [];
-    const count = cards.length + runWaits.length;
+    // Needs you counts what waits on the human, as the banner and the tab title do: one card may hold two waits.
+    const count = name === "Needs you" ? model.open.length : cards.length;
     return `<section class="col" data-column="${esc(name)}"><h2>${esc(name)} <span class="n">${count}</span></h2>${[...runWaits, ...cards].join("\n") || `<p class="muted small">Nothing here.</p>`}</section>`;
   }).join("\n");
 

@@ -5071,6 +5071,40 @@ describe("board: the spec-344 stream replayed", () => {
     assert.ok(header >= 1);
   });
 
+  it("counts the Needs you header as the banner counts it, two waits on one card included (C7)", async () => {
+    const dir = replayed("2026-11-19T03:35:00Z");
+    const add = (event) =>
+      appendFileSync(join(runFolder(dir), "events.jsonl"), `${JSON.stringify(event)}\n`);
+    add({
+      at: "2026-11-19T03:34:20Z",
+      kind: "wait-opened",
+      actor: "chief-of-staff",
+      wait_id: "w93",
+      delegation: "d350",
+      step_kind: "decision-request",
+      cause: "spec-gap",
+      how: "chat",
+    });
+    add({
+      at: "2026-11-19T03:34:30Z",
+      kind: "wait-opened",
+      actor: "chief-of-staff",
+      wait_id: "w94",
+      delegation: "d350",
+      step_kind: "decision-request",
+      cause: "human-choice",
+      how: "chat",
+    });
+    const { html } = await board(dir, [], { until: "2026-11-19T03:35:00Z" });
+    const data = JSON.parse(
+      /<script type="application\/json" id="board-data">(.*?)<\/script>/s.exec(html)[1],
+    );
+    assert.ok(data.open >= 2, String(data.open));
+    const header = Number(/<h2>Needs you <span class="n">(\d+)<\/span>/.exec(html)[1]);
+    assert.equal(header, data.open);
+    assert.match(/<title>(.*?)<\/title>/.exec(html)[1], new RegExp(`^\\(${data.open}\\) `));
+  });
+
   it("says Nothing waits on you only when Needs you is empty (C7)", async () => {
     const dir = replayed("2026-11-19T06:30:00Z");
     writeFileSync(
