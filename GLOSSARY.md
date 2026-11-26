@@ -348,12 +348,16 @@ The account of a finished run, offered after the human merges, for the issue tha
 _Avoid_: wrap-up, final report
 
 **Run Record**:
-The structured, machine-readable account of one run, written at close-out and holding only fields that are safe to publish (counts, ids, durations, outcomes, and each human intervention with its kind), never quoted issue text or command output; what a Consumer may keep or upload once the raw run folder is gone.
+The structured, machine-readable account of one run, written at close-out and holding only fields that are safe to publish (counts, ids, durations, outcomes, and each Human step with its kind and cause), never quoted issue text or command output; what a Consumer may keep or upload once the raw run folder is gone.
 _Avoid_: run metadata, telemetry, run log
 
 **Run Event**:
 One timestamped, structured entry for a single step of a run (a spawn, a human step, a land, a review, a CI result), written as it happens by whoever did it; the Run Record is derived from a run's Run Events.
 _Avoid_: log line, trace span
+
+**Human step**:
+One touch from the human in a run (one answer, one click or one typed command), listing the Decision Requests it covered, recorded in the Run Record with its kind and a `cause` from a fixed list, each cause avoidable or by design.
+_Avoid_: intervention, interruption, touch point
 
 **Sink**:
 A store off the machine that a Consumer has configured to receive Run Records, or opted-in raw run folders; one Sink may serve many repositories, each writing only into its own namespace.

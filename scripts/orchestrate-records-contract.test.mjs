@@ -496,7 +496,7 @@ describe("uploading the Run Record to a sink", () => {
   it("leaves the access count out when it cannot be read, and never rewords the line", () => {
     assert.match(
       uploading,
-      /The count of people with access is left out when the sink cannot be read for it\./,
+      /The count of people with access is left out when the [Ss]ink cannot be read for it\./,
     );
     assert.match(uploading, /The words are the script's; never reword them\./);
   });
@@ -541,7 +541,7 @@ describe("uploading the Run Record to a sink", () => {
   it("lists what stops an upload, and gives no override", () => {
     assert.match(
       uploading,
-      /the sink is not private, or its visibility cannot be read: there is no override/,
+      /the [Ss]ink is not private, or its visibility cannot be read: there is no override/,
     );
     assert.match(uploading, /different bytes are already at the path: nothing is overwritten/);
     assert.match(uploading, /exit code `3`: the repository cannot be told/);
@@ -633,7 +633,7 @@ describe("uploading the Run Record to a sink", () => {
     assert.match(index, /\| `gitlab` \| `documented` \|/);
     assert.match(
       index,
-      /A sink's Support Level is the one its own file states, and the Dispatch Plan and the disclosure name it while it is below `verified` \(\[RUN\.md\]\(RUN\.md#uploading-the-run-record\)\): all three sinks, `github`, `gitlab` and `s3`, ship at `documented` until a run has uploaded to them/,
+      /A sink's Support Level is the one its own file states, and the Dispatch Plan and the disclosure name it while it is below `verified` \(\[RUN\.md\]\(RUN\.md#uploading-the-run-record\)\): all three [Ss]inks, `github`, `gitlab` and `s3`, ship at `documented` until a run has uploaded to them/,
     );
   });
 
@@ -641,12 +641,12 @@ describe("uploading the Run Record to a sink", () => {
     const run = flat(read(`${SKILL_DIR}/RUN.md`));
     assert.match(
       run,
-      /When the sink's file states a Support Level below `verified` \(all three sinks, `github`, `gitlab` and `s3`, ship at `documented`\), the Dispatch Plan says so beside "upload the Run Record", and the close-out repeats it after the disclosure/,
+      /When the [Ss]ink's file states a Support Level below `verified` \(all three [Ss]inks, `github`, `gitlab` and `s3`, ship at `documented`\), the Dispatch Plan says so beside "upload the Run Record", and the close-out repeats it after the disclosure/,
     );
     assert.match(flat(SKILL), /the sink's Support Level \(\[SINKS\.md\]\(SINKS\.md\)\)/);
     assert.match(
       flat(DESIGN),
-      /all three sinks, `github`, `gitlab` and `s3`, ship at Support Level `documented`/,
+      /all three [Ss]inks, `github`, `gitlab` and `s3`, ship at Support Level `documented`/,
     );
   });
 
@@ -654,7 +654,7 @@ describe("uploading the Run Record to a sink", () => {
     const config = flat(read(`${SKILL_DIR}/CONFIG.md`));
     assert.match(
       config,
-      /A record's path in the sink is `records\/<host>\/<owner>\/<repo>\/<login>\/<run-id>\.json`, every segment lowercased/,
+      /A record's path in the [Ss]ink is `records\/<host>\/<owner>\/<repo>\/<login>\/<run-id>\.json`, every segment lowercased/,
     );
     assert.match(
       config,
@@ -789,9 +789,9 @@ describe("uploading the raw run folder to an expiring bucket", () => {
     const configDoc = flat(read(`${SKILL_DIR}/CONFIG.md`));
     assert.match(
       configDoc,
-      /`raw\.sink` takes the keys of an `s3` sink .* any other type is a problem/,
+      /`raw\.sink` takes the keys of an `s3` [Ss]ink .* any other type is a problem/,
     );
-    assert.match(configDoc, /only a bucket can do that \(a git sink cannot expire a file\)/);
+    assert.match(configDoc, /only a bucket can do that \(a git [Ss]ink cannot expire a file\)/);
     assert.match(
       flat(read(`${SKILL_DIR}/SINKS.md`)),
       /Raw run folders\*\* go only to an `s3` sink/,

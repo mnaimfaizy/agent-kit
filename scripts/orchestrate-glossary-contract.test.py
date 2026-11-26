@@ -35,6 +35,7 @@ TERMS = [
     "Run Summary",
     "Run Record",
     "Run Event",
+    "Human step",
     "Sink",
     "Ready to Merge",
     "Team Run",

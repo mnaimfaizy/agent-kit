@@ -75,20 +75,23 @@ describe("RUN.md: the past-runs dashboard", () => {
   });
 
   it("reads the sink through the upload's operations, caches forever, and treats an unreadable sink as a warning", () => {
-    assert.match(text, /through the same sink operations the upload uses/);
+    assert.match(text, /through the same [Ss]ink operations the upload uses/);
     assert.match(
       text,
-      /checks the sink is private first \(`visibility`\), lists `records\/` \(`list`\), and reads only the paths the cache does not hold/,
+      /checks the [Ss]ink is private first \(`visibility`\), lists `records\/` \(`list`\), and reads only the paths the cache does not hold/,
     );
     assert.match(
       text,
-      /cached forever, in `<run_dir>\/records-cache\/`, in a folder that mirrors the sink's paths/,
+      /cached forever, in `<run_dir>\/records-cache\/`, in a folder that mirrors the [Ss]ink's paths/,
     );
     assert.match(
       text,
       /a `404` or a `403`\) is one warning, and the page is built from the local records/,
     );
-    assert.match(text, /A sink that has turned public is a warning too, but the read goes ahead/);
+    assert.match(
+      text,
+      /A [Ss]ink that has turned public is a warning too, but the read goes ahead/,
+    );
     assert.match(text, /The reader needs read access only/);
   });
 
@@ -96,11 +99,11 @@ describe("RUN.md: the past-runs dashboard", () => {
     assert.match(text, /`local` and the configured `records\.sink`, nothing else/);
     assert.match(text, /A record that is identical in both counts once/);
     assert.match(text, /tagged "not uploaded" with its `--upload <run>` command/);
-    assert.match(text, /When the bytes differ, the sink's copy is shown, with a warning/);
+    assert.match(text, /When the bytes differ, the [Ss]ink's copy is shown, with a warning/);
   });
 
   it("parses namespaces from paths only, lists a path that does not parse, and opens on the current repository or --repo", () => {
-    assert.match(text, /parsed from the sink's paths alone/);
+    assert.match(text, /parsed from the [Ss]ink's paths alone/);
     assert.match(text, /A path that does not parse is skipped and listed/);
     assert.match(
       text,
@@ -231,10 +234,10 @@ describe("DESIGN.md and docs/orchestrate.md say what it does and why", () => {
     );
     assert.match(text, /Share `dashboard\.html`, never the `\.local` file/);
     assert.match(text, /It does not update itself/);
-    assert.match(text, /You need only read access to the sink \(for `github`, Contents: read\)/);
+    assert.match(text, /You need only read access to the [Ss]ink \(for `github`, Contents: read\)/);
     assert.match(text, /a sink that has turned public shows a warning, and the read goes ahead/i);
     assert.match(text, /A record only on your machine is tagged "not uploaded"/);
-    assert.match(text, /If the bytes differ, the sink's copy is shown, with a warning/);
+    assert.match(text, /If the bytes differ, the [Ss]ink's copy is shown, with a warning/);
   });
 });
 
@@ -288,14 +291,14 @@ describe("the dashboard shows each teammate (#432)", () => {
       flat(TEAM),
       flat(section(DOCS, "#### The past-runs dashboard")),
     ])
-      assert.match(doc, /[Ww]hoever can read the sink reads every (teammate's )?record/);
+      assert.match(doc, /[Ww]hoever can read the [Ss]ink reads every (teammate's )?record/);
     for (const doc of [
       text,
       flat(SINKS),
       flat(TEAM),
       flat(section(DOCS, "#### The past-runs dashboard")),
     ])
-      assert.match(doc, /who can read the sink are (the|your) organization's controls/);
+      assert.match(doc, /who can read the [Ss]ink are (the|your) organization's controls/);
   });
 });
 
@@ -330,7 +333,7 @@ describe("the live run board (issue #433, spec #414)", () => {
       /older than two intervals/,
       /links to the Shared Board/,
       /links to the run's page in the dashboard/,
-      /never reads a sink or the tracker/,
+      /never reads a [Ss]ink or the tracker/,
       /\*\*Never hosted\.\*\*/,
     ])
       assert.match(live, claim);
@@ -370,7 +373,7 @@ describe("the optional server of the live board (issue #434, spec #414)", () => 
       /the Chief of Staff's `events\.jsonl` and each Delegation's/,
       /between the Chief of Staff's wake-ups/,
       /`\/dashboard`/,
-      /It reads no sink and no tracker/,
+      /It reads no [Ss]ink and no tracker/,
       /browser notification/,
       /a browser does not let a served page open a file/,
       /`board\.html` is unaffected/,
