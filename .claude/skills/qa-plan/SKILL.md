@@ -200,7 +200,7 @@ Pass each of the subject issue's labels. It prints `to`, and the rule that chose
   2. with a rule `label`, each issue carrying it: `gh issue list --state all --label <label> --limit 200 --json number,body`;
   3. otherwise a search, `gh issue list --state all --search "qa-plan subject=#<n> in:body" --json number,body`, which can lag behind an issue created minutes ago.
 
-  Edit the issue found (`gh issue edit <m> --body-file <plan>`). Create one only when none is found (`gh issue create --title "QA Plan: #<n> <title>" --body-file <plan>`, with `--label <label>` when the rule names one), then post the link comment on the pull request: `<!-- qa-plan-link -->` on its first line, then `QA Plan: #<m>`.
+  Edit the issue found (`gh api -X PATCH repos/{owner}/{repo}/issues/<m> -F body=@<plan>`). Create one only when none is found (`gh issue create --title "QA Plan: #<n> <title>" --body-file <plan>`, with `--label <label>` when the rule names one), then post the link comment on the pull request: `<!-- qa-plan-link -->` on its first line, then `QA Plan: #<m>`.
 
 - **`pr-comment`:** one comment on the pull request. Find the comment whose body starts with the plan's marker, or the same marker with `format=1`, `format=2` or `format=3`, and edit it; post a new one only when there is none.
 

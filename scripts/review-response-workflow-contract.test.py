@@ -213,7 +213,8 @@ def test_the_gate_refuses_before_it_proceeds() -> None:
     # A dispatched round has no label of its own to consume; one a person
     # applied meanwhile is left for its own run.
     assert consume["if"] == "always() && github.event_name != 'workflow_dispatch'"
-    assert '--remove-label "$LABEL"' in consume["run"]
+    assert "@uri" in consume["run"]
+    assert 'gh api -X DELETE "repos/$GITHUB_REPOSITORY/issues/$PR/labels/$ENCODED_LABEL" || true' in consume["run"]
 
 
 def test_the_trusted_runtime_is_read_from_the_trusted_commit() -> None:
@@ -783,8 +784,11 @@ def test_a_response_round_never_starts_a_review() -> None:
     # No dispatch, no new label (one applied with the job token starts no run
     # anyway), no review requested: the only workflow run a round starts is
     # the held CI run of the Caller's ci_workflow, for the commit it pushed.
-    for needle in ("/dispatches", "workflow run", "--add-label", "/labels", "requested_reviewers", "agent:review"):
+    for needle in ("/dispatches", "workflow run", "--add-label", "requested_reviewers", "agent:review"):
         assert needle not in text, f"the response workflow must not contain {needle!r}"
+    # The only /labels call allowed is Consume trigger label's REST DELETE.
+    label_lines = [line.strip() for line in text.splitlines() if "/labels" in line]
+    assert label_lines == ['gh api -X DELETE "repos/$GITHUB_REPOSITORY/issues/$PR/labels/$ENCODED_LABEL" || true']
     starts = [s for _, s in run_steps(workflow()) if "release-ci" in s["run"]]
     assert [s["name"] for s in starts] == ["Start CI for the pushed commit"]
     # The script approves only a held `pull_request` run of that workflow.

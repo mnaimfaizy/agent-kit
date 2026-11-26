@@ -714,4 +714,7 @@ jobs:
         run: |
           set -euo pipefail
           # Removed only after the action has read it — `label_trigger` matches at start.
-          gh issue edit "$ISSUE" --repo "$GITHUB_REPOSITORY" --remove-label "$LABEL" || true
+          if [ -n "$LABEL" ]; then
+            ENCODED_LABEL="$(jq -rn --arg label "$LABEL" '$label | @uri')"
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/issues/$ISSUE/labels/$ENCODED_LABEL" || true
+          fi

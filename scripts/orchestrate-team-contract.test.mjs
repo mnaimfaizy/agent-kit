@@ -820,8 +820,10 @@ describe("TEAM.md and the tracker files: label names as the tracker compares the
       assert.match(section(text, "### `set-state`"), /ignoring case/);
   });
 
-  it("says a comma in a state label's name cannot be set on GitHub either", () => {
-    assert.match(section(GITHUB, "### `set-state`"), /comma/);
+  it("drops the comma caveat now that set-state uses REST, and still forbids naming missing repo labels", () => {
+    const set = section(GITHUB, "### `set-state`");
+    assert.doesNotMatch(set, /\bcomma\b/i);
+    assert.match(set, /only ever name labels the repository already has/);
   });
 });
 

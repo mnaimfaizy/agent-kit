@@ -126,10 +126,13 @@ describe("trackers/github.md", () => {
     assert.match(op("write-row"), /repos\/<owner>\/<repo>\/issues\/<n>\/comments/);
   });
 
-  it("sets one state label, removes the others, and reads it back, since GitHub can drop it silently", () => {
+  it("sets one state label via REST POST, removes the others via REST DELETE, and reads it back, since GitHub can drop it silently", () => {
     const set = op("set-state");
-    assert.match(set, /--add-label/);
-    assert.match(set, /--remove-label/);
+    assert.match(set, /-X POST repos\/<owner>\/<repo>\/issues\/<n>\/labels/);
+    assert.match(set, /encodeURIComponent/);
+    assert.match(set, /\[ -n "\$encoded" \]/);
+    assert.match(set, /-X DELETE "repos\/<owner>\/<repo>\/issues\/<n>\/labels\/\$encoded"/);
+    assert.match(set, /404/);
     assert.match(set, /silently/);
     assert.match(set, /row comment stays the record/);
   });
