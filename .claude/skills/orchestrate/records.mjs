@@ -438,12 +438,15 @@ export const EVENT_KINDS = Object.freeze({
   heartbeat: { actor: t.enum(["chief-of-staff"]) },
 });
 
+/** The fields of an event kind, or null: `constructor` and the like are not kinds. */
+const kindFields = (kind) => (Object.hasOwn(EVENT_KINDS, kind) ? EVENT_KINDS[kind] : null);
+
 /** Problems with one Run Event, as dotted field paths. */
 export function checkEvent(event) {
   const problems = [];
   if (event === null || typeof event !== "object" || Array.isArray(event))
     return ["event: must be an object"];
-  const fields = Object.hasOwn(EVENT_KINDS, event.kind) ? EVENT_KINDS[event.kind] : null;
+  const fields = kindFields(event.kind);
   if (!fields) return [`kind: must be one of ${Object.keys(EVENT_KINDS).join(" | ")}`];
   check(t.object({ ...COMMON, kind: t.enum([event.kind]), ...fields }), event, "", problems);
   return problems;
@@ -484,8 +487,9 @@ function pairs(args) {
 
 /** The field flags of one event kind, as `event` takes them: `--write-kind`, and `[--head]` when optional. */
 export function eventFlags(kind) {
-  if (!Object.hasOwn(EVENT_KINDS, kind)) return null;
-  return Object.keys(EVENT_KINDS[kind])
+  const fields = kindFields(kind);
+  if (!fields) return null;
+  return Object.keys(fields)
     .filter((name) => name !== "actor")
     .map((name) => {
       const flag = `--${name.replace(/\?$/, "").replaceAll("_", "-")}`;
@@ -517,7 +521,7 @@ function appendEvent(args, io) {
   if (!file || !kind) return { code: 2, out: EVENT_USAGE };
   if (basename(file) !== "events.jsonl")
     return { code: 2, out: "the events file must be named `events.jsonl`\n" };
-  const fields = Object.hasOwn(EVENT_KINDS, kind) ? EVENT_KINDS[kind] : null;
+  const fields = kindFields(kind);
   if (!fields)
     return {
       code: 1,
@@ -2205,7 +2209,7 @@ async function buildDashboard(io, { only = null, offline = false } = {}) {
     });
   }
   for (const { record, text } of locals) {
-    const repository = (records.repository ?? record.run.repo ?? current)?.toLowerCase() ?? null;
+    const repository = recordRepository(records.repository, record, current);
     const login = record.run.operator;
     const path = repository && login ? sinkPath(repository, login, record.run.id) : null;
     const twin = path === null ? undefined : far?.found.get(path);
@@ -2451,6 +2455,10 @@ async function buildBoard(
   return { model, html };
 }
 
+/** A local record's repository, as the dashboard and the board's link read it: pinned, else the record's, else the remote's. */
+const recordRepository = (pinned, record, fallback) =>
+  (pinned ?? record.run.repo ?? fallback)?.toLowerCase() ?? null;
+
 /**
  * The run's key in the dashboard, made as the dashboard makes it for a local record: under its
  * repository (`records.repository`, else the record's) and login. That key resolves whatever other
@@ -2468,7 +2476,7 @@ function dashboardSlug(runFolder, runId, cwd, repo, qualifiedSlug) {
   if (!login) return runId;
   const loaded = readConfig((path) => readText(resolve(cwd, path)));
   const pinned = loaded.problems.length ? null : effectiveConfig(loaded.config).records.repository;
-  const repository = (pinned ?? record.run.repo ?? repo)?.toLowerCase() ?? null;
+  const repository = recordRepository(pinned, record, repo);
   return repository ? qualifiedSlug(repository, login, runId) : runId;
 }
 

@@ -357,7 +357,7 @@ _Avoid_: log line, trace span
 
 **Human step**:
 One touch from the human in a run (one answer, one click or one typed command), listing the Decision Requests it covered, recorded in the Run Record with its kind and a `cause` from a fixed list, each cause avoidable or by design.
-_Avoid_: intervention, interruption, touch point
+_Avoid_: intervention, interruption
 
 **Sink**:
 A store off the machine that a Consumer has configured to receive Run Records, or opted-in raw run folders; one Sink may serve many repositories, each writing only into its own namespace.
