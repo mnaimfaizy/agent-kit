@@ -846,3 +846,46 @@ describe("uploading the raw run folder to an expiring bucket", () => {
     );
   });
 });
+
+describe("the second review's doc fixes (D1 to D5)", () => {
+  const CONFIG = flat(read(`${SKILL_DIR}/CONFIG.md`));
+  const records = section(RUN, "## Run Events and the Run Record");
+
+  it("RUN.md's cause table renders: its delimiter row has as many cells as its header (D1)", () => {
+    const lines = records.split("\n");
+    const header = lines.findIndex((l) => /^\| Cause +\| Counts as +\| Meaning +\|$/.test(l));
+    assert.ok(header >= 0, "the cause table's header row");
+    const cells = (line) => line.split("|").length - 2;
+    assert.match(lines[header + 1], /^\|( -+ \|)+$/);
+    assert.equal(cells(lines[header + 1]), cells(lines[header]));
+  });
+
+  it("the `wait-closed` row names the unpark's actor, `chief-of-staff` (D2)", () => {
+    const row = records.split("\n").find((l) => l.startsWith("| `wait-closed`"));
+    assert.match(
+      row,
+      /\| Chief of Staff, actor `human` \(`chief-of-staff` when it unparks a `teammate-blocker` wait\) +\|/,
+    );
+  });
+
+  it("CONFIG.md says `gh` or `glab` signs in, and names `--dashboard` as a reader of `records` (D3, D4)", () => {
+    assert.match(
+      CONFIG,
+      /The config holds no credential: `gh` or `glab` signs in as the person who runs it/,
+    );
+    assert.match(
+      CONFIG,
+      /Read by the close-out \(\[SKILL\.md\]\(SKILL\.md#10-close-out\)\), by `--upload <run>` \(\[RUN\.md\]\(RUN\.md#uploading-the-run-record\)\), and by `--dashboard` \(\[RUN\.md\]\(RUN\.md#the-past-runs-dashboard\)\)\./,
+    );
+  });
+
+  it("the docs page's board counts the stalled and crashed cards with the open waits (D5)", () => {
+    const bullet = flat(DOCS.split("\n").find((l) => l.startsWith("- **What waits on you.**")));
+    assert.match(bullet, /`stalled`/);
+    assert.match(bullet, /`crashed`/);
+    assert.match(
+      bullet,
+      /The banner, the Needs you column, the tab title, the favicon and the notifications count the same list/,
+    );
+  });
+});

@@ -353,7 +353,7 @@ node .claude/skills/orchestrate/records.mjs board tmp/orchestrate/<run> --heartb
 ```
 
 - **Kanban.** Planned, Needs you, Running, Checking, Landed and Merged. Each card shows its exact state, how long it has been in it and its Ruling badges. A wait that is the run's own, such as approving the plan or merging, is a card in Needs you.
-- **What waits on you.** A banner lists each open wait with its cause chip, where to answer (the chat, a card to click, GitHub) and its age. The count is in the tab title and the favicon.
+- **What waits on you.** A banner lists each open wait with its cause chip, where to answer (the chat, a card to click, GitHub) and its age, and each card in Needs you with no wait open (`stalled`, `crashed`), with its state. The banner, the Needs you column, the tab title, the favicon and the notifications count the same list.
 - **A drawer per card**, linkable as `#open=d:<id>`: the Delegation's facts (including whether you started it from a card), its states with durations, its waits, its Rulings, its Run Events and its Activity Log.
 - **Rulings**, in an autonomous run only: the count still unreviewed, and each Ruling in the drawer with its options, choice, reason, evidence, cites and verdicts. The board is read-only: you uphold or overturn in the Chief of Staff chat.
 - **Stale.** It warns when the last Run Event, a `heartbeat` event included, is older than two heartbeat intervals, so a stopped Chief of Staff is never mistaken for a quiet run.
