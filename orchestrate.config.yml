@@ -93,3 +93,15 @@ team:
     ready_to_merge: "team: ready to merge"
     merged: "team: merged"
   recent_activity: 5
+
+# Run Records go to this private repository at close-out, offered each time.
+# QA uses a throwaway one instead (QA_STACK_SINK_REPO, scripts/qa-stack.mjs).
+records:
+  upload: offer
+  sink:
+    type: github
+    repo: mnaimfaizy/orchestrate-run-records
+
+# Closed-out run folders older than this are deleted at close-out; records/ is kept.
+prune:
+  after_days: 90
