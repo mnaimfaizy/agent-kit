@@ -23,19 +23,50 @@ export const esc = (value) =>
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
 
+/**
+ * The page id an address's hash names: decoded, then through `aliases` (a route prefix to the
+ * prefix it stands for). The home page when the hash names none, or does not decode.
+ * It runs in the page as written: it must use nothing outside itself.
+ */
+export function routeOf(hash, { home = null, aliases = {} } = {}) {
+  let id = "";
+  try {
+    id = decodeURIComponent(String(hash).replace(/^#/, ""));
+  } catch {
+    id = "";
+  }
+  id = id || home || "/";
+  for (const [from, to] of Object.entries(aliases))
+    if (id === from || id.startsWith(from + "/")) return to + id.slice(from.length);
+  return id;
+}
+
+/**
+ * The Repository switcher's option a page belongs to: the repository's page or a page under it,
+ * never another repository whose name only begins the same. Null when none is.
+ * It runs in the page as written: it must use nothing outside itself.
+ */
+export function switcherFor(pageId, values) {
+  return values.find((v) => v !== "/" && (pageId === v || pageId.startsWith(v + "/"))) ?? null;
+}
+
 const SCRIPT = `
 (() => {
   const root = document.documentElement;
   const pages = [...document.querySelectorAll("section.page")];
   const byId = (id) => pages.find((p) => p.id === id);
+  const routeOf = ${routeOf};
+  const switcherFor = ${switcherFor};
+  let aliases = {};
+  try { aliases = JSON.parse(document.body.dataset.aliases || "{}"); } catch {}
   const route = () => {
-    let id = decodeURIComponent(location.hash.slice(1)) || document.body.dataset.home || "/";
+    const id = routeOf(location.hash, { home: document.body.dataset.home, aliases });
     const page = byId(id) || byId(id + "/summary") || byId("/");
     pages.forEach((p) => p.classList.toggle("on", p === page));
     const switcher = document.getElementById("repo-switch");
     if (switcher) {
-      const mine = [...switcher.options].find((o) => o.value !== "/" && page.id.startsWith(o.value));
-      switcher.value = mine ? mine.value : page.id === "/" ? "/" : switcher.value;
+      const mine = switcherFor(page.id, [...switcher.options].map((o) => o.value));
+      switcher.value = mine ? mine : page.id === "/" ? "/" : switcher.value;
     }
     if (!id.startsWith("open=")) window.scrollTo(0, 0);
   };
@@ -80,10 +111,10 @@ const SCRIPT = `
 `;
 
 /**
- * @param {{title: string, brand?: string, head?: string, mainAttributes?: string, script?: string, builtAt: string, rebuild: string, banner?: string | null, nav: {href: string, label: string}[], switcher?: string, home?: string | null, pages: {id: string, html: string}[]}} options
+ * @param {{title: string, brand?: string, head?: string, mainAttributes?: string, script?: string, builtAt: string, rebuild: string, banner?: string | null, nav: {href: string, label: string}[], switcher?: string, home?: string | null, aliases?: Record<string, string>, pages: {id: string, html: string}[]}} options
  *   `rebuild` is HTML (already escaped), shown after "Rebuild:". `switcher` is HTML
  *   (already escaped) for the header; `home` is the page id the document opens on
- *   when its address names none.
+ *   when its address names none. `aliases` maps a route prefix to the one it stands for.
  */
 export function shell({
   title,
@@ -93,6 +124,7 @@ export function shell({
   nav,
   switcher = "",
   home = null,
+  aliases = {},
   pages,
   brand = title,
   head = "",
@@ -107,7 +139,7 @@ export function shell({
 <title>${esc(title)}</title>
 <style>${STYLE}</style>
 ${head ? `${head}\n` : ""}</head>
-<body${home ? ` data-home="${esc(home)}"` : ""}>
+<body${home ? ` data-home="${esc(home)}"` : ""}${Object.keys(aliases).length ? ` data-aliases="${esc(JSON.stringify(aliases))}"` : ""}>
 ${banner ? `<div class="banner" role="note">${esc(banner)}</div>\n` : ""}<header class="top">
   <a class="brand" href="#/">${esc(brand)}</a>
   ${nav.map((n) => `<a href="${esc(n.href)}">${esc(n.label)}</a>`).join("\n  ")}

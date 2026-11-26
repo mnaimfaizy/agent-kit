@@ -28,6 +28,7 @@ import { dirname, join } from "node:path";
 import { after, afterEach, describe, it } from "node:test";
 import { request } from "node:http";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { routeOf, switcherFor } from "./pages/shell.mjs";
 
 import {
   CAUSES,
@@ -3084,6 +3085,117 @@ describe("dashboard: a sink that cannot be read", () => {
     const result = await build(dir, transport);
     assert.equal(result.code, 0, result.out);
     assert.equal(transport.calls.filter((c) => c.command === "gh").length, 0);
+  });
+});
+
+describe("the page shell: routes and the Repository switcher", () => {
+  it("opens the home page on a hash that does not decode, instead of stopping the script (C18)", () => {
+    assert.equal(
+      routeOf("#50%", { home: "/repo/github.com/acme/app" }),
+      "/repo/github.com/acme/app",
+    );
+    assert.equal(routeOf("#%E0%A4%A", {}), "/");
+    assert.equal(routeOf("", { home: "/repo/x" }), "/repo/x");
+    assert.equal(routeOf("#/run/a%20b/summary", {}), "/run/a b/summary");
+  });
+
+  it("selects a repository's own option, never one whose name only begins the same (C3)", () => {
+    const values = ["/", "/repo/github.com/acme/app", "/repo/github.com/acme/app-two"];
+    for (const page of [
+      "/repo/github.com/acme/app-two",
+      "/repo/github.com/acme/app-two/person/lee",
+      "/repo/github.com/acme/app-two/spec/9",
+    ])
+      assert.equal(switcherFor(page, values), "/repo/github.com/acme/app-two", page);
+    assert.equal(switcherFor("/repo/github.com/acme/app", values), "/repo/github.com/acme/app");
+    assert.equal(
+      switcherFor("/repo/github.com/acme/app/person/naim", values),
+      "/repo/github.com/acme/app",
+    );
+    assert.equal(switcherFor("/", values), null);
+  });
+
+  it("runs the same route and switcher code in the page as the tests check", async () => {
+    const dir = await readyToBuild();
+    await dashboard(dir);
+    const html = page(dir);
+    assert.ok(html.includes(String(routeOf)));
+    assert.ok(html.includes(String(switcherFor)));
+    assert.doesNotMatch(html, /decodeURIComponent\(location\.hash/);
+  });
+
+  it("follows an alias from a run's qualified route to the route its page has", () => {
+    const aliases = { "/run/github.com/acme/app/naim/r1": "/run/r1" };
+    assert.equal(
+      routeOf("#/run/github.com/acme/app/naim/r1/summary", { aliases }),
+      "/run/r1/summary",
+    );
+    assert.equal(routeOf("#/run/github.com/acme/app/naim/r1", { aliases }), "/run/r1");
+    assert.equal(
+      routeOf("#/run/github.com/acme/app/naim/r10/summary", { aliases }),
+      "/run/github.com/acme/app/naim/r10/summary",
+    );
+  });
+});
+
+describe("board: the closed run's link opens its dashboard page, whatever runs share its id (C4)", () => {
+  const CLOSED = "2026-11-19T06:30:00Z";
+  const OWN = `/run/github.com/mnaimfaizy/agent-kit/naim/${RUN}`;
+  const target = (html, prefix) =>
+    new RegExp(`<a href="${prefix.replace(/[.\/]/g, "\\$&")}#([^"]+)">This run's page`).exec(
+      html,
+    )?.[1] ?? new RegExp(`<a href="${prefix.replace(/[.\/]/g, "\\$&")}#([^"]+)">`).exec(html)?.[1];
+  const sections = (html) =>
+    new Set([...html.matchAll(/<section class="page" id="([^"]+)"/g)].map((m) => m[1]));
+  const aliasesOf = (html) => {
+    const raw = /<body[^>]* data-aliases="([^"]*)"/.exec(html)?.[1];
+    return raw ? JSON.parse(raw.replaceAll("&quot;", '"').replaceAll("&amp;", "&")) : {};
+  };
+  const closedWithRecord = async () => {
+    const dir = replayed(CLOSED);
+    writeFileSync(join(dir, "orchestrate.config.yml"), SINK_CONFIG);
+    assert.equal((await derive(dir)).code, 0);
+    return dir;
+  };
+
+  it("links under the run's repository and login once its record is derived", async () => {
+    const dir = await closedWithRecord();
+    const { html } = await board(dir, [], { until: CLOSED });
+    assert.equal(target(html, "../dashboard.html"), `${OWN}/summary`);
+  });
+
+  it("opens that page when a teammate's run shares the id, and when no run does", async () => {
+    const dir = await closedWithRecord();
+    const { html } = await board(dir, [], { until: CLOSED });
+    const hash = target(html, "../dashboard.html");
+    const stencil = readFileSync(recordPath(dir), "utf8");
+    const lee = recordBytes(stencil, { repo: NS_A, login: "lee", id: RUN });
+    // Alone: the dashboard keys the run on its id, and the board's route is an alias of it.
+    const alone = fakeTransport({
+      remotes: ORIGIN,
+      repos: { "acme/run-records": { files: new Map() } },
+    });
+    await build(dir, alone);
+    const one = page(dir);
+    assert.ok(sections(one).has(`/run/${RUN}/summary`));
+    assert.ok(sections(one).has(routeOf(`#${hash}`, { aliases: aliasesOf(one) })));
+    // A teammate's run with the same id: the dashboard keys both under repository and login.
+    const shared = fakeTransport({
+      remotes: ORIGIN,
+      repos: { "acme/run-records": { files: new Map([[sinkFile(NS_A, "lee", RUN), lee]]) } },
+    });
+    await build(dir, shared);
+    const two = page(dir);
+    assert.ok(!sections(two).has(`/run/${RUN}/summary`));
+    assert.ok(sections(two).has(hash), hash);
+    assert.ok(sections(two).has(routeOf(`#${hash}`, { aliases: aliasesOf(two) })));
+  });
+
+  it("links the served board the same way", async () => {
+    const dir = await closedWithRecord();
+    const server = await serving(dir);
+    const html = await (await fetch(server.url)).text();
+    assert.equal(target(html, "/dashboard"), `${OWN}/summary`);
   });
 });
 

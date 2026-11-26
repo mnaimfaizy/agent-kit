@@ -2389,6 +2389,7 @@ async function buildBoard(
   if (opened && !opened.repo) opened.repo = repoOf({ ...io, exec: io.exec ?? defaultExec });
 
   const { boardModel, parseLedger, renderBoard } = await import("./pages/board.mjs");
+  const { qualifiedSlug } = await import("./pages/dashboard.mjs");
   const stateText = readText(join(runFolder, "board.md"));
   const ledgerText = readText(join(runFolder, "rulings.md"));
   const model = boardModel({
@@ -2428,12 +2429,33 @@ async function buildBoard(
       node: `node ${quote(scriptPath)} board ${quote(folderPath)}${heartbeat === HEARTBEAT_MINUTES ? "" : ` --heartbeat ${heartbeat ?? "none"}`}`,
     },
     logs,
-    dashboardHref: `${dashboard}#/run/${runId}/summary`,
+    dashboardHref: `${dashboard}#/run/${dashboardSlug(runFolder, runId, cwd, model.run.repo, qualifiedSlug)}/summary`,
     sharedBoardHref,
     banner: "contains private prose from this machine, don't share this file",
     live,
   });
   return { model, html };
+}
+
+/**
+ * The run's key in the dashboard, made as the dashboard makes it for a local record: under its
+ * repository (`records.repository`, else the record's) and login. That key resolves whatever other
+ * runs share the id. With no local record yet, the run id alone.
+ */
+function dashboardSlug(runFolder, runId, cwd, repo, qualifiedSlug) {
+  const text = readText(join(dirname(runFolder), "records", `${runId}.json`));
+  let record = null;
+  try {
+    record = text === null ? null : JSON.parse(text);
+  } catch {
+    record = null;
+  }
+  const login = record?.run?.operator ?? null;
+  if (!login) return runId;
+  const loaded = readConfig((path) => readText(resolve(cwd, path)));
+  const pinned = loaded.problems.length ? null : effectiveConfig(loaded.config).records.repository;
+  const repository = (pinned ?? record.run.repo ?? repo)?.toLowerCase() ?? null;
+  return repository ? qualifiedSlug(repository, login, runId) : runId;
 }
 
 async function board(args, io) {

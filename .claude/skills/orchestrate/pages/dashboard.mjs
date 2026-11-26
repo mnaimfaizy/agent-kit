@@ -949,17 +949,26 @@ ${specList(repository, entries)}`,
   );
 }
 
-/** Each entry's route key: its run id, or, when two runs share an id, that id under its repository and login. */
+/** A run's route key under its repository and login: unique, whatever other runs share its id. */
+export const qualifiedSlug = (repository, login, id) =>
+  `${repository ?? "-"}/${login ?? "-"}/${id}`;
+
+/**
+ * Each entry's route key: its run id, or, when two runs share an id, that id under its repository
+ * and login (`qualified`). The qualified key always resolves: for a run keyed on its id alone it is
+ * an alias, so a link made without the other runs (the live board's) still opens the run.
+ */
 function withSlugs(entries) {
   const count = new Map();
   for (const { record } of entries) count.set(record.run.id, (count.get(record.run.id) ?? 0) + 1);
-  return entries.map((entry) => ({
-    ...entry,
-    slug:
-      count.get(entry.record.run.id) === 1
-        ? entry.record.run.id
-        : `${entry.repository ?? "-"}/${entry.login ?? "-"}/${entry.record.run.id}`,
-  }));
+  return entries.map((entry) => {
+    const qualified = qualifiedSlug(entry.repository, entry.login, entry.record.run.id);
+    return {
+      ...entry,
+      qualified,
+      slug: count.get(entry.record.run.id) === 1 ? entry.record.run.id : qualified,
+    };
+  });
 }
 
 // --- The whole dashboard.
@@ -1025,9 +1034,15 @@ export function buildPages(entries, context) {
   const switcher = repositories.length
     ? `<select id="repo-switch" class="switcher" aria-label="Repository"><option value="/">All repositories</option>${repositories.map((r) => `<option value="${esc(repoRoute(r))}">${esc(r)}</option>`).join("")}</select>`
     : "";
+  const aliases = Object.fromEntries(
+    entries
+      .filter((e) => e.slug !== e.qualified)
+      .map((e) => [runRoute(e.qualified), runRoute(e.slug)]),
+  );
   return {
     pages,
     switcher,
+    aliases,
     home: context.home ? repoRoute(context.home) : null,
     nav: [
       { href: "#/", label: "All repositories" },
@@ -1065,6 +1080,7 @@ export function renderDashboard(
     nav: built.nav,
     switcher: built.switcher,
     home: built.home,
+    aliases: built.aliases,
     pages: built.pages,
   });
 }
