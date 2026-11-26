@@ -2407,9 +2407,8 @@ async function buildBoard(
   const opened = events.find((e) => e.kind === "run-opened");
   if (opened && !opened.repo) opened.repo = repoOf({ ...io, exec: io.exec ?? defaultExec });
 
-  const { HEARTBEAT_MINUTES, boardModel, parseLedger, renderBoard } = await import(
-    "./pages/board.mjs"
-  );
+  const { HEARTBEAT_MINUTES, boardModel, parseLedger, renderBoard } =
+    await import("./pages/board.mjs");
   const heartbeat = given === undefined ? HEARTBEAT_MINUTES : given;
   const { qualifiedSlug } = await import("./pages/dashboard.mjs");
   const stateText = readText(join(runFolder, "board.md"));

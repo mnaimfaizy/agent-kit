@@ -4902,7 +4902,10 @@ describe("board: writing board.html", () => {
     const dir = replayed("2026-11-19T03:05:00Z");
     const { html } = await board(dir, [], { until: "2026-11-19T03:05:00Z" });
     const rebuild = /Rebuild: (.*?)<\/span>/.exec(html)?.[1];
-    assert.match(rebuild, /^<code>node \S*records\.mjs board tmp\/orchestrate\/2026-11-19-spec-344<\/code>$/);
+    assert.match(
+      rebuild,
+      /^<code>node \S*records\.mjs board tmp\/orchestrate\/2026-11-19-spec-344<\/code>$/,
+    );
     assert.doesNotMatch(html, /orchestrate --status/);
   });
 

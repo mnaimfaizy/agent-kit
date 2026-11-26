@@ -2041,8 +2041,9 @@ test("an `s3` sink names each missing key, and refuses a `repo`, a `branch` or a
 
 test("a sink key written with no value gets one problem, not three (D10)", () => {
   const named = (lines, key) =>
-    yaml("records:", "  sink:", ...lines.map((l) => `    ${l}`))
-      .problems.filter((p) => p.includes(`\`records.sink.${key}\``));
+    yaml("records:", "  sink:", ...lines.map((l) => `    ${l}`)).problems.filter((p) =>
+      p.includes(`\`records.sink.${key}\``),
+    );
   const s3 = {
     endpoint: `endpoint: ${S3_SINK.endpoint}`,
     bucket: `bucket: ${S3_SINK.bucket}`,

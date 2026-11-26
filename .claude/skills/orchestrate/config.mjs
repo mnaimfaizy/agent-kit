@@ -893,10 +893,7 @@ function checkSink(sink, s, base, types, expected) {
     if (here(key)) sink.add(`${base}.${key}`, "only an `s3` sink uses this: delete it");
   if (!Object.hasOwn(s, "repo"))
     sink.add(`${base}.repo`, "missing: the private repository, `owner/name` or `host/owner/name`");
-  else if (
-    here("repo") &&
-    !plainRepo(s.type === "gitlab" ? GITLAB_SINK_REPO : SINK_REPO, s.repo)
-  )
+  else if (here("repo") && !plainRepo(s.type === "gitlab" ? GITLAB_SINK_REPO : SINK_REPO, s.repo))
     sink.add(
       `${base}.repo`,
       s.type === "gitlab"
