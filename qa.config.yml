@@ -2,9 +2,10 @@
 # This repository's config, not part of the kit. Template:
 # examples/qa.config.yml. Guide: docs/qa.md.
 #
-# No run: section. Agent-kit has no application to start, so there is no QA
-# Stack and no QA Account. When a plan has scenarios to run, manual-qa asks for
-# the target, surface and roles in chat.
+# The QA Stack is the orchestrate skill's pages: the live board of a reopened run
+# at / and the past-runs dashboard at /dashboard, served by `records.mjs serve` on
+# 127.0.0.1 from the record fixtures (scripts/qa-stack.mjs). There is no sign-in,
+# so the one role, `viewer`, only opens the pages.
 #
 # Each suite runs in a fresh worktree that holds tracked files only, at the head
 # and at the merge-base, so it installs what it needs. Node does not create the
@@ -31,3 +32,18 @@ plan:
   publish:
     - { default: true, to: pr-comment }
   tracker: github
+
+run:
+  target: stack
+  surface: web
+  stack:
+    up: node scripts/qa-stack.mjs up
+    migrate: node scripts/qa-stack.mjs migrate
+    seed: node scripts/qa-stack.mjs seed
+    down: node scripts/qa-stack.mjs down
+    address: http://127.0.0.1:4791
+  accounts:
+    print: node scripts/qa-stack.mjs print
+    roles:
+      - id: viewer
+        purpose: opens the board and the dashboard pages; there is no sign-in
