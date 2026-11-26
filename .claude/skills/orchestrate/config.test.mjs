@@ -1432,12 +1432,9 @@ test("every harness file is in HARNESSES.md's table, and every table row has a f
     assert.ok(HARNESSES_MD.includes(`(harnesses/${id}.md)`), `${id} links its file`);
 });
 
-test("each harness file names its Support Level, and only Claude Code desktop is verified", () => {
+test("each harness file names its Support Level, and Claude Code desktop and Antigravity are verified", () => {
   const verified = Object.entries(HARNESSES).filter(([, h]) => h.level === "verified");
-  assert.deepEqual(
-    verified.map(([id]) => id),
-    ["claude-code-desktop"],
-  );
+  assert.deepEqual(verified.map(([id]) => id).sort(), ["antigravity", "claude-code-desktop"]);
   assert.equal(HARNESSES.cursor.level, "tried");
   assert.equal(HARNESSES["claude-code-desktop"].headless, false);
   assert.equal(HARNESSES["claude-code-cli"].headless, true);

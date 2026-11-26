@@ -597,7 +597,7 @@ describe("uploading the Run Record to a sink", () => {
 
   it("the sink file states the writer's access, and mirrors the tracker files", () => {
     const sink = flat(read(`${SKILL_DIR}/sinks/github.md`));
-    assert.match(sink, /^# GitHub - \*\*Id:\*\* `github` - \*\*Support Level:\*\* `documented`/);
+    assert.match(sink, /^# GitHub - \*\*Id:\*\* `github` - \*\*Support Level:\*\* `verified`/);
     assert.match(sink, /- \*\*Facts from:\*\*/);
     assert.match(sink, /\*\*The writer\*\* needs \*\*Contents: write\*\* on the sink repository/);
     for (const op of ["visibility", "access", "read", "create", "list"])
@@ -678,10 +678,11 @@ describe("uploading the Run Record to a sink", () => {
 
   it("SINKS.md lists the gitlab sink and says where its Support Level is read", () => {
     const index = flat(read(`${SKILL_DIR}/SINKS.md`));
+    assert.match(index, /\| `github` \| `verified` \|/);
     assert.match(index, /\| `gitlab` \| `documented` \|/);
     assert.match(
       index,
-      /A sink's Support Level is the one its own file states, and the Dispatch Plan and the disclosure name it while it is below `verified` \(\[RUN\.md\]\(RUN\.md#uploading-the-run-record\)\): all three [Ss]inks, `github`, `gitlab` and `s3`, ship at `documented` until a run has uploaded to them/,
+      /A sink's Support Level is the one its own file states, and the Dispatch Plan and the disclosure name it while it is below `verified` \(\[RUN\.md\]\(RUN\.md#uploading-the-run-record\)\): `github` is `verified`, while `gitlab` and `s3` ship at `documented` until a run has uploaded to them/,
     );
   });
 
@@ -689,12 +690,12 @@ describe("uploading the Run Record to a sink", () => {
     const run = flat(read(`${SKILL_DIR}/RUN.md`));
     assert.match(
       run,
-      /When the [Ss]ink's file states a Support Level below `verified` \(all three [Ss]inks, `github`, `gitlab` and `s3`, ship at `documented`\), the Dispatch Plan says so beside "upload the Run Record", and the close-out repeats it after the disclosure/,
+      /When the [Ss]ink's file states a Support Level below `verified` \(`gitlab` and `s3` ship at `documented`; `github` is `verified`\), the Dispatch Plan says so beside "upload the Run Record", and the close-out repeats it after the disclosure/,
     );
     assert.match(flat(SKILL), /the sink's Support Level \(\[SINKS\.md\]\(SINKS\.md\)\)/);
     assert.match(
       flat(DESIGN),
-      /all three [Ss]inks, `github`, `gitlab` and `s3`, ship at Support Level `documented`/,
+      /`github` is `verified`, while `gitlab` and `s3` ship at Support Level `documented`/,
     );
   });
 
