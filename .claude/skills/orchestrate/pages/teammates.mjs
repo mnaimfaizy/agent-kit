@@ -385,9 +385,18 @@ function specPage(kit, group, context) {
       ms(a.record.run.started_at) - ms(b.record.run.started_at),
   );
   const logins = [...new Set(runs.map(loginOf).filter(Boolean))].sort();
-  const shown = new Set(runs.map((e) => e.record.run.id));
-  const tookOver = new Map();
-  for (const e of runs) for (const id of e.record.run.took_over) tookOver.set(id, e.record.run.id);
+  // A run id alone does not name a run: two teammates' runs over one spec can share one. A taken-over
+  // id is the taker's own run of that id, else the one run with it; with neither, it is not shown.
+  const takenOver = (taker, id) => {
+    const same = runs.filter((r) => r.record.run.id === id && r !== taker);
+    return same.find((r) => loginOf(r) === loginOf(taker)) ?? (same.length === 1 ? same[0] : null);
+  };
+  const supersededBy = new Map();
+  for (const e of runs)
+    for (const id of e.record.run.took_over) {
+      const old = takenOver(e, id);
+      if (old) supersededBy.set(old, e);
+    }
 
   const t0 = Math.min(...runs.map((e) => ms(e.record.run.started_at)));
   const t1 = Math.max(t0 + 1, ...runs.map((e) => ms(e.record.run.closed_at)));
@@ -408,7 +417,7 @@ function specPage(kit, group, context) {
         .filter((s) => s.cause === "teammate-blocker" && s.opened_at)
         .map(
           (s) =>
-            `<rect class="mark wait c-teammate-blocker" x="${x(s.opened_at).toFixed(1)}" y="${cy - 5}" width="${Math.max(2, x(s.at) - x(s.opened_at)).toFixed(1)}" height="10"><title>${esc(`parked on #${s.blocker}, ${duration(s.waited_seconds)}`)}</title></rect>`,
+            `<rect class="mark wait c-teammate-blocker" x="${x(s.opened_at).toFixed(1)}" y="${cy - 5}" width="${Math.max(2, x(s.at) - x(s.opened_at)).toFixed(1)}" height="10"><title>${esc(`parked on ${s.blocker ? `#${s.blocker}` : "a teammate's ticket"}, ${duration(s.waited_seconds)}`)}</title></rect>`,
         ),
     ];
     return `<g class="lane" data-lane="${esc(`${loginOf(e)}:${run.id}`)}"><rect class="lane-bg" x="${LANE_LABEL}" y="${i * LANE_H + 2}" width="${LANE_W + 20}" height="${LANE_H - 4}" rx="4"></rect><text x="4" y="${cy + 4}">${esc(loginOf(e) ?? "?")} · ${esc(run.id)}</text>${marks.join("")}</g>`;
@@ -422,11 +431,11 @@ function specPage(kit, group, context) {
   const laneRows = runs.map((e) => {
     const { run } = e.record;
     const notes = [
-      tookOver.has(run.id)
-        ? `superseded by ${link(kit.runRoute(runs.find((r) => r.record.run.id === tookOver.get(run.id)).slug) + "/summary", esc(tookOver.get(run.id)))}`
+      supersededBy.has(e)
+        ? `superseded by ${link(kit.runRoute(supersededBy.get(e).slug) + "/summary", esc(supersededBy.get(e).record.run.id))}`
         : null,
       ...run.took_over.map(
-        (id) => `took over ${shown.has(id) ? esc(id) : `${esc(id)} (not shown)`}`,
+        (id) => `took over ${takenOver(e, id) ? esc(id) : `${esc(id)} (not shown)`}`,
       ),
     ].filter(Boolean);
     return `<tr data-lane-login="${esc(loginOf(e) ?? "")}" data-lane-run="${esc(run.id)}"><td>${esc(loginOf(e) ?? "")}</td><td>${link(kit.runRoute(e.slug) + "/summary", esc(run.id))}</td><td>${esc(run.harness)} <span class="muted small">${esc(run.support_level)}</span></td><td>${models(e).map(esc).join(", ")}</td><td class="nowrap">${esc(run.started_at)}</td><td>${esc(duration(run.duration_seconds))}</td><td>${state(run.outcome)}</td><td>${notes.join("; ")}</td></tr>`;
@@ -505,7 +514,7 @@ ${table(["Login", "Run", "Harness", "Model", "Started", "Length", "Outcome", "Ta
             ],
             parked.map(
               (p) =>
-                `<tr><td>${esc(p.login)}</td><td>${p.ticket === null ? "" : `#${p.ticket}`}</td><td>#${p.step.blocker}</td><td>${esc(p.step.blocker_login)}</td><td>${chip("teammate-blocker")}</td><td>${p.step.waited_seconds === null ? "" : esc(duration(p.step.waited_seconds))}</td><td class="nowrap">unparked ${esc(p.step.at)}</td></tr>`,
+                `<tr><td>${esc(p.login ?? "")}</td><td>${p.ticket === null ? "" : `#${p.ticket}`}</td><td>${p.step.blocker ? `#${p.step.blocker}` : "a teammate's ticket"}</td><td>${p.step.blocker_login ? esc(p.step.blocker_login) : ""}</td><td>${chip("teammate-blocker")}</td><td>${p.step.waited_seconds === null ? "" : esc(duration(p.step.waited_seconds))}</td><td class="nowrap">unparked ${esc(p.step.at)}</td></tr>`,
             ),
             ' data-table="parked"',
           )

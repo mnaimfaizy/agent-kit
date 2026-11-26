@@ -201,12 +201,18 @@ const page = (id, html) => ({
 
 /** The steps of a run as `{at, rank, text}` lines, from the record alone. */
 function eventLines(record) {
+  return eventLineEntries(record).map((l) => l.text);
+}
+
+/** The lines of eventLines, in order, each with `step`, the index of its human step, on that step's line. */
+function eventLineEntries(record) {
   const { run } = record;
   const lines = [];
-  const add = (at, rank, kind, fields) =>
+  const add = (at, rank, kind, fields, step = null) =>
     lines.push({
       at,
       rank,
+      step,
       text: `${at}  ${kind.padEnd(19)}${fields.filter(Boolean).join(" ")}`,
     });
   add(run.started_at, 0, "run-opened", [
@@ -221,7 +227,7 @@ function eventLines(record) {
     if (d.landed_at) add(d.landed_at, 1, "delegation-landed", [d.id]);
     if (d.ended_at) add(d.ended_at, 1, "delegation-ended", [d.id, `outcome=${d.outcome}`]);
   }
-  for (const s of record.human_steps) {
+  record.human_steps.forEach((s, n) => {
     if (s.opened_at)
       add(s.opened_at, 1, "wait-opened", [
         s.wait_id && `wait=${s.wait_id}`,
@@ -229,20 +235,26 @@ function eventLines(record) {
         `kind=${s.kind}`,
         `cause=${s.cause}`,
       ]);
-    add(s.at, 1, "human-step", [
-      s.delegation,
-      `kind=${s.kind}`,
-      `actor=${s.actor}`,
-      `cause=${s.cause}`,
-      s.how && `how=${s.how}`,
-      s.waited_seconds !== null && `waited=${duration(s.waited_seconds)}`,
-    ]);
-  }
+    add(
+      s.at,
+      1,
+      "human-step",
+      [
+        s.delegation,
+        `kind=${s.kind}`,
+        `actor=${s.actor}`,
+        `cause=${s.cause}`,
+        s.how && `how=${s.how}`,
+        s.waited_seconds !== null && `waited=${duration(s.waited_seconds)}`,
+      ],
+      n,
+    );
+  });
   for (const w of record.writes)
     add(w.at, 1, "write", [w.delegation, `kind=${w.kind}`, `actor=${w.actor}`]);
   add(run.closed_at, 2, "run-closed", [`outcome=${run.outcome}`]);
   // Stable: lines of one second keep the order they were added in.
-  return lines.sort((a, b) => ms(a.at) - ms(b.at) || a.rank - b.rank).map((l) => l.text);
+  return lines.sort((a, b) => ms(a.at) - ms(b.at) || a.rank - b.rank);
 }
 
 /** A short text report of the run, from the record alone. */
@@ -579,9 +591,9 @@ function stepPage(entry, s, n, lines) {
   const { record } = entry;
   const id = entry.slug;
   const info = CAUSE_INFO[s.cause];
-  const stamp = `${s.at}  human-step`;
-  const at = lines.findIndex((l) => l.startsWith(stamp) && l.includes(`kind=${s.kind}`));
-  const around = lines.slice(Math.max(0, at - 3), at + 4);
+  // The step's own line, by its index: two steps of one kind in one second are two lines.
+  const at = lines.findIndex((l) => l.step === n);
+  const around = lines.slice(Math.max(0, at - 3), at + 4).map((l) => l.text);
   return page(
     stepRoute(id, n + 1),
     `<div class="crumbs"><a href="#/">All repositories</a> / ${link(runRoute(id) + "/steps", esc(record.run.id))} / step ${n + 1}</div>
@@ -842,7 +854,9 @@ function namespaceTree(entries) {
   const tree = new Map();
   for (const entry of entries) {
     if (!entry.repository) continue;
-    const [host, owner, name] = entry.repository.split("/");
+    // The name is the last segment and the owner everything between: a GitLab owner may be `grp/sub`.
+    const parts = entry.repository.split("/");
+    const [host, owner, name] = [parts[0], parts.slice(1, -1).join("/"), parts.at(-1)];
     const login = entry.login ?? "(no login)";
     const o = tree.get(host)?.get(owner) ?? new Map();
     const r = o.get(name) ?? new Map();
@@ -1015,7 +1029,7 @@ export function buildPages(entries, context) {
   pages.push(...personPages(kit, entries, context), ...specPages(kit, entries, context));
   for (const entry of entries) {
     const { record } = entry;
-    const lines = eventLines(record);
+    const lines = eventLineEntries(record);
     const tabPages = {
       summary: summaryTab,
       timeline: timelineTab,

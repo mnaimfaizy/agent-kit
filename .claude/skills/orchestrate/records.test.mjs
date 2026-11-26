@@ -2909,6 +2909,77 @@ describe("dashboard: namespaces from the sink's paths", () => {
   });
 });
 
+describe("dashboard: GitLab subgroups in the Namespaces tree (C2)", () => {
+  it("names a project by its last segment, under its whole group path, one node per project", async () => {
+    const { dir, transport, files, bytes } = await readyToRead();
+    for (const name of ["a", "b"])
+      files.set(
+        sinkFile(
+          `gitlab.com/grp/sub/${name}`,
+          "naim",
+          `2026-11-0${name === "a" ? 5 : 6}-tickets-${name}`,
+        ),
+        bytes({
+          repo: `gitlab.com/grp/sub/${name}`,
+          login: "naim",
+          id: `2026-11-0${name === "a" ? 5 : 6}-tickets-${name}`,
+        }),
+      );
+    const result = await build(dir, transport);
+    assert.equal(result.code, 0, result.out);
+    const html = body(page(dir));
+    const tree = section(html, "/").split("data-tree")[1].split("</ul>\n</div>")[0];
+    assert.match(tree, /<code>grp\/sub<\/code>/);
+    for (const name of ["a", "b"]) {
+      const route = `/repo/gitlab.com/grp/sub/${name}`;
+      assert.match(
+        tree,
+        new RegExp(`<a href="#${route}">${name}</a> <span class="muted small">1 run</span>`),
+      );
+      assert.match(html, new RegExp(`<section class="page" id="${route}"`));
+    }
+    assert.doesNotMatch(tree, /href="#\/repo\/gitlab\.com\/grp\/sub"/);
+  });
+});
+
+describe("dashboard: a step page centres on its own line (C17)", () => {
+  it("shows each of two same-kind steps in one second around its own line", async () => {
+    let total = 0;
+    const dir = await readyToUpload({
+      edit: (text) => {
+        const record = JSON.parse(text);
+        const first = record.human_steps[0];
+        const twin = (how) => ({
+          ...first,
+          how,
+          wait_id: null,
+          opened_at: null,
+          waited_seconds: null,
+        });
+        record.human_steps.splice(1, 0, twin("chat"), twin("card"));
+        total = record.human_steps.length;
+        return `${JSON.stringify(record, null, 2)}\n`;
+      },
+    });
+    const result = await dashboard(dir);
+    assert.equal(result.code, 0, result.out);
+    assert.ok(total > 3);
+    const html = page(dir);
+    const around = (n) =>
+      section(html, `/run/${RUN}/step/${n}`).split("<h2>Around it</h2>")[1].split("</pre>")[0];
+    const centre = (n) => {
+      const lines = around(n)
+        .replace(/^\s*<pre class="log">/, "")
+        .split("\n");
+      return lines[Math.min(3, lines.length - 1)];
+    };
+    assert.notEqual(around(2), around(3));
+    assert.match(centre(3), /human-step/);
+    assert.match(centre(3), /how=card/);
+    assert.match(centre(2), /how=chat/);
+  });
+});
+
 describe("dashboard: the cache", () => {
   it("fetches only new paths: a second build makes no read, a new path makes one", async () => {
     const { dir, transport, files, bytes } = await readyToRead();
@@ -3630,6 +3701,67 @@ describe("dashboard: Person pages", () => {
 
 describe("dashboard: Spec pages", () => {
   const SPEC = `/repo/${NS_A}/spec/77`;
+
+  it("keys a takeover on the run, not its id: a teammate's run with the same id is not superseded (C5)", async () => {
+    const made = await readyToTeam();
+    const run = (o) => personRun(made.stencil, o);
+    const team = { kind: "team", spec: 77, team: true, seconds: 600 };
+    const add = (login, o) =>
+      made.files.set(sinkFile(NS_A, login, o.id), run({ ...team, ...o, repo: NS_A, login }));
+    add("naim", { id: "2026-11-17-team-77c", closedAgo: 8 });
+    add("lee", { id: "2026-11-17-team-77c", closedAgo: 8 });
+    add("naim", { id: "2026-11-18-team-77d", closedAgo: 7, tookOver: ["2026-11-17-team-77c"] });
+    assert.equal((await build(made.dir, made.transport)).code, 0);
+    const spec = section(body(page(made.dir)), SPEC);
+    const lane = (login, id) =>
+      plain(spec.split(`data-lane-login="${login}" data-lane-run="${id}"`)[1].split("</tr>")[0]);
+    assert.match(lane("naim", "2026-11-17-team-77c"), /superseded by 2026-11-18-team-77d/);
+    assert.doesNotMatch(lane("lee", "2026-11-17-team-77c"), /superseded/);
+    assert.match(
+      lane("naim", "2026-11-18-team-77d"),
+      /took over 2026-11-17-team-77c(?! \(not shown\))/,
+    );
+    // The cross-login takeover of the fixture still reads as before.
+    assert.match(lane("lee", "2026-11-02-team-77a"), /superseded by 2026-11-05-team-77b/);
+  });
+
+  it("prints no `#undefined`, `undefined` or `null` for a parked step with no blocker recorded (C6)", async () => {
+    const made = await readyToTeam();
+    const bare = {
+      at: "2026-11-19T04:00:00Z",
+      opened_at: "2026-11-19T03:00:00Z",
+      delegation: "d352",
+      kind: "teammate-blocker",
+      cause: "teammate-blocker",
+      avoidable: false,
+      actor: "chief-of-staff",
+      wait_id: "w21",
+      waited_seconds: 3600,
+      how: "github",
+      covers: [],
+    };
+    made.files.set(
+      sinkFile(NS_A, "sam", "2026-11-19-team-77e"),
+      personRun(made.stencil, {
+        id: "2026-11-19-team-77e",
+        kind: "team",
+        spec: 77,
+        team: true,
+        closedAgo: 6,
+        seconds: 600,
+        steps: [bare],
+        repo: NS_A,
+        login: "sam",
+      }),
+    );
+    const result = await build(made.dir, made.transport);
+    assert.equal(result.code, 0, result.out);
+    const spec = section(body(page(made.dir)), SPEC);
+    const parked = spec.split('data-table="parked"')[1].split("</table>")[0];
+    assert.doesNotMatch(parked, /undefined|null/);
+    assert.match(plain(parked), /a teammate's ticket/);
+    assert.doesNotMatch(spec, /#undefined|parked on #undefined/);
+  });
 
   it("has a page per team spec only, linked from the Repository page", async () => {
     const { html } = await peopleOf();
