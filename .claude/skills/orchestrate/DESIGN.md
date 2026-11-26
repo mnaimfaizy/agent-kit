@@ -22,6 +22,8 @@ These are word for word the definitions in Agent-kit's root glossary, where a co
 
 **Decision Request**: A question a Delegation, or a Factory task, cannot settle from its brief, raised to the human (through the Chief of Staff, or on the issue with `factory:needs-decision`) or, in an autonomous run, answered by a Ruling; self-contained, with options, evidence and a recommendation.
 
+**Pending Message**: Text the Chief of Staff has decided to send to an Executor (an answer, a Ruling, a nudge, a send-back, a merge order) that its harness cannot deliver until that Executor's run has ended.
+
 **Ruling**: A Decision Request the Chief of Staff answers itself in an autonomous run, because the human handed it that kind at "go" and the evidence it cites picks one option; it stands until the Ruling Review.
 
 **Ruling Ledger**: The ordered list of every Ruling in a run, each with its question, options, choice and evidence, kept in the run folder for the Ruling Review.
