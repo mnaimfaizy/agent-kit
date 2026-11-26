@@ -3655,12 +3655,12 @@ function fakeS3({ buckets = {}, region = "us-east-1" } = {}) {
           c.method === "GET" && c.key === "" && c.query.has("list-type") && c.headers.authorization,
       ),
   };
-  const reply = (status, text = "", code = null) => ({
-    status,
-    text: code
-      ? `<?xml version="1.0"?><Error><Code>${code}</Code><Message>no</Message></Error>`
-      : text,
-  });
+  // A real `Response`, as the real `fetch` gives: its body is read with `text()`, once.
+  const reply = (status, text = "", code = null) =>
+    new Response(
+      code ? `<?xml version="1.0"?><Error><Code>${code}</Code><Message>no</Message></Error>` : text,
+      { status },
+    );
   state.fetch = async (url, { method = "GET", headers = {}, body } = {}) => {
     const target = new URL(url);
     const [, name, ...keyParts] = target.pathname.split("/");
@@ -4276,7 +4276,7 @@ describe("upload-raw: the lifecycle gate", () => {
     const base = s3.fetch;
     s3.fetch = async (url, init) =>
       new URL(url).searchParams.has("lifecycle")
-        ? { status: 403, text: "<Error><Code>AccessDenied</Code></Error>" }
+        ? new Response("<Error><Code>AccessDenied</Code></Error>", { status: 403 })
         : base(url, init);
     const result = await uploadRaw(dir, s3);
     assert.equal(result.code, 1);

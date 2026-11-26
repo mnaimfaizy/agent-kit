@@ -1336,7 +1336,7 @@ function s3Sink({
         headers: send,
         ...(body === "" ? {} : { body }),
       });
-      return { status: response.status, text: String(response.text ?? "") };
+      return { status: response.status, text: await response.text() };
     } catch (error) {
       return { status: 0, text: "", detail: String(error?.message ?? error) };
     }
