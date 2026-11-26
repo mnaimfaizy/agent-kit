@@ -2039,6 +2039,31 @@ test("an `s3` sink names each missing key, and refuses a `repo`, a `branch` or a
   );
 });
 
+test("a sink key written with no value gets one problem, not three (D10)", () => {
+  const named = (lines, key) =>
+    yaml("records:", "  sink:", ...lines.map((l) => `    ${l}`))
+      .problems.filter((p) => p.includes(`\`records.sink.${key}\``));
+  const s3 = {
+    endpoint: `endpoint: ${S3_SINK.endpoint}`,
+    bucket: `bucket: ${S3_SINK.bucket}`,
+    region: "region: auto",
+  };
+  for (const key of ["endpoint", "bucket", "region"]) {
+    const lines = ["type: s3", ...Object.entries(s3).map(([k, l]) => (k === key ? `${k}:` : l))];
+    const found = named(lines, key);
+    assert.equal(found.length, 1, found.join("\n"));
+    assert.match(found[0], /no value: give one, or delete the key/);
+  }
+  for (const key of ["type", "repo"]) {
+    const lines = ["type: github", "repo: acme/run-records"].map((l) =>
+      l.startsWith(`${key}:`) ? `${key}:` : l,
+    );
+    const found = named(lines, key);
+    assert.equal(found.length, 1, found.join("\n"));
+    assert.match(found[0], /no value: give one, or delete the key/);
+  }
+});
+
 test("a long mixed-case name in `repo`, `bucket` or `endpoint` is not read as a secret", () => {
   for (const sink of [
     { type: "github", repo: "AcmeCorp/OrchestrateRunRecords2026Private" },

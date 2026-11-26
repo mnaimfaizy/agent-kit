@@ -841,12 +841,12 @@ const isCount = (v) =>
 function checkSink(sink, s, base, types, expected) {
   if (!isMapping(s)) return sink.add(base, "expected a mapping");
   unknownKeys(sink, s, base, SINK_KEYS);
-  if (!given(sink, s, "type", `${base}.type`))
+  if (!Object.hasOwn(s, "type"))
     sink.add(
       `${base}.type`,
       `missing: ${types === RAW_SINK_TYPES ? RAW_SINK_ONLY : `one of ${expected}`}`,
     );
-  else if (!types.includes(s.type))
+  else if (given(sink, s, "type", `${base}.type`) && !types.includes(s.type))
     sink.add(
       `${base}.type`,
       types === RAW_SINK_TYPES
@@ -867,8 +867,9 @@ function checkSink(sink, s, base, types, expected) {
   if (s.type === "s3") {
     for (const key of GIT_SINK_KEYS)
       if (here(key)) sink.add(`${base}.${key}`, "not used by an `s3` sink: delete it");
+    // A key with no value is reported once, by `here` below; only an absent key is missing.
     for (const key of S3_SINK_KEYS)
-      if (!given(sink, s, key, `${base}.${key}`))
+      if (!Object.hasOwn(s, key))
         sink.add(
           `${base}.${key}`,
           `missing: ${{ endpoint: "the store's https URL, such as `https://<account>.r2.cloudflarestorage.com`", bucket: "the bucket's name", region: "the bucket's region, such as `us-east-1` (`auto` for R2)" }[key]}`,
@@ -890,10 +891,10 @@ function checkSink(sink, s, base, types, expected) {
   if (types === RAW_SINK_TYPES) return;
   for (const key of S3_SINK_KEYS)
     if (here(key)) sink.add(`${base}.${key}`, "only an `s3` sink uses this: delete it");
-  if (!given(sink, s, "repo", `${base}.repo`))
+  if (!Object.hasOwn(s, "repo"))
     sink.add(`${base}.repo`, "missing: the private repository, `owner/name` or `host/owner/name`");
   else if (
-    !secret.has("repo") &&
+    here("repo") &&
     !plainRepo(s.type === "gitlab" ? GITLAB_SINK_REPO : SINK_REPO, s.repo)
   )
     sink.add(
