@@ -2065,6 +2065,18 @@ test("a sink key written with no value gets one problem, not three (D10)", () =>
   }
 });
 
+test("a secret-looking sink `type` is one problem, and its value is never printed back", () => {
+  const token = `ghp_${"a1B2".repeat(9)}`;
+  for (const key of ["sink", "raw"]) {
+    const sink = { type: token, repo: "acme/run-records" };
+    const records = key === "sink" ? { sink } : { raw: { sink } };
+    const found = json(JSON.stringify({ records })).problems.filter((p) => p.includes(".type`"));
+    assert.equal(found.length, 1, found.join("\n"));
+    assert.match(found[0], /looks like a secret/);
+    assert.ok(!found[0].includes(token));
+  }
+});
+
 test("a long mixed-case name in `repo`, `bucket` or `endpoint` is not read as a secret", () => {
   for (const sink of [
     { type: "github", repo: "AcmeCorp/OrchestrateRunRecords2026Private" },

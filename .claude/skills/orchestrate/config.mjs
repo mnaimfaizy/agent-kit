@@ -841,23 +841,24 @@ const isCount = (v) =>
 function checkSink(sink, s, base, types, expected) {
   if (!isMapping(s)) return sink.add(base, "expected a mapping");
   unknownKeys(sink, s, base, SINK_KEYS);
+  const secret = new Set(
+    Object.entries(s)
+      .filter(([k, v]) => looksLikeSecret(v, { name: NAME_KEYS.includes(k) }))
+      .map(([k]) => k),
+  );
   if (!Object.hasOwn(s, "type"))
     sink.add(
       `${base}.type`,
       `missing: ${types === RAW_SINK_TYPES ? RAW_SINK_ONLY : `one of ${expected}`}`,
     );
-  else if (given(sink, s, "type", `${base}.type`) && !types.includes(s.type))
+  // A secret-looking type is reported below as a secret, and never printed back.
+  else if (given(sink, s, "type", `${base}.type`) && !secret.has("type") && !types.includes(s.type))
     sink.add(
       `${base}.type`,
       types === RAW_SINK_TYPES
         ? `\`${s.type}\` cannot hold raw run folders: ${RAW_SINK_ONLY}, because only a bucket can expire them`
         : `unknown sink type \`${s.type}\`; expected one of: ${expected}`,
     );
-  const secret = new Set(
-    Object.entries(s)
-      .filter(([k, v]) => looksLikeSecret(v, { name: NAME_KEYS.includes(k) }))
-      .map(([k]) => k),
-  );
   for (const key of secret)
     sink.add(
       `${base}.${key}`,
