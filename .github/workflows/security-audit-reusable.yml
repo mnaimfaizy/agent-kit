@@ -960,7 +960,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          gh pr edit "$PR" --repo "$GITHUB_REPOSITORY" --remove-label "$LABEL" || true
+          if [ -n "$LABEL" ]; then
+            ENCODED_LABEL="$(jq -rn --arg label "$LABEL" '$label | @uri')"
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/issues/$PR/labels/$ENCODED_LABEL" || true
+          fi
 
       - name: PR comment (counts only)
         if: ${{ success() && inputs.mode == 'pr' && steps.finding_count.outputs.count != '0' && inputs.pr_number != '' }}

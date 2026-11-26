@@ -132,19 +132,30 @@ for label in "${labels[@]+"${labels[@]}"}"; do
   label_args+=(--label "$label")
 done
 
-existing="$(gh pr list --head "$branch" --base "$base" --state open --json url --jq '.[0].url // empty')"
-if [ -n "$existing" ]; then
+existing_pr="$(gh pr list --head "$branch" --base "$base" --state open --json number,url --jq 'if length > 0 then "\(.[0].number)\t\(.[0].url)" else empty end')"
+if [ -n "$existing_pr" ]; then
+  IFS=$'\t' read -r pr_number existing_url <<< "$existing_pr"
   # TODO(adopt): to sync labels, remove allowlisted labels the draft no
-  # longer chose; leave labels outside the allowlist alone.
-  edit_args=(--title "$title" --body-file "$body_file" --add-assignee @me)
-  for label in "${labels[@]+"${labels[@]}"}"; do
-    edit_args+=(--add-label "$label")
-  done
-  for reviewer in "${reviewers[@]+"${reviewers[@]}"}"; do
-    edit_args+=(--add-reviewer "$reviewer")
-  done
-  gh pr edit "$existing" "${edit_args[@]}"
-  printf '%s\n' "$existing"
+  # longer chose (DELETE repos/{owner}/{repo}/issues/$pr_number/labels/<url-encoded>,
+  # treating 404 as already removed); leave labels outside the allowlist alone.
+  gh api -X PATCH "repos/{owner}/{repo}/pulls/$pr_number" -f "title=$title" -F "body=@$body_file" >/dev/null
+  me="$(gh api user --jq .login)"
+  gh api -X POST "repos/{owner}/{repo}/issues/$pr_number/assignees" -f "assignees[]=$me" >/dev/null
+  if [ "${#labels[@]}" -gt 0 ]; then
+    label_api_args=()
+    for label in "${labels[@]}"; do
+      label_api_args+=(-f "labels[]=$label")
+    done
+    gh api -X POST "repos/{owner}/{repo}/issues/$pr_number/labels" "${label_api_args[@]}" >/dev/null
+  fi
+  if [ "${#reviewers[@]}" -gt 0 ]; then
+    reviewer_api_args=()
+    for reviewer in "${reviewers[@]}"; do
+      reviewer_api_args+=(-f "reviewers[]=$reviewer")
+    done
+    gh api -X POST "repos/{owner}/{repo}/pulls/$pr_number/requested_reviewers" "${reviewer_api_args[@]}" >/dev/null
+  fi
+  printf '%s\n' "$existing_url"
   exit 0
 fi
 

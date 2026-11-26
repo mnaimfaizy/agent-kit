@@ -387,7 +387,7 @@ With `working-copy`, skip this step. Otherwise pass `--link <file>=<url>` for ea
   ```bash
   gh issue view <planIssue> --json body --jq .body > "<tmp>/issue.md"
   node "<skill>/report.mjs" tracker "<report file>" --issue-body "<tmp>/issue.md" --link <file>=<url> … > "<tmp>/issue-new.md"
-  gh issue edit <planIssue> --body-file "<tmp>/issue-new.md"
+  gh api -X PATCH "repos/{owner}/{repo}/issues/<planIssue>" -F "body=@<tmp>/issue-new.md"
   ```
 
   Each scenario's Sign-off box is ticked when it passed and cleared otherwise; a Setup box and a `Review:` box stay a person's to tick. The issue's Execution record becomes the report's. The report's **Run deviations:** line is in its header, not its Execution record, so it does not reach the issue. An issue whose plan is for another pull request or another head is refused: the plan was revised after this run.
