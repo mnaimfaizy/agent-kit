@@ -132,7 +132,7 @@ describe("examples/orchestrate.config.yml", () => {
 
   it("names `records.raw.sink` in a commented block of its own, `s3` only, which reads with no problems once uncommented", () => {
     const lines = EXAMPLE.split("\n");
-    const start = lines.lastIndexOf("# records:");
+    const start = lines.indexOf("# records: # only when no block above is uncommented");
     assert.ok(
       start > lines.indexOf("# records:", lines.indexOf("# records:") + 1),
       "a third `records:` block",
@@ -160,6 +160,42 @@ describe("examples/orchestrate.config.yml", () => {
       null,
     );
     assert.match(EXAMPLE, /expires `raw\/`/);
+  });
+
+  it("merges `raw:` into the sink block above: uncommenting both gives one `records:` key (C9)", () => {
+    const lines = EXAMPLE.split("\n");
+    const blockAt = (start) => {
+      const block = [];
+      for (const line of lines.slice(start)) {
+        if (!line.startsWith("# ")) break;
+        block.push(line.slice(2));
+      }
+      return block;
+    };
+    const github = blockAt(lines.indexOf("# records:"));
+    const s3 = blockAt(lines.indexOf("# records:", lines.indexOf("# records:") + 1));
+    const raw = blockAt(lines.indexOf("# records: # only when no block above is uncommented"));
+    assert.match(raw[0], /^records: # only when no block above is uncommented/);
+    assert.match(EXAMPLE, /A second\n# `records:` key is refused as a duplicate/);
+    for (const [name, sink] of [
+      ["github", github],
+      ["s3", s3],
+    ]) {
+      const { config: parsed, problems } = config.parseConfig(
+        FILE,
+        [...sink, ...raw.slice(1)].join("\n"),
+      );
+      assert.deepEqual(problems, [], name);
+      const records = config.effectiveConfig(parsed).records;
+      assert.equal(records.sink.type, name);
+      assert.equal(records.raw.sink.type, "s3");
+      // Uncommenting both `records:` lines is the duplicate the comment warns of.
+      assert.match(
+        config.parseConfig(FILE, [...sink, ...raw].join("\n")).problems.join("\n"),
+        /duplicate key/,
+        name,
+      );
+    }
   });
 
   it("shows the `prune` key as a commented block that reads with no problems once uncommented", () => {

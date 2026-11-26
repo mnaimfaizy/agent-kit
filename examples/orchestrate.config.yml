@@ -118,7 +118,10 @@ team: # read only by a Team Run
 # whose own lifecycle rule expires `raw/` (the skill reads that rule and never
 # writes it), because a raw folder may quote private issue text, command output
 # and file contents. Same credentials as above, from the environment only.
-# records:
+# `raw:` goes in the one `records:` block: with a sink block above
+# uncommented, uncomment only the `raw:` lines, under its keys. A second
+# `records:` key is refused as a duplicate.
+# records: # only when no block above is uncommented
 #   raw: # unset: raw folders are never offered
 #     sink:
 #       type: s3 # s3 only
