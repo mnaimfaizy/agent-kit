@@ -18,7 +18,9 @@ The skill body speaks of four verbs only. This file says what they mean, how a r
 The events `await` waits for are a report, a Decision Request, an end, or no sign of life. A harness's own signal for them is not enough on its own. It comes when a Delegation ends a turn, and a Delegation can end a turn before its report is final. It does not come at all for a Delegation stopped on a prompt, or for a wait on CI or a review that ends with nothing found. So every harness's `await` has two parts:
 
 - **A primary event:** the harness's own signal, as its file names it: a session ending a turn, a process ending, a sub-agent's end announced.
-- **A heartbeat:** a check that re-arms itself, every 10 minutes by default, whatever the turns between did. It catches what the event misses. SKILL.md step 6 says when it is armed and removed, and what each firing does.
+- **A heartbeat:** a check that re-arms itself, every 10 minutes by default, whatever the turns between did. It catches what the event misses. SKILL.md step 6 says when it is armed and removed, and what each firing does. The live board `board.html` takes this interval to say when the run is stale: no Run Event for two intervals ([RUN.md](RUN.md#the-live-board)).
+
+The board's optional server ([RUN.md](RUN.md#the-optional-server)) is no part of `await`, and no harness needs it. It runs until it is stopped, so the Chief of Staff never runs it in the foreground. Where a harness cannot keep a process running, the human starts it in a terminal of their own, or goes without: `board.html` needs no process.
 
 A wake-up, from either part, means "something may have changed", never "a report is final". On each wake-up the Chief of Staff checks every Delegation the run waits on, not only `running` ones: any that is `running`, `waiting`, `reported` or `sent back`, and a QA Delegation still in progress, since a `reported` row can still be waiting on CI or a review run. For each it checks its `report.md` and `decisions.md`, its session or process, its pull request's checks and the review run. It does not stop at the one the wake-up named. A report is final only when its **Final:** line says `yes` ([BRIEF.md](BRIEF.md#report)).
 
@@ -70,15 +72,15 @@ State the harness, its Support Level and its tier in the Activity Log and the Di
 
 ### Support Level
 
-How far `orchestrate` has been proven on a harness or a tracker. Each harness file, and each tracker file under [trackers/](trackers/), gives its level, and what it rests on.
+How far `orchestrate` has been proven on a harness, a tracker or a sink. Each harness file, each tracker file under [trackers/](trackers/), and each sink file under [sinks/](sinks/), gives its level, and what it rests on.
 
-| Level        | Means                                                                             |
-| ------------ | --------------------------------------------------------------------------------- |
-| `verified`   | A full run, from Dispatch Plan to close-out, passed on it.                        |
-| `tried`      | A run happened on it, and found gaps, named in the file.                          |
-| `documented` | Written from the harness's or tracker's documentation alone; no run has tried it. |
+| Level        | Means                                                                                                                                |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `verified`   | A full run, from Dispatch Plan to close-out, passed on it. For a sink: a run uploaded to it and read it back ([SINKS.md](SINKS.md)). |
+| `tried`      | A run happened on it, and found gaps, named in the file.                                                                             |
+| `documented` | Written from the harness's, tracker's or sink's documentation alone; no run has tried it.                                            |
 
-Below `verified`, the Dispatch Plan opens with the level and what it means for this run, and waits for the human's "go" even when the invocation carried `go`. A level moves up only when a run's Activity Log records the evidence, and the change to the harness or tracker file cites that run.
+Below `verified`, the Dispatch Plan opens with the level and what it means for this run, and waits for the human's "go" even when the invocation carried `go`. A level moves up only when a run's Activity Log records the evidence, and the change to the harness, tracker or sink file cites that run.
 
 ### Facts and check before use
 

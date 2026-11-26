@@ -741,10 +741,10 @@ describe("docs/orchestrate.md: the Team Run's facts match the skill", () => {
   });
 });
 
-describe("GLOSSARY.md: Support Level covers a tracker file", () => {
-  it("defines it for a harness and for a tracker", () => {
+describe("GLOSSARY.md: Support Level covers a tracker file and a sink file", () => {
+  it("defines it for a harness, a tracker and a sink", () => {
     const def = GLOSSARY.split("**Support Level**:\n")[1].split("\n")[0];
-    assert.match(def, /on a harness or a tracker/);
+    assert.match(def, /on a harness, a tracker or a sink/);
   });
 });
 
@@ -860,13 +860,14 @@ describe("DESIGN.md: when TEAM.md is loaded", () => {
 });
 
 describe("HARNESSES.md: Support Level covers a tracker file", () => {
-  it("defines it for a harness or a tracker, in the glossary's words", () => {
+  it("defines it for a harness, a tracker or a sink, in the glossary's words", () => {
     const level = section(read(`${SKILL_DIR}/HARNESSES.md`), "### Support Level");
-    const words = "How far `orchestrate` has been proven on a harness or a tracker";
+    const words = "How far `orchestrate` has been proven on a harness, a tracker or a sink";
     assert.ok(level.trimStart().startsWith(words), "HARNESSES.md opens with the definition");
     assert.ok(GLOSSARY.includes(`**Support Level**:\n${words}:`), "GLOSSARY.md");
     assert.ok(DESIGN.includes(`**Support Level**: ${words}:`), "DESIGN.md");
     assert.match(level, /tracker file/);
+    assert.match(level, /sink file/);
   });
 });
 

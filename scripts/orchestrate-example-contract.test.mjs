@@ -65,9 +65,168 @@ describe("examples/orchestrate.config.yml", () => {
     assert.match(problems, /triage_labels/);
   });
 
+  it("shows the `records` keys as a commented block that reads with no problems once uncommented", () => {
+    const lines = EXAMPLE.split("\n");
+    const start = lines.findIndex((line) => line === "# records:");
+    assert.ok(start >= 0, "a commented `records:` block");
+    const block = [];
+    for (const line of lines.slice(start)) {
+      if (!line.startsWith("# ")) break;
+      block.push(line.slice(2));
+    }
+    const { config: parsed, problems } = config.parseConfig(FILE, block.join("\n"));
+    assert.deepEqual(problems, []);
+    assert.deepEqual(keyPaths(parsed).sort(), [
+      "records",
+      "records.repository",
+      "records.sink",
+      "records.sink.branch",
+      "records.sink.repo",
+      "records.sink.type",
+      "records.upload",
+    ]);
+    // A repository that copies the example gets no sink until it uncomments the block.
+    assert.equal(
+      config.effectiveConfig(config.parseConfig(FILE, EXAMPLE).config).records.sink,
+      null,
+    );
+  });
+
+  it("names the `gitlab` sink in the commented block, and a block set to it reads with no problems", () => {
+    assert.match(EXAMPLE, /type: github # github \| gitlab/);
+    const lines = EXAMPLE.split("\n");
+    const start = lines.findIndex((line) => line === "# records:");
+    const block = [];
+    for (const line of lines.slice(start)) {
+      if (!line.startsWith("# ")) break;
+      block.push(line.slice(2));
+    }
+    const text = block.join("\n").replace("type: github", "type: gitlab");
+    const { config: parsed, problems } = config.parseConfig(FILE, text);
+    assert.deepEqual(problems, []);
+    assert.equal(config.effectiveConfig(parsed).records.sink.type, "gitlab");
+  });
+
+  it("names the `s3` sink in a commented block of its own, which reads with no problems once uncommented", () => {
+    const lines = EXAMPLE.split("\n");
+    const start = lines.indexOf("# records:", lines.indexOf("# records:") + 1);
+    assert.ok(start > lines.indexOf("# records:"), "a second commented `records:` block");
+    const block = [];
+    for (const line of lines.slice(start)) {
+      if (!line.startsWith("# ")) break;
+      block.push(line.slice(2));
+    }
+    const { config: parsed, problems } = config.parseConfig(FILE, block.join("\n"));
+    assert.deepEqual(problems, []);
+    assert.deepEqual(keyPaths(parsed).sort(), [
+      "records",
+      "records.sink",
+      "records.sink.bucket",
+      "records.sink.endpoint",
+      "records.sink.region",
+      "records.sink.type",
+    ]);
+    assert.equal(config.effectiveConfig(parsed).records.sink.type, "s3");
+    assert.match(EXAMPLE, /ORCHESTRATE_S3_ACCESS_KEY_ID/);
+  });
+
+  it("names `records.raw.sink` in a commented block of its own, `s3` only, which reads with no problems once uncommented", () => {
+    const lines = EXAMPLE.split("\n");
+    const start = lines.indexOf("# records: # only when no block above is uncommented");
+    assert.ok(
+      start > lines.indexOf("# records:", lines.indexOf("# records:") + 1),
+      "a third `records:` block",
+    );
+    const block = [];
+    for (const line of lines.slice(start)) {
+      if (!line.startsWith("# ")) break;
+      block.push(line.slice(2));
+    }
+    const { config: parsed, problems } = config.parseConfig(FILE, block.join("\n"));
+    assert.deepEqual(problems, []);
+    assert.deepEqual(keyPaths(parsed).sort(), [
+      "records",
+      "records.raw",
+      "records.raw.sink",
+      "records.raw.sink.bucket",
+      "records.raw.sink.endpoint",
+      "records.raw.sink.region",
+      "records.raw.sink.type",
+    ]);
+    assert.equal(config.effectiveConfig(parsed).records.raw.sink.type, "s3");
+    // A repository that copies the example is never offered a raw upload.
+    assert.equal(
+      config.effectiveConfig(config.parseConfig(FILE, EXAMPLE).config).records.raw.sink,
+      null,
+    );
+    assert.match(EXAMPLE, /expires `raw\/`/);
+  });
+
+  it("merges `raw:` into the sink block above: uncommenting both gives one `records:` key (C9)", () => {
+    const lines = EXAMPLE.split("\n");
+    const blockAt = (start) => {
+      const block = [];
+      for (const line of lines.slice(start)) {
+        if (!line.startsWith("# ")) break;
+        block.push(line.slice(2));
+      }
+      return block;
+    };
+    const github = blockAt(lines.indexOf("# records:"));
+    const s3 = blockAt(lines.indexOf("# records:", lines.indexOf("# records:") + 1));
+    const raw = blockAt(lines.indexOf("# records: # only when no block above is uncommented"));
+    assert.match(raw[0], /^records: # only when no block above is uncommented/);
+    assert.match(EXAMPLE, /A second\n# `records:` key is refused as a duplicate/);
+    for (const [name, sink] of [
+      ["github", github],
+      ["s3", s3],
+    ]) {
+      const { config: parsed, problems } = config.parseConfig(
+        FILE,
+        [...sink, ...raw.slice(1)].join("\n"),
+      );
+      assert.deepEqual(problems, [], name);
+      const records = config.effectiveConfig(parsed).records;
+      assert.equal(records.sink.type, name);
+      assert.equal(records.raw.sink.type, "s3");
+      // Uncommenting both `records:` lines is the duplicate the comment warns of.
+      assert.match(
+        config.parseConfig(FILE, [...sink, ...raw].join("\n")).problems.join("\n"),
+        /duplicate key/,
+        name,
+      );
+    }
+  });
+
+  it("shows the `prune` key as a commented block that reads with no problems once uncommented", () => {
+    const lines = EXAMPLE.split("\n");
+    const start = lines.findIndex((line) => line === "# prune:");
+    assert.ok(start >= 0, "a commented `prune:` block");
+    const block = [];
+    for (const line of lines.slice(start)) {
+      if (!line.startsWith("# ")) break;
+      block.push(line.slice(2));
+    }
+    const { config: parsed, problems } = config.parseConfig(FILE, block.join("\n"));
+    assert.deepEqual(problems, []);
+    assert.deepEqual(keyPaths(parsed).sort(), ["prune", "prune.after_days"]);
+    // A repository that copies the example prunes nothing until it uncomments the block.
+    assert.equal(
+      config.effectiveConfig(config.parseConfig(FILE, EXAMPLE).config).prune.after_days,
+      null,
+    );
+  });
+
   it("shows every key config.mjs accepts", () => {
     const { config: parsed } = config.parseConfig(FILE, EXAMPLE);
-    const shown = new Set(keyPaths(parsed));
+    // `records` is shown commented out, and checked by the test above.
+    const shown = new Set([
+      ...keyPaths(parsed),
+      ...config.RECORDS_KEYS.map((k) => `records.${k}`),
+      "records",
+      ...config.PRUNE_KEYS.map((k) => `prune.${k}`),
+      "prune",
+    ]);
     const sub = (section, keys) => keys.map((k) => `${section}.${k}`);
     const accepted = [
       ...Object.keys(config.SECTIONS),

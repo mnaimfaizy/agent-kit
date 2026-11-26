@@ -35,6 +35,7 @@ TERMS = [
     "Run Summary",
     "Run Record",
     "Run Event",
+    "Human step",
     "Sink",
     "Ready to Merge",
     "Team Run",
@@ -63,6 +64,12 @@ def test_the_skill_design_repeats_them_word_for_word() -> None:
     assert design_terms() == glossary_terms()
 
 
+def test_a_team_run_is_one_per_teammate_and_read_together_on_the_board_or_the_dashboard() -> None:
+    sentence = "One per teammate; a spec's Team Runs are read together on the Shared Board or the Run Record dashboard."
+    assert sentence in glossary_terms()["Team Run"]
+    assert sentence in design_terms()["Team Run"]
+
+
 def test_live_session_is_always_written_in_full() -> None:
     # "a Session" is allowed only where the text says what the QA term means.
     texts = {path.name: path.read_text(encoding="utf-8") for path in sorted(SKILL.glob("*.md"))}
@@ -80,5 +87,6 @@ def test_live_session_is_always_written_in_full() -> None:
 if __name__ == "__main__":
     test_glossary_defines_the_orchestration_terms()
     test_the_skill_design_repeats_them_word_for_word()
+    test_a_team_run_is_one_per_teammate_and_read_together_on_the_board_or_the_dashboard()
     test_live_session_is_always_written_in_full()
     print("orchestrate glossary contract: ok")

@@ -88,3 +88,49 @@ team: # read only by a Team Run
     ready_to_merge: "team: ready to merge" # Ready to Merge
     merged: "team: merged" # its pull request is merged
   recent_activity: 5 # milestones a Shared Board row keeps in its Recent activity list
+
+
+# Run Records are always written locally. To also upload each one to a private
+# GitHub repository (or GitLab project) you own or share, with a disclosure
+# first and a "Not now" at close-out, uncomment this. Nothing is uploaded
+# without it.
+# records:
+#   repository: github.com/acme/widgets # default: host/owner/repo from the git remote
+#   upload: offer # offer | never; default offer once a sink is set
+#   sink: # unset: local only
+#     type: github # github | gitlab (a private GitLab project, written with glab api) | s3 (below)
+#     repo: acme/run-records # a private repository or project: owner/name or host/owner/name
+#     branch: main # default: that repo's default branch
+
+# Or an S3-compatible bucket (AWS S3, R2, MinIO, ...) instead of the block
+# above. Credentials come only from the environment variables
+# ORCHESTRATE_S3_ACCESS_KEY_ID and ORCHESTRATE_S3_SECRET_ACCESS_KEY, never
+# from this file: a secret-looking value here is a problem.
+# records:
+#   sink:
+#     type: s3
+#     endpoint: https://s3.us-east-1.amazonaws.com # R2: https://<account>.r2.cloudflarestorage.com
+#     bucket: acme-run-records
+#     region: us-east-1 # R2: auto
+
+# Raw run folders are never uploaded unless you set this, and then only with
+# your own yes at every close-out. They go only to an S3-compatible bucket
+# whose own lifecycle rule expires `raw/` (the skill reads that rule and never
+# writes it), because a raw folder may quote private issue text, command output
+# and file contents. Same credentials as above, from the environment only.
+# `raw:` goes in the one `records:` block: with a sink block above
+# uncommented, uncomment only the `raw:` lines, under its keys. A second
+# `records:` key is refused as a duplicate.
+# records: # only when no block above is uncommented
+#   raw: # unset: raw folders are never offered
+#     sink:
+#       type: s3 # s3 only
+#       endpoint: https://s3.us-east-1.amazonaws.com # R2: https://<account>.r2.cloudflarestorage.com
+#       bucket: acme-run-records
+#       region: us-east-1 # R2: auto
+
+# Local pruning is off. To delete closed-out run folders older than N days from
+# this machine at close-out (never the Run Records, never an open run),
+# uncomment this. Without it, the close-out asks once whether to prune at 90 days.
+# prune:
+#   after_days: 90 # unset: no pruning; setting it is the consent

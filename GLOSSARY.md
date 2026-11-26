@@ -292,7 +292,7 @@ The agent product an agent run happens in (Claude Code desktop, Claude Code CLI,
 _Avoid_: tool, IDE, client, platform
 
 **Support Level**:
-How far `orchestrate` has been proven on a harness or a tracker: verified (a full run passed), tried (a run happened, with known gaps) or documented (built from its documentation alone). A Stage's level belongs to the harness and Stage pair, so one harness holds a different level for each Stage.
+How far `orchestrate` has been proven on a harness, a tracker or a sink: verified (a full run passed, or for a sink, a run uploaded to it and read it back), tried (a run happened, with known gaps) or documented (built from its documentation alone). A Stage's level belongs to the harness and Stage pair, so one harness holds a different level for each Stage.
 _Avoid_: compatibility, maturity, tier (a tier is what the harness can do)
 
 **Live Session**:
@@ -348,12 +348,16 @@ The account of a finished run, offered after the human merges, for the issue tha
 _Avoid_: wrap-up, final report
 
 **Run Record**:
-The structured, machine-readable account of one run (an `orchestrate` run, or one Stage run of a Factory task, on either Factory engine), written at close-out and holding only fields that are safe to publish (counts, ids, durations, outcomes, and each human intervention with its kind), never quoted issue text or command output; what a Consumer may keep or upload once the raw run folder is gone.
+The structured, machine-readable account of one run (an `orchestrate` run, or one Stage run of a Factory task, on either Factory engine), written at close-out and holding only fields that are safe to publish (counts, ids, durations, outcomes, and each Human step with its kind and cause), never quoted issue text or command output; what a Consumer may keep or upload once the raw run folder is gone.
 _Avoid_: run metadata, telemetry, run log
 
 **Run Event**:
 One timestamped, structured entry for a single step of a run (a spawn, a human step, a land, a review, a CI result), written as it happens by whoever did it; the Run Record is derived from a run's Run Events.
 _Avoid_: log line, trace span
+
+**Human step**:
+One touch from the human in a run (one answer, one click or one typed command), listing the Decision Requests it covered, recorded in the Run Record with its kind and a `cause` from a fixed list, each cause avoidable or by design.
+_Avoid_: intervention, interruption
 
 **Sink**:
 A store off the machine that a Consumer has configured to receive Run Records, or opted-in raw run folders; one Sink may serve many repositories, each writing only into its own namespace.
@@ -364,7 +368,7 @@ A Delegation whose CI is green, whose review is settled, whose QA requirement is
 _Avoid_: done, mergeable, green
 
 **Team Run**:
-A spec run started with `--team`, in which each teammate runs their own Chief of Staff over the spec's tickets assigned to them alone, beside the others, and every one of them reads one Shared Board.
+A spec run started with `--team`, in which each teammate runs their own Chief of Staff over the spec's tickets assigned to them alone, beside the others, and every one of them reads one Shared Board. One per teammate; a spec's Team Runs are read together on the Shared Board or the Run Record dashboard.
 _Avoid_: team mode, shared run, joining a run
 
 **Shared Board**:

@@ -234,6 +234,28 @@ export const TRACKERS = /** @type {const} */ (["detect", "github", "gitlab"]);
 /** The hosts detection knows. Any other host, a self-hosted GitLab included, needs the pin. */
 export const TRACKER_HOSTS = Object.freeze({ "github.com": "github", "gitlab.com": "gitlab" });
 export const TEAM_KEYS = /** @type {const} */ (["labels", "recent_activity"]);
+/** `records`' keys (CONFIG.md): the Run Record sink and whether close-out offers an upload. */
+export const RECORDS_KEYS = /** @type {const} */ (["repository", "upload", "sink", "raw"]);
+/** `records.raw`'s keys: the one sink raw run folders go to, which can only be a bucket. */
+export const RAW_KEYS = /** @type {const} */ (["sink"]);
+export const RAW_SINK_TYPES = /** @type {const} */ (["s3"]);
+const RAW_SINK_ONLY = "`s3` only";
+export const RECORDS_UPLOADS = /** @type {const} */ (["offer", "never"]);
+/** The Run Record sink types this reader knows. */
+export const SINK_TYPES = /** @type {const} */ (["github", "gitlab", "s3"]);
+export const SINK_KEYS = /** @type {const} */ ([
+  "type",
+  "repo",
+  "branch",
+  "endpoint",
+  "bucket",
+  "region",
+]);
+/** The keys only an `s3` sink uses, and the keys only a git sink uses. */
+const S3_SINK_KEYS = ["endpoint", "bucket", "region"];
+const GIT_SINK_KEYS = ["repo", "branch"];
+/** `prune`'s keys (CONFIG.md): local pruning of closed-out run folders, off until `after_days` is set. */
+export const PRUNE_KEYS = /** @type {const} */ (["after_days"]);
 /** A Team Run's six coarse states, each mirrored by one state label on a ticket. */
 export const TEAM_STATES = /** @type {const} */ ([
   "planned",
@@ -280,6 +302,7 @@ export const DEFAULTS = Object.freeze({
   integration_branch: "orchestrate/spec-<n>",
   tracker: "detect",
   recent_activity: 5,
+  upload: "offer",
   team_labels: Object.freeze(
     Object.fromEntries(TEAM_STATES.map((state) => [state, `team: ${state.replaceAll("_", " ")}`])),
   ),
@@ -724,9 +747,163 @@ function branchPatternProblem(v) {
   return bad ? "expected a valid git branch name once `<n>` is filled in" : null;
 }
 
+/**
+ * `host/owner/repo`, three plain segments, or `host/<group>/…/<project>` for a GitLab project in a subgroup.
+ * An owner or group starts with a letter, a digit or `_`, as `records.mjs`'s REPO has it.
+ */
+const REPOSITORY = /^[A-Za-z0-9][A-Za-z0-9.-]*(?:\/\w[\w.-]*){1,20}\/[\w.-]+$/;
+/** A sink repository: `owner/name`, or `host/owner/name` for another host. */
+const SINK_REPO = /^(?:[A-Za-z0-9][A-Za-z0-9.-]*\/)?[\w.-]+\/[\w.-]+$/;
+/** A `gitlab` sink project may sit in subgroups: `group/sub/name`, with an optional `host/` in front. */
+const GITLAB_SINK_REPO = /^[\w.-]+(?:\/[\w.-]+){1,21}$/;
+
+/**
+ * A value shaped like a credential: an AWS access key id or secret, a token,
+ * a private key, a password in a URL, or a presigned signature. The check is on
+ * shape, never on the key's name, and the value is never echoed. A name
+ * (`repo`, `bucket`, `endpoint`) skips the last check, a long mixed-case run,
+ * which an ordinary repository or host name can match.
+ */
+function looksLikeSecret(value, { name = false } = {}) {
+  if (typeof value !== "string") return false;
+  if (/\b(?:AKIA|ASIA|AGPA|AIDA|AROA)[A-Z0-9]{16}\b/.test(value)) return true;
+  if (
+    /(?:gh[pousr]_|github_pat_)[A-Za-z0-9_]{20,}|glpat-[\w-]{20,}|xox[abprs]-|sk-[A-Za-z0-9]{20,}/.test(
+      value,
+    )
+  )
+    return true;
+  if (/-----BEGIN [A-Z ]*PRIVATE KEY/.test(value)) return true;
+  if (/:\/\/[^/\s@]*@/.test(value)) return true;
+  if (/X-Amz-(?:Signature|Credential|Security-Token)=/i.test(value)) return true;
+  if (name) return false;
+  return (value.match(/[A-Za-z0-9/+=]{40,}/g) ?? []).some(
+    (run) => /[a-z]/.test(run) && /[A-Z]/.test(run) && /\d/.test(run),
+  );
+}
+
+/** The sink keys that hold a name, not a value that could be a credential. */
+const NAME_KEYS = ["repo", "bucket", "endpoint"];
+
+/** A bucket name: 3 to 63 lowercase letters, digits, dots and hyphens, as S3 and its compatibles accept. */
+const BUCKET = /^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/;
+/** A region: `us-east-1`, `eu-central-1`, R2's `auto`. */
+const REGION = /^[a-z][a-z0-9-]{1,30}$/;
+
+/** An endpoint: an https URL with a host, no credentials, no query and no path (`http` only on this machine). */
+function validEndpoint(value) {
+  if (typeof value !== "string") return false;
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  const local = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+  return (
+    (url.protocol === "https:" || (url.protocol === "http:" && local)) &&
+    url.username === "" &&
+    url.password === "" &&
+    url.search === "" &&
+    url.hash === "" &&
+    url.pathname === "/"
+  );
+}
+
+/** A repository name matching `pattern`, with no `.` or `..` segment. */
+const plainRepo = (pattern, v) =>
+  typeof v === "string" && pattern.test(v) && v.split("/").every((part) => !/^\.+$/.test(part));
+
+/** A branch name `git check-ref-format --branch` accepts, as far as the reader can tell without git. */
+function validBranch(v) {
+  if (!nonEmpty(v)) return false;
+  return !(
+    /[\x00-\x20\x7f~^:?*[\\]/.test(v) ||
+    v.startsWith("-") ||
+    v.includes("..") ||
+    v.includes("@{") ||
+    v === "@" ||
+    v.endsWith(".") ||
+    v.split("/").some((part) => part === "" || part.startsWith(".") || part.endsWith(".lock"))
+  );
+}
+
 const isCount = (v) =>
   (typeof v === "number" && Number.isSafeInteger(v) && v >= 1) ||
   (typeof v === "string" && /^[1-9]\d{0,8}$/.test(v));
+
+/**
+ * Check one sink mapping at `base` (`records.sink` or `records.raw.sink`).
+ * `types` are the types allowed there and `expected` is how a problem names them:
+ * the raw-folder sink is `s3` only, so a `github` one is a problem even though
+ * it is a sink type.
+ */
+function checkSink(sink, s, base, types, expected) {
+  if (!isMapping(s)) return sink.add(base, "expected a mapping");
+  unknownKeys(sink, s, base, SINK_KEYS);
+  const secret = new Set(
+    Object.entries(s)
+      .filter(([k, v]) => looksLikeSecret(v, { name: NAME_KEYS.includes(k) }))
+      .map(([k]) => k),
+  );
+  if (!Object.hasOwn(s, "type"))
+    sink.add(
+      `${base}.type`,
+      `missing: ${types === RAW_SINK_TYPES ? RAW_SINK_ONLY : `one of ${expected}`}`,
+    );
+  // A secret-looking type is reported below as a secret, and never printed back.
+  else if (given(sink, s, "type", `${base}.type`) && !secret.has("type") && !types.includes(s.type))
+    sink.add(
+      `${base}.type`,
+      types === RAW_SINK_TYPES
+        ? `\`${s.type}\` cannot hold raw run folders: ${RAW_SINK_ONLY}, because only a bucket can expire them`
+        : `unknown sink type \`${s.type}\`; expected one of: ${expected}`,
+    );
+  for (const key of secret)
+    sink.add(
+      `${base}.${key}`,
+      "looks like a secret: credentials come only from ORCHESTRATE_S3_ACCESS_KEY_ID and ORCHESTRATE_S3_SECRET_ACCESS_KEY, never from the config. Remove it",
+    );
+  const here = (key) => given(sink, s, key, `${base}.${key}`) && !secret.has(key);
+  if (s.type === "s3") {
+    for (const key of GIT_SINK_KEYS)
+      if (here(key)) sink.add(`${base}.${key}`, "not used by an `s3` sink: delete it");
+    // A key with no value is reported once, by `here` below; only an absent key is missing.
+    for (const key of S3_SINK_KEYS)
+      if (!Object.hasOwn(s, key))
+        sink.add(
+          `${base}.${key}`,
+          `missing: ${{ endpoint: "the store's https URL, such as `https://<account>.r2.cloudflarestorage.com`", bucket: "the bucket's name", region: "the bucket's region, such as `us-east-1` (`auto` for R2)" }[key]}`,
+        );
+    if (here("endpoint") && !validEndpoint(s.endpoint))
+      sink.add(
+        `${base}.endpoint`,
+        "expected an https URL with a host and nothing else: no password, path or query (http only for localhost)",
+      );
+    if (here("bucket") && !(typeof s.bucket === "string" && BUCKET.test(s.bucket)))
+      sink.add(
+        `${base}.bucket`,
+        "expected a bucket name: 3 to 63 lowercase letters, digits, dots or hyphens",
+      );
+    if (here("region") && !(typeof s.region === "string" && REGION.test(s.region)))
+      sink.add(`${base}.region`, "expected a region, such as `us-east-1` or `auto`");
+    return;
+  }
+  if (types === RAW_SINK_TYPES) return;
+  for (const key of S3_SINK_KEYS)
+    if (here(key)) sink.add(`${base}.${key}`, "only an `s3` sink uses this: delete it");
+  if (!Object.hasOwn(s, "repo"))
+    sink.add(`${base}.repo`, "missing: the private repository, `owner/name` or `host/owner/name`");
+  else if (here("repo") && !plainRepo(s.type === "gitlab" ? GITLAB_SINK_REPO : SINK_REPO, s.repo))
+    sink.add(
+      `${base}.repo`,
+      s.type === "gitlab"
+        ? "expected `group/name` or `host/group/name`, with any subgroups between"
+        : "expected `owner/name` or `host/owner/name`",
+    );
+  if (here("branch") && !validBranch(s.branch))
+    sink.add(`${base}.branch`, "expected a valid git branch name");
+}
 
 /**
  * The checker for each top-level key, in CONFIG.md's order. A mode that needs
@@ -942,6 +1119,34 @@ export const SECTIONS = {
       else names.set(name, state);
     }
   },
+  records(sink, value) {
+    if (!isMapping(value)) return sink.add("records", "expected a mapping");
+    unknownKeys(sink, value, "records", RECORDS_KEYS);
+    if (
+      given(sink, value, "repository", "records.repository") &&
+      (!plainRepo(REPOSITORY, value.repository) ||
+        (/^github\.com\//i.test(value.repository) && value.repository.split("/").length !== 3))
+    )
+      sink.add(
+        "records.repository",
+        "expected `host/owner/repo`, such as `github.com/acme/widgets`, or `host/group/sub/project` for a GitLab subgroup",
+      );
+    if (given(sink, value, "upload", "records.upload") && !RECORDS_UPLOADS.includes(value.upload))
+      sink.add("records.upload", `expected one of: ${RECORDS_UPLOADS.join(", ")}`);
+    if (given(sink, value, "sink", "records.sink"))
+      checkSink(sink, value.sink, "records.sink", SINK_TYPES, SINK_TYPES.join(", "));
+    if (!given(sink, value, "raw", "records.raw")) return;
+    if (!isMapping(value.raw)) return sink.add("records.raw", "expected a mapping");
+    unknownKeys(sink, value.raw, "records.raw", RAW_KEYS);
+    if (given(sink, value.raw, "sink", "records.raw.sink"))
+      checkSink(sink, value.raw.sink, "records.raw.sink", RAW_SINK_TYPES, RAW_SINK_ONLY);
+  },
+  prune(sink, value) {
+    if (!isMapping(value)) return sink.add("prune", "expected a mapping");
+    unknownKeys(sink, value, "prune", PRUNE_KEYS);
+    if (given(sink, value, "after_days", "prune.after_days") && !isCount(value.after_days))
+      sink.add("prune.after_days", "expected a whole number of 1 or more");
+  },
 };
 
 /**
@@ -1139,6 +1344,9 @@ export function effectiveConfig(config) {
   const ready = section("ready_to_merge");
   const spec = section("spec");
   const team = section("team");
+  const records = section("records");
+  const prune = section("prune");
+  const sinkValue = isMapping(records.sink) ? records.sink : null;
   return {
     run_dir: config.run_dir ?? DEFAULTS.run_dir,
     read_first: Array.isArray(config.read_first) ? config.read_first : null,
@@ -1166,6 +1374,38 @@ export function effectiveConfig(config) {
       integration_branch: spec.integration_branch ?? DEFAULTS.integration_branch,
     },
     tracker: config.tracker ?? DEFAULTS.tracker,
+    records: {
+      repository: records.repository ?? null,
+      upload: records.upload ?? DEFAULTS.upload,
+      sink: sinkValue
+        ? sinkValue.type === "s3"
+          ? {
+              type: "s3",
+              endpoint: sinkValue.endpoint ?? null,
+              bucket: sinkValue.bucket ?? null,
+              region: sinkValue.region ?? null,
+            }
+          : {
+              type: sinkValue.type ?? null,
+              repo: sinkValue.repo ?? null,
+              branch: sinkValue.branch ?? null,
+            }
+        : null,
+      raw: {
+        sink:
+          isMapping(records.raw) && isMapping(records.raw.sink) && records.raw.sink.type === "s3"
+            ? {
+                type: "s3",
+                endpoint: records.raw.sink.endpoint ?? null,
+                bucket: records.raw.sink.bucket ?? null,
+                region: records.raw.sink.region ?? null,
+              }
+            : null,
+      },
+    },
+    prune: {
+      after_days: prune.after_days === undefined ? null : Number(prune.after_days),
+    },
     team: {
       // Trimmed, as the tracker trims a label name, so a run names and compares it as `check` did.
       labels: isMapping(team.labels)
