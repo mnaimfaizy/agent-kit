@@ -126,7 +126,14 @@ function seed() {
 function down() {
   if (existsSync(pidFile)) {
     const pid = Number(readFileSync(pidFile, "utf8"));
-    if (pid && alive(pid)) process.kill(pid, "SIGTERM");
+    if (pid && alive(pid)) {
+      // The server closes gracefully on SIGTERM; wait for it, so the port is free on return.
+      process.kill(pid, "SIGTERM");
+      const pause = new Int32Array(new SharedArrayBuffer(4));
+      for (let n = 0; n < 50 && alive(pid); n += 1) Atomics.wait(pause, 0, 0, 100);
+      if (alive(pid)) process.kill(pid, "SIGKILL");
+      for (let n = 0; n < 20 && alive(pid); n += 1) Atomics.wait(pause, 0, 0, 100);
+    }
   }
   rmSync(dir, { recursive: true, force: true });
   process.stdout.write("QA Stack down\n");
