@@ -84,6 +84,17 @@ describe("examples/qa.config.yml", () => {
     );
   });
 
+  it("shows a commented `run.surface` list example that reads with no problems (#378)", () => {
+    assert.match(CONFIG, /^ {2}# surface: \[api, web\]/m);
+    const listed = CONFIG.replace(
+      /^ {2}surface:.*\n {2}# surface: \[api, web\][^\n]*/m,
+      "  surface: [api, web]",
+    );
+    const parsed = planAdapter.parseConfig("qa.config.yml", listed);
+    assert.deepEqual(parsed.runProblems, []);
+    assert.deepEqual(parsed.config.run.surface, ["api", "web"]);
+  });
+
   it("shows `run.hosts` commented as candidates, and uncommented they read with no problems", () => {
     assert.match(CONFIG, /^ {2}# hosts: .*candidates.*typing each host/m);
     const parsed = planAdapter.parseConfig("qa.config.yml", CONFIG);
@@ -109,6 +120,17 @@ describe("examples/qa.config.yml", () => {
     const values = JSON.stringify(planAdapter.parseConfig("qa.config.yml", CONFIG).config);
     assert.doesNotMatch(values, /password|token|secret/i);
     assert.doesNotMatch(values, /https?:\/\//);
+  });
+
+  it("documents every `run:` key in docs/qa.md's keys table (#378)", () => {
+    const qaDoc = read("docs/qa.md");
+    const runRow = qaDoc.split("\n").find((l) => l.startsWith("| `run:`"));
+    assert.ok(runRow, "docs/qa.md has a `run:` row");
+    for (const key of runAdapter.RUN_KEYS)
+      assert.ok(
+        runRow.includes(`\`${key}\``) || runRow.includes(`\`${key}.`),
+        `docs/qa.md lacks run.${key}`,
+      );
   });
 });
 

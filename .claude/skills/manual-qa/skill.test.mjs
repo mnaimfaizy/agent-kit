@@ -10,7 +10,14 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { PROJECT_SKILL_DIRS, main, parseConfig } from "./adapter.mjs";
+import {
+  OBSERVES,
+  PROJECT_SKILL_DIRS,
+  SURFACES,
+  SURFACE_OBSERVES,
+  main,
+  parseConfig,
+} from "./adapter.mjs";
 import { HEADLINES, RESULTS, main as report } from "./report.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -243,15 +250,15 @@ test("step 2: a plan with no scenarios needs none of the run answers (#221)", ()
   );
 });
 
-test("step 2 asks the surface question as the need words it (#223)", () => {
+test("step 2 asks the surface question as the need words it (#223, #378)", () => {
   const step = /### 2\. Read the config\n([\s\S]*?)\n### 3\./.exec(skill)?.[1] ?? "";
   assert.match(
     step,
-    /A `run\.surface:` need, raised when the config's `run\.surface` and the plan's Run brief name different surfaces, offers only those two/,
+    /A `run\.surface:` need, raised when the config's `run\.surface` does not include the plan's Run brief's surface, offers the Run brief's surface and each configured one \(only those two when each names one\)/,
   );
   assert.match(
     step,
-    /with the config's surface, the scenarios whose effective surface is the Run brief's \(it names them by id\) drive the config's instead; with the Run brief's, they stay on the surface the plan's author chose from what those scenarios must observe/,
+    /with a configured surface, the scenarios whose effective surface is the Run brief's \(it names them by id\) drive that surface instead; with the Run brief's, they stay on the surface the plan's author chose from what those scenarios must observe/,
   );
   assert.match(
     step,
@@ -496,6 +503,50 @@ test("a scenario's **Observes:** is checked against each driver before the run s
     /\| A driver that can open a `file:\/\/` address \| `local-file` \|/,
   ])
     assert.match(flat, row);
+});
+
+test("SURFACE_OBSERVES in adapter.mjs matches SKILL.md's driver table (#378)", () => {
+  const tableBlock = /\n\| Driver[^\n]*\n\| -+[^\n]*\n([\s\S]*?)\n\n/.exec(skill)?.[1] ?? "";
+  const rows = tableBlock
+    .split("\n")
+    .filter((line) => line.startsWith("|"))
+    .map((line) => {
+      const cells = line.split("|").map((c) => c.trim());
+      return {
+        driver: cells[1],
+        observes: [...cells[2].matchAll(/`([^`]+)`/g)].map((m) => m[1]),
+      };
+    });
+  assert.equal(rows.length, 7);
+
+  // Which Surfaces each row in SKILL.md's driver table can drive.
+  const driverSurfaces = [
+    ["`web.mjs`", ["web"]],
+    ["The host's built-in browser, by its network reader", ["web"]],
+    ["Claude in Chrome", ["web"]],
+    ["`http.mjs`, and `curl`", ["api"]],
+    ["Desktop control", ["desktop", "mobile"]],
+    ["Any other browser tool", ["web"]],
+    ["A driver that can open a `file://` address", [...SURFACES]],
+  ];
+  assert.deepEqual(
+    rows.map((r) => r.driver),
+    driverSurfaces.map(([name]) => name),
+  );
+
+  const fromTable = Object.fromEntries(SURFACES.map((s) => [s, new Set()]));
+  rows.forEach((row, i) => {
+    for (const value of row.observes) {
+      assert.ok(OBSERVES.includes(value), `unknown observable \`${value}\` in driver table`);
+      for (const surface of driverSurfaces[i][1]) fromTable[surface].add(value);
+    }
+  });
+  for (const surface of SURFACES)
+    assert.deepEqual(
+      new Set(SURFACE_OBSERVES[surface]),
+      fromTable[surface],
+      `SURFACE_OBSERVES.${surface} drifted from SKILL.md's driver table`,
+    );
 });
 
 test("a `Review:` box runs nothing, is never a result, and is listed for a person (#205)", () => {

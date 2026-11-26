@@ -1391,12 +1391,40 @@ test("**Observes:** reads into the scenario's list; a scenario without one obser
   const prose = withObserves("- **Observes:** `headers`, **status** (the `Set-Cookie` line)");
   assert.deepEqual(problemsOf(prose), []);
   assert.deepEqual(validatePlan(prose).plan.scenarios[1].observes, ["headers", "status"]);
-  // Every value in the list reads.
+  // Every value in the list reads across single-surface sets; mixing api-only and screen is flagged.
+  const apiSet = withObserves(
+    "- **Observes:** headers, cookies, httponly-cookies, status, body, local-file",
+  );
+  assert.deepEqual(problemsOf(apiSet), []);
+  assert.equal(validatePlan(apiSet).plan.scenarios[1].observes.length, 6);
+  const webSet = withSurface("- **Surface:** `web`\n- **Observes:** body, screen, local-file");
+  assert.deepEqual(problemsOf(webSet), []);
+  assert.equal(validatePlan(webSet).plan.scenarios[1].observes.length, 3);
+  const apiStatusBody = withObserves("- **Observes:** status, body");
+  assert.deepEqual(problemsOf(apiStatusBody), []);
   const all = withObserves(
     "- **Observes:** headers, cookies, httponly-cookies, status, body, screen, local-file",
   );
-  assert.deepEqual(problemsOf(all), []);
   assert.equal(validatePlan(all).plan.scenarios[1].observes.length, 7);
+  assertProblem(all, /split it into one scenario per Surface/);
+});
+
+test("**Observes:** needing values no single Surface can see is a problem saying to split it (#378)", () => {
+  for (const line of [
+    "- **Observes:** status, screen",
+    "- **Observes:** headers, screen",
+    "- **Observes:** httponly-cookies, screen",
+  ]) {
+    const mixed = withSurface(line);
+    const probs = problemsOf(mixed);
+    assert.equal(probs.length, 1, line);
+    assert.match(probs[0], /S2: \*\*Observes:\*\*/, line);
+    assert.match(
+      probs[0],
+      /no single Surface's drivers can observe all of them; split it into one scenario per Surface/,
+      line,
+    );
+  }
 });
 
 test("**Observes:** with a value outside the list is a problem naming it, on its line", () => {

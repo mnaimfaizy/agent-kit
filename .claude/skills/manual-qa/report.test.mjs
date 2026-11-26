@@ -1064,6 +1064,33 @@ test("the comment is the short summary: marker, header, one run line, a three-co
   assert.ok(PASSED.includes("## Execution record"));
 });
 
+test("a posted summary for a multi-surface run names every driven Surface in Run line order (#378)", () => {
+  const twoSurfaces = PASSED.replace(
+    "- **Run:** `stack`, `web`, driven by the built-in browser, on 2026-11-10 10:00",
+    "- **Run:** `stack`, `api` by `http.mjs`, `web` by `web.mjs`, on 2026-11-10 10:00",
+  );
+  const { body, problems } = reportComment(twoSurfaces);
+  assert.deepEqual(problems, []);
+  assert.ok(
+    body.includes(
+      `Run by an agent on \`${SHORT}\` (QA Stack, \`api\` and \`web\`, 2026-11-10). Result: **QA passed**`,
+    ),
+    body,
+  );
+  const threeSurfaces = PASSED.replace(
+    "- **Run:** `stack`, `web`, driven by the built-in browser, on 2026-11-10 10:00",
+    "- **Run:** `stack`, `api` by `http.mjs`, `web` by `web.mjs`, `desktop` by desktop control, on 2026-11-10 10:00",
+  );
+  const three = reportComment(threeSurfaces);
+  assert.deepEqual(three.problems, []);
+  assert.ok(
+    three.body.includes(
+      `Run by an agent on \`${SHORT}\` (QA Stack, \`api\`, \`web\` and \`desktop\`, 2026-11-10). Result: **QA passed**`,
+    ),
+    three.body,
+  );
+});
+
 test("the post leaves out run facts, evidence paths, the Execution record and side notes", () => {
   const { body } = reportComment(DEVIATED);
   for (const local of [

@@ -1138,6 +1138,10 @@ const linkLabel = (path) => {
   return posix.basename(normal);
 };
 
+/** `a`, `a and b`, `a, b and c`. */
+const listed = (items) =>
+  items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;
+
 /**
  * The summary the pull request gets (ADR 0033, prototype variant A): marker,
  * header, one run line, a three-column table, failures, and what is left for a
@@ -1187,9 +1191,7 @@ function summaryBody(report, places, links) {
     `left-for-person=${holding.length}; deferred=${items.length - holding.length}`;
   const where = [
     report.target === "stack" ? "QA Stack" : report.target === "url" ? "hosted URL" : null,
-    ...(report.surfaces.length
-      ? [report.surfaces.map((surface) => `\`${surface}\``).join(", ")]
-      : []),
+    ...(report.surfaces.length ? [listed(report.surfaces.map((surface) => `\`${surface}\``))] : []),
     report.date,
   ].filter(Boolean);
   const run =

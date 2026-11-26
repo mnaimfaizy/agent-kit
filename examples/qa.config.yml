@@ -49,7 +49,8 @@ hazards: # Hazard packs; each path is relative to the repository root
 
 run:
   target: stack # stack (a local QA Stack) | url (a hosted test environment, each host typed by the person)
-  surface: web # web | desktop | mobile | api
+  surface: web # web | desktop | mobile | api, or a list of Surfaces this run may drive (not a matrix)
+  # surface: [api, web] # each scenario still drives one Surface; no question when the Run brief picks one of these
   stack: # the QA Stack contract; all four are needed for target: stack
     up: "docker compose up -d"
     migrate: "uv run alembic upgrade head"

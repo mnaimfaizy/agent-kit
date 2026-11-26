@@ -433,6 +433,115 @@ test("no surface question when the config agrees with the plan or gives no surfa
   assert.deepEqual(surfaceNeed(API_PLAN, none), []);
 });
 
+test("`run.surface` accepts a non-empty list of distinct surfaces, and a one-item list equals the string (#378)", () => {
+  const flow = yaml("run:", "  surface: [api, web]");
+  assert.deepEqual(flow.runProblems, []);
+  assert.deepEqual(flow.config.run.surface, ["api", "web"]);
+
+  const block = yaml("run:", "  surface:", "    - api", "    - web");
+  assert.deepEqual(block.runProblems, []);
+  assert.deepEqual(block.config.run.surface, ["api", "web"]);
+
+  const single = yaml("run:", "  surface: [web]");
+  assert.deepEqual(single.runProblems, []);
+
+  const json = parseConfig("qa.config.json", JSON.stringify({ run: { surface: ["api", "web"] } }));
+  assert.deepEqual(json.runProblems, []);
+
+  for (const [label, text] of [
+    ["empty list", "run:\n  surface: []"],
+    ["duplicate", "run:\n  surface: [api, api]"],
+    ["unknown", "run:\n  surface: [api, cli]"],
+    ["mapping", "run:\n  surface: { a: api }"],
+  ]) {
+    const bad = yaml(text);
+    assert.ok(
+      bad.runProblems.some((p) => /`run\.surface`:/.test(p)),
+      `${label}: ${JSON.stringify(bad.runProblems)}`,
+    );
+  }
+  const badJson = parseConfig("qa.config.json", JSON.stringify({ run: { surface: [123] } }));
+  assert.ok(badJson.runProblems.some((p) => /`run\.surface`:/.test(p)));
+});
+
+test("with a `run.surface` list, no need is raised when the Run brief's Surface is listed, and scenarios keep their own Surface (#378)", () => {
+  const listConfig = STACK_RUN.join("\n").replace("surface: web", "surface: [api, web]");
+  const read = readQaConfig(reader({ "qa.config.yml": listConfig }));
+
+  // Run brief is `api` (in list): no surface need, effective default is `api`.
+  const apiReadiness = runReadiness(read, validatePlan(API_PLAN).plan);
+  assert.deepEqual(apiReadiness.needs, []);
+  assert.equal(apiReadiness.run.surface, "api");
+  assert.deepEqual(apiReadiness.run.surfaces, ["api", "web"]);
+
+  // A scenario whose own Surface is outside the list (`desktop`) keeps it with no need raised.
+  const outsideOwn = API_PLAN.replace(
+    "- **Signs in as:** nobody\n",
+    "- **Signs in as:** nobody\n- **Surface:** `desktop`\n",
+  );
+  const outsidePlan = validatePlan(outsideOwn).plan;
+  assert.equal(outsidePlan.scenarios[0].surface, "api");
+  assert.equal(outsidePlan.scenarios[1].surface, "desktop");
+  assert.deepEqual(surfaceNeed(outsideOwn, listConfig), []);
+
+  // A one-item list behaves identically to the string in surfaceQuestion and readiness.run.
+  const oneListConfig = STACK_RUN.join("\n").replace("surface: web", "surface: [web]");
+  const oneRead = readQaConfig(reader({ "qa.config.yml": oneListConfig }));
+  const oneReadiness = runReadiness(oneRead, validatePlan(GOOD_PLAN).plan);
+  assert.deepEqual(oneReadiness.run, {
+    target: "stack",
+    surface: "web",
+    roles: ["admin", "member"],
+  });
+  assert.deepEqual(surfaceNeed(API_PLAN, oneListConfig), surfaceNeed(API_PLAN));
+});
+
+test("with a `run.surface` list and a Run brief outside it, the surface need offers all choices and names moving and keeping scenarios (#378)", () => {
+  const listConfig = STACK_RUN.join("\n").replace("surface: web", "surface: [api, web]");
+  const desktopPlan = GOOD_PLAN.replace("- **Surface:** `web`", "- **Surface:** `desktop`").replace(
+    "- **Signs in as:** nobody\n",
+    "- **Signs in as:** nobody\n- **Surface:** `mobile`\n",
+  );
+  const needs = surfaceNeed(desktopPlan, listConfig);
+  assert.equal(needs.length, 1);
+  assert.match(needs[0], /^run\.surface:/);
+  assert.match(needs[0], /`desktop`/);
+  assert.match(needs[0], /`api`/);
+  assert.match(needs[0], /`web`/);
+  assert.match(needs[0], /\bS1\b/);
+  assert.match(needs[0], /S2 \(`mobile`\) keeps its own \*\*Surface:\*\* whatever the answer/);
+});
+
+test("check --for run with no plan and a `run.surface` list raises no surface need and checks `web` tools when `web` is listed (#378)", () => {
+  const listConfig = STACK_RUN.join("\n").replace("surface: web", "surface: [api, web]");
+  const withWeb = JSON.parse(
+    main(["check", "--for", "run"], {
+      read: reader({ "qa.config.yml": listConfig }),
+      tools: tools(false, true),
+    }).out,
+  );
+  assert.deepEqual(withWeb.problems, []);
+  assert.deepEqual(withWeb.readiness.needs, []);
+  assert.equal(withWeb.readiness.run.surface, "api");
+  assert.deepEqual(withWeb.readiness.run.surfaces, ["api", "web"]);
+  assert.deepEqual(withWeb.readiness.notes, [WEB_NOTES.noChromium, WEB_NOTES.ffmpeg]);
+
+  const noWebConfig = STACK_RUN.join("\n").replace("surface: web", "surface: [api, desktop]");
+  let probed = false;
+  const withoutWeb = JSON.parse(
+    main(["check", "--for", "run"], {
+      read: reader({ "qa.config.yml": noWebConfig }),
+      tools: () => {
+        probed = true;
+        return { chromium: false, ffmpeg: false };
+      },
+    }).out,
+  );
+  assert.deepEqual(withoutWeb.readiness.needs, []);
+  assert.deepEqual(withoutWeb.readiness.notes, []);
+  assert.equal(probed, false);
+});
+
 test("a malformed role entry is a problem, not a crash", () => {
   for (const roles of [["    roles:", "      -"], ["    roles: [admin]"]]) {
     const files = { "qa.config.yml": ["run:", "  accounts:", ...roles].join("\n") };
