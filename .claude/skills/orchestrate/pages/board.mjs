@@ -709,7 +709,7 @@ const liveParts = (
 /**
  * The board, whole.
  * @param {ReturnType<typeof boardModel>} model
- * @param {{builtAt: string, rebuild: {slash: string, node: string}, logs?: Record<string, string>, dashboardHref?: string | null, sharedBoardHref?: string | null, banner?: string | null, live?: {session: string, seq: number, file: string} | null}} options
+ * @param {{builtAt: string, rebuild: string, logs?: Record<string, string>, dashboardHref?: string | null, sharedBoardHref?: string | null, banner?: string | null, live?: {session: string, seq: number, file: string} | null}} options
  *   `logs` is the Activity Logs by Delegation id (`run` for the Chief of Staff's), already redacted.
  *   `live` is set by the server alone: its session, the events it has pushed, and `board.html`'s address.
  */
@@ -765,7 +765,7 @@ ${runDrawer(model, logs)}
     title,
     brand: title,
     builtAt,
-    rebuild: `<code>${esc(rebuild.slash)}</code> or <code>${esc(rebuild.node)}</code>`,
+    rebuild: `<code>${esc(rebuild)}</code>`,
     banner: top,
     nav: [],
     home: "/",

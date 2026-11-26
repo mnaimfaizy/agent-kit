@@ -4897,6 +4897,14 @@ describe("board: writing board.html", () => {
     );
   });
 
+  it("names a rebuild command that writes the board: the `board` command, not `--status` (D6)", async () => {
+    const dir = replayed("2026-11-19T03:05:00Z");
+    const { html } = await board(dir, [], { until: "2026-11-19T03:05:00Z" });
+    const rebuild = /Rebuild: (.*?)<\/span>/.exec(html)?.[1];
+    assert.match(rebuild, /^<code>node \S*records\.mjs board tmp\/orchestrate\/2026-11-19-spec-344<\/code>$/);
+    assert.doesNotMatch(html, /orchestrate --status/);
+  });
+
   it("carries its data inline and reloads itself about every 15 seconds", async () => {
     const dir = replayed("2026-11-19T03:05:00Z");
     const { html } = await board(dir, [], { until: "2026-11-19T03:05:00Z" });

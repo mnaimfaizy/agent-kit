@@ -2443,10 +2443,8 @@ async function buildBoard(
   const quote = (text) => (/\s/.test(text) ? `"${text}"` : text);
   const html = renderBoard(model, {
     builtAt: nowIso(io),
-    rebuild: {
-      slash: "/orchestrate --status",
-      node: `node ${quote(scriptPath)} board ${quote(folderPath)}${heartbeat === HEARTBEAT_MINUTES ? "" : ` --heartbeat ${heartbeat ?? "none"}`}`,
-    },
+    // `--status` writes nothing, so the one command that rewrites this page is `board`.
+    rebuild: `node ${quote(scriptPath)} board ${quote(folderPath)}${heartbeat === HEARTBEAT_MINUTES ? "" : ` --heartbeat ${heartbeat ?? "none"}`}`,
     logs,
     dashboardHref: `${dashboard}#/run/${dashboardSlug(runFolder, runId, cwd, model.run.repo, qualifiedSlug)}/summary`,
     sharedBoardHref,
