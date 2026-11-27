@@ -13,7 +13,15 @@
  */
 
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -28,6 +36,7 @@ import {
   TYPING_BUDGET_MS,
   checkSequence,
   keyDelay,
+  loopbackNote,
   main,
   runSequence,
 } from "./web.mjs";
@@ -173,6 +182,22 @@ before(async () => {
             "<button>Send</button></form>",
         );
       if (url.pathname === "/away") return html(`<a href="http://localhost:${port}/who">Leave</a>`);
+      if (url.pathname === "/rate-limit-429") {
+        res.writeHead(429, { "content-type": "text/html", "retry-after": "30" });
+        return res.end(page("<p>Too many attempts: secret rate limit body</p>"));
+      }
+      if (url.pathname === "/rate-limit-503-retry") {
+        res.writeHead(503, { "content-type": "text/html", "retry-after": "45" });
+        return res.end(page("<p>Busy: service unavailable body</p>"));
+      }
+      if (url.pathname === "/rate-limit-503-plain") {
+        res.writeHead(503, { "content-type": "text/html" });
+        return res.end(page("<p>Plain 503 body</p>"));
+      }
+      if (url.pathname === "/rate-limit-fetch")
+        return html(
+          "<button onclick=\"fetch('/rate-limit-429?from=btn', { method: 'POST' })\">Trigger</button>",
+        );
       if (url.pathname === "/keys")
         // Counts each field's key and input events, and whether the email field was
         // masked when its value arrived, for the typing tests.
@@ -1165,4 +1190,460 @@ test("a long literal types faster, so its pauses stay within the budget", () => 
   assert.equal(keyDelay(""), KEY_DELAY_MS);
   const long = "x".repeat(10_000);
   assert.ok(keyDelay(long) * long.length <= TYPING_BUDGET_MS);
+});
+
+// ── `run.playwright` and loopback-spelling notes (#533) ──────────────────────
+
+/** A stub Playwright module that records its launches and fires route handlers and response events. */
+function stubPlaywrightModule(
+  requestsToFire = [],
+  pageUrl = "http://127.0.0.1:3000/",
+  responsesToFire = [],
+) {
+  const state = { launched: 0 };
+  const module = {
+    chromium: {
+      launch: async () => {
+        state.launched += 1;
+        return {
+          newContext: async () => {
+            let routeHandler;
+            const listeners = {};
+            const page = {
+              url: () => pageUrl,
+              on: (event, handler) => {
+                (listeners[event] ??= []).push(handler);
+              },
+              goto: async () => {
+                for (const reqUrl of requestsToFire) {
+                  let continued = false;
+                  await routeHandler?.({
+                    request: () => ({
+                      url: () => reqUrl,
+                      isNavigationRequest: () => false,
+                      frame: () => ({ page: () => page, parentFrame: () => null }),
+                    }),
+                    continue: () => {
+                      continued = true;
+                    },
+                    abort: () => {
+                      throw new Error(`unexpected abort for ${reqUrl}`);
+                    },
+                  });
+                  assert.equal(continued, true, `request ${reqUrl} must continue`);
+                }
+                for (const resp of responsesToFire) {
+                  for (const h of listeners.response ?? []) {
+                    h({
+                      status: () => resp.status,
+                      headers: () => resp.headers ?? {},
+                      request: () => ({
+                        method: () => resp.method ?? "GET",
+                        url: () => resp.url,
+                      }),
+                      text: async () => resp.body ?? "",
+                    });
+                  }
+                }
+              },
+              frames: () => [
+                {
+                  $$eval: async () => [],
+                  evaluate: async () => "",
+                },
+              ],
+              screenshot: async ({ path }) => writeFileSync(path, "png"),
+            };
+            return {
+              setDefaultTimeout: () => {},
+              setDefaultNavigationTimeout: () => {},
+              newPage: async () => page,
+              newCDPSession: async () => ({ on: () => {}, send: async () => {} }),
+              route: async (_pattern, handler) => {
+                routeHandler = handler;
+              },
+              on: () => {},
+              close: async () => {},
+            };
+          },
+          close: async () => {},
+        };
+      },
+    },
+  };
+  return { module, state };
+}
+
+test("web.mjs resolves Playwright from `run.playwright` (or `--playwright-dir`) while run from the repo root", async () => {
+  const repo = mkdtempSync(join(tmpdir(), "web-subdir-"));
+  try {
+    mkdirSync(join(repo, "react-frontend", "node_modules", "playwright"), { recursive: true });
+    writeFileSync(join(repo, "react-frontend", "package.json"), "{}");
+    const fakeBrowser = join(repo, "react-frontend", "chromium-bin");
+    writeFileSync(fakeBrowser, "");
+    const launchMarker = join(repo, "launched.txt");
+    writeFileSync(
+      join(repo, "react-frontend", "node_modules", "playwright", "index.js"),
+      [
+        `const fs = require("node:fs");`,
+        `module.exports = {`,
+        `  chromium: {`,
+        `    executablePath: () => ${JSON.stringify(fakeBrowser)},`,
+        `    launch: async () => {`,
+        `      fs.writeFileSync(${JSON.stringify(launchMarker)}, "ok");`,
+        `      const page = {`,
+        `        url: () => "http://127.0.0.1:3000/",`,
+        `        goto: async () => {},`,
+        `        frames: () => [{ $$eval: async () => [], evaluate: async () => "" }],`,
+        `        screenshot: async ({ path }) => fs.writeFileSync(path, "png"),`,
+        `      };`,
+        `      return {`,
+        `        newContext: async () => ({`,
+        `          setDefaultTimeout: () => {},`,
+        `          setDefaultNavigationTimeout: () => {},`,
+        `          newPage: async () => page,`,
+        `          newCDPSession: async () => ({ on: () => {}, send: async () => {} }),`,
+        `          route: async () => {},`,
+        `          on: () => {},`,
+        `          close: async () => {},`,
+        `        }),`,
+        `        close: async () => {},`,
+        `      };`,
+        `    },`,
+        `  },`,
+        `};`,
+      ].join("\n"),
+    );
+
+    const seqPath = join(repo, "tmp", "qa", "s1-web.json");
+    mkdirSync(dirname(seqPath), { recursive: true });
+    writeFileSync(
+      seqPath,
+      JSON.stringify({
+        actions: [
+          { session: "A", goto: "/" },
+          { session: "A", step: "Home" },
+        ],
+      }),
+    );
+    const outDir = join(repo, "tmp", "qa", "s1-web");
+
+    // Without `run.playwright`, running from `repo` does not load `react-frontend`.
+    const withoutConfig = await main(
+      ["run", seqPath, "--base", "http://127.0.0.1:3000", "--out", outDir],
+      { env: {}, cwd: repo },
+    );
+    assert.equal(withoutConfig.code, 2);
+    assert.equal(existsSync(launchMarker), false);
+
+    // With `--playwright-dir react-frontend`, it loads from `react-frontend` while keeping repo paths.
+    const withFlag = await main(
+      [
+        "run",
+        seqPath,
+        "--base",
+        "http://127.0.0.1:3000",
+        "--out",
+        outDir,
+        "--playwright-dir",
+        "react-frontend",
+      ],
+      { env: {}, cwd: repo },
+    );
+    assert.equal(withFlag.code, 0, withFlag.out);
+    assert.equal(existsSync(launchMarker), true);
+    assert.equal(existsSync(join(outDir, "steps.json")), true);
+
+    // With `run.playwright: react-frontend` in `qa.config.yml`, no flag is needed.
+    rmSync(launchMarker, { force: true });
+    writeFileSync(join(repo, "qa.config.yml"), "run:\n  playwright: react-frontend\n");
+    const withConfig = await main(
+      ["run", seqPath, "--base", "http://127.0.0.1:3000", "--out", outDir],
+      { env: {}, cwd: repo },
+    );
+    assert.equal(withConfig.code, 0, withConfig.out);
+    assert.equal(existsSync(launchMarker), true);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("loopbackNote flags differently spelled loopback hosts and ignores matching or non-loopback ones", () => {
+  assert.equal(
+    loopbackNote("http://127.0.0.1:3000", "http://localhost:8000/api/me"),
+    "the page at 127.0.0.1:3000 called localhost:8000; a SameSite cookie set by one is not sent from the other",
+  );
+  assert.equal(
+    loopbackNote("http://[::1]:3000", "http://localhost:8000/api/me"),
+    "the page at [::1]:3000 called localhost:8000; a SameSite cookie set by one is not sent from the other",
+  );
+  assert.equal(loopbackNote("http://localhost:3000", "http://localhost:8000/api/me"), null);
+  assert.equal(loopbackNote("http://127.0.0.1:3000", "http://127.0.0.1:8000/api/me"), null);
+  assert.equal(loopbackNote("http://127.0.0.1:3000", "https://cdn.example.com/a.js"), null);
+  assert.equal(loopbackNote("https://qa.example.com", "http://localhost:8000/api"), null);
+});
+
+test("runSequence records one loopback note in steps.json without blocking, and none when spellings match", async () => {
+  const outMismatch = mkdtempSync(join(tmpdir(), "web-loopback-mismatch-"));
+  const outMatch = mkdtempSync(join(tmpdir(), "web-loopback-match-"));
+  try {
+    const seq = {
+      actions: [
+        { session: "A", goto: "/" },
+        { session: "A", step: "Home" },
+      ],
+    };
+    const mismatchStub = stubPlaywrightModule([
+      "http://localhost:8000/api/one",
+      "http://localhost:8000/api/two",
+    ]);
+    const mismatch = await runSequence(seq, {
+      base: "http://127.0.0.1:3000",
+      env: {},
+      out: outMismatch,
+      video: false,
+      playwright: mismatchStub.module,
+    });
+    assert.equal(mismatch.completed, true);
+    const savedMismatch = JSON.parse(readFileSync(join(outMismatch, "steps.json"), "utf8"));
+    assert.deepEqual(savedMismatch.notes, [
+      "the page at 127.0.0.1:3000 called localhost:8000; a SameSite cookie set by one is not sent from the other",
+    ]);
+
+    const matchStub = stubPlaywrightModule(
+      ["http://localhost:8000/api/one"],
+      "http://localhost:3000/",
+    );
+    const match = await runSequence(seq, {
+      base: "http://localhost:3000",
+      env: {},
+      out: outMatch,
+      video: false,
+      playwright: matchStub.module,
+    });
+    assert.equal(match.completed, true);
+    const savedMatch = JSON.parse(readFileSync(join(outMatch, "steps.json"), "utf8"));
+    assert.deepEqual(savedMatch.notes, []);
+    assert.deepEqual(savedMatch.rateLimits, []);
+  } finally {
+    rmSync(outMismatch, { recursive: true, force: true });
+    rmSync(outMatch, { recursive: true, force: true });
+  }
+});
+
+test(
+  "Chromium: a page at 127.0.0.1 calling localhost records one loopback note and the request goes through",
+  { skip: NEEDS_CHROMIUM },
+  async () => {
+    otherSeen.length = 0;
+    const { code, steps } = await drive([
+      { session: "A", goto: "/framed" },
+      { session: "A", wait: { role: "heading", name: "Framed" } },
+      { session: "A", step: "Loaded" },
+    ]);
+    assert.equal(code, 0);
+    assert.deepEqual(steps.notes, [
+      `the page at 127.0.0.1:${port} called localhost:${other.address().port}; a SameSite cookie set by one is not sent from the other`,
+    ]);
+    assert.deepEqual(otherSeen, ["/embedded"]);
+  },
+);
+
+// ── Rate-limit recording (#538) ────────────────────────────────────────────
+
+test("runSequence records 429 and 503-with-Retry-After in steps.json, never the body or other statuses (#538)", async () => {
+  const out = mkdtempSync(join(tmpdir(), "web-rate-limit-"));
+  try {
+    const seq = {
+      actions: [
+        { session: "A", goto: "/login" },
+        { session: "A", step: "After login" },
+      ],
+    };
+    const stub = stubPlaywrightModule([], "http://127.0.0.1:3000/", [
+      { status: 200, method: "GET", url: "http://127.0.0.1:3000/sign-in", body: "ok body" },
+      { status: 401, method: "POST", url: "http://127.0.0.1:3000/api/login", body: "bad auth" },
+      {
+        status: 503,
+        method: "GET",
+        url: "http://127.0.0.1:3000/health",
+        headers: {},
+        body: "plain 503",
+      },
+      {
+        status: 429,
+        method: "POST",
+        url: `http://127.0.0.1:3000/api/login?email=${encodeURIComponent(EMAIL)}`,
+        headers: { "retry-after": "30" },
+        body: "DO_NOT_RECORD_429_BODY",
+      },
+      {
+        status: 503,
+        method: "GET",
+        url: "http://127.0.0.1:3000/api/me",
+        headers: { "Retry-After": "120" },
+        body: "DO_NOT_RECORD_503_BODY",
+      },
+      {
+        status: 429,
+        method: "GET",
+        url: "http://127.0.0.1:3000/api/other",
+        headers: {},
+        body: "DO_NOT_RECORD_429_NO_HEADER",
+      },
+    ]);
+    const result = await runSequence(seq, {
+      base: "http://127.0.0.1:3000",
+      env: ENV,
+      out,
+      video: false,
+      playwright: stub.module,
+    });
+    assert.equal(result.completed, true);
+    const saved = JSON.parse(readFileSync(join(out, "steps.json"), "utf8"));
+    assert.deepEqual(saved.rateLimits, [
+      {
+        session: "A",
+        step: 1,
+        method: "POST",
+        host: "127.0.0.1:3000",
+        path: "/api/login?email=[redacted:QA_A_EMAIL]",
+        status: 429,
+        retryAfter: "30",
+      },
+      {
+        session: "A",
+        step: 1,
+        method: "GET",
+        host: "127.0.0.1:3000",
+        path: "/api/me",
+        status: 503,
+        retryAfter: "120",
+      },
+      {
+        session: "A",
+        step: 1,
+        method: "GET",
+        host: "127.0.0.1:3000",
+        path: "/api/other",
+        status: 429,
+        retryAfter: null,
+      },
+    ]);
+    const dumped = JSON.stringify(saved);
+    assert.ok(!dumped.includes("DO_NOT_RECORD"), "never records response body");
+    assert.ok(!dumped.includes(EMAIL), "redacts sign-in values in path");
+    assert.ok(!dumped.includes('"status":200') && !dumped.includes('"status":401'));
+  } finally {
+    rmSync(out, { recursive: true, force: true });
+  }
+});
+
+test(
+  "Chromium: web.mjs records 429 and 503 with Retry-After on document and request responses, and ignores plain 503 (#538)",
+  { skip: NEEDS_CHROMIUM },
+  async () => {
+    const { code, summary, steps, out, stdout } = await drive([
+      { session: "A", goto: "/rate-limit-429" },
+      { session: "A", goto: "/rate-limit-503-plain" },
+      { session: "B", goto: "/rate-limit-503-retry" },
+      { session: "B", goto: "/rate-limit-fetch" },
+      { session: "B", click: { role: "button", name: "Trigger" } },
+      { session: "B", step: "Done" },
+    ]);
+    assert.equal(code, 0, stdout);
+    assert.deepEqual(steps.rateLimits, [
+      {
+        session: "A",
+        step: 1,
+        method: "GET",
+        host: `127.0.0.1:${port}`,
+        path: "/rate-limit-429",
+        status: 429,
+        retryAfter: "30",
+      },
+      {
+        session: "B",
+        step: 3,
+        method: "GET",
+        host: `127.0.0.1:${port}`,
+        path: "/rate-limit-503-retry",
+        status: 503,
+        retryAfter: "45",
+      },
+      {
+        session: "B",
+        step: 5,
+        method: "POST",
+        host: `127.0.0.1:${port}`,
+        path: "/rate-limit-429?from=btn",
+        status: 429,
+        retryAfter: "30",
+      },
+    ]);
+    assert.deepEqual(summary.rateLimits, steps.rateLimits);
+    const written = allText(out) + stdout;
+    assert.ok(!written.includes("secret rate limit body"));
+    assert.ok(!written.includes("service unavailable body"));
+    assert.ok(!written.includes("Plain 503 body"));
+  },
+);
+
+test("runSequence keeps host on rateLimits so third-party 429s stay distinct from the app and its multi-port API", async () => {
+  const out = mkdtempSync(join(tmpdir(), "web-rate-limit-host-"));
+  try {
+    const seq = {
+      actions: [
+        { session: "A", goto: "/login" },
+        { session: "A", step: "After login" },
+      ],
+    };
+    const stub = stubPlaywrightModule([], "http://localhost:3000/", [
+      {
+        status: 429,
+        method: "GET",
+        url: "https://fonts.googleapis.com/css2?family=Inter",
+        headers: { "retry-after": "10" },
+        body: "third-party limit",
+      },
+      {
+        status: 429,
+        method: "POST",
+        url: "http://localhost:8000/api/login",
+        headers: { "retry-after": "30" },
+        body: "api limit",
+      },
+    ]);
+    const result = await runSequence(seq, {
+      base: "http://localhost:3000",
+      env: ENV,
+      out,
+      video: false,
+      playwright: stub.module,
+    });
+    assert.equal(result.completed, true);
+    const saved = JSON.parse(readFileSync(join(out, "steps.json"), "utf8"));
+    assert.deepEqual(saved.rateLimits, [
+      {
+        session: "A",
+        step: 1,
+        method: "GET",
+        host: "fonts.googleapis.com",
+        path: "/css2?family=Inter",
+        status: 429,
+        retryAfter: "10",
+      },
+      {
+        session: "A",
+        step: 1,
+        method: "POST",
+        host: "localhost:8000",
+        path: "/api/login",
+        status: 429,
+        retryAfter: "30",
+      },
+    ]);
+  } finally {
+    rmSync(out, { recursive: true, force: true });
+  }
 });

@@ -29,6 +29,7 @@ TERMS = [
     "Ruling Review",
     "QA held for you",
     "Parked QA session",
+    "Scoped QA Delegation",
     "Dispatch Plan",
     "Activity Log",
     "Heartbeat",

@@ -888,3 +888,38 @@ test("`check --for run` documents --host and its readiness fields", () => {
     assert.match(adapter, new RegExp(`\`${field}\``));
   assert.match(main([], {}).out, /--host <name>=<typed host>/);
 });
+
+test("ADAPTER.md and SKILL.md document `run.playwright`, `--playwright-dir`, and the loopback note (#533)", () => {
+  assert.match(adapter, /\| `run\.playwright`/);
+  assert.match(adapter, /--playwright-dir <dir>/);
+  assert.match(adapter, /SameSite cookie/);
+  assert.match(skill, /run\.playwright/);
+  assert.match(skill, /--playwright-dir/);
+  assert.match(skill, /steps\.json`'s `notes`/);
+});
+
+test("SKILL.md and ADAPTER.md specify rate-limit handling (429 / 503 with Retry-After) (#538)", () => {
+  const flatSkill = skill.replace(/\s+/g, " ");
+  const flatAdapter = adapter.replace(/\s+/g, " ");
+
+  assert.match(flatSkill, /429.*503.*Retry-After/);
+  assert.match(flatSkill, /Expected result:.*about the (?:rate )?limit itself/);
+  assert.match(flatSkill, /not run: the app's rate limit/);
+  assert.match(flatSkill, /Retry-After.*60 seconds or less/);
+  assert.match(flatSkill, /from its first step, on fresh sessions/);
+  assert.match(flatSkill, /ran twice/);
+  assert.match(flatSkill, /http\.mjs.*web\.mjs.*no-retries rule|keep their own no-retries rule/);
+
+  assert.match(flatAdapter, /sign-in rate limits (?:off|disabled) or raised/);
+  assert.match(flatAdapter, /`rateLimits`/);
+  assert.match(flatAdapter, /never the body/);
+  assert.match(flatAdapter, /no other (?:HTTP )?status is recorded/);
+});
+
+test("SKILL.md documents `{{json:<n>:<path>}}` in step 6 and `--answers` or chat for `run.playwright`", () => {
+  assert.match(skill, /--answers` or chat rather than `qa\.config\.yml`/);
+  assert.match(
+    skill,
+    /other than a cookie via `\{\{cookie:<name>\}\}` or a string or number field from an earlier JSON body via `\{\{json:<n>:<path>\}\}`/,
+  );
+});

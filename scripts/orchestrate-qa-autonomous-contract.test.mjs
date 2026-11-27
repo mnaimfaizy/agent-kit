@@ -970,3 +970,79 @@ describe("DESIGN.md, docs and the glossary give the typed-host flow (#421)", () 
     assert.match(entry, /composing the QA Plan only/);
   });
 });
+
+describe("Chief of Staff never runs scenarios left for a person (#536)", () => {
+  const RULES = section(SKILL, "## Rules");
+  const TIERS = section(HARNESSES, "## Tiers");
+  const DOCS = read("docs/orchestrate.md");
+
+  it("moves 'The Chief of Staff never does a Delegation's work' into SKILL.md ## Rules with reason and QA list", () => {
+    assert.match(RULES, /The Chief of Staff never does a Delegation's work/);
+    assert.match(RULES, /every tier/i);
+    assert.match(
+      RULES,
+      /mix the work it must verify with the session that verifies it|verifying session/i,
+    );
+    for (const phrase of [
+      "QA Stack",
+      "web.mjs",
+      "http.mjs",
+      "storyboard.mjs",
+      "mp4.mjs",
+      "QA Report",
+      "QA Artifacts",
+      "report.mjs",
+    ]) {
+      assert.ok(RULES.includes(phrase), `SKILL.md ## Rules names ${phrase}`);
+    }
+  });
+
+  it("HARNESSES.md tier-3 section and step 9 point to the general rule, without stale wording", () => {
+    assert.match(TIERS, /SKILL\.md#rules|\[SKILL\.md\]/);
+    assert.match(STEP9, /\[Rules\]\(#rules\)/);
+    assert.doesNotMatch(HARNESSES, /The Chief of Staff still never does a Delegation's work/);
+    assert.doesNotMatch(SKILL, /No agent runs or passes one/);
+    assert.doesNotMatch(SKILL, /human runs each and gives its result, or waives it/);
+    assert.doesNotMatch(DOCS, /to run or waive/);
+  });
+
+  it("Decision Request and QA held for you list a new QA Delegation first, then human runs it, waive, (and run after merge), never CoS", () => {
+    const step9Left = bullet(STEP9, "   - **Scenarios left for a person, and no FAIL:**");
+    const heldForYou = bullet(STEP10, "**QA held for you.**");
+    assert.match(step9Left, /new QA Delegation/);
+    assert.match(step9Left, /d<issue>-qa<k>/);
+    assert.match(step9Left, /Never the Chief of Staff|never the Chief of Staff/i);
+    assert.ok(
+      step9Left.indexOf("QA Delegation") < step9Left.indexOf("waive") &&
+        step9Left.indexOf("runs") < step9Left.indexOf("waive"),
+      "step 9 lists new QA Delegation first, then human runs it, then waive",
+    );
+    assert.match(heldForYou, /new QA Delegation/);
+    assert.match(heldForYou, /run after merge/);
+    assert.match(heldForYou, /never the Chief of Staff/i);
+    assert.ok(
+      heldForYou.indexOf("new QA Delegation") < heldForYou.indexOf("waive") &&
+        heldForYou.indexOf("waive") < heldForYou.indexOf("run after merge"),
+      "QA held for you lists new QA Delegation, human runs it, waive, run after merge",
+    );
+  });
+
+  it("direct ask for results answers in one line with the rule and why, points to options/Executor, with no override", () => {
+    assert.match(STEP9, /asks? (?:the Chief of Staff )?directly|asked directly/i);
+    assert.match(STEP9, /one line/);
+    assert.match(STEP9, /no override|even if the human insists/i);
+    assert.match(STEP9, /Executor[^.]*(?:missing )?driver/);
+  });
+
+  it("BRIEF.md defines the scoped QA brief form, and posting edits the comment in place", () => {
+    assert.match(QA_BRIEF, /\*\*A scoped QA brief\.\*\*/);
+    assert.match(QA_BRIEF, /listed scenarios/);
+    assert.match(QA_BRIEF, /same `<head>`|same head/);
+    assert.match(QA_BRIEF, /delivered QA Plan/);
+    assert.match(QA_BRIEF, /`d<issue>-qa<k>`/);
+    assert.match(QA_BRIEF, /report\.mjs.*merge|`merge`/);
+    assert.match(QA_BRIEF, /<!-- qa-report -->/);
+    assert.match(QA_BRIEF, /in place/);
+    assert.match(QA_BRIEF, /never posts a second/i);
+  });
+});

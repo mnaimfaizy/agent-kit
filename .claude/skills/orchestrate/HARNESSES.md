@@ -26,6 +26,8 @@ A wake-up, from either part, means "something may have changed", never "a report
 
 Each harness file's `await` names its primary event and its heartbeat. On Claude Code (desktop and CLI) and Antigravity the heartbeat is a recurring scheduled task in the Chief of Staff's own session. On a harness whose file names no scheduler, the heartbeat is the **foreground watch**: the Chief of Staff does not end its turn while the run waits on a Delegation. Instead it runs a shell loop in the foreground that checks every 60 seconds. The loop returns as soon as any Delegation's `report.md` or `decisions.md` changes, or a pull request the run waits on changes state, or else at a cap of 10 to 15 minutes. The Chief of Staff acts on what changed, or on nothing, writes the board, and runs the watch again. The harness's own event, where it has one, is one more change the watch sees. How long a shell command or a turn may run on that harness is a **check before use** item until a run records it.
 
+On all six foreground-watch harnesses (`cursor`, `codex-cli`, `copilot-cli`, `gemini-cli`, `devin`, `opencode`), the foreground watch shell loop is **strictly read-only** (inspection and stdout only): it must never append to or write `activity.md`, `board.md`, or `events.jsonl`. Before launching each watch (and on `--resume`, before arming the watch again), the Chief of Staff increments a per-run monotonic generation id in `<run_dir>/<run>/watch.gen` (starting at `1`) and cleans up or stops any prior PID in `<run_dir>/<run>/watch.pid` (when used). Each watch captures its generation id at launch, emits it to stdout, and checks it against `watch.gen` on every iteration, so it exits immediately if superseded without writing any run-folder file. Any Chief of Staff turn that receives watch output whose generation id does not match current `watch.gen` drops it without acting or appending to `activity.md` or `events.jsonl`. At close-out or when the run parks, delete `watch.gen` and `watch.pid` alongside deleting the heartbeat.
+
 While the watch runs, the turn stays open, so the human has no prompt to answer at. A question for the human (every Decision Request in a relay run, or one queued in an autonomous run on a harness whose **Notify** is `none known`) is written whole in the Chief of Staff's session between two watches, and on the board. Then the watch runs again, and the other Delegations go on. To answer, the human stops its turn and answers there; the Chief of Staff acts on the answer and runs the watch again. The Dispatch Plan says so under **Harness limits**.
 
 ## The harnesses
@@ -99,7 +101,7 @@ Each fact in a harness file is dated, with the version it was read at and where 
 - `await`: the human says when the session has written its report. There is no heartbeat: the human is the event.
 - `report`: the report file.
 
-The Chief of Staff still never does a Delegation's work itself, here least of all: running a Delegation in its own session would mix the work it must verify with the session that verifies it.
+The general rule in [SKILL.md](SKILL.md#rules) ("The Chief of Staff never does a Delegation's work") holds here least of all, for the same reason: running a Delegation in its own session would mix the work it must verify with the session that verifies it.
 
 ## A headless run in a worktree
 

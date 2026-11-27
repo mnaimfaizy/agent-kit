@@ -6,7 +6,7 @@ Why the skill is shaped the way it is. The skill carries this file so its rules 
 
 These are word for word the definitions in Agent-kit's root glossary, where a contract test keeps the two the same.
 
-**Chief of Staff**: The session that runs `orchestrate`: it analyses the work, proposes the Dispatch Plan, hands out each Delegation, relays every Decision Request (or, in an autonomous run, makes a Ruling on those it may) and verifies every report, and never builds a Delegation's work or merges.
+**Chief of Staff**: The session that runs `orchestrate`: it analyses the work, proposes the Dispatch Plan, hands out each Delegation, relays every Decision Request (or, in an autonomous run, makes a Ruling on those it may) and verifies every report, and never does a Delegation's work or merges.
 
 **Delegation**: One piece of a run, an issue to build, an issue to analyse, or a pull request head to QA, handed to one Executor with one brief.
 
@@ -33,6 +33,8 @@ These are word for word the definitions in Agent-kit's root glossary, where a co
 **QA held for you**: In an approved-QA run, the list, right after the Ruling Review, of the QA questions the human keeps, each with its row, evidence and options; not Rulings, so outside the Ruling Ledger, and a row is Ready to Merge once they are answered.
 
 **Parked QA session**: In an approved-QA run on Claude Code desktop, a Live Session for QA started at the `go` turn on a brief with no head yet; it idles until the Chief of Staff messages it the head, and runs a re-QA in the same session.
+
+**Scoped QA Delegation**: A QA Delegation (`d<issue>-qa<k>`) started when the human picks a new QA Delegation for scenarios left for a person; it runs only those listed scenarios on the same head and delivered QA Plan, on an Executor with the missing driver, and merges its rows into that head's one QA Report with provenance.
 
 **Dispatch Plan**: The one table the Chief of Staff shows before any Delegation starts, giving each one's scope, Executor, model and wave, with the kinds of routine write the human may approve; one "go" approves it whole.
 
@@ -62,9 +64,9 @@ These are word for word the definitions in Agent-kit's root glossary, where a co
 
 The rules of running work through other sessions (the roles, the board, the Brief Contract, the loop, the authority limits) hold in any repository. The routes do not: one repository commits through a skill, another through a hook, a third by hand; one re-gates with a test suite, another has none. So the skill is a core that names no repository command, skill, label or path, and a config file that names them all. A rule in the core never has to be read around a repository's habits, and a repository adopts the skill by writing a file, not by editing it.
 
-## The Chief of Staff never builds
+## The Chief of Staff never does a Delegation's work
 
-A session that both builds and verifies a piece of work has a reason to believe its own report. Keeping the Chief of Staff to planning, delegating, relaying and checking means every report is read by someone who did not write it. It also keeps the Chief of Staff's context free for the whole run: a session deep in one Delegation's code loses track of the others. The rule holds most on a harness with no way to start another agent, where the easy path is to do the work in the same session.
+A session that both builds and verifies a piece of work has a reason to believe its own report. Keeping the Chief of Staff to planning, delegating, relaying and checking means every report is read by someone who did not write it. It also keeps the Chief of Staff's context free for the whole run: a session deep in one Delegation's code loses track of the others. The rule holds most on a harness with no way to start another agent, where the easy path is to do the work in the same session. It covers QA work for the same reason: the Chief of Staff never starts the QA Stack, drives a scenario on any surface, runs the QA drivers (`web.mjs`, `http.mjs`, `storyboard.mjs`, `mp4.mjs`), or writes or edits a QA Report or its QA Artifacts, with no override even if the human asks directly or insists.
 
 ## Authority
 
@@ -124,7 +126,7 @@ Outside an autonomous run, those skills are invoked only by a person, and stay s
 
 The readiness question is asked once, in the Dispatch Plan, because otherwise each QA session asks it: in one run, the human answered it six times. Its answers are facts about the repository, which only the human knows, so they are never a Ruling. They hold for the base branch they were given for, since an answer can name the base the plan is composed against. The QA Plan's delivery is always a Decision Request carrying the draft (in approved QA, answered by a Ruling, or held), because the plan is a judgement about what CI does not prove, and the human is the one to agree with it before anyone runs it. Posting the report can be approved once for the run, because by then the judgement has been made and the report only records it.
 
-A FAIL goes to the human, never straight back to the builder (in an autonomous run, a Ruling may send it back, and accepting it stays the human's): a FAIL can be the QA Stack, not the change, which is why QA Plans list red herrings. A scenario left for a person stays the human's to pass, because only a person can pass one. The QA Stack is one per machine, with fixed names and ports, so it has one holder at a time whether or not the config names it.
+A FAIL goes to the human, never straight back to the builder (in an autonomous run, a Ruling may send it back, and accepting it stays the human's): a FAIL can be the QA Stack, not the change, which is why QA Plans list red herrings. A scenario left for a person is never run by the Chief of Staff: the human either sends those scenarios to a new scoped QA Delegation (`d<issue>-qa<k>`) on an Executor that has the missing driver (whose rows merge into the head's one QA Report with provenance), runs them themselves, waives them, or (with QA approved) runs them after merge. The QA Stack is one per machine, with fixed names and ports, so it has one holder at a time whether or not the config names it.
 
 ## QA asks nothing mid-run
 
@@ -163,6 +165,8 @@ A run outlives a session: usage limits end it, laptops close, and a run with blo
 ## Four verbs, three tiers
 
 Harnesses differ in how one agent starts another: some start sessions the human can open, some start background runs to poll, some cannot start one at all. The skill body speaks only of `spawn`, `message`, `await` and `report`, and HARNESSES.md says how each works on each harness, so the body does not change when a harness does. Reports travel as files on every harness, so the verbs only carry signals. And no signal is trusted alone. A harness's wake-up is a turn-end, not a finished report: it comes at most once per turn, which can be before the report is final. It does not come for a Delegation stuck on a prompt, or for a wait on CI that ends with nothing found. In one run, the Chief of Staff sat idle in each of those ways while the human was away. So `await` pairs the harness's event with a heartbeat that re-arms itself, every wake-up is read as "something may have changed", and a report says whether it is final. The cost is a short turn every few minutes; the alternative is a run that stops without anyone knowing. Facts about a harness are dated and marked when unconfirmed, because a harness changes faster than the skill, and a guessed flag fails at the worst moment of a run.
+
+On harnesses that use the foreground watch, the watch shell loop stays strictly read-only (inspection and stdout only) and is fenced by a monotonic generation id in `watch.gen` (with optional `watch.pid` cleanup). A watch left running past a turn end or an interruption cannot safely write `activity.md`, `board.md`, or `events.jsonl` once a new watch or `--resume` has started, and any late watch output whose generation id does not match current `watch.gen` is dropped without acting. For the same reason, `activity.md` is prose context and baseline only: `--resume` and heartbeat checks verify `decisions.md`, `report.md`, and git/PR/CI source rather than acting on unattributed Activity Log lines.
 
 Each harness has a file of its own, and a run loads only the one it is on, so a run on one harness carries none of the others' facts. The run finds its harness, from the environment and its own tools, rather than trusting the config alone: the same repository is opened in one harness one day and another the next, so a config value goes stale, while a guess sends every Delegation down the wrong route. So the config may pin the harness, and a disagreement is a question, never a choice the run makes. Each harness carries a **Support Level** because "documented" and "proven" fail differently: the first Cursor run followed a harness description no run had tried, and invented what it lacked. Below `verified`, the human sees the level and the harness's limits before the "go", and a level rises only on a run's evidence. Executors may run on another harness because one harness's headless run can carry a run whose own harness cannot yet; it is not the default, because it needs a second CLI signed in and a second set of model names.
 

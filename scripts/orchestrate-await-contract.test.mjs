@@ -402,3 +402,76 @@ describe("docs/orchestrate.md", () => {
     assert.match(DOCS, /a question waits in its session until you stop its turn/);
   });
 });
+
+describe("foreground watch fencing and --resume hardening (#535)", () => {
+  const waiting = section(HARNESSES, "## Waiting: an event and a heartbeat");
+  const cursorWait = awaitBullet(CURSOR);
+  const step6 = section(SKILL, "### 6. Run the loop");
+  const step10 = section(SKILL, "### 10. Close out");
+  const layout = section(RUN, "## Layout");
+  const resume = section(RUN, "## Resume");
+
+  it("HARNESSES.md requires a strictly read-only foreground watch across all 6 foreground-watch harnesses", () => {
+    for (const id of ["cursor", "codex-cli", "copilot-cli", "gemini-cli", "devin", "opencode"])
+      assert.match(waiting, new RegExp(`\`${id}\``));
+    assert.match(waiting, /strictly read-only/i);
+    assert.match(waiting, /inspection and stdout only/i);
+    assert.match(waiting, /never[^.\n]*`activity\.md`[^.\n]*`board\.md`[^.\n]*`events\.jsonl`/i);
+  });
+
+  it("HARNESSES.md specifies watch.gen fencing, optional watch.pid cleanup, and dropping stale watch output", () => {
+    assert.match(waiting, /watch\.gen/);
+    assert.match(waiting, /watch\.pid/);
+    assert.match(waiting, /monotonic/i);
+    assert.match(waiting, /`--resume`/);
+    assert.match(waiting, /exits immediately if superseded/i);
+    assert.match(waiting, /does not match[^.\n]*watch\.gen[^.\n]*drops/i);
+    assert.match(waiting, /`activity\.md` or `events\.jsonl`/);
+  });
+
+  it("harnesses/cursor.md requires a strictly read-only watch, watch.gen fencing, and watch.pid cleanup", () => {
+    assert.match(cursorWait, /strictly read-only/i);
+    assert.match(cursorWait, /inspection and stdout only/i);
+    assert.match(cursorWait, /never[^.\n]*`activity\.md`[^.\n]*`board\.md`[^.\n]*`events\.jsonl`/i);
+    assert.match(cursorWait, /watch\.gen/);
+    assert.match(cursorWait, /watch\.pid/);
+    assert.match(cursorWait, /`--resume`/);
+    assert.match(cursorWait, /exits immediately if superseded/i);
+    assert.match(cursorWait, /drops it without acting/i);
+  });
+
+  it("SKILL.md steps 6 and 10 specify watch.gen fencing, cleanup at close-out/park, and activity.md baseline hardening", () => {
+    assert.match(step6, /watch\.gen/);
+    assert.match(step6, /watch\.pid/);
+    assert.match(step6, /strictly read-only/i);
+    assert.match(step6, /drop(?:s it)?[^\n]*without acting/i);
+    assert.match(step6, /`activity\.md` is prose context\/baseline only/i);
+    assert.match(step6, /`decisions\.md`/);
+    assert.match(step6, /`report\.md`/);
+    assert.match(step10, /watch\.gen/);
+    assert.match(step10, /watch\.pid/);
+  });
+
+  it("RUN.md lists watch.gen and watch.pid in Layout and hardens --resume", () => {
+    assert.match(layout, /^ {2}watch\.gen /m);
+    assert.match(layout, /^ {2}watch\.pid /m);
+    assert.match(resume, /watch\.gen/);
+    assert.match(resume, /watch\.pid/);
+    assert.match(resume, /`activity\.md` is prose context and baseline only/i);
+    assert.match(resume, /`decisions\.md`/);
+    assert.match(resume, /`report\.md`/);
+  });
+
+  it("DESIGN.md and docs/orchestrate.md explain and document the read-only fenced watch and --resume rules", () => {
+    const why = section(DESIGN, "## Four verbs, three tiers");
+    assert.match(why, /strictly read-only/i);
+    assert.match(why, /watch\.gen/);
+    assert.match(why, /watch\.pid/);
+    assert.match(why, /`activity\.md`/);
+    assert.match(DOCS, /strictly read-only/i);
+    assert.match(DOCS, /watch\.gen/);
+    assert.match(DOCS, /watch\.pid/);
+    assert.match(DOCS, /`activity\.md` is prose context\/baseline only/i);
+    assert.match(DOCS, /`decisions\.md`/);
+  });
+});

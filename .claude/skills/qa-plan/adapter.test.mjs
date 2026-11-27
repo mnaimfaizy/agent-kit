@@ -1350,6 +1350,25 @@ test("run.stack.address is a run key `host` must call local, and check --for run
   assert.deepEqual(bad.problems, [], "a `run:` problem never stops qa-plan");
 });
 
+test("run.playwright refuses absolute paths, `..`, and missing package.json, and never stops qa-plan", () => {
+  for (const badPath of ["/abs", "../x", ""]) {
+    const read = parseConfig("qa.config.yml", `run:\n  playwright: ${JSON.stringify(badPath)}\n`);
+    assert.match(read.runProblems[0] ?? "", /`run\.playwright`:/, badPath);
+    assert.deepEqual(read.problems, [], "a `run:` problem never stops qa-plan");
+  }
+  const noPkg = readQaConfig(reader({ "qa.config.yml": "run:\n  playwright: react-frontend\n" }));
+  assert.match(noPkg.runProblems[0] ?? "", /`run\.playwright`:.*package\.json/);
+  assert.deepEqual(noPkg.problems, []);
+  const ok = readQaConfig(
+    reader({
+      "qa.config.yml": "run:\n  playwright: react-frontend\n",
+      "react-frontend/package.json": "{}",
+    }),
+  );
+  assert.deepEqual(ok.runProblems, []);
+  assert.deepEqual(ok.problems, []);
+});
+
 // ── Places (#416) ───────────────────────────────────────────────────────────
 
 test("the default Places: local holds a merge, staging and production are deferred", () => {
