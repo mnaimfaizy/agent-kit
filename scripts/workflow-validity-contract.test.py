@@ -265,20 +265,52 @@ def test_no_workflow_or_caller_names_a_setting_under_its_old_name() -> None:
 # old Caller keeps working against a new tag only while each stays declared, with
 # the same type and no stricter requirement (`?` marks an optional one).
 RELEASED_INPUTS = {
-    "agent-plan-reusable.yml": "kill_switch:boolean? allowlist_actors:string? trigger_label:string? issue_number:string planner_marker:string? model:string? effort:string?",
-    "agent-implement-reusable.yml": "kill_switch:boolean? allowlist_actors:string? trigger_label:string? issue_number:string planner_marker:string? trusted_plan_author:string? base_branch:string? branch_prefix:string? branch_name_template:string? verify_commands:string? setup_commands:string? extra_allowed_tools:string? model:string? effort:string?",
-    "agent-review-reusable.yml": "kill_switch:boolean? allowlist_actors:string? trigger_label:string? pr_number:string head_sha:string base_sha:string base_ref:string is_fork:boolean? issue_number:string? planner_marker:string? trusted_plan_author:string? trusted_spec_authors:string? skill_path:string? model:string? effort:string? response_mode:string? response_workflow:string? response_allowlist_actors:string? response_reviewer_logins:string?",
-    "agent-review-response-reusable.yml": "kill_switch:boolean? allowlist_actors:string? trigger_label:string? pr_number:string reviewer_logins:string? extra_protected_paths:string? setup_commands:string? verify_commands:string? format_commands:string? ci_workflow:string? response_mode:string? model:string? effort:string?",
-    "security-audit-reusable.yml": "mode:string? kill_switch:boolean? allowlist_actors:string? threat_model_path:string findings_ledger_path:string audit_prompt_path:string? skill_dir:string? report_path:string? scan_command:string? pr_number:string? head_sha:string? base_sha:string? base_ref:string? model:string? effort:string? trigger_label:string? notify_email:boolean?",
-    "deep-scan-reusable.yml": "kill_switch:boolean? model:string? effort:string? setup_minutes:number? scan_minutes:number? max_turns:number? max_tokens:number?",
+    "agent-plan-reusable.yml": (
+        "kill_switch:boolean? allowlist_actors:string? trigger_label:string? issue_number:string "
+        "planner_marker:string? model:string? effort:string?"
+    ),
+    "agent-implement-reusable.yml": (
+        "kill_switch:boolean? allowlist_actors:string? trigger_label:string? issue_number:string "
+        "planner_marker:string? trusted_plan_author:string? base_branch:string? branch_prefix:string? "
+        "branch_name_template:string? verify_commands:string? setup_commands:string? "
+        "extra_allowed_tools:string? model:string? effort:string?"
+    ),
+    "agent-review-reusable.yml": (
+        "kill_switch:boolean? allowlist_actors:string? trigger_label:string? pr_number:string head_sha:string "
+        "base_sha:string base_ref:string is_fork:boolean? issue_number:string? planner_marker:string? "
+        "trusted_plan_author:string? trusted_spec_authors:string? skill_path:string? model:string? "
+        "effort:string? response_mode:string? response_workflow:string? response_allowlist_actors:string? "
+        "response_reviewer_logins:string?"
+    ),
+    "agent-review-response-reusable.yml": (
+        "kill_switch:boolean? allowlist_actors:string? trigger_label:string? pr_number:string "
+        "reviewer_logins:string? extra_protected_paths:string? setup_commands:string? verify_commands:string? "
+        "format_commands:string? ci_workflow:string? response_mode:string? model:string? effort:string?"
+    ),
+    "security-audit-reusable.yml": (
+        "mode:string? kill_switch:boolean? allowlist_actors:string? threat_model_path:string "
+        "findings_ledger_path:string audit_prompt_path:string? skill_dir:string? report_path:string? "
+        "scan_command:string? pr_number:string? head_sha:string? base_sha:string? base_ref:string? "
+        "model:string? effort:string? trigger_label:string? notify_email:boolean?"
+    ),
+    "deep-scan-reusable.yml": (
+        "kill_switch:boolean? model:string? effort:string? setup_minutes:number? scan_minutes:number? "
+        "max_turns:number? max_tokens:number?"
+    ),
 }
 RELEASED_SECRETS = {
     "agent-plan-reusable.yml": "claude_code_oauth_token",
     "agent-implement-reusable.yml": "claude_code_oauth_token",
     "agent-review-reusable.yml": "claude_code_oauth_token",
     "agent-review-response-reusable.yml": "claude_code_oauth_token",
-    "security-audit-reusable.yml": "advisories_token claude_code_oauth_token dependabot_alerts_token notify_email_to notify_email_from notify_email_smtp_host notify_email_smtp_port notify_email_smtp_username notify_email_smtp_password",
-    "deep-scan-reusable.yml": "anthropic_api_key claude_code_oauth_token advisories_token notify_email_to notify_email_from notify_email_smtp_host notify_email_smtp_port notify_email_smtp_username notify_email_smtp_password",
+    "security-audit-reusable.yml": (
+        "advisories_token claude_code_oauth_token dependabot_alerts_token notify_email_to notify_email_from "
+        "notify_email_smtp_host notify_email_smtp_port notify_email_smtp_username notify_email_smtp_password"
+    ),
+    "deep-scan-reusable.yml": (
+        "anthropic_api_key claude_code_oauth_token advisories_token notify_email_to notify_email_from "
+        "notify_email_smtp_host notify_email_smtp_port notify_email_smtp_username notify_email_smtp_password"
+    ),
 }
 
 
