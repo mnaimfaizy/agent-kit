@@ -99,7 +99,7 @@ Each fact in a harness file is dated, with the version it was read at and where 
 - `await`: the human says when the session has written its report. There is no heartbeat: the human is the event.
 - `report`: the report file.
 
-The Chief of Staff still never does a Delegation's work itself, here least of all: running a Delegation in its own session would mix the work it must verify with the session that verifies it.
+The general rule in [SKILL.md](SKILL.md#rules) ("The Chief of Staff never does a Delegation's work") holds here least of all, for the same reason: running a Delegation in its own session would mix the work it must verify with the session that verifies it.
 
 ## A headless run in a worktree
 

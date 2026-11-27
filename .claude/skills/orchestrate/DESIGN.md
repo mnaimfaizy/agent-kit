@@ -64,7 +64,7 @@ The rules of running work through other sessions (the roles, the board, the Brie
 
 ## The Chief of Staff never builds
 
-A session that both builds and verifies a piece of work has a reason to believe its own report. Keeping the Chief of Staff to planning, delegating, relaying and checking means every report is read by someone who did not write it. It also keeps the Chief of Staff's context free for the whole run: a session deep in one Delegation's code loses track of the others. The rule holds most on a harness with no way to start another agent, where the easy path is to do the work in the same session.
+A session that both builds and verifies a piece of work has a reason to believe its own report. Keeping the Chief of Staff to planning, delegating, relaying and checking means every report is read by someone who did not write it. It also keeps the Chief of Staff's context free for the whole run: a session deep in one Delegation's code loses track of the others. The rule holds most on a harness with no way to start another agent, where the easy path is to do the work in the same session. It covers QA work for the same reason: the Chief of Staff never starts the QA Stack, drives a scenario on any surface, runs the QA drivers (`web.mjs`, `http.mjs`, `storyboard.mjs`, `mp4.mjs`), or writes or edits a QA Report or its QA Artifacts, with no override even if the human asks directly or insists.
 
 ## Authority
 
@@ -124,7 +124,7 @@ Outside an autonomous run, those skills are invoked only by a person, and stay s
 
 The readiness question is asked once, in the Dispatch Plan, because otherwise each QA session asks it: in one run, the human answered it six times. Its answers are facts about the repository, which only the human knows, so they are never a Ruling. They hold for the base branch they were given for, since an answer can name the base the plan is composed against. The QA Plan's delivery is always a Decision Request carrying the draft (in approved QA, answered by a Ruling, or held), because the plan is a judgement about what CI does not prove, and the human is the one to agree with it before anyone runs it. Posting the report can be approved once for the run, because by then the judgement has been made and the report only records it.
 
-A FAIL goes to the human, never straight back to the builder (in an autonomous run, a Ruling may send it back, and accepting it stays the human's): a FAIL can be the QA Stack, not the change, which is why QA Plans list red herrings. A scenario left for a person stays the human's to pass, because only a person can pass one. The QA Stack is one per machine, with fixed names and ports, so it has one holder at a time whether or not the config names it.
+A FAIL goes to the human, never straight back to the builder (in an autonomous run, a Ruling may send it back, and accepting it stays the human's): a FAIL can be the QA Stack, not the change, which is why QA Plans list red herrings. A scenario left for a person is never run by the Chief of Staff: the human either sends those scenarios to a new scoped QA Delegation (`d<issue>-qa<k>`) on an Executor that has the missing driver (whose rows merge into the head's one QA Report with provenance), runs them themselves, waives them, or (with QA approved) runs them after merge. The QA Stack is one per machine, with fixed names and ports, so it has one holder at a time whether or not the config names it.
 
 ## QA asks nothing mid-run
 
