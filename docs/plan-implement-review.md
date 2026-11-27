@@ -77,7 +77,7 @@ What each agent can change, read and run. "Cannot" means a deny rule, a hook or 
 
 Permission rules and hooks the Consumer commits to `.claude/settings.json` apply to every agent, on top of these grants.
 
-The implementer's Bash guard (`guard-implementer-push.mjs`) refuses `$`, backticks and `<` outside single quotes, git global options (`-c`, `-C`, `--git-dir`, ...), git options that read a file (`-F`/`--file`, `-t`/`--template`, `--pathspec-from-file`), and an environment assignment before git. It also checks the push: a branch that changes `.github/workflows/` or `.github/actions/` is refused before the push, even if a tool added through `extra_allowed_tools` wrote the file. The push must run as its own command. Code run through `extra_allowed_tools` is outside these checks.
+The implementer's Bash guard (`guard-implementer-push.mjs`) refuses `$`, backticks, `<` and line continuations (a backslash before a newline) outside single quotes, git global options (`-c`, `-C`, `--git-dir`, ...), git options that read a file (`-F`/`--file`, `-t`/`--template`, `--pathspec-from-file`), and an environment assignment before git. It judges every git invocation in a command, not only the first. Write each command on one line, and repeat `-m` for more paragraphs. It also checks the push: a branch that changes `.github/workflows/` or `.github/actions/` is refused before the push, even if a tool added through `extra_allowed_tools` wrote the file. The push must run as its own command. Code run through `extra_allowed_tools` is outside these checks.
 
 ### Review response's protected paths
 
