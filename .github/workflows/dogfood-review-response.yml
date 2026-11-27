@@ -2,8 +2,8 @@ name: Dogfood review response
 
 # Agent-kit answering the code review on its own PRs, from this commit (local
 # ref). Off until the repository variable AGENT_KIT_REVIEW_RESPONSE_ENABLED is
-# "true" and CLAUDE_CODE_OAUTH_TOKEN exists. Setup: CONTRIBUTING.md →
-# "Dogfood flows".
+# "true" and CLAUDE_CODE_OAUTH_TOKEN (or ANTHROPIC_API_KEY) exists. Setup:
+# CONTRIBUTING.md → "Dogfood flows".
 #
 # The round reads its trusted script, hooks and skill from the default
 # branch, so a change to them is exercised only after it merges. The gate

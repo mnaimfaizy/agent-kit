@@ -322,7 +322,7 @@ jobs:
             refuse "the Review responder only runs on pull requests into the default branch."
           fi
           # A round builds the pull request: for a dependency update, that runs
-          # a package version no maintainer has read beside the subscription token.
+          # a package version no maintainer has read beside the model credential.
           case "$(field .user.login)|$(field .head.ref)" in
             "dependabot[bot]|"* | *"|dependabot/"*)
               refuse "the Review responder does not run on Dependabot pull requests."
@@ -391,7 +391,7 @@ jobs:
       # Fixed by the kit, not the Caller. Claude Code strips credentials from
       # the environment of every command the agent runs and runs them in a
       # bubblewrap sandbox (installed below): without it a build script could
-      # read the subscription token from the copy of the action's inputs left
+      # read the model credential from the copy of the action's inputs left
       # in the environment. Best-effort, by the action's own description.
       CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"
       # No dependency install script runs: `npm ci` here is
@@ -621,7 +621,7 @@ jobs:
 
       - name: Check git configuration after setup
         # Setup ran pull request and dependency code. The action then runs git
-        # and Bun outside the sandbox while it holds the subscription token, so
+        # and Bun outside the sandbox while it holds the model credential, so
         # refuse what setup could have left to steer them: git config or hooks
         # in the checkout, staged hooks that changed, git or loader settings in
         # the environment (through $GITHUB_ENV), and a different git or a
