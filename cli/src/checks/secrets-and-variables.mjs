@@ -61,6 +61,7 @@ export function deriveVariables(callers) {
 export function deriveRequirements(callers, readReusable) {
   const secrets = new Map();
   const problems = [];
+  const noCredential = [];
   const specs = new Map();
   const specFor = (file) => {
     if (!specs.has(file)) {
@@ -69,7 +70,8 @@ export function deriveRequirements(callers, readReusable) {
     }
     return specs.get(file);
   };
-  const addSecret = (names, required, job, input) => {
+  // `shown` is false under `secrets: inherit`, where the Caller writes no input.
+  const addSecret = (names, required, job, input, shown = true) => {
     // A GITHUB_* secret is always set, so an expression that falls back to one is too.
     if (names.some(isProvided)) return;
     const key = names.join(" || ");
@@ -77,9 +79,9 @@ export function deriveRequirements(callers, readReusable) {
     secrets.set(key, {
       names,
       required: Boolean(prev?.required || required),
-      where: [...(prev?.where ?? []), input ? `${job} (${input})` : job],
+      where: [...(prev?.where ?? []), shown ? `${job} (${input})` : job],
       // The job and the secret input each use fills; null under `secrets: inherit`.
-      uses: [...(prev?.uses ?? []), { job, input: input?.toLowerCase() ?? null }],
+      uses: [...(prev?.uses ?? []), { job, input: input.toLowerCase() }],
     });
   };
 
@@ -95,8 +97,7 @@ export function deriveRequirements(callers, readReusable) {
       if (job.secrets === "inherit") {
         for (const { name, required } of spec.values()) {
           // Inherited, the secret's name is the input's.
-          addSecret([name.toUpperCase()], required, where, null);
-          secrets.get(name.toUpperCase()).uses.at(-1).input = name.toLowerCase();
+          addSecret([name.toUpperCase()], required, where, name, false);
         }
         continue;
       }
@@ -113,6 +114,17 @@ export function deriveRequirements(callers, readReusable) {
         }
         addSecret(names, declared.required, where, input);
       }
+      // Optional in the workflow, so nothing refuses a job without either.
+      const accepted = CLAUDE_CODE_INPUTS.filter((input) => spec.has(input));
+      if (
+        accepted.length &&
+        accepted.every((input) => !spec.get(input).required && !passed.has(input))
+      ) {
+        noCredential.push(
+          `${where} passes neither ${CLAUDE_CODE_INPUTS.join(" nor ")} to ${job.uses.file}; ` +
+            "the run fails without one",
+        );
+      }
       for (const { name, required } of spec.values()) {
         if (required && !passed.has(name.toLowerCase())) {
           problems.push(
@@ -126,6 +138,7 @@ export function deriveRequirements(callers, readReusable) {
     secrets: [...secrets.values()],
     variables: deriveVariables(callers),
     problems,
+    noCredential,
     unsupported: unreadable(callers),
   };
 }
@@ -194,7 +207,7 @@ function splitFixes(items) {
 export function checkSecrets({ github, repo, ownerType, requirements }) {
   const ID = "secrets";
   const TITLE = "Secrets the Callers pass are set";
-  const { problems, unsupported = [] } = requirements;
+  const { problems, noCredential = [], unsupported = [] } = requirements;
   let listed;
   try {
     listed = listNames(github, repo, "secret", ownerType);
@@ -233,6 +246,7 @@ export function checkSecrets({ github, repo, ownerType, requirements }) {
         `no model credential set: ${x.names} (${x.where.join(", ")}); the run fails without one`,
     ),
     ...missingOptional.map((x) => `optional, not set: ${describe(x)}`),
+    ...noCredential,
     ...unsupported,
     ...notes,
   ];
@@ -245,9 +259,10 @@ export function checkSecrets({ github, repo, ownerType, requirements }) {
       : `${problems.length} Caller problem(s) with secrets.`;
     return result(ID, TITLE, "fail", summary, { details, fix });
   }
-  if (uncredentialed.length || missingOptional.length) {
+  const bare = uncredentialed.length + noCredential.length;
+  if (bare || missingOptional.length) {
     const summary = [
-      uncredentialed.length && "No model credential is set for some jobs.",
+      bare && "Some jobs have no model credential.",
       missingOptional.length &&
         `${missingOptional.length} optional secret(s) referenced but not set.`,
     ]

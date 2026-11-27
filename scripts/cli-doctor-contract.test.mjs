@@ -549,6 +549,26 @@ describe("secret and variable derivation", () => {
     assert.deepEqual(none.fix, ["gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo acme/app"]);
   });
 
+  it("secrets: a job that passes no claude-code credential at all is warned about", () => {
+    const dir = makeConsumer("no-credential-passed", {
+      files: {
+        ".github/workflows/caller.yml": callerFor(TAG).replace(
+          /^ {6}claude_code_oauth_token: .*\n/m,
+          "      openai_api_key: ${{ secrets.OPENAI_API_KEY }}\n",
+        ),
+      },
+    });
+    const { runner } = fakeGh(ALL_GOOD);
+    const secrets = runDoctor({ cwd: dir, runner, openTag }).results.find(
+      (r) => r.id === "secrets",
+    );
+    assert.equal(secrets.status, "warn", JSON.stringify(secrets));
+    assert.match(
+      secrets.details.join("\n"),
+      /caller\.yml:plan passes neither claude_code_oauth_token nor anthropic_api_key/,
+    );
+  });
+
   it("doctor fails on a missing required secret and warns on a missing optional one", () => {
     const dir = makeConsumer("secrets", {
       files: {
