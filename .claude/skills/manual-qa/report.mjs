@@ -54,6 +54,10 @@
 //      each refusal naming its rule; a public repository gets a warning,
 //      and so does each MP4 that plays a sign-in, naming the roles its
 //      scenario file says sign in on camera (ADR 0020), never refused for it.
+//   7. `merge`: merges a scoped QA Delegation's results (`mergeReports`) into
+//      the earlier QA Report for the same head: replaces only the named
+//      scenarios' `left for a person` rows, adds the `- **Scoped runs:**`
+//      provenance line, and updates the headline and Execution record.
 //
 //   Every body it builds, and every picked text file (a log, a HAR), is
 //   checked for sign-in values with the plan's own credential scan, and
@@ -61,6 +65,7 @@
 //
 // CLI (run from the repository root; `--repo <dir>` points elsewhere)
 //   node report.mjs read <report> [--plan <plan>]
+//   node report.mjs merge <base-report> --with <scoped-report> --delegation <id> [--scenarios <S1,S2>] [--plan <plan>]
 //   node report.mjs find --login <login> [--head <sha>] < comments.jsonl
 //   node report.mjs stale --head <sha> < comment-body.md
 //   node report.mjs comment <report> [--link <path>=<url>]…
