@@ -69,12 +69,17 @@ on:
         type: string
         default: ""
       base_sha:
-        description: "PR base SHA. Required in pr mode; must be empty in full mode. Trusted commit for the runtime restore and staged scripts."
+        description: "PR base SHA. Required in pr mode; must be empty in full mode. The runtime is restored, and the credentialed scripts staged, from it when it is on `trusted_branch`, otherwise from that branch's tip."
         required: false
         type: string
         default: ""
       base_ref:
         description: "PR base branch name. Required in pr mode."
+        required: false
+        type: string
+        default: ""
+      trusted_branch:
+        description: "Branch whose history the audit runtime and scripts are trusted on, in pr mode. Empty means the repository's default branch."
         required: false
         type: string
         default: ""
@@ -284,12 +289,14 @@ jobs:
           persist-credentials: false
 
       - name: Restore trusted audit runtime from PR base
+        id: restore
         if: ${{ success() && inputs.mode == 'pr' }}
         env:
           BASE_SHA: ${{ inputs.base_sha }}
           # Named BASE_BRANCH, not BASE_REF: BASE_REF on the job is the branch
           # input, and this step must not give one name two meanings.
           BASE_BRANCH: ${{ inputs.base_ref }}
+          TRUSTED_BRANCH: ${{ inputs.trusted_branch || github.event.repository.default_branch }}
         shell: bash
         run: |
           set -euo pipefail
@@ -299,6 +306,29 @@ jobs:
           if ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
             git fetch --no-tags origin "$BASE_BRANCH"
           fi
+
+          # The PR's base is whatever branch the PR targets, and whoever opens the
+          # PR picks it: a PR into an unreviewed branch would restore this runtime
+          # from that branch. The runtime is trusted only on the trusted branch, so
+          # restore from the PR base when it is on that branch, and from the
+          # trusted branch's tip otherwise. The diff still uses the PR base.
+          if [ -z "${TRUSTED_BRANCH:-}" ] || ! git check-ref-format "refs/heads/$TRUSTED_BRANCH"; then
+            echo "::error title=No trusted branch::Set the trusted_branch input: this event names no default branch to restore the runtime from."
+            exit 1
+          fi
+          TRUSTED_REF="refs/remotes/origin/$TRUSTED_BRANCH"
+          if ! git rev-parse -q --verify "$TRUSTED_REF^{commit}" >/dev/null; then
+            git fetch --no-tags origin "+refs/heads/$TRUSTED_BRANCH:$TRUSTED_REF"
+          fi
+          TRUSTED_TIP="$(git rev-parse --verify "$TRUSTED_REF^{commit}")"
+          if git merge-base --is-ancestor "$BASE_SHA" "$TRUSTED_TIP"; then
+            RUNTIME_SHA="$BASE_SHA"
+          else
+            RUNTIME_SHA="$TRUSTED_TIP"
+            echo "PR base $BASE_SHA is not on $TRUSTED_BRANCH; restoring the runtime from $TRUSTED_BRANCH at $TRUSTED_TIP."
+          fi
+          # The credentialed scripts are staged from the same commit.
+          echo "runtime_sha=$RUNTIME_SHA" >> "$GITHUB_OUTPUT"
 
           # A pull request's .gitattributes decides how git writes files, and
           # checkout already wrote the tree that way: working-tree-encoding can
@@ -316,7 +346,7 @@ jobs:
           MEMORY_LIST="$(mktemp)"
           {
             git ls-files -z
-            git ls-tree -r -z --name-only "$BASE_SHA"
+            git ls-tree -r -z --name-only "$RUNTIME_SHA"
           } | sort -z -u > "$MEMORY_LIST"
 
           resolves_through_symlink() {
@@ -341,8 +371,8 @@ jobs:
 
           restore_from_base() {
             local path="$1"
-            if git cat-file -e "$BASE_SHA:$path" 2>/dev/null; then
-              git restore --source="$BASE_SHA" --staged --worktree -- "$path"
+            if git cat-file -e "$RUNTIME_SHA:$path" 2>/dev/null; then
+              git restore --source="$RUNTIME_SHA" --staged --worktree -- "$path"
             elif resolves_through_symlink "$path"; then
               SKIPPED_THROUGH_LINK=$((SKIPPED_THROUGH_LINK + 1))
             else
@@ -389,13 +419,17 @@ jobs:
           if [ "$SKIPPED_THROUGH_LINK" -gt 0 ]; then
             echo "Restore skipped $SKIPPED_THROUGH_LINK path(s) resolving through a symlink."
           fi
-          echo "Audit runtime restored from PR base $BASE_SHA"
+          echo "Audit runtime restored from $RUNTIME_SHA"
 
       - name: Stage trusted audit scripts outside the agent workspace
         id: stage
         env:
-          # The PR base on a pull-request audit; the checked-out commit on a full run.
-          TRUSTED_SHA: ${{ inputs.mode == 'pr' && inputs.base_sha || github.sha }}
+          # The commit the runtime was restored from on a pull-request audit (the
+          # PR base when it is on the trusted branch, else that branch's tip); the
+          # checked-out commit on a full run. An empty output in pr mode becomes the
+          # null SHA, which no repository has, so staging fails rather than falling
+          # back to github.sha, which on a pull_request event is the PR's merge.
+          TRUSTED_SHA: ${{ inputs.mode == 'pr' && (steps.restore.outputs.runtime_sha || '0000000000000000000000000000000000000000') || github.sha }}
           BASE_BRANCH: ${{ inputs.base_ref }}
         shell: bash
         run: |

@@ -21,7 +21,7 @@ The reusable job supports:
 
 What the audit agent can and cannot change or run: [Agent limits](plan-implement-review.md#agent-limits).
 
-`pr` mode requires `head_sha`, `base_sha`, `base_ref`, and `pr_number`. The job restores instructions and `.github/agent-runtime/` from the base before the agent starts. `scan_command` runs in `full` mode only. `full` mode audits the commit the run was dispatched on and refuses a `head_sha` or `base_sha`: to audit a pull request, use `pr` mode.
+`pr` mode requires `head_sha`, `base_sha`, `base_ref`, and `pr_number`. The job restores instructions and `.github/agent-runtime/`, and stages its credentialed scripts, from the base before the agent starts, when the base is on the trusted branch (`trusted_branch`, otherwise the repository's default branch); otherwise from that branch's tip. `scan_command` runs in `full` mode only. `full` mode audits the commit the run was dispatched on and refuses a `head_sha` or `base_sha`: to audit a pull request, use `pr` mode.
 
 The preflight checks the advisories token is live, then sends an empty body to the create-advisory endpoint. GitHub checks authorization first, so a token that may create advisories gets a validation error (422), which passes, and one that may not gets 403 or 404, which fails the run before the agent starts. Nothing is created.
 
@@ -44,7 +44,7 @@ The Caller passes two Consumer-owned files:
 - `threat_model_path`: assets, trust boundaries, attack paths to walk, out-of-scope areas.
 - `findings_ledger_path`: fingerprints of known findings (concept id, status, dates) so repeat runs dedupe. The ledger is committed and public, so it never holds attack paths, evidence, or locations.
 
-Both are restored from the PR base in `pr` mode, so a PR cannot edit the Threat pack that audits it. See this repository's [threat model](../security/threat-model.md) and [ledger](../security/findings-ledger.md) for a worked example.
+Both are restored from the PR base in `pr` mode (from the trusted branch when the base is not on it), so a PR cannot edit the Threat pack that audits it. See this repository's [threat model](../security/threat-model.md) and [ledger](../security/findings-ledger.md) for a worked example.
 
 ## Deep mode
 

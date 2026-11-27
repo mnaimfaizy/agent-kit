@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
-import { decidePush, pushRef } from "../.github/agent-runtime/guard-implementer-push.mjs";
+import { GUARDED, decidePush, pushRef } from "../.github/agent-runtime/guard-implementer-push.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const readRepo = (...parts) => readFileSync(join(root, ...parts), "utf8").replace(/\r\n/g, "\n");
@@ -64,6 +64,61 @@ describe("implementer push guard contract", () => {
         files.join(","),
       );
     }
+  });
+
+  it("refuses a push whose branch changes a kit-owned .github/ path", () => {
+    // Review and audit restore these hooks and credentialed scripts as trusted,
+    // so no unreviewed branch may carry a changed copy.
+    for (const files of [
+      [".github/agent-runtime/confine-reads-to-workspace.mjs"],
+      ["src/a.ts", ".github/agent-runtime/security-audit.settings.json"],
+      [".github/agent-pipeline/x.sh"],
+      [".github/security-audit/publish-draft-advisory.sh"],
+      [".github/agent-review-response/x.mjs"],
+    ]) {
+      const reason = decidePush(bash(`${WRAPPER} origin HEAD`), () => files) ?? "";
+      assert.match(reason, /kit-owned \.github\/ paths/, files.join(","));
+      assert.ok(reason.includes(files.at(-1)), `${files.join(",")}: name the path`);
+    }
+  });
+
+  it("guards every kit-owned .github/ path, and still lets the implementer change skills", () => {
+    const kitOwned = readRepo("kit-owned-paths.txt")
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line && !line.startsWith("#"));
+    const github = kitOwned.filter((path) => path.startsWith(".github/"));
+    assert.ok(github.length > 0, "kit-owned-paths.txt lists .github/ paths");
+    for (const path of github) {
+      assert.ok(GUARDED.test(`${path}file`), `push guard must cover ${path}`);
+    }
+    for (const path of kitOwned.filter((p) => !p.startsWith(".github/"))) {
+      assert.ok(!GUARDED.test(`${path}SKILL.md`), `${path} stays pushable`);
+    }
+    for (const path of ["AGENTS.md", "CLAUDE.md", ".claude/skills/custom/SKILL.md"]) {
+      assert.ok(!GUARDED.test(path), `${path} stays pushable`);
+    }
+  });
+
+  it("refuses the kit-owned .github/ paths in the edit denies and the post-agent check too", () => {
+    const yml = readRepo(".github", "workflows", "agent-implement-reusable.yml");
+    const denied = yml.split('--disallowedTools "')[1].split('"')[0].split(",");
+    for (const dir of [
+      "workflows",
+      "actions",
+      "agent-runtime",
+      "agent-pipeline",
+      "security-audit",
+      "agent-review-response",
+    ]) {
+      assert.ok(denied.includes(`Edit(./.github/${dir}/**)`), `deny edits under .github/${dir}`);
+    }
+    assert.ok(
+      yml.includes(
+        "grep -qE '^\\.github/(workflows|actions|agent-runtime|agent-pipeline|security-audit|agent-review-response)/'",
+      ),
+      "the post-agent check covers the same paths as the push guard",
+    );
   });
 
   it("allows a push that changes neither", () => {

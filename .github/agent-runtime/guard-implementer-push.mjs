@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // PreToolUse hook for the implementer's Bash calls. It refuses a push whose
-// branch changes a workflow file or a local action, and any command that could
-// put a file or a secret from the agent's environment into output the agent
-// can publish (see decideBash).
+// branch changes a workflow file, a local action, or a kit-owned .github/ path,
+// and any command that could put a file or a secret from the agent's
+// environment into output the agent can publish (see decideBash).
 //
 // Why before the push, not after the agent: the implementer pushes and opens
 // its draft PR inside its own session, and a same-repository PR runs the
@@ -35,7 +35,12 @@ import { checkGitDir } from "./check-git-config.mjs";
 // Passed before every git subcommand here: `-c` wins over the config files.
 export const GIT_HARDENING = ["-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null"];
 
-const GUARDED = /^\.github\/(workflows|actions)\//;
+// Workflows and local actions run with repository secrets on a same-repository
+// PR. The kit-owned .github/ paths hold the hooks and credentialed scripts that
+// later jobs restore and run as trusted: a branch that changes them must not
+// exist unreviewed. Keep in step with the .github/ lines of kit-owned-paths.txt.
+export const GUARDED =
+  /^\.github\/(workflows|actions|agent-runtime|agent-pipeline|security-audit|agent-review-response)\//;
 // Path and ref characters only: no shell operator can sit in either.
 const PUSH = /^\s*(?:[A-Za-z0-9._/-]*\/)?git-push\.sh\s+origin\s+([A-Za-z0-9._/-]+)\s*$/;
 
@@ -77,7 +82,7 @@ export function decidePush(payload, listChanged) {
   }
   const guarded = files.filter((file) => GUARDED.test(file));
   if (guarded.length > 0) {
-    return `push guard: the implementer cannot push changes under .github/workflows or .github/actions (${guarded.join(", ")})`;
+    return `push guard: the implementer cannot push changes under .github/workflows, .github/actions, or the kit-owned .github/ paths (agent-runtime, agent-pipeline, security-audit, agent-review-response) (${guarded.join(", ")})`;
   }
   return null;
 }

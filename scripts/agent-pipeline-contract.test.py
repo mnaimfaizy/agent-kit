@@ -47,8 +47,11 @@ def test_implementer_limits_and_caller_owned_verify() -> None:
     assert "Prevent workflow edits by implementer" in data
     step = _step(data, "Prevent workflow edits by implementer")
     # Backstop for the pre-push guard: same paths, both trees.
-    assert r"grep -qE '^\.github/(workflows|actions)/'" in step
-    assert "cannot edit .github/workflows or .github/actions files" in step
+    assert (
+        r"grep -qE '^\.github/(workflows|actions|agent-runtime|agent-pipeline|security-audit|agent-review-response)/'"
+        in step
+    )
+    assert "cannot edit .github/workflows, .github/actions, or kit-owned .github/ files" in step
 
 
 def test_draft_pr_fallback_contract() -> None:
@@ -329,7 +332,9 @@ def test_review_restores_runtime_without_fetching_a_raw_sha() -> None:
     assert 'git fetch --no-tags origin "$BASE_BRANCH"' in restore
     assert "git fetch" not in restore or 'origin "$BASE_SHA"' not in restore
     assert "git ls-files -z" in restore
-    assert 'git ls-tree -r -z --name-only "$BASE_SHA"' in restore
+    assert 'git ls-tree -r -z --name-only "$RUNTIME_SHA"' in restore
+    assert 'git restore --source="$RUNTIME_SHA"' in restore
+    assert 'git merge-base --is-ancestor "$BASE_SHA" "$TRUSTED_TIP"' in restore
     assert ".github/agent-runtime" in restore
     assert "pull_request_target:" not in data
 
