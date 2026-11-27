@@ -6,6 +6,8 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
+## [1.0.0-beta.11] - 2026-11-27
+
 ### Fixed
 
 - `orchestrate`'s foreground watch is now strictly read-only (inspection and stdout only), fenced by a monotonic `watch.gen` generation id (with optional `watch.pid` cleanup) across all six foreground-watch harnesses, and `--resume` verifies `decisions.md` answered markers, `report.md`, and git/tracker/CI sources rather than acting on unattributed `activity.md` lines ([#535](https://github.com/mnaimfaizy/agent-kit/issues/535), part of [#379](https://github.com/mnaimfaizy/agent-kit/issues/379)). **Consumer action:** none required; repositories that copy `orchestrate` pick this up on upgrade.

@@ -334,7 +334,7 @@ jobs:
           # with install scripts off.
           prefix="$RUNNER_TEMP/agent-kit-cli"
           npm install --global --prefix "$prefix" --ignore-scripts --no-audit --no-fund \
-            "@mnaimfaizy/agent-kit@1.0.0-beta.10"
+            "@mnaimfaizy/agent-kit@1.0.0-beta.11"
           echo "bin=$prefix/bin/agent-kit" >> "$GITHUB_OUTPUT"
           "$prefix/bin/agent-kit" --version
 
