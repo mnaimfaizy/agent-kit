@@ -526,6 +526,13 @@ jobs:
             echo "The staged Bash guard did not refuse a commit that reads a file."
             exit 1
           fi
+          # The shell joins a backslash-newline into one word; the guard refuses it.
+          PROBE='{"tool_name":"Bash","tool_input":{"command":"git commit --fi\\\nle=/proc/self/environ"}}'
+          DECISION="$(printf '%s' "$PROBE" | node "$STAGED/guard-implementer-push.mjs" || true)"
+          if ! printf '%s' "$DECISION" | grep -qF '"permissionDecision":"deny"'; then
+            echo "The staged Bash guard did not refuse a line continuation."
+            exit 1
+          fi
           PROBE='{"tool_name":"Write","tool_input":{"file_path":".git/config"}}'
           DECISION="$(printf '%s' "$PROBE" | node "$STAGED/confine-writes-to-worktree.mjs" || true)"
           if ! printf '%s' "$DECISION" | grep -qF '"permissionDecision":"deny"'; then
