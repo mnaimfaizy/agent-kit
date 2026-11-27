@@ -71,6 +71,45 @@ describe("implementer write confinement", () => {
     }
   });
 
+  it("refuses a home-relative or whitespace-padded target for every write tool", () => {
+    // Resolved against the workspace, these are in-tree names; the tool may
+    // expand `~` or trim the string and write outside the tree.
+    const unjudgeable = [
+      "~",
+      "~/.gitconfig",
+      "~/.config/git/config",
+      "~runner/.bashrc",
+      " /tmp/x",
+      "/tmp/x ",
+      " a.txt",
+      "a.txt ",
+      "\t/tmp/x",
+      "/tmp/x\t",
+      "\n/tmp/x",
+      "/tmp/x\n",
+    ];
+    for (const value of unjudgeable) {
+      for (const payload of [
+        { tool_name: "Write", tool_input: { file_path: value } },
+        { tool_name: "Edit", tool_input: { file_path: value } },
+        { tool_name: "MultiEdit", tool_input: { file_path: value } },
+        { tool_name: "NotebookEdit", tool_input: { notebook_path: value } },
+      ]) {
+        const reason = decideWrite(payload, ws);
+        assert.match(
+          reason ?? "",
+          /refused a (home-relative path|path with leading or trailing whitespace)/,
+          JSON.stringify(payload),
+        );
+        assert.match(reason, /outside GITHUB_WORKSPACE/);
+      }
+    }
+    // A `~` or a space that is not at either end is an ordinary name.
+    for (const target of ["docs/~draft.md", "a~b", "docs/my notes.md"]) {
+      assert.doesNotMatch(decideWrite(write(target), ws) ?? "", /home-relative|whitespace/, target);
+    }
+  });
+
   it("ignores other tools and fails closed without a workspace", () => {
     assert.equal(decideWrite({ tool_name: "Read", tool_input: { file_path: "/etc/x" } }, ws), null);
     assert.equal(decideWrite({ tool_name: "Bash", tool_input: { command: "x" } }, ws), null);
