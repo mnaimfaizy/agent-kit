@@ -31,6 +31,7 @@ import { join } from "node:path";
 import { firstLine } from "../exec.mjs";
 import { agentBrief, agentEnv, agentScript, BRIEF_PATH, TURNS_MARKER } from "./agent.mjs";
 import { CLAUDE_CODE_VERSION, layerDockerfile } from "./claude-code.mjs";
+import { callerKeyFor } from "./credential.mjs";
 import { dockerDriver, LABEL } from "./docker-driver.mjs";
 import {
   LimitReached,
@@ -420,12 +421,16 @@ async function lifecycle({
 
   // 6. The model route: the key-injecting model proxy on this machine, the
   // scan's only way out, and the check from the host that nothing else is.
+  // The run's caller key: the sandboxed Claude Code holds it, and the proxy
+  // forwards only a request that carries it.
+  const callerKey = callerKeyFor(credentialKind);
   let proxy = null;
   const route = await driver.openModelRoute(async (bind) => {
     proxy = await startModelProxy({
       credential,
       kind: credentialKind,
       bind,
+      callerKey,
       maxTokens: limits.tokens,
       onCap: () => clocks.stop(TOKENS, `the run's ${limits.tokens}-token cap`),
       ...(modelApi !== undefined ? { upstream: modelApi } : {}),
@@ -500,7 +505,7 @@ async function lifecycle({
         ...(effort !== undefined ? { effort } : {}),
         kind: credentialKind,
       }),
-      { env: agentEnv(credentialKind) },
+      { env: agentEnv(credentialKind, callerKey) },
     );
   } catch (e) {
     if (!(e instanceof LimitReached)) throw e;

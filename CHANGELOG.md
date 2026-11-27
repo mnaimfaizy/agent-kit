@@ -6,6 +6,11 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
+### Security
+
+- The Deep scan's model proxy now forwards only what the sandboxed Claude Code needs. It forwarded any `/v1/` path and method, for any caller in the sandbox, with the request body passed on unread, so code in the sandbox could use the maintainer's credential for other model API endpoints, or ask the model API to run server-side tools that reach outside a sandbox meant to have no network. The proxy now forwards only `POST /v1/messages` and `POST /v1/messages/count_tokens`; only a request that carries the run's caller key, a random value `deep-scan` makes for each run and hands the sandboxed Claude Code in place of the fixed placeholder; and only a body with no server-side tool, `mcp_servers`, `container`, or content that names a URL or file for the API to fetch.
+- The Deep scan's token cap now holds against requests sent together. It was checked only as each request arrived, and counted only as answers returned, so many requests opened at once all passed it. The proxy now keeps at most four requests in flight, and while any is in flight, each reserves its declared `max_tokens` plus an estimate of its input against the cap; a request that would cross it is held back with a `429` for Claude Code to retry.
+
 ## [1.0.0-beta.12] - 2026-11-27
 
 Security release for [GHSA-3wmq-p452-fw6h](https://github.com/mnaimfaizy/agent-kit/security/advisories/GHSA-3wmq-p452-fw6h), classed **Minor** (per [docs/releases.md](docs/releases.md)). **Consumer action required**: see the first item.
