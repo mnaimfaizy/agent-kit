@@ -6,7 +6,7 @@ Why the skill is shaped the way it is. The skill carries this file so its rules 
 
 These are word for word the definitions in Agent-kit's root glossary, where a contract test keeps the two the same.
 
-**Chief of Staff**: The session that runs `orchestrate`: it analyses the work, proposes the Dispatch Plan, hands out each Delegation, relays every Decision Request (or, in an autonomous run, makes a Ruling on those it may) and verifies every report, and never builds a Delegation's work or merges.
+**Chief of Staff**: The session that runs `orchestrate`: it analyses the work, proposes the Dispatch Plan, hands out each Delegation, relays every Decision Request (or, in an autonomous run, makes a Ruling on those it may) and verifies every report, and never does a Delegation's work or merges.
 
 **Delegation**: One piece of a run, an issue to build, an issue to analyse, or a pull request head to QA, handed to one Executor with one brief.
 
@@ -33,6 +33,8 @@ These are word for word the definitions in Agent-kit's root glossary, where a co
 **QA held for you**: In an approved-QA run, the list, right after the Ruling Review, of the QA questions the human keeps, each with its row, evidence and options; not Rulings, so outside the Ruling Ledger, and a row is Ready to Merge once they are answered.
 
 **Parked QA session**: In an approved-QA run on Claude Code desktop, a Live Session for QA started at the `go` turn on a brief with no head yet; it idles until the Chief of Staff messages it the head, and runs a re-QA in the same session.
+
+**Scoped QA Delegation**: A QA Delegation (`d<issue>-qa<k>`) started when the human picks a new QA Delegation for scenarios left for a person; it runs only those listed scenarios on the same head and delivered QA Plan, on an Executor with the missing driver, and merges its rows into that head's one QA Report with provenance.
 
 **Dispatch Plan**: The one table the Chief of Staff shows before any Delegation starts, giving each one's scope, Executor, model and wave, with the kinds of routine write the human may approve; one "go" approves it whole.
 
@@ -62,7 +64,7 @@ These are word for word the definitions in Agent-kit's root glossary, where a co
 
 The rules of running work through other sessions (the roles, the board, the Brief Contract, the loop, the authority limits) hold in any repository. The routes do not: one repository commits through a skill, another through a hook, a third by hand; one re-gates with a test suite, another has none. So the skill is a core that names no repository command, skill, label or path, and a config file that names them all. A rule in the core never has to be read around a repository's habits, and a repository adopts the skill by writing a file, not by editing it.
 
-## The Chief of Staff never builds
+## The Chief of Staff never does a Delegation's work
 
 A session that both builds and verifies a piece of work has a reason to believe its own report. Keeping the Chief of Staff to planning, delegating, relaying and checking means every report is read by someone who did not write it. It also keeps the Chief of Staff's context free for the whole run: a session deep in one Delegation's code loses track of the others. The rule holds most on a harness with no way to start another agent, where the easy path is to do the work in the same session. It covers QA work for the same reason: the Chief of Staff never starts the QA Stack, drives a scenario on any surface, runs the QA drivers (`web.mjs`, `http.mjs`, `storyboard.mjs`, `mp4.mjs`), or writes or edits a QA Report or its QA Artifacts, with no override even if the human asks directly or insists.
 

@@ -276,7 +276,7 @@ _Avoid_: backend, microservice, a suite's `services`
 The `orchestrate` Portable skill; why it is a core plus a per-repository config: [ADR 0004](docs/adr/0004-orchestrate-is-a-core-plus-a-config.md). The skill's [`DESIGN.md`](.claude/skills/orchestrate/DESIGN.md#glossary) carries the same definitions, word for word, so the skill keeps them when it is installed alone; `scripts/orchestrate-glossary-contract.test.py` keeps the two the same. "Live Session" is always written in full: a **Session** alone is a QA term.
 
 **Chief of Staff**:
-The session that runs `orchestrate`: it analyses the work, proposes the Dispatch Plan, hands out each Delegation, relays every Decision Request (or, in an autonomous run, makes a Ruling on those it may) and verifies every report, and never builds a Delegation's work or merges.
+The session that runs `orchestrate`: it analyses the work, proposes the Dispatch Plan, hands out each Delegation, relays every Decision Request (or, in an autonomous run, makes a Ruling on those it may) and verifies every report, and never does a Delegation's work or merges.
 _Avoid_: orchestrator, coordinator, lead agent
 
 **Delegation**:
@@ -330,6 +330,10 @@ _Avoid_: QA queue, held Rulings
 **Parked QA session**:
 In an approved-QA run on Claude Code desktop, a Live Session for QA started at the `go` turn on a brief with no head yet; it idles until the Chief of Staff messages it the head, and runs a re-QA in the same session.
 _Avoid_: idle session, standby session
+
+**Scoped QA Delegation**:
+A QA Delegation (`d<issue>-qa<k>`) started when the human picks a new QA Delegation for scenarios left for a person; it runs only those listed scenarios on the same head and delivered QA Plan, on an Executor with the missing driver, and merges its rows into that head's one QA Report with provenance.
+_Avoid_: partial re-QA, follow-up QA
 
 **Dispatch Plan**:
 The one table the Chief of Staff shows before any Delegation starts, giving each one's scope, Executor, model and wave, with the kinds of routine write the human may approve; one "go" approves it whole.
