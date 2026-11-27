@@ -1,30 +1,18 @@
-// The agent step (#370): the real Claude Code, run in the sandbox after the
-// network is cut, with the model proxy as its only route out.
+// The agent step (#370): the harness, run in the sandbox after the network is
+// cut, with the model proxy as its only route out.
 //
-// `--bare` skips skill and CLAUDE.md discovery, so the launcher hands the
-// agent everything explicitly, in a brief: the security-audit skill's `deep`
-// procedure (DEEP.md, with SKILL.md and report-format.md, which it builds
-// on), the Threat pack and the Scan recipe, all read at the trusted ref, and
-// the sandbox's paths. Claude Code holds only a placeholder API key. Its
-// model API base URL is pinned by the launcher's own `--settings`, which
-// outrank project settings, and project and local settings are not even
-// loaded (`--setting-sources user`), so the scanned repository's
-// `.claude/settings.json` cannot point it elsewhere. Web tools are not in
-// its tool set, and are denied as well. Its turn limit is the launcher's
-// `--max-turns` on the command line (#371).
-//
-// On the subscription path (#375) Claude Code holds a placeholder
-// CLAUDE_CODE_OAUTH_TOKEN instead, and runs without `--bare`, which never
-// reads one. So it can discover the scanned repository's CLAUDE.md and
-// skills: the brief says they are that repository's content, and that its
-// own procedure decides. The settings stay pinned the same way, hooks are
-// off in them, and `--strict-mcp-config` keeps any MCP server the
-// repository names from starting.
+// The launcher hands the agent everything explicitly, in a brief: the
+// security-audit skill's `deep` procedure (DEEP.md, with SKILL.md and
+// report-format.md, which it builds on), the Threat pack and the Scan recipe,
+// all read at the trusted ref, and the sandbox's paths. How the harness is
+// started, what it holds and how it says it hit its turn limit come from its
+// Harness adapter's launch plan (../harness/claude-code.mjs, ADR 0027); this
+// module runs that plan.
 
 import { firstLine } from "../exec.mjs";
+import { claudeCode } from "../harness/claude-code.mjs";
 import { checkSafePath, UnsafePathError } from "../safe-paths.mjs";
 import { isMapping, parseYamlSubset, stripBom } from "../yaml-subset.mjs";
-import { PLACEHOLDER_API_KEY, PLACEHOLDER_OAUTH_TOKEN, SUBSCRIPTION } from "./credential.mjs";
 
 /** Where a Consumer's security-audit skill lives, as Agent-kit installs it. */
 export const SKILL_DIR = ".claude/skills/security-audit";
@@ -38,20 +26,48 @@ export const DEFAULT_THREAT_PACK = Object.freeze({
   findingsLedger: ".security/findings-ledger.md",
 });
 
-/** The tools the agent has; the web tools are not among them. */
-export const AGENT_TOOLS = Object.freeze(["Bash", "Read", "Write", "Edit", "Glob", "Grep"]);
-export const WEB_TOOLS = Object.freeze(["WebFetch", "WebSearch"]);
-
-/**
- * What the agent step's script prints when Claude Code stopped at its turn
- * limit: a fixed line, so nothing of Claude Code's own output leaves the
- * sandbox. It is read from Claude Code's error output (where print mode says
- * "Error: Reached max turns"), never from its answer, which the agent writes.
- */
-export const TURNS_MARKER = "agent-kit-deep-scan: Claude Code reached its turn limit";
+export { TOOLS as AGENT_TOOLS, WEB_TOOLS } from "../harness/claude-code.mjs";
 
 /** Where the brief goes in the sandbox: the launcher's, outside /workspace. */
 export const BRIEF_PATH = "/agent-kit/in/brief.md";
+
+/** The launcher's own folder in the sandbox, outside /workspace. */
+const KIT_DIR = "/agent-kit";
+const LOGS_DIR = `${KIT_DIR}/logs`;
+
+/**
+ * The harness's launch plan for a Deep scan. Without a `baseUrl` (before the
+ * model route is open) its launch is not yet one to run; its identity and
+ * install layer are.
+ * @param {{ baseUrl?: string, maxTurns?: number, model?: string, effort?: string, kind?: "api-key" | "subscription" }} [opts]
+ *   `model` is a plain model id and `effort` an effort level, both checked by
+ *   the launcher. `kind` is the credential's (default an API key).
+ */
+export function agentPlan({ baseUrl, maxTurns, model, effort, kind } = {}) {
+  return claudeCode({
+    stage: "deep-scan",
+    proxyUrl: baseUrl,
+    briefPath: BRIEF_PATH,
+    kitDir: KIT_DIR,
+    maxTurns,
+    model,
+    effort,
+    credentialKind: kind,
+  });
+}
+
+/**
+ * What the agent step's script prints when the harness stopped at its turn
+ * limit: a fixed line, so nothing of the harness's own output leaves the
+ * sandbox. It is printed on the plan's marker in the harness's error output,
+ * never on its answer, which the agent writes.
+ * @param {import("../harness/claude-code.mjs").LaunchPlan} plan
+ */
+export const turnsMarker = (plan) =>
+  `agent-kit-deep-scan: ${plan.identity.displayName} reached its turn limit`;
+
+/** The Claude Code plan's line. */
+export const TURNS_MARKER = turnsMarker(agentPlan());
 
 const MAX_HANDED_BYTES = 512 * 1024;
 const CALLER_USES = /(^|\/)\.github\/workflows\/security-audit-reusable\.ya?ml(@\S+)?$/;
@@ -305,88 +321,21 @@ export function threatPackAndRecipe({ handIn, recipePath, recipeText }) {
 }
 
 /**
- * The launcher's own settings for the sandboxed Claude Code: the model API
- * base URL pinned to the proxy, and the web tools denied. On the
- * subscription path, where no `--bare` skips them, hooks are off too: a
- * setup step could have written some into the sandbox's user settings.
- * @param {string} baseUrl  the model proxy, as the sandbox reaches it
- * @param {"api-key" | "subscription"} [kind]
+ * The agent step's script, run with `sh -c` in the sandbox: the plan's
+ * command, its stdin the plan's file, its own output kept in the plan's
+ * transcript (its error output is passed on too), and `turnsMarker` when the
+ * plan's turn-cap marker is in that error output. The plan's environment is
+ * the caller's to set.
+ * @param {{ report: string, workspace: string, plan?: import("../harness/claude-code.mjs").LaunchPlan } & Parameters<typeof agentPlan>[0]} opts
+ *   Without a `plan`, the rest are `agentPlan`'s, which makes one.
  */
-export function agentSettings(baseUrl, kind = "api-key") {
-  return {
-    env: {
-      ANTHROPIC_BASE_URL: baseUrl,
-      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
-      DISABLE_AUTOUPDATER: "1",
-    },
-    permissions: { allow: [...AGENT_TOOLS], deny: [...WEB_TOOLS] },
-    ...(kind === SUBSCRIPTION ? { disableAllHooks: true } : {}),
-  };
-}
-
-/**
- * The agent's environment: a placeholder, never the real credential. On
- * the subscription path it is the token alone, since an API key would
- * outrank it in Claude Code's auth order.
- * @param {"api-key" | "subscription"} [kind]
- */
-export function agentEnv(kind = "api-key") {
-  return [
-    kind === SUBSCRIPTION
-      ? `CLAUDE_CODE_OAUTH_TOKEN=${PLACEHOLDER_OAUTH_TOKEN}`
-      : `ANTHROPIC_API_KEY=${PLACEHOLDER_API_KEY}`,
-    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1",
-  ];
-}
-
-/**
- * The agent step's script, run with `sh -c` in the sandbox: Claude Code in
- * print mode, its brief on stdin, its own output kept in the sandbox (its
- * error output is passed on too), and TURNS_MARKER when it stopped at the
- * launcher's turn limit.
- * @param {{ baseUrl: string, report: string, workspace: string, maxTurns: number, model?: string, effort?: string, kind?: "api-key" | "subscription" }} opts
- *   `model` is a plain model id and `effort` an effort level, both checked
- *   by the launcher; without either, Claude Code runs on its own default. `kind` is the credential's: on the
- *   subscription path there is no `--bare`, which would never read the
- *   token, and no MCP server but the launcher's (none).
- */
-export function agentScript({
-  baseUrl,
-  report,
-  workspace,
-  maxTurns,
-  model,
-  effort,
-  kind = "api-key",
-}) {
-  const args = [
-    "claude",
-    ...(kind === SUBSCRIPTION ? [] : ["--bare"]),
-    "--print",
-    "--settings",
-    JSON.stringify(agentSettings(baseUrl, kind)),
-    "--setting-sources",
-    "user",
-    ...(kind === SUBSCRIPTION ? ["--strict-mcp-config"] : []),
-    "--tools",
-    AGENT_TOOLS.join(","),
-    "--allowedTools",
-    AGENT_TOOLS.join(","),
-    "--disallowedTools",
-    WEB_TOOLS.join(","),
-    "--permission-mode",
-    "dontAsk",
-    "--add-dir",
-    "/agent-kit",
-    "--no-session-persistence",
-    "--max-turns",
-    String(maxTurns),
-    ...(model !== undefined ? ["--model", model] : []),
-    ...(effort !== undefined ? ["--effort", effort] : []),
-  ];
+export function agentScript({ report, workspace, plan, ...request }) {
+  const launched = plan ?? agentPlan(request);
+  const { launch, stops, transcript } = launched;
   const outDir = report.slice(0, report.lastIndexOf("/"));
-  const logs = "/agent-kit/logs";
-  // Claude Code's error output reaches the launcher through a pipe, as it
+  const logs = LOGS_DIR;
+  const stdin = launch.stdin ? ` < ${shQuote(launch.stdin.file)}` : "";
+  // The harness's error output reaches the launcher through a pipe, as it
   // happens, and a copy goes to agent.err for the turn check. The agent can
   // write that file (and agent.status), so the file is only searched, never
   // printed, and a planted status that is not a number counts as a failure.
@@ -395,11 +344,15 @@ export function agentScript({
     `mkdir -p ${outDir} ${logs}`,
     `cd ${workspace}`,
     `rm -f ${logs}/agent.status`,
-    `{ ${args.map(shQuote).join(" ")} < ${BRIEF_PATH} 2>&1 > ${logs}/agent.log || echo "$?" > ${logs}/agent.status; } | tee ${logs}/agent.err >&2`,
+    `{ ${launch.argv.map(shQuote).join(" ")}${stdin} 2>&1 > ${shQuote(transcript.path)} || echo "$?" > ${logs}/agent.status; } | tee ${logs}/agent.err >&2`,
     "status=0",
     `if [ -s ${logs}/agent.status ]; then status=$(cat ${logs}/agent.status); fi`,
     `case "$status" in ''|*[!0-9]*) status=1 ;; esac`,
-    `if grep -q '^Error: Reached max turns' ${logs}/agent.err; then echo ${shQuote(TURNS_MARKER)}; fi`,
+    ...(stops.turnCap
+      ? [
+          `if grep -q ${shQuote(stops.turnCap.stderrPattern)} ${logs}/agent.err; then echo ${shQuote(turnsMarker(launched))}; fi`,
+        ]
+      : []),
     'exit "$status"',
   ].join("\n");
 }

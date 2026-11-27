@@ -32,7 +32,7 @@
 // scan's only route to the internet.
 
 import { isIPv4 } from "node:net";
-import { layerDockerfile } from "./claude-code.mjs";
+import { layerDockerfile } from "../harness/install-layer.mjs";
 import { startEgressProxy } from "./egress.mjs";
 import {
   OTHER_HOST_PORT,
@@ -60,10 +60,12 @@ export const ISOLATED_OPTIONS = Object.freeze([
 ]);
 
 /**
- * @param {{ runtime: import("./runtime.mjs").Runtime, id: string, call: Call }} opts
+ * @param {{ runtime: import("./runtime.mjs").Runtime, id: string, call: Call, plan: import("../harness/claude-code.mjs").LaunchPlan }} opts
+ *   `plan` is the harness's launch plan: its install layer goes on the image.
  * @returns {import("./lifecycle.mjs").Driver}
  */
-export function dockerDriver({ runtime, id, call }) {
+export function dockerDriver({ runtime, id, call, plan }) {
+  const { displayName } = plan.identity;
   const name = `agent-kit-deep-${id}`;
   const label = `${LABEL}=${id}`;
   const docker = (args, opts) => call("docker", args, opts);
@@ -114,13 +116,13 @@ export function dockerDriver({ runtime, id, call }) {
         out(`Image: pulling ${base}.`);
         must(await docker(["pull", base]), `pulling ${base}`, { showOutput: true });
       }
-      out("Image: layering the pinned Claude Code, auto-updater off.");
+      out(`Image: layering the pinned ${displayName}, auto-updater off.`);
       resources.push(["image", name]);
       must(
         await docker(["build", "--label", label, "--tag", name, "-"], {
-          stdin: layerDockerfile(base),
+          stdin: layerDockerfile(base, plan.installLayer),
         }),
-        `layering Claude Code on ${base}`,
+        `layering ${displayName} on ${base}`,
         { showOutput: true },
       );
     },
@@ -190,7 +192,7 @@ export function dockerDriver({ runtime, id, call }) {
       );
     },
 
-    /** Claude Code is already in the image. */
+    /** The harness is already in the image. */
     async installAgent() {},
 
     /** The setup egress was opened with the network: the proxy's variables. */

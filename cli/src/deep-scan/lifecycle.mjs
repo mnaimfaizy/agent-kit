@@ -29,8 +29,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { firstLine } from "../exec.mjs";
-import { agentBrief, agentEnv, agentScript, BRIEF_PATH, TURNS_MARKER } from "./agent.mjs";
-import { CLAUDE_CODE_VERSION, layerDockerfile } from "./claude-code.mjs";
+import { agentBrief, agentPlan, agentScript, BRIEF_PATH, turnsMarker } from "./agent.mjs";
 import { dockerDriver, LABEL } from "./docker-driver.mjs";
 import {
   LimitReached,
@@ -47,7 +46,7 @@ import { ENDS_HERE, indent, Interrupted, outputLines, StepFailed } from "./steps
 import { tarOf } from "./tar.mjs";
 import { checkVerificationReport, FINDINGS_PATH, verificationBrief } from "./verify.mjs";
 
-export { CLAUDE_CODE_VERSION, LABEL, layerDockerfile };
+export { LABEL };
 
 /** Where the sandbox holds the repository, the grounding and the report. */
 export const WORKSPACE = "/workspace";
@@ -63,9 +62,6 @@ export const MAX_GROUNDING_BYTES = 10 * 1024 * 1024;
  */
 export const MAX_EXPORT_BYTES = 1024 * 1024 * 1024;
 const GROUNDING_TIMEOUT_MS = 60_000;
-
-/** What the Agent step line says for a model or effort not asked for. */
-const CLAUDE_DEFAULT = "Claude Code's default";
 
 /** Why a line is withheld from a world-readable log. */
 const PUBLIC_LOG = "the Public-log rule: this log is world-readable in GitHub Actions";
@@ -85,7 +81,7 @@ function credentialRefusedLine(kind, from) {
   return `The model API refused the credential: every answer was 401 or 403, so ${what}`;
 }
 
-/** How many lines of Claude Code's error output a failed agent step shows. */
+/** How many lines of the harness's error output a failed agent step shows. */
 const AGENT_ERROR_LINES = 20;
 
 /** The setup phase's fields, in the order they run: services before seeding. */
@@ -223,8 +219,12 @@ export async function runLifecycle(opts) {
     return r;
   };
   const id = randomBytes(6).toString("hex");
+  // The harness's launch plan: the drivers put its install layer on the image.
+  const plan = agentPlan({ kind: opts.credentialKind });
   const driver =
-    runtime.id === "sbx" ? sbxDriver({ id, call }) : dockerDriver({ runtime, id, call });
+    runtime.id === "sbx"
+      ? sbxDriver({ id, call, plan })
+      : dockerDriver({ runtime, id, call, plan });
 
   let code;
   let thrown = null;
@@ -316,7 +316,7 @@ async function lifecycle({
     return r.stdout;
   };
 
-  // 1. Image, and its pinned Claude Code (or the runtime's refusal).
+  // 1. Image, and its pinned harness (or the runtime's refusal).
   await driver.prepare(steps, { archive, out, branch, short });
 
   // 2. The sandbox: no mount, no host environment, no Docker socket.
@@ -441,7 +441,7 @@ async function lifecycle({
     `Model route: only the model proxy on your machine (${route.note}), which forwards to the model API alone, with your ${credentialKind === "subscription" ? "token as its bearer value" : "key"}; checked from the host.`,
   );
 
-  // 7. The agent step: Claude Code with a placeholder key, handed its brief.
+  // 7. The agent step: the harness with a placeholder key, handed its brief.
   // A Verification run's finding file goes in with it, after the setup phase
   // and the cut, so no setup step, which has registry egress, can read it.
   const paths = { workspace: WORKSPACE, grounding: GROUNDING_DIR, report: REPORT_PATH };
@@ -481,8 +481,18 @@ async function lifecycle({
       ? "copying the launcher's brief and the finding file in"
       : "copying the launcher's brief in",
   );
+  const plan = agentPlan({
+    baseUrl: route.url,
+    maxTurns: limits.turns,
+    model,
+    effort,
+    kind: credentialKind,
+  });
+  const { displayName, version } = plan.identity;
+  /** What the line says for a model or effort not asked for. */
+  const unasked = `${displayName}'s default`;
   out(
-    `Agent step: Claude Code ${CLAUDE_CODE_VERSION} (${subscription ? "no --bare: the subscription path, with a placeholder token; project settings and MCP servers not loaded" : "--bare, a placeholder key"}, web tools off, at most ${limits.turns} turns; requested model: ${model ?? CLAUDE_DEFAULT}, effort: ${effort ?? CLAUDE_DEFAULT}), handed ${verification ? "the Verification-run procedure, the finding file" : "the deep procedure"}, the Threat pack and the Scan recipe.`,
+    `Agent step: ${displayName} ${version} (${subscription ? "no --bare: the subscription path, with a placeholder token; project settings and MCP servers not loaded" : "--bare, a placeholder key"}, web tools off, at most ${limits.turns} turns; requested model: ${model ?? unasked}, effort: ${effort ?? unasked}), handed ${verification ? "the Verification-run procedure, the finding file" : "the deep procedure"}, the Threat pack and the Scan recipe.`,
   );
   clocks.end();
   // The scan wall clock: the agent step alone.
@@ -490,25 +500,16 @@ async function lifecycle({
   /** @type {import("../exec.mjs").StartResult | null} null when a limit stopped it */
   let agent = null;
   try {
-    agent = await driver.exec(
-      agentScript({
-        baseUrl: route.url,
-        report: REPORT_PATH,
-        workspace: WORKSPACE,
-        maxTurns: limits.turns,
-        ...(model !== undefined ? { model } : {}),
-        ...(effort !== undefined ? { effort } : {}),
-        kind: credentialKind,
-      }),
-      { env: agentEnv(credentialKind) },
-    );
+    agent = await driver.exec(agentScript({ plan, report: REPORT_PATH, workspace: WORKSPACE }), {
+      env: plan.launch.env,
+    });
   } catch (e) {
     if (!(e instanceof LimitReached)) throw e;
   }
   clocks.end();
-  // Claude Code's own turn limit ended it: the script's fixed marker says so.
-  if (agent && agent.stdout.toString("utf8").split(/\r?\n/).includes(TURNS_MARKER)) {
-    clocks.stop(TURNS, `Claude Code's ${limits.turns}-turn limit`);
+  // The harness's own turn limit ended it: the script's fixed marker says so.
+  if (agent && agent.stdout.toString("utf8").split(/\r?\n/).includes(turnsMarker(plan))) {
+    clocks.stop(TURNS, `${displayName}'s ${limits.turns}-turn limit`);
   }
   // The scan is over: no route out is left open while the report comes out.
   await driver.close();
@@ -529,7 +530,7 @@ async function lifecycle({
     out(`${stoppedStatus(stopped)} Copying out what report the agent left.`);
   } else if (agent && agent.status !== 0 && publicLog) {
     err(
-      `The agent step exited ${agent.status ?? "abnormally"}; copying out what report it left. Claude Code's error output stays in the sandbox (${PUBLIC_LOG}); run deep-scan locally to see it.`,
+      `The agent step exited ${agent.status ?? "abnormally"}; copying out what report it left. ${displayName}'s error output stays in the sandbox (${PUBLIC_LOG}); run deep-scan locally to see it.`,
     );
   } else if (agent && agent.status !== 0) {
     const lines = agent.stderr
@@ -541,7 +542,7 @@ async function lifecycle({
         `The agent step exited ${agent.status ?? "abnormally"}; copying out what report it left.`,
         ...(lines.length
           ? [
-              `Claude Code's error output (its last ${AGENT_ERROR_LINES} lines at most; the rest of its output stays in the sandbox):`,
+              `${displayName}'s error output (its last ${AGENT_ERROR_LINES} lines at most; the rest of its output stays in the sandbox):`,
               ...indent(lines.slice(-AGENT_ERROR_LINES).join("\n")),
             ]
           : []),

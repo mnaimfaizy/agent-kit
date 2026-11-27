@@ -42,7 +42,7 @@ import { lstatSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { firstLine } from "../exec.mjs";
-import { AUTO_UPDATER_OFF, layerDockerfile } from "./claude-code.mjs";
+import { layerDockerfile } from "../harness/install-layer.mjs";
 import { LABEL } from "./docker-driver.mjs";
 import { allowlistOf } from "./egress.mjs";
 import { ENDS_HERE, must, StepFailed } from "./steps.mjs";
@@ -125,10 +125,12 @@ export function sbxResources(registries) {
 }
 
 /**
- * @param {{ id: string, call: import("./docker-driver.mjs").Call }} opts
+ * @param {{ id: string, call: import("./docker-driver.mjs").Call, plan: import("../harness/claude-code.mjs").LaunchPlan }} opts
+ *   `plan` is the harness's launch plan: its install layer goes on the template.
  * @returns {import("./lifecycle.mjs").Driver}
  */
-export function sbxDriver({ id, call }) {
+export function sbxDriver({ id, call, plan }) {
+  const { displayName } = plan.identity;
   const name = `agent-kit-deep-${id}`;
   /** The layered image, and the sbx template loaded from it. */
   const template = `${name}:sbx`;
@@ -186,7 +188,7 @@ export function sbxDriver({ id, call }) {
       if (problem) throw new StepFailed(problem);
       out("Network policy: Docker Sandboxes' global policy is deny-all (checked read-only).");
       out(
-        `Image: layering the pinned Claude Code on ${steps.image} with Docker on this machine, auto-updater off, as the sandbox's template.`,
+        `Image: layering the pinned ${displayName} on ${steps.image} with Docker on this machine, auto-updater off, as the sandbox's template.`,
       );
       const pulled = await docker(["pull", steps.image]);
       if (pulled.status === null) {
@@ -201,9 +203,9 @@ export function sbxDriver({ id, call }) {
       imageBuilt = true;
       must(
         await docker(["build", "--label", `${LABEL}=${id}`, "--tag", template, "-"], {
-          stdin: `${layerDockerfile(steps.image)}${TEMPLATE_LAYER}`,
+          stdin: `${layerDockerfile(steps.image, plan.installLayer)}${TEMPLATE_LAYER}`,
         }),
-        `layering Claude Code on ${steps.image}`,
+        `layering ${displayName} on ${steps.image}`,
         { showOutput: true },
       );
       // A private host file, by a name relative to its folder, so a Windows
@@ -242,8 +244,7 @@ export function sbxDriver({ id, call }) {
           "never",
           "-t",
           template,
-          "-e",
-          AUTO_UPDATER_OFF,
+          ...plan.installLayer.env.flatMap((v) => ["-e", v]),
           "shell",
         ]),
         "creating the sandbox",
@@ -273,7 +274,7 @@ export function sbxDriver({ id, call }) {
       );
     },
 
-    /** Claude Code is in the template already: nothing to install. */
+    /** The harness is in the template already: nothing to install. */
     async installAgent() {},
 
     async openSetupEgress(registries) {
@@ -472,7 +473,7 @@ function idOf(r, repository, tag) {
  * image's package mirror from the host, which no recipe field names. An
  * existing uid 1000 account (`node`, in the Node.js images) is renamed to
  * `agent`, its home moved, rather than given a second name for one uid.
- * It runs as root, after the Claude Code layer, and ends on USER agent.
+ * It runs as root, after the harness's install layer, and ends on USER agent.
  */
 const TEMPLATE_LAYER = [
   "USER root",
