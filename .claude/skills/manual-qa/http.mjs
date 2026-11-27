@@ -16,10 +16,13 @@
 //   - Sign-in values come only from `QA_*` environment variables, named in
 //     the sequence as `{{env:QA_NAME}}`. Never from the sequence file or the
 //     command line: a sequence that carries a secret inline is refused, and
-//     nothing is sent.
-//   - The log records, for each request, the method, path, status, each
-//     header the sequence names (`Set-Cookie` always) and the response body,
-//     with sign-in values, cookie values and tokens redacted.
+//     nothing is sent. Later requests may also read a Session's cookie via
+//     `{{cookie:<name>}}` or a string/number field from an earlier JSON
+//     response via `{{json:<n>:<path>}}`.
+//   - The log records, for each request, the method, path, any filled
+//     `{{json:…}}` sources, status, each header the sequence names
+//     (`Set-Cookie` always) and the response body, with sign-in values,
+//     cookie values, secret copied fields and tokens redacted.
 //
 //   Its exit status says whether every request completed (got a response,
 //   whatever its status), never whether the scenario passed: the runner judges
@@ -53,8 +56,11 @@ const MIN_SECRET_LENGTH = 4;
 /** A cookie value this long is taken for an opaque token, whatever its name. */
 const OPAQUE_COOKIE_LENGTH = 16;
 
-const PLACEHOLDER = /\{\{(env|cookie):([^}]*)\}\}/g;
+const PLACEHOLDER = /\{\{(env|cookie|json):([^}]*)\}\}/g;
 const ENV_NAME = /^QA_[A-Z0-9_]+$/;
+const REQUEST_NUMBER = /^[1-9]\d*$/;
+const JSON_PATH = /^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*$/;
+const ARRAY_INDEX = /^(?:0|[1-9]\d*)$/;
 const TOKEN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
 /** A key or header name that names a secret, compared lower case with `-` and `_` removed. */
 const SECRET_NAME =
@@ -110,6 +116,20 @@ const isObject = (value) => value !== null && typeof value === "object" && !Arra
 /** Every placeholder in a string, as `{kind, name}`. */
 const placeholdersIn = (text) =>
   [...text.matchAll(PLACEHOLDER)].map((m) => ({ kind: m[1], name: m[2] }));
+
+/** Parses `<n>:<path>` inside `{{json:...}}`. */
+function parseJsonRef(name) {
+  const colon = name.indexOf(":");
+  if (colon < 0) return { error: "is missing a path; write {{json:<n>:<path>}}" };
+  const reqStr = name.slice(0, colon);
+  const path = name.slice(colon + 1);
+  return { n: REQUEST_NUMBER.test(reqStr) ? Number(reqStr) : null, path };
+}
+
+/** Whether a string matches any token/secret shape or `key=value` pattern. */
+const isTokenShaped = (text) =>
+  SECRET_SHAPES.some(([, pattern]) => new RegExp(pattern.source).test(text)) ||
+  namedValues(text).length > 0;
 
 /** Every string value in a JSON value, with its dotted key path. */
 function* strings(value, path) {
@@ -264,6 +284,21 @@ export function checkSequence(sequence, env) {
       for (const { kind, name } of placeholdersIn(text)) {
         if (kind === "cookie") {
           if (!TOKEN.test(name)) flag(`${where}: {{cookie:${name}}} is not a cookie name`);
+        } else if (kind === "json") {
+          const parsed = parseJsonRef(name);
+          if (parsed.error) flag(`${where}: {{json:${name}}} ${parsed.error}`);
+          else {
+            if (parsed.n === null || parsed.n >= i + 1)
+              flag(
+                i === 0
+                  ? `${where}: {{json:${name}}} cannot reference an earlier request from request 1`
+                  : `${where}: {{json:${name}}} must name an earlier request (1 to ${i})`,
+              );
+            if (!JSON_PATH.test(parsed.path))
+              flag(
+                `${where}: {{json:${name}}} has a malformed path; use dotted field names and digits for array items`,
+              );
+          }
         } else if (!ENV_NAME.test(name))
           flag(
             `${where}: {{env:${name}}} cannot be read; only QA_ variables can (QA_ADMIN_PASSWORD)`,
@@ -577,6 +612,37 @@ export class Redactor {
 // ── Running ─────────────────────────────────────────────────────────────────
 
 /**
+ * Resolves `{{json:<n>:<path>}}` for request `k` against earlier parsed responses.
+ * @param {({session: string, isJson: boolean, json: unknown} | undefined)[]} responses
+ * @param {number} k
+ * @param {string} name
+ */
+function resolveJsonRef(responses, k, name) {
+  const { n, path, error } = parseJsonRef(name);
+  if (error || n === null || !JSON_PATH.test(path))
+    throw new Error(`request ${k} not sent: malformed json reference {{json:${name}}}`);
+  const src = responses[n - 1];
+  if (!src || !src.isJson)
+    throw new Error(`request ${k} not sent: request ${n}'s response was not JSON`);
+  const segments = path.split(".");
+  let cur = src.json;
+  for (const seg of segments) {
+    if (Array.isArray(cur)) {
+      if (!ARRAY_INDEX.test(seg) || Number(seg) >= cur.length)
+        throw new Error(`request ${k} not sent: request ${n}'s body has no ${path}`);
+      cur = cur[Number(seg)];
+    } else if (isObject(cur) && Object.hasOwn(cur, seg)) {
+      cur = cur[seg];
+    } else {
+      throw new Error(`request ${k} not sent: request ${n}'s body has no ${path}`);
+    }
+  }
+  if (typeof cur !== "string" && !(typeof cur === "number" && Number.isFinite(cur)))
+    throw new Error(`request ${k} not sent: request ${n}'s ${path} is not a string or number`);
+  return { n, path, session: src.session, value: String(cur), segments };
+}
+
+/**
  * Runs a checked sequence. Stops at the first request that does not complete.
  * @param {any} sequence a sequence `checkSequence` accepted
  * @param {{base: string, env: Record<string, string | undefined>, fetch?: typeof fetch}} options
@@ -586,52 +652,78 @@ export async function runSequence(sequence, { base, env, fetch: send = fetch }) 
   const redact = new Redactor();
   /** @type {Map<string, CookieJar>} */
   const jars = new Map();
+  /** @type {({session: string, isJson: boolean, json: unknown} | undefined)[]} */
+  const responses = [];
   const entries = [];
-  const fill = (text, jar, path, encode) =>
+  const fill = (text, jar, path, encode, where, entry, k) =>
     text.replace(PLACEHOLDER, (_, kind, name) => {
-      const value = kind === "env" ? envValue(env, name) : jar.value(name, path);
-      if (value === undefined) throw new Error(`the Session has no cookie ${name}`);
-      if (kind === "env") redact.add(value, `[redacted:${name}]`);
-      return encode ? encodePathValue(value) : value;
+      if (kind === "env") {
+        const value = envValue(env, name);
+        redact.add(value, `[redacted:${name}]`);
+        return encode ? encodePathValue(value) : value;
+      }
+      if (kind === "cookie") {
+        const value = jar.value(name, path);
+        if (value === undefined) throw new Error(`the Session has no cookie ${name}`);
+        return encode ? encodePathValue(value) : value;
+      }
+      const ref = resolveJsonRef(responses, k, name);
+      const secret = ref.segments.some(secretName) || isTokenShaped(ref.value);
+      const label = `[redacted:request ${ref.n} ${ref.path}]`;
+      if (secret) redact.add(ref.value, label);
+      entry.fills.push({
+        where,
+        n: ref.n,
+        session: ref.session,
+        value: secret ? label : ref.value,
+      });
+      return encode ? encodePathValue(ref.value) : ref.value;
     });
-  const fillJson = (value, jar, path) =>
+  const fillJson = (value, jar, path, where, entry, k) =>
     typeof value === "string"
-      ? fill(value, jar, path, false)
+      ? fill(value, jar, path, false, where, entry, k)
       : Array.isArray(value)
-        ? value.map((v) => fillJson(v, jar, path))
+        ? value.map((v, idx) => fillJson(v, jar, path, `${where}[${idx}]`, entry, k))
         : isObject(value)
-          ? Object.fromEntries(Object.entries(value).map(([k, v]) => [k, fillJson(v, jar, path)]))
+          ? Object.fromEntries(
+              Object.entries(value).map(([key, v]) => [
+                key,
+                fillJson(v, jar, path, `${where}.${key}`, entry, k),
+              ]),
+            )
           : value;
 
   for (const [i, request] of sequence.requests.entries()) {
+    const k = i + 1;
     const session = request.session ?? "A";
     const method = request.method;
     if (!jars.has(session)) jars.set(session, new CookieJar());
     const jar = jars.get(session);
-    const entry = { n: i + 1, session, method, path: request.path, status: null };
+    const entry = { n: k, session, method, path: request.path, status: null, fills: [] };
     entries.push(entry);
     try {
       // A `{{cookie:…}}` takes the value the jar would send to this path.
       const target = request.path.split("?")[0];
-      const path = fill(request.path, jar, target, true);
+      const path = fill(request.path, jar, target, true, "path", entry, k);
       entry.path = path;
       const url = new URL(path, origin);
       if (url.origin !== origin) throw new Error("the path leaves the checked address");
       const headers = new Headers();
       for (const [name, value] of Object.entries(request.headers ?? {}))
-        headers.set(name, fill(value, jar, url.pathname, false));
+        headers.set(name, fill(value, jar, url.pathname, false, name, entry, k));
       let body;
       if (request.json !== undefined) {
-        body = JSON.stringify(fillJson(request.json, jar, url.pathname));
+        body = JSON.stringify(fillJson(request.json, jar, url.pathname, "json", entry, k));
         if (!headers.has("content-type")) headers.set("content-type", "application/json");
       } else if (request.form !== undefined)
         body = new URLSearchParams(
-          Object.entries(request.form).map(([k, v]) => [
-            k,
-            fill(/** @type {string} */ (v), jar, url.pathname, false),
+          Object.entries(request.form).map(([field, v]) => [
+            field,
+            fill(/** @type {string} */ (v), jar, url.pathname, false, `form.${field}`, entry, k),
           ]),
         );
-      else if (request.body !== undefined) body = fill(request.body, jar, url.pathname, false);
+      else if (request.body !== undefined)
+        body = fill(request.body, jar, url.pathname, false, "body", entry, k);
       const cookie = jar.header(url.pathname);
       if (cookie) headers.set("cookie", cookie);
 
@@ -643,6 +735,17 @@ export async function runSequence(sequence, { base, env, fetch: send = fetch }) 
         signal: AbortSignal.timeout(TIMEOUT_MS),
       });
       const text = method === "HEAD" ? "" : await response.text();
+      let parsedJson;
+      let isJson = false;
+      if (text !== "") {
+        try {
+          parsedJson = JSON.parse(text);
+          isJson = true;
+        } catch {
+          isJson = false;
+        }
+      }
+      responses[i] = { session, isJson, json: parsedJson };
       const setCookies = response.headers.getSetCookie();
       jar.store(setCookies, url.pathname);
       // Every cookie the jar takes in is redacted from here on, before it is
@@ -680,6 +783,8 @@ export async function runSequence(sequence, { base, env, fetch: send = fetch }) 
     const row = { n: e.n, session: e.session, method: e.method, path, status: e.status };
     summary.push(row);
     lines.push("", `## ${e.n}. ${e.session} ${e.method} ${path}`);
+    for (const f of e.fills)
+      lines.push(`${f.where} from request ${f.n}, session ${f.session}: ${redact.text(f.value)}`);
     if (e.error) {
       row.error = redact.text(e.error);
       lines.push(`did not complete: ${row.error}`);
