@@ -14,6 +14,16 @@
 // platform path module would make the same input depend on the machine running
 // the contract test.
 //
+// Each tool is judged on its own location field: Read on file_path, Grep and
+// Glob on path. A call that also carries a location field its tool does not use
+// is refused, so an in-tree value in one field cannot vouch for the other.
+//
+// A location that starts with `~`, or has surrounding whitespace, is refused:
+// resolved against the workspace it is an in-tree name that does not exist,
+// while the tool may expand the home prefix or trim the string and open a path
+// outside the tree. Refusing it, rather than copying the tool's normalisation,
+// cannot drift from what the tool does.
+//
 // Glob is judged on its pattern as well as its path: the pattern alone can
 // name an absolute or climbing location. A brace group is expanded first, and
 // every expansion judged, because Glob expands braces itself.
@@ -34,7 +44,25 @@ import { realpathSync } from "node:fs";
 import { isAbsolute, posix, relative, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 
-const READ_TOOLS = new Set(["Read", "Grep", "Glob"]);
+// The one field each read tool takes its location from.
+const LOCATION_FIELD = { Read: "file_path", Grep: "path", Glob: "path" };
+const LOCATION_FIELDS = ["file_path", "path", "notebook_path"];
+
+function present(value) {
+  return value != null && value !== "";
+}
+
+/**
+ * Why a location cannot be judged as written, or null. A `~` prefix (`~`,
+ * `~/x`, `~user/x`) may be expanded to a home directory, and surrounding
+ * whitespace may be trimmed, before the tool opens it.
+ */
+export function unjudgeableLocation(value) {
+  const s = String(value);
+  if (s.startsWith("~")) return "a home-relative path";
+  if (s !== s.trim()) return "a path with leading or trailing whitespace";
+  return null;
+}
 
 function deny(reason) {
   process.stdout.write(
@@ -148,6 +176,9 @@ export function expandBraces(pattern) {
 function decideGlobPattern(pattern, path, workspace) {
   if (pattern == null || pattern === "") return null;
   const p = String(pattern);
+  if (p !== p.trim()) {
+    return `read confined to the workspace; refused a Glob pattern with leading or trailing whitespace, which may name a place outside GITHUB_WORKSPACE: ${JSON.stringify(p)}`;
+  }
   if (!/[{}]/.test(p)) return decideExpandedPattern(p, path, workspace);
   const expansions = expandBraces(p);
   if (expansions === null) {
@@ -185,21 +216,32 @@ function decideExpandedPattern(p, path, workspace) {
 /** Decide on one hook payload. Returns a deny reason, or null to allow. */
 export function decide(payload, workspace) {
   const tool = payload?.tool_name;
-  if (!READ_TOOLS.has(tool)) return null; // other tools: their own rules
+  const field = Object.hasOwn(LOCATION_FIELD, tool) ? LOCATION_FIELD[tool] : undefined;
+  if (!field) return null; // other tools: their own rules
+  const input = payload?.tool_input;
+
+  // Read uses file_path; Grep and Glob use path. A call carrying another
+  // location field is refused rather than judged on the wrong one.
+  for (const other of LOCATION_FIELDS) {
+    if (other !== field && present(input?.[other])) {
+      return `read confined to the workspace; refused a ${tool} call that carries ${other}, a location field ${tool} does not use`;
+    }
+  }
+
+  // Absent → the tool defaults to the working directory, which is the
+  // workspace, so allow.
+  const target = input?.[field];
+  const unjudgeable = present(target) ? unjudgeableLocation(target) : null;
+  if (unjudgeable) {
+    return `read confined to the workspace; refused ${unjudgeable}, which may name a place outside GITHUB_WORKSPACE: ${JSON.stringify(String(target))}`;
+  }
 
   if (tool === "Glob") {
-    const reason = decideGlobPattern(
-      payload?.tool_input?.pattern,
-      payload?.tool_input?.path,
-      workspace,
-    );
+    const reason = decideGlobPattern(input?.pattern, input?.path, workspace);
     if (reason) return reason;
   }
 
-  // Read uses file_path; Grep and Glob use path. Absent → the tool defaults to
-  // the working directory, which is the workspace, so allow.
-  const target = payload?.tool_input?.file_path ?? payload?.tool_input?.path;
-  if (target == null || target === "") return null;
+  if (!present(target)) return null;
 
   if (!workspace) return "read confinement hook: GITHUB_WORKSPACE is unset";
 
