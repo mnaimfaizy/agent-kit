@@ -52,9 +52,16 @@
 //   and exits 1 on any problem, 2 on bad usage; `host` exits 0 when the run may
 //   sign in, 1 on a stop, 3 when the QA person must confirm the host in chat.
 
-import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { createRequire } from "node:module";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, posix, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /** Lookup order: the first file present is the config (ADAPTER.md). */
@@ -93,6 +100,7 @@ export const RUN_KEYS = /** @type {const} */ ([
   "stack",
   "hosts",
   "accounts",
+  "playwright",
   "version_endpoint",
   "evidence",
 ]);
@@ -611,9 +619,11 @@ const UPLOAD = /^(?:none|gh-release:[A-Za-z0-9][A-Za-z0-9._/-]*)$/;
  *
  * @param {Record<string, unknown>} config
  * @param {Map<string, number>} [lines]
+ * @param {{read?: (path: string) => string | null | undefined}} [options]
  * @returns {string[]}
  */
-export function runProblems(config, lines) {
+export function runProblems(config, lines, options = {}) {
+  const { read } = options;
   const sink = problemSink(lines);
   sharedProblems(sink, config);
   const run = config.run;
@@ -754,6 +764,16 @@ export function runProblems(config, lines) {
     }
   }
 
+  if (present(run.playwright)) {
+    if (!isRepoPath(run.playwright))
+      sink.add("run.playwright", "expected a relative folder inside the repository");
+    else if (read && read(posix.join(run.playwright.replace(/\\/g, "/"), "package.json")) === null)
+      sink.add(
+        "run.playwright",
+        `no \`package.json\` in \`${run.playwright}\`: expected the folder whose \`node_modules\` holds Playwright`,
+      );
+  }
+
   if (
     present(run.version_endpoint) &&
     !(nonEmpty(run.version_endpoint) && ENDPOINT_PATH.test(run.version_endpoint))
@@ -782,12 +802,13 @@ export function runProblems(config, lines) {
  *
  * @param {string} path
  * @param {string} text
+ * @param {{read?: (path: string) => string | null | undefined}} [options]
  * @returns {{config: Record<string, unknown>, problems: string[], runProblems: string[]}}
  *   `problems` are what `qa-plan` stops on (`configProblems`), `runProblems`
  *   what `manual-qa` stops on (`runProblems`). A YAML syntax problem, or a
  *   file that does not parse, is in both.
  */
-export function parseConfig(path, text) {
+export function parseConfig(path, text, options = {}) {
   if (path.endsWith(".json")) {
     let parsed;
     try {
@@ -800,13 +821,17 @@ export function parseConfig(path, text) {
       const problem = "the config must be a JSON object";
       return { config: {}, problems: [problem], runProblems: [problem] };
     }
-    return { config: parsed, problems: configProblems(parsed), runProblems: runProblems(parsed) };
+    return {
+      config: parsed,
+      problems: configProblems(parsed),
+      runProblems: runProblems(parsed, undefined, options),
+    };
   }
   const { value, problems, lines } = parseYamlSubset(text);
   return {
     config: value,
     problems: [...problems, ...configProblems(value, lines)],
-    runProblems: [...problems, ...runProblems(value, lines)],
+    runProblems: [...problems, ...runProblems(value, lines, options)],
   };
 }
 
@@ -823,7 +848,7 @@ export function readQaConfig(read) {
   for (const path of CONFIG_FILES) {
     const text = read(path);
     if (text === null || text === undefined) continue;
-    return { path, ...parseConfig(path, text) };
+    return { path, ...parseConfig(path, text, { read }) };
   }
   return { path: null, config: {}, problems: [], runProblems: [] };
 }
@@ -1041,6 +1066,97 @@ export function findPlaywright(dir) {
 }
 
 /**
+ * First-level folders under `repo` that hold a `package.json` and Playwright with
+ * Chromium, in sorted order. Searches one folder level only, never deeper (#533).
+ * @param {string} repo
+ * @returns {string[]}
+ */
+export function findPlaywrightSubdirs(repo) {
+  const root = resolve(repo);
+  let entries;
+  try {
+    entries = readdirSync(root, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const dirs = [];
+  for (const entry of entries) {
+    if (entry.name === "node_modules" || entry.name.startsWith(".")) continue;
+    const dir = join(root, entry.name);
+    const isDir =
+      entry.isDirectory() ||
+      (entry.isSymbolicLink() &&
+        (() => {
+          try {
+            return statSync(dir).isDirectory();
+          } catch {
+            return false;
+          }
+        })());
+    if (!isDir || !existsSync(join(dir, "package.json"))) continue;
+    if (findPlaywright(dir).chromium) dirs.push(entry.name);
+  }
+  return dirs.sort();
+}
+
+/**
+ * The readiness note when the repository root has no Playwright with Chromium,
+ * `run.playwright` is unset, and one or more first-level folders have it (#533).
+ * @param {string[]} dirs
+ */
+export function hintedNoChromiumNote(dirs) {
+  if (dirs.length === 1)
+    return (
+      `\`web\`: no Playwright with Chromium at the repository root; \`${dirs[0]}\` has it: ` +
+      `set \`run.playwright: ${dirs[0]}\``
+    );
+  const names = listed(dirs.map((dir) => `\`${dir}\``));
+  const settings = orListed(dirs.map((dir) => `\`run.playwright: ${dir}\``));
+  return `\`web\`: no Playwright with Chromium at the repository root; ${names} have it: set ${settings}`;
+}
+
+/**
+ * Resolves Playwright for a `web` driver (`web.mjs`, `storyboard.mjs`, `mp4.mjs`)
+ * from `overrideDir` (`--playwright-dir`), else `run.playwright` in the repository's
+ * QA config, else the repository root.
+ * @param {string} repo
+ * @param {string | undefined} [overrideDir]
+ * @returns {{dir: string | null, from: string | null, found: {package: string | null, module: any, chromium: boolean}, error: string | null}}
+ */
+export function resolvePlaywright(repo, overrideDir) {
+  const root = resolve(repo);
+  let from = null;
+  let label = "`run.playwright`";
+  if (overrideDir !== undefined) {
+    from = overrideDir;
+    label = "`--playwright-dir`";
+  } else {
+    const loaded = readQaConfig(repoReader(root));
+    const configured = loaded.config?.run?.playwright;
+    if (present(configured)) from = configured;
+  }
+  if (from !== null) {
+    if (!isRepoPath(from))
+      return {
+        dir: null,
+        from: null,
+        found: { package: null, module: null, chromium: false },
+        error: `${label}: expected a relative folder inside the repository`,
+      };
+    const dir = resolve(root, from);
+    if (!existsSync(join(dir, "package.json")))
+      return {
+        dir: null,
+        from: null,
+        found: { package: null, module: null, chromium: false },
+        error: `${label}: no \`package.json\` in \`${from}\``,
+      };
+    return { dir, from, found: findPlaywright(dir), error: null };
+  }
+  return { dir: root, from: null, found: findPlaywright(root), error: null };
+}
+
+/**
  * Whether a program is a file in one of `PATH`'s folders (with a `PATHEXT`
  * extension on Windows). Nothing is run.
  * @param {string} name
@@ -1062,11 +1178,26 @@ export function onPath(name, env = process.env, platform = process.platform) {
   );
 }
 
-/** What `check --for run` detects for the `web` notes, from the repository root. */
-const detectWebTools = (repo) => () => ({
-  chromium: findPlaywright(repo).chromium,
-  ffmpeg: onPath("ffmpeg") && onPath("ffprobe"),
-});
+/** What `check --for run` detects for the `web` notes, from `run.playwright` or the repository root. */
+const detectWebTools =
+  (repo, config = {}) =>
+  () => {
+    const subdir = config?.run?.playwright;
+    const ffmpeg = onPath("ffmpeg") && onPath("ffprobe");
+    if (present(subdir) && isRepoPath(subdir)) {
+      return {
+        chromium: findPlaywright(join(resolve(repo), subdir)).chromium,
+        playwrightDirs: [],
+        ffmpeg,
+      };
+    }
+    const chromium = findPlaywright(repo).chromium;
+    return {
+      chromium,
+      playwrightDirs: chromium ? [] : findPlaywrightSubdirs(repo),
+      ffmpeg,
+    };
+  };
 
 /**
  * What `manual-qa` still needs before it runs a plan, from the config and,
@@ -1235,7 +1366,11 @@ export function runReadiness(
   if (tools && surfaces.includes("web")) {
     const found = tools();
     notes.push(
-      found.chromium ? WEB_NOTES.chromium : WEB_NOTES.noChromium,
+      found.chromium
+        ? WEB_NOTES.chromium
+        : found.playwrightDirs?.length
+          ? hintedNoChromiumNote(found.playwrightDirs)
+          : WEB_NOTES.noChromium,
       found.ffmpeg ? WEB_NOTES.ffmpeg : WEB_NOTES.noFfmpeg,
     );
   }
@@ -2996,9 +3131,10 @@ export function reusedAnswersLine(file, answers, what = "Readiness") {
  *
  * @param {{path: string | null, config: Record<string, any>, problems: string[], runProblems?: string[]}} loaded
  * @param {Record<string, any>} answers
+ * @param {{read?: (path: string) => string | null | undefined}} [options]
  * @returns {{path: string, body: string}}
  */
-export function renderConfigUpdate(loaded, answers) {
+export function renderConfigUpdate(loaded, answers, options = {}) {
   if (!isMapping(answers)) throw new Error("the answers must be a JSON object");
   // Only the sections the answers write can refuse them: `run:` answers are
   // checked as `manual-qa` reads the file, anything else as `qa-plan` does.
@@ -3013,7 +3149,10 @@ export function renderConfigUpdate(loaded, answers) {
   if (before.length)
     throw new Error(`${loaded.path} has problems; fix them first:\n- ${before.join("\n- ")}`);
   const check = (config) =>
-    unique([forPlan ? configProblems(config) : [], forRun ? runProblems(config) : []]);
+    unique([
+      forPlan ? configProblems(config) : [],
+      forRun ? runProblems(config, undefined, options) : [],
+    ]);
   const merged = mergeAnswers(loaded.config, answers);
   const path = loaded.path ?? CONFIG_FILES[0];
   if (path.endsWith(".json")) {
@@ -3284,10 +3423,15 @@ const baseName = (ref) => ref.replace(/^refs\/heads\//, "").replace(/^origin\//,
  * @param {string[]} argv
  * @param {string} repo
  * @param {{path: string | null, config: Record<string, any>, runProblems: string[]}} loaded
- * @param {{plan: {plan: any, problems: string[]} | null, tools: () => {chromium: boolean, ffmpeg: boolean}, typedPairs: [string, string][]}} given
+ * @param {{plan: {plan: any, problems: string[]} | null, tools?: () => {chromium: boolean, ffmpeg: boolean}, typedPairs: [string, string][], read?: (path: string) => string | null | undefined}} given
  * @returns {{code: number, out: string} | null} null on bad usage
  */
-function checkRunAnswers(argv, repo, loaded, { plan: planned, tools, typedPairs }) {
+function checkRunAnswers(
+  argv,
+  repo,
+  loaded,
+  { plan: planned, tools: ioTools, typedPairs, read: readFile },
+) {
   const file = option(argv, "--answers")[0];
   if (file === undefined || file.startsWith("--")) return null;
   const [answersBase] = option(argv, "--answers-base");
@@ -3303,7 +3447,7 @@ function checkRunAnswers(argv, repo, loaded, { plan: planned, tools, typedPairs 
     runReadiness(
       { path: loaded.path, config, runProblems: problems },
       planned?.problems.length ? null : planned?.plan,
-      tools,
+      ioTools ?? detectWebTools(repo, config),
       typed,
     );
   const planFailed = (planned?.problems.length ?? 0) > 0;
@@ -3346,7 +3490,9 @@ function checkRunAnswers(argv, repo, loaded, { plan: planned, tools, typedPairs 
   const merged = mergeAnswers(loaded.config, read.answers);
   const typed = typedHosts(typedPairs, merged);
   if (typeof typed === "string") return { code: 2, out: `check: ${typed}\n` };
-  const problems = runProblems(merged).map((p) => `the answers: ${p}`);
+  const problems = runProblems(merged, undefined, { read: readFile }).map(
+    (p) => `the answers: ${p}`,
+  );
   if (problems.length)
     return {
       code: 1,
@@ -3443,7 +3589,7 @@ export function main(argv, io = {}) {
 
   if (command === "render") {
     try {
-      const { path, body } = renderConfigUpdate(loaded, JSON.parse(stdin()));
+      const { path, body } = renderConfigUpdate(loaded, JSON.parse(stdin()), { read });
       if (!argv.includes("--write")) return { code: 0, out: body };
       // Rewriting a commented YAML config drops its comments. The person
       // consented to the body, which has none, so `--write` refuses unless
@@ -3473,14 +3619,15 @@ export function main(argv, io = {}) {
         return (
           checkRunAnswers(argv, repo, loaded, {
             plan: planned,
-            tools: io.tools ?? detectWebTools(repo),
+            tools: io.tools,
             typedPairs,
+            read,
           }) ?? usage
         );
       const readiness = runReadiness(
         loaded,
         planned?.problems.length ? null : planned?.plan,
-        io.tools ?? detectWebTools(repo),
+        io.tools ?? detectWebTools(repo, loaded.config),
         typed,
       );
       const failed = loaded.runProblems.length > 0 || (planned?.problems.length ?? 0) > 0;

@@ -27,11 +27,12 @@
 //     is still filled in one go, masked first, and the pointer is taken out of
 //     the page for every still, so no still and no crop changes.
 //
-//   Playwright is the repository's own, loaded from its `node_modules`; this
-//   driver never installs it, and Agent-kit takes no dependency on it.
+//   Playwright is the repository's own, loaded from `run.playwright` (or
+//   `--playwright-dir`), else its root `node_modules`; this driver never installs
+//   it, and Agent-kit takes no dependency on it.
 //
 // CLI (run from the repository root)
-//   node web.mjs run <sequence.json> --base <address> --out <dir> [--video]
+//   node web.mjs run <sequence.json> --base <address> --out <dir> [--video] [--playwright-dir <dir>]
 //
 //   Exit 0: every action completed. Exit 1: the sequence was refused (nothing
 //   run), or an action did not complete (the step file holds every step up to
@@ -42,7 +43,7 @@ import { mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSy
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { findPlaywright } from "./adapter.mjs";
+import { resolvePlaywright } from "./adapter.mjs";
 import { Redactor, encodedForms } from "./http.mjs";
 
 /** The actions a sequence can hold, each with the other keys it may carry. */
@@ -486,6 +487,38 @@ const onAddress = (url, origin) => {
   }
 };
 
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+const hostnameOf = (url) => url.hostname.toLowerCase().replace(/\.$/, "");
+
+/**
+ * If a page at a loopback address calls another loopback host spelled differently
+ * (`127.0.0.1:3000` calling `localhost:8000`), returns a note explaining why
+ * SameSite cookies are not shared; otherwise null.
+ * @param {string} baseUrl
+ * @param {string} requestUrl
+ * @returns {string | null}
+ */
+export function loopbackNote(baseUrl, requestUrl) {
+  let base;
+  let req;
+  try {
+    base = new URL(baseUrl);
+    req = new URL(requestUrl);
+  } catch {
+    return null;
+  }
+  if (!["http:", "https:"].includes(req.protocol)) return null;
+  const baseHostname = hostnameOf(base);
+  const reqHostname = hostnameOf(req);
+  if (
+    !LOOPBACK_HOSTS.has(baseHostname) ||
+    !LOOPBACK_HOSTS.has(reqHostname) ||
+    baseHostname === reqHostname
+  )
+    return null;
+  return `the page at ${base.host} called ${req.host}; a SameSite cookie set by one is not sent from the other`;
+}
+
 /** The first line of an error, with no colour codes: Playwright's call logs stay out. */
 const why = (error) =>
   String(/** @type {Error} */ (error)?.message ?? error)
@@ -580,12 +613,23 @@ export async function runSequence(
   const steps = [];
   /** @type {Record<string, {startedAtMs: number, video: string | null}>} */
   const sessionInfo = {};
+  const notedHosts = new Set();
+  /** @type {string[]} */
+  const notes = [];
+  const recordLoopback = (url) => {
+    const note = loopbackNote(base, url);
+    if (!note) return;
+    const host = new URL(url).host;
+    if (notedHosts.has(host)) return;
+    notedHosts.add(host);
+    notes.push(note);
+  };
   /** The action that did not complete, once one has not; also in the step file. */
   let error = null;
   const writeSteps = () =>
     writeFileSync(
       join(out, "steps.json"),
-      `${JSON.stringify({ steps, sessions: sessionInfo, error }, null, 2)}\n`,
+      `${JSON.stringify({ steps, sessions: sessionInfo, notes, error }, null, 2)}\n`,
     );
   writeSteps();
 
@@ -648,7 +692,10 @@ export async function runSequence(
     // included (a `target="_blank"` sign-in form would carry its password out).
     await context.route("**/*", (route) => {
       const request = route.request();
-      if (!request.isNavigationRequest()) return route.continue();
+      if (!request.isNavigationRequest()) {
+        recordLoopback(request.url());
+        return route.continue();
+      }
       // A popup's first request comes before Playwright knows its page, so it has
       // no frame yet: that, or any page but the Session's, is a popup.
       let ours = false;
@@ -657,7 +704,10 @@ export async function runSequence(
       } catch {
         // no frame yet
       }
-      if (ours) return route.continue();
+      if (ours) {
+        if (request.frame().parentFrame?.()) recordLoopback(request.url());
+        return route.continue();
+      }
       state.popup = true;
       return route.abort("blockedbyclient");
     });
@@ -848,13 +898,15 @@ export async function runSequence(
     actions: done,
     steps,
     videos,
+    notes,
     ...(error ? { error } : {}),
   };
 }
 
 // ── CLI ─────────────────────────────────────────────────────────────────────
 
-const USAGE = "usage: node web.mjs run <sequence.json> --base <address> --out <dir> [--video]\n";
+const USAGE =
+  "usage: node web.mjs run <sequence.json> --base <address> --out <dir> [--video] [--playwright-dir <dir>]\n";
 const INSTALL =
   "web.mjs needs Playwright with Chromium in this repository, and never installs it. " +
   "To use it, run `npm install --save-dev playwright` and `npx playwright install chromium` here; " +
@@ -876,7 +928,11 @@ export async function main(argv, io = {}) {
   for (let i = 0; i < rest.length; i += 1) {
     const flag = rest[i];
     if (flag === "--video" && !("--video" in options)) options[flag] = true;
-    else if (["--base", "--out"].includes(flag) && rest[i + 1] !== undefined && !(flag in options))
+    else if (
+      ["--base", "--out", "--playwright-dir"].includes(flag) &&
+      rest[i + 1] !== undefined &&
+      !(flag in options)
+    )
       options[flag] = rest[++i];
     else return usage;
   }
@@ -917,7 +973,9 @@ export async function main(argv, io = {}) {
   const problems = checkSequence(sequence, env);
   if (problems.length) return { code: 1, out: json({ completed: false, problems }) };
 
-  const found = findPlaywright(io.cwd ?? process.cwd());
+  const resolved = resolvePlaywright(io.cwd ?? process.cwd(), options["--playwright-dir"]);
+  if (resolved.error) return { code: 2, out: `${resolved.error}\n` };
+  const found = resolved.found;
   if (!found.module) return { code: 2, out: INSTALL };
   if (!found.chromium)
     return {
@@ -950,6 +1008,7 @@ export async function main(argv, io = {}) {
     stills: result.steps.filter((s) => s.still).length,
     withheld: result.steps.filter((s) => s.withheld).length,
     videos: result.videos,
+    ...(result.notes.length ? { notes: result.notes } : {}),
     ...(result.error ? { error: result.error } : {}),
   };
   return { code: result.completed ? 0 : 1, out: json(summary) };

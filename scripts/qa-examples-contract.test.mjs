@@ -70,7 +70,10 @@ describe("examples/qa.config.yml", () => {
       ...planAdapter.PUBLISH_KEYS.map((k) => `plan.publish.${k}`),
       ...planAdapter.HAZARD_KEYS.map((k) => `hazards.${k}`),
       // `run.hosts` is shown commented: a hosted address is a candidate, never a default.
-      ...planAdapter.RUN_KEYS.filter((k) => k !== "hosts").map((k) => `run.${k}`),
+      // `run.playwright` is shown commented: only repositories with Playwright in a subfolder set it.
+      ...planAdapter.RUN_KEYS.filter((k) => k !== "hosts" && k !== "playwright").map(
+        (k) => `run.${k}`,
+      ),
       ...planAdapter.STACK_KEYS.map((k) => `run.stack.${k}`),
       ...planAdapter.ACCOUNT_KEYS.map((k) => `run.accounts.${k}`),
       ...planAdapter.ROLE_KEYS.map((k) => `run.accounts.roles.${k}`),
@@ -106,6 +109,17 @@ describe("examples/qa.config.yml", () => {
       hosted.config.run.hosts.map((h) => h.name),
       ["web", "api", "billing"],
     );
+  });
+
+  it("shows a commented `run.playwright` example that reads with no problems (#533)", () => {
+    assert.match(CONFIG, /^ {2}# playwright: react-frontend/m);
+    const shown = CONFIG.replace(
+      /^ {2}# playwright: react-frontend[^\n]*/m,
+      "  playwright: react-frontend",
+    );
+    const parsed = planAdapter.parseConfig("qa.config.yml", shown);
+    assert.deepEqual(parsed.runProblems, []);
+    assert.equal(parsed.config.run.playwright, "react-frontend");
   });
 
   it("names the sample Hazard pack, so a copy of both works together", () => {

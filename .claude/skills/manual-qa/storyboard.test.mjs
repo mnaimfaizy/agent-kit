@@ -15,6 +15,7 @@ import assert from "node:assert/strict";
 import {
   cpSync,
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
@@ -833,4 +834,59 @@ test("the Storyboard renders to a PNG in Chromium", { skip: NEEDS_CHROMIUM }, as
   const loaded = loadScenario(metaPath);
   const again = await render(loaded.records, loaded.meta, { playwright: PLAYWRIGHT.module });
   assert.equal(again.subarray(1, 4).toString(), "PNG");
+});
+
+test("storyboard.mjs resolves Playwright from `run.playwright` (or `--playwright-dir`) while run from the repo root", async () => {
+  const { dir, metaPath } = runFolder();
+  const repo = mkdtempSync(join(tmpdir(), "storyboard-subdir-"));
+  dirs.push(repo);
+  mkdirSync(join(repo, "react-frontend", "node_modules", "playwright"), { recursive: true });
+  writeFileSync(join(repo, "react-frontend", "package.json"), "{}");
+  const fakeBrowser = join(repo, "react-frontend", "chromium-bin");
+  writeFileSync(fakeBrowser, "");
+  const launchMarker = join(repo, "launched.txt");
+  writeFileSync(
+    join(repo, "react-frontend", "node_modules", "playwright", "index.js"),
+    [
+      `const fs = require("node:fs");`,
+      `const png = Buffer.from(${JSON.stringify(PNG_1X1.toString("base64"))}, "base64");`,
+      `module.exports = {`,
+      `  chromium: {`,
+      `    executablePath: () => ${JSON.stringify(fakeBrowser)},`,
+      `    launch: async () => {`,
+      `      fs.writeFileSync(${JSON.stringify(launchMarker)}, "ok");`,
+      `      return {`,
+      `        newContext: async () => ({`,
+      `          route: async () => {},`,
+      `          newPage: async () => ({ setContent: async () => {}, screenshot: async () => png }),`,
+      `          close: async () => {},`,
+      `        }),`,
+      `        close: async () => {},`,
+      `      };`,
+      `    },`,
+      `  },`,
+      `};`,
+    ].join("\n"),
+  );
+
+  // Without `run.playwright`, running from `repo` returns exit 2.
+  assert.equal((await main(["render", metaPath], { env: ENV, cwd: repo })).code, 2);
+  assert.equal(existsSync(launchMarker), false);
+
+  // With `--playwright-dir react-frontend`, it loads from `react-frontend`.
+  const byFlag = await main(["render", metaPath, "--playwright-dir", "react-frontend"], {
+    env: ENV,
+    cwd: repo,
+  });
+  assert.equal(byFlag.code, 0, byFlag.out);
+  assert.equal(existsSync(launchMarker), true);
+
+  // With `qa.config.yml` setting `run.playwright: react-frontend`, no flag is needed.
+  rmSync(launchMarker, { force: true });
+  rmSync(join(dir, "s1-storyboard.png"), { force: true });
+  writeFileSync(join(repo, "qa.config.yml"), "run:\n  playwright: react-frontend\n");
+  const byConfig = await main(["render", metaPath], { env: ENV, cwd: repo });
+  assert.equal(byConfig.code, 0, byConfig.out);
+  assert.equal(existsSync(launchMarker), true);
+  assert.equal(existsSync(join(dir, "s1-storyboard.png")), true);
 });

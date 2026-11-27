@@ -26,12 +26,13 @@
 //     nothing is written, each field is named (never its value), and that
 //     field's text is kept as `[withheld]` in the files it came from.
 //
-//   It renders HTML to PNG in the repository's own Playwright Chromium, with
-//   a fixed, neutral palette built in: the repository configures nothing, and
-//   Agent-kit takes no dependency on Playwright.
+//   It renders HTML to PNG in the repository's own Playwright Chromium (from
+//   `run.playwright` or `--playwright-dir`, else the root), with a fixed,
+//   neutral palette built in: the repository configures nothing, and Agent-kit
+//   takes no dependency on Playwright.
 //
 // CLI (run from the repository root)
-//   node storyboard.mjs render <s<n>-storyboard.json> [--out <file.png>]
+//   node storyboard.mjs render <s<n>-storyboard.json> [--out <file.png>] [--playwright-dir <dir>]
 //
 //   Exit 0: the Storyboard was written. Exit 1: refused (the privacy check, a
 //   problem in the files, a variable not given, a result that is not PASS or
@@ -44,7 +45,7 @@ import { readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { findPlaywright } from "./adapter.mjs";
+import { resolvePlaywright } from "./adapter.mjs";
 import { encodedForms } from "./http.mjs";
 import { BEFORE_STATES } from "./report.mjs";
 
@@ -921,7 +922,8 @@ export function withholdRefused(loaded, fields, refused) {
 
 // ── CLI ─────────────────────────────────────────────────────────────────────
 
-const USAGE = "usage: node storyboard.mjs render <s<n>-storyboard.json> [--out <file.png>]\n";
+const USAGE =
+  "usage: node storyboard.mjs render <s<n>-storyboard.json> [--out <file.png>] [--playwright-dir <dir>]\n";
 export const NO_CHROMIUM =
   "no Storyboard: no Playwright with Chromium in this repository; the row keeps its plain stills";
 
@@ -937,8 +939,15 @@ export async function main(argv, io = {}) {
   const [command, target, ...rest] = argv;
   if (command !== "render" || target === undefined || target.startsWith("--")) return usage;
   let out;
+  let playwrightDir;
   for (let i = 0; i < rest.length; i += 1) {
     if (rest[i] === "--out" && rest[i + 1] !== undefined && out === undefined) out = rest[++i];
+    else if (
+      rest[i] === "--playwright-dir" &&
+      rest[i + 1] !== undefined &&
+      playwrightDir === undefined
+    )
+      playwrightDir = rest[++i];
     else return usage;
   }
   if (out !== undefined && !out.endsWith(".png")) return usage;
@@ -988,7 +997,9 @@ export async function main(argv, io = {}) {
 
   let renderer = io.renderer;
   if (!renderer) {
-    const found = findPlaywright(io.cwd ?? process.cwd());
+    const resolved = resolvePlaywright(io.cwd ?? process.cwd(), playwrightDir);
+    if (resolved.error) return none(2, { reason: resolved.error });
+    const found = resolved.found;
     if (!found.chromium) {
       return none(2, { reason: NO_CHROMIUM });
     }

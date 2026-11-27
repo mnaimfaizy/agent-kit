@@ -61,6 +61,7 @@ run:
   #   - { name: web, url: "https://qa.example.com", surface: web } # a surface's entry: one per surface
   #   - { name: api, url: "https://api.qa.example.com", surface: api }
   #   - { name: billing, url: "https://billing.qa.example.com" } # a named service, picked by a scenario's **Service:**
+  # playwright: react-frontend # optional: repository-relative folder holding the package.json whose node_modules has Playwright
   accounts: # the QA Account contract
     print: "uv run python -m app.qa_accounts print"
     restore: "uv run python -m app.qa_accounts restore --account {id}"
