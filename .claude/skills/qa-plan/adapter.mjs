@@ -1143,7 +1143,8 @@ export function resolvePlaywright(repo, overrideDir) {
         found: { package: null, module: null, chromium: false },
         error: `${label}: expected a relative folder inside the repository`,
       };
-    const dir = resolve(root, from);
+    const normalized = from.replace(/\\/g, "/");
+    const dir = resolve(root, normalized);
     if (!existsSync(join(dir, "package.json")))
       return {
         dir: null,
@@ -1151,7 +1152,7 @@ export function resolvePlaywright(repo, overrideDir) {
         found: { package: null, module: null, chromium: false },
         error: `${label}: no \`package.json\` in \`${from}\``,
       };
-    return { dir, from, found: findPlaywright(dir), error: null };
+    return { dir, from: normalized, found: findPlaywright(dir), error: null };
   }
   return { dir: root, from: null, found: findPlaywright(root), error: null };
 }
@@ -1186,7 +1187,7 @@ const detectWebTools =
     const ffmpeg = onPath("ffmpeg") && onPath("ffprobe");
     if (present(subdir) && isRepoPath(subdir)) {
       return {
-        chromium: findPlaywright(join(resolve(repo), subdir)).chromium,
+        chromium: findPlaywright(join(resolve(repo), subdir.replace(/\\/g, "/"))).chromium,
         playwrightDirs: [],
         ffmpeg,
       };

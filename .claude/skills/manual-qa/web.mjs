@@ -519,9 +519,11 @@ export function rateLimitEntry(response, { session, step, redact }) {
   const req = typeof response.request === "function" ? response.request() : null;
   const method = typeof req?.method === "function" ? req.method() : "GET";
   const rawUrl = typeof req?.url === "function" ? req.url() : "";
+  let host = "";
   let path;
   try {
     const parsed = new URL(rawUrl);
+    host = parsed.host;
     path = `${parsed.pathname}${parsed.search}`;
   } catch {
     path = rawUrl;
@@ -530,6 +532,7 @@ export function rateLimitEntry(response, { session, step, redact }) {
     session,
     step,
     method,
+    host: redact.text(host),
     path: redact.text(path),
     status,
     retryAfter: rawRetryAfter !== null ? redact.text(rawRetryAfter) : null,
@@ -667,7 +670,7 @@ export async function runSequence(
   const notedHosts = new Set();
   /** @type {string[]} */
   const notes = [];
-  /** @type {{session: string, step: number | null, method: string, path: string, status: number, retryAfter: string | null}[]} */
+  /** @type {{session: string, step: number | null, method: string, host: string, path: string, status: number, retryAfter: string | null}[]} */
   const rateLimits = [];
   const recordLoopback = (url) => {
     const note = loopbackNote(base, url);

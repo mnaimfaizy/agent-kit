@@ -24,6 +24,7 @@ import {
   parseConfig,
   readQaConfig,
   resolveHosts,
+  resolvePlaywright,
   runReadiness,
   validatePlan,
 } from "./adapter.mjs";
@@ -1539,4 +1540,19 @@ test("Playwright at the repository root with no `run.playwright` behaves as befo
   assert.equal(code, 0, JSON.stringify(result));
   assert.ok(result.readiness.notes.includes(WEB_NOTES.chromium));
   assert.equal(result.effective.run.playwright, undefined);
+});
+
+test("`run.playwright` with backslashes (`apps\\\\web`) resolves consistently in check and resolvePlaywright", () => {
+  const repo = answersRepo({
+    "qa.config.yml": `${STACK_RUN.join("\n")}\n  playwright: 'apps\\web'\n`,
+  });
+  installFakePlaywright(repo, "apps/web");
+  const { code, result } = checkRun(repo);
+  assert.equal(code, 0, JSON.stringify(result));
+  assert.deepEqual(result.problems, []);
+  assert.ok(result.readiness.notes.includes(WEB_NOTES.chromium));
+
+  const resolved = resolvePlaywright(repo);
+  assert.equal(resolved.error, null);
+  assert.equal(resolved.found.chromium, true);
 });

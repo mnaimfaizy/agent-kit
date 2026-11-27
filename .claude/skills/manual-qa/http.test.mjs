@@ -89,6 +89,10 @@ before(async () => {
         res.writeHead(200, { "content-type": "application/json" });
         return res.end('{"id":9007199254740993,"ratio":1.0,"dup":1,"dup":2}');
       }
+      if (url.pathname === "/snowflake") {
+        res.writeHead(200, { "content-type": "application/json" });
+        return res.end('{"id":1234567890123456789,"ratio":1.0,"exp":1e3}');
+      }
       if (url.pathname === "/self") {
         res.writeHead(200, { "content-type": "text/plain" });
         return res.end(`you asked for ${req.url}`);
@@ -1183,4 +1187,26 @@ test("short secret-named JSON values neither corrupt unrelated log text nor leak
   const out = JSON.parse(result.stdout);
   assert.equal(out.requests[1].path, "/verify/[redacted:request 1 data.pin]");
   assert.equal(out.requests[2].path, "/verify?code=[redacted:request 1 data.otp]");
+});
+
+test("{{json:<n>:<path>}} preserves exact raw number text for 64-bit snowflake integers, 1.0, 1e3, and duplicate keys", async () => {
+  const start = seen.length;
+  const result = await run({
+    requests: [
+      { session: "A", method: "GET", path: "/snowflake" },
+      {
+        session: "A",
+        method: "GET",
+        path: "/users/{{json:1:id}}?ratio={{json:1:ratio}}&exp={{json:1:exp}}",
+      },
+      { session: "A", method: "GET", path: "/ids" },
+      { session: "A", method: "GET", path: "/users/{{json:3:id}}?dup={{json:3:dup}}" },
+    ],
+  });
+  assert.equal(result.code, 0, result.stdout + result.stderr);
+  const [, snowflakeReq, , idsReq] = seen.slice(start);
+  assert.equal(snowflakeReq.path, "/users/1234567890123456789?ratio=1.0&exp=1e3");
+  assert.equal(idsReq.path, "/users/9007199254740993?dup=2");
+  assert.match(result.log, /path from request 1, session A: 1234567890123456789/);
+  assert.match(result.log, /path from request 3, session A: 9007199254740993/);
 });

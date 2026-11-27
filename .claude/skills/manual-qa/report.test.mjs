@@ -2759,3 +2759,70 @@ test("a row whose note says it ran twice preserves `ran twice` in the posted sum
   assert.equal(parsed.code, 0, parsed.out);
   assert.equal(JSON.parse(parsed.out).summary.header.result, "passed");
 });
+
+test("mergeReports groups each Review line with its (checked under R<n>) ruling without dropping or moving rulings", () => {
+  const makeReport = (rows, followUps) =>
+    reportFor(rows, "- S1: PASS").replace(
+      "## Follow-ups\n\nNone.",
+      `## Follow-ups\n\n${followUps}`,
+    );
+
+  // (a) Two distinct Review items sharing `(checked under R4)`: neither is dropped.
+  const baseA = makeReport(
+    [
+      "| S1: An admin invites a new member | PASS | `qa-report-pr-57/s1.png` | ok |",
+      "| S2: A signed-out visitor cannot open the members page | left for a person | none | needs browser |",
+    ],
+    [
+      "- Review, for a person: [local] Check A",
+      "  (checked under R4)",
+      "- Review, for a person: [local] Check B",
+      "  (checked under R4)",
+    ].join("\n"),
+  );
+  const scopedA = makeReport(
+    [
+      "| S2: A signed-out visitor cannot open the members page | PASS | `qa-report-pr-57/s2.png` | ok |",
+    ],
+    [
+      "- Review, for a person: [local] Check A",
+      "  (checked under R4)",
+      "- Review, for a person: [local] Check B",
+      "  (checked under R4)",
+    ].join("\n"),
+  );
+  const mergedA = mergeReports(baseA, scopedA, { delegation: "d42-qa2" });
+  assert.deepEqual(mergedA.problems, []);
+  assert.deepEqual(mergedA.report.reviewItems, [
+    { text: "[local] Check A", ruling: "R4" },
+    { text: "[local] Check B", ruling: "R4" },
+  ]);
+
+  // (b) Base has A & B with no ruling while scoped has A + (checked under R4) + B:
+  // ruling stays attached to A and never moves to B.
+  const baseB = makeReport(
+    [
+      "| S1: An admin invites a new member | PASS | `qa-report-pr-57/s1.png` | ok |",
+      "| S2: A signed-out visitor cannot open the members page | left for a person | none | needs browser |",
+    ],
+    ["- Review, for a person: [local] Check A", "- Review, for a person: [local] Check B"].join(
+      "\n",
+    ),
+  );
+  const scopedB = makeReport(
+    [
+      "| S2: A signed-out visitor cannot open the members page | PASS | `qa-report-pr-57/s2.png` | ok |",
+    ],
+    [
+      "- Review, for a person: [local] Check A",
+      "  (checked under R4)",
+      "- Review, for a person: [local] Check B",
+    ].join("\n"),
+  );
+  const mergedB = mergeReports(baseB, scopedB, { delegation: "d42-qa2" });
+  assert.deepEqual(mergedB.problems, []);
+  assert.deepEqual(mergedB.report.reviewItems, [
+    { text: "[local] Check A", ruling: "R4" },
+    { text: "[local] Check B", ruling: null },
+  ]);
+});

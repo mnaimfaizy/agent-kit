@@ -1506,6 +1506,7 @@ test("runSequence records 429 and 503-with-Retry-After in steps.json, never the 
         session: "A",
         step: 1,
         method: "POST",
+        host: "127.0.0.1:3000",
         path: "/api/login?email=[redacted:QA_A_EMAIL]",
         status: 429,
         retryAfter: "30",
@@ -1514,6 +1515,7 @@ test("runSequence records 429 and 503-with-Retry-After in steps.json, never the 
         session: "A",
         step: 1,
         method: "GET",
+        host: "127.0.0.1:3000",
         path: "/api/me",
         status: 503,
         retryAfter: "120",
@@ -1522,6 +1524,7 @@ test("runSequence records 429 and 503-with-Retry-After in steps.json, never the 
         session: "A",
         step: 1,
         method: "GET",
+        host: "127.0.0.1:3000",
         path: "/api/other",
         status: 429,
         retryAfter: null,
@@ -1554,6 +1557,7 @@ test(
         session: "A",
         step: 1,
         method: "GET",
+        host: `127.0.0.1:${port}`,
         path: "/rate-limit-429",
         status: 429,
         retryAfter: "30",
@@ -1562,6 +1566,7 @@ test(
         session: "B",
         step: 3,
         method: "GET",
+        host: `127.0.0.1:${port}`,
         path: "/rate-limit-503-retry",
         status: 503,
         retryAfter: "45",
@@ -1570,6 +1575,7 @@ test(
         session: "B",
         step: 5,
         method: "POST",
+        host: `127.0.0.1:${port}`,
         path: "/rate-limit-429?from=btn",
         status: 429,
         retryAfter: "30",
@@ -1582,3 +1588,62 @@ test(
     assert.ok(!written.includes("Plain 503 body"));
   },
 );
+
+test("runSequence keeps host on rateLimits so third-party 429s stay distinct from the app and its multi-port API", async () => {
+  const out = mkdtempSync(join(tmpdir(), "web-rate-limit-host-"));
+  try {
+    const seq = {
+      actions: [
+        { session: "A", goto: "/login" },
+        { session: "A", step: "After login" },
+      ],
+    };
+    const stub = stubPlaywrightModule([], "http://localhost:3000/", [
+      {
+        status: 429,
+        method: "GET",
+        url: "https://fonts.googleapis.com/css2?family=Inter",
+        headers: { "retry-after": "10" },
+        body: "third-party limit",
+      },
+      {
+        status: 429,
+        method: "POST",
+        url: "http://localhost:8000/api/login",
+        headers: { "retry-after": "30" },
+        body: "api limit",
+      },
+    ]);
+    const result = await runSequence(seq, {
+      base: "http://localhost:3000",
+      env: ENV,
+      out,
+      video: false,
+      playwright: stub.module,
+    });
+    assert.equal(result.completed, true);
+    const saved = JSON.parse(readFileSync(join(out, "steps.json"), "utf8"));
+    assert.deepEqual(saved.rateLimits, [
+      {
+        session: "A",
+        step: 1,
+        method: "GET",
+        host: "fonts.googleapis.com",
+        path: "/css2?family=Inter",
+        status: 429,
+        retryAfter: "10",
+      },
+      {
+        session: "A",
+        step: 1,
+        method: "POST",
+        host: "localhost:8000",
+        path: "/api/login",
+        status: 429,
+        retryAfter: "30",
+      },
+    ]);
+  } finally {
+    rmSync(out, { recursive: true, force: true });
+  }
+});

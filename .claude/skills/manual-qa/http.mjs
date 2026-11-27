@@ -614,8 +614,144 @@ export class Redactor {
 // ── Running ─────────────────────────────────────────────────────────────────
 
 /**
+ * Returns the exact source text of the JSON number at `segments` in valid JSON
+ * `text`, or null if not found. Takes the last matching key in an object to
+ * match `JSON.parse` semantics.
+ * @param {string} text
+ * @param {string[]} segments
+ * @returns {string | null}
+ */
+function rawJsonNumber(text, segments) {
+  let pos = 0;
+  const skipWs = () => {
+    while (pos < text.length && " \t\r\n".includes(text[pos])) pos += 1;
+  };
+  const readString = () => {
+    const start = pos;
+    pos += 1;
+    while (pos < text.length) {
+      const ch = text[pos];
+      if (ch === "\\") pos += 2;
+      else if (ch === '"') {
+        pos += 1;
+        return JSON.parse(text.slice(start, pos));
+      } else pos += 1;
+    }
+    return "";
+  };
+  const skipValue = () => {
+    skipWs();
+    const ch = text[pos];
+    if (ch === '"') {
+      readString();
+      return;
+    }
+    if (ch === "{") {
+      pos += 1;
+      skipWs();
+      if (text[pos] === "}") {
+        pos += 1;
+        return;
+      }
+      while (pos < text.length) {
+        skipWs();
+        readString();
+        skipWs();
+        pos += 1;
+        skipValue();
+        skipWs();
+        if (text[pos] === ",") pos += 1;
+        else {
+          pos += 1;
+          return;
+        }
+      }
+      return;
+    }
+    if (ch === "[") {
+      pos += 1;
+      skipWs();
+      if (text[pos] === "]") {
+        pos += 1;
+        return;
+      }
+      while (pos < text.length) {
+        skipValue();
+        skipWs();
+        if (text[pos] === ",") pos += 1;
+        else {
+          pos += 1;
+          return;
+        }
+      }
+      return;
+    }
+    while (pos < text.length && !",]} \t\r\n".includes(text[pos])) pos += 1;
+  };
+  const findAt = (depth) => {
+    skipWs();
+    if (depth === segments.length) {
+      const start = pos;
+      skipValue();
+      return text.slice(start, pos);
+    }
+    const seg = segments[depth];
+    if (text[pos] === "[") {
+      pos += 1;
+      skipWs();
+      if (text[pos] === "]") {
+        pos += 1;
+        return null;
+      }
+      const target = Number(seg);
+      let idx = 0;
+      let found = null;
+      while (pos < text.length) {
+        if (idx === target) found = findAt(depth + 1);
+        else skipValue();
+        idx += 1;
+        skipWs();
+        if (text[pos] === ",") pos += 1;
+        else {
+          pos += 1;
+          return found;
+        }
+      }
+      return found;
+    }
+    if (text[pos] === "{") {
+      pos += 1;
+      skipWs();
+      if (text[pos] === "}") {
+        pos += 1;
+        return null;
+      }
+      let found = null;
+      while (pos < text.length) {
+        skipWs();
+        const key = readString();
+        skipWs();
+        pos += 1;
+        if (key === seg) found = findAt(depth + 1);
+        else skipValue();
+        skipWs();
+        if (text[pos] === ",") pos += 1;
+        else {
+          pos += 1;
+          return found;
+        }
+      }
+      return found;
+    }
+    skipValue();
+    return null;
+  };
+  return findAt(0);
+}
+
+/**
  * Resolves `{{json:<n>:<path>}}` for request `k` against earlier parsed responses.
- * @param {({session: string, isJson: boolean, json: unknown} | undefined)[]} responses
+ * @param {({session: string, isJson: boolean, json: unknown, raw?: string} | undefined)[]} responses
  * @param {number} k
  * @param {string} name
  */
@@ -641,7 +777,17 @@ function resolveJsonRef(responses, k, name) {
   }
   if (typeof cur !== "string" && !(typeof cur === "number" && Number.isFinite(cur)))
     throw new Error(`request ${k} not sent: request ${n}'s ${path} is not a string or number`);
-  return { n, path, session: src.session, value: String(cur), segments };
+  let value;
+  if (typeof cur === "number") {
+    const rawNum = src.raw ? rawJsonNumber(src.raw, segments) : null;
+    if (rawNum !== null) value = rawNum;
+    else if (Number.isInteger(cur) && !Number.isSafeInteger(cur))
+      throw new Error(`request ${k} not sent: request ${n}'s ${path} is not a safe integer`);
+    else value = String(cur);
+  } else {
+    value = cur;
+  }
+  return { n, path, session: src.session, value, segments };
 }
 
 /**
@@ -770,7 +916,7 @@ export async function runSequence(sequence, { base, env, fetch: send = fetch }) 
           isJson = false;
         }
       }
-      responses[i] = { session, isJson, json: parsedJson };
+      responses[i] = { session, isJson, json: parsedJson, raw: text };
       const setCookies = response.headers.getSetCookie();
       jar.store(setCookies, url.pathname);
       // Every cookie the jar takes in is redacted from here on, before it is

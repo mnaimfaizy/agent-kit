@@ -1393,6 +1393,65 @@ function extractReportParts(text) {
 }
 
 /**
+ * Groups each `- Review, for a person:` line with its optional indented
+ * `  (checked under R<n>)` line, then merges `baseBlock` and `scopedBlock` by
+ * Review text so shared rulings are never dropped and a scoped ruling stays
+ * attached to its own Review item.
+ *
+ * @param {string} baseBlock
+ * @param {string} scopedBlock
+ * @returns {string[]}
+ */
+function mergeFollowUps(baseBlock, scopedBlock) {
+  const parseUnits = (block) => {
+    const lines = lf(block)
+      .split("\n")
+      .map((line) => line.trimEnd())
+      .filter((line) => line.trim() !== "" && line.trim() !== "None.");
+    const units = [];
+    for (let i = 0; i < lines.length; i += 1) {
+      const line = lines[i];
+      const reviewText = REVIEW_FOLLOW_UP.exec(line)?.[1];
+      if (reviewText !== undefined) {
+        const next = lines[i + 1];
+        const hasRuling = next !== undefined && CHECKED_UNDER.test(next);
+        if (hasRuling) i += 1;
+        units.push({
+          kind: "review",
+          text: reviewText,
+          line,
+          rulingLine: hasRuling ? next : null,
+        });
+      } else {
+        units.push({ kind: "other", line });
+      }
+    }
+    return units;
+  };
+  const merged = [];
+  const reviewByText = new Map();
+  const otherLines = new Set();
+  for (const unit of [...parseUnits(baseBlock), ...parseUnits(scopedBlock)]) {
+    if (unit.kind === "review") {
+      const existing = reviewByText.get(unit.text);
+      if (existing) {
+        if (!existing.rulingLine && unit.rulingLine) existing.rulingLine = unit.rulingLine;
+      } else {
+        const entry = { ...unit };
+        reviewByText.set(unit.text, entry);
+        merged.push(entry);
+      }
+    } else if (!otherLines.has(unit.line)) {
+      otherLines.add(unit.line);
+      merged.push(unit);
+    }
+  }
+  return merged.flatMap((entry) =>
+    entry.kind === "review" && entry.rulingLine ? [entry.line, entry.rulingLine] : [entry.line],
+  );
+}
+
+/**
  * Merge a scoped QA Delegation's results into the earlier QA Report for the
  * same head: replaces only the named scenarios' `left for a person` rows, adds
  * the `- **Scoped runs:**` provenance line naming `d<issue>-qa<k>`, updates the
@@ -1584,13 +1643,7 @@ export function mergeReports(baseText, scopedText, { delegation, scenarios, plan
       : `| ${escapeCell(row.scenario)} | ${row.result} | ${escapeCell(row.evidence)} | ${escapeCell(row.notes)} |`,
   );
 
-  const followUpLines = [baseParts.followUps, scopedParts.followUps]
-    .flatMap((block) => lf(block).split("\n"))
-    .map((line) => line.trimEnd())
-    .filter((line) => line.trim() !== "" && line.trim() !== "None.");
-  const dedupedFollowUps = [];
-  for (const line of followUpLines)
-    if (!dedupedFollowUps.includes(line)) dedupedFollowUps.push(line);
+  const dedupedFollowUps = mergeFollowUps(baseParts.followUps, scopedParts.followUps);
 
   const baseRecordLines = baseParts.executionRecord
     ? lf(baseParts.executionRecord)
