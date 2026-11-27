@@ -48,11 +48,14 @@ LOOSE_MARKER = re.compile(r"<!--\s*/?\s*generated\s*:[^>]*-->", re.IGNORECASE)
 
 # The example Callers, whose jobs pass each Stage's settings as GitHub expressions.
 CALLERS = "examples/*-caller.yml"
+# The reusable workflows, whose check step fills an empty model with the harness's default.
+REUSABLE = ".github/workflows/*-reusable.yml"
+DEFAULT_MODEL = re.compile(r'^\s*model="\$\{MODEL:-([^}"]+)\}"$', re.MULTILINE)
 EXPRESSION = re.compile(r"\$\{\{\s*(.*?)\s*\}\}")
 VARIABLE = re.compile(r"vars\.([A-Z0-9_]+)")
 LITERAL = re.compile(r"'([^']*)'")
 SWITCH_TERM = re.compile(r"vars\.([A-Z0-9_]+) (!=|==) '(true|false)'")
-OWN_MODEL = re.compile(r"CLAUDE_([A-Z0-9_]+)_MODEL")
+OWN_MODEL = re.compile(r"AGENT_KIT_([A-Z0-9_]+)_MODEL")
 # How the docs name each Stage token; a new token is written in lowercase words.
 STAGE_NAMES = {"REVIEW_RESPONSE": "Review response", "SECURITY_AUDIT": "security audit"}
 
@@ -71,6 +74,7 @@ class Stage:
 
     name: str
     switch: list[tuple[str, bool]]  # (variable, True if it must be `true`, False if it must not be `false`)
+    harness: Fallback
     model: Fallback
     effort: Fallback
 
@@ -93,6 +97,20 @@ class Sources:
         if result.returncode != 0:
             raise SystemExit(f"scripts/doc-facts.mjs failed:\n{result.stderr}")
         return json.loads(result.stdout)
+
+    @cached_property
+    def default_model(self) -> str:
+        """The model every reusable workflow gives `claude-code` when the Caller passes none."""
+        found: dict[str, list[str]] = {}
+        for path in sorted(self.root.glob(REUSABLE)):
+            for model in DEFAULT_MODEL.findall(path.read_text(encoding="utf-8")):
+                found.setdefault(model, []).append(path.relative_to(self.root).as_posix())
+        if len(found) != 1:
+            raise SystemExit(
+                f"The reusable workflows should fill an empty model with one default, but have {found or 'none'}"
+                ' (a line `model="${MODEL:-<id>}"`); make them agree'
+            )
+        return next(iter(found))
 
     @cached_property
     def stages(self) -> list[Stage]:
@@ -144,13 +162,14 @@ def _stage(settings: dict, where: str) -> Stage:
                 " vars.NAME != 'true' or vars.NAME == 'false', joined by ||"
             )
         switch.append((match.group(1), match.group(2) == "!="))
+    harness = _fallback(settings, "harness", where)
     model = _fallback(settings, "model", where)
     effort = _fallback(settings, "effort", where)
     token = OWN_MODEL.fullmatch(model.variables[0])
     if not token:
-        raise SystemExit(f"{where}: model should read the Stage's own CLAUDE_<STAGE>_MODEL first")
+        raise SystemExit(f"{where}: model should read the Stage's own AGENT_KIT_<STAGE>_MODEL first")
     name = STAGE_NAMES.get(token.group(1), token.group(1).lower().replace("_", " "))
-    return Stage(name, switch, model, effort)
+    return Stage(name, switch, harness, model, effort)
 
 
 def _code(items: list[str], conjunction: str = "and") -> str:
@@ -196,7 +215,7 @@ def stage_kill_switches(sources: Sources) -> str:
 def stage_model_and_effort(sources: Sources) -> str:
     stages = sources.stages
     # Every Stage reads its own variable, then the same shared ones, then the same default.
-    for setting in ("model", "effort"):
+    for setting in ("harness", "model", "effort"):
         chains = [getattr(stage, setting) for stage in stages]
         tails = {(chain.variables[1:], chain.default) for chain in chains}
         if len(tails) > 1:
@@ -214,12 +233,14 @@ def stage_model_and_effort(sources: Sources) -> str:
     def own(fallback: Fallback) -> str:
         return f"`{fallback.variables[0]}`"
 
-    rows = [[stage.name, own(stage.model), own(stage.effort)] for stage in stages]
+    rows = [[stage.name, own(stage.harness), own(stage.model), own(stage.effort)] for stage in stages]
     if stages:
-        model, effort = stages[0].model, stages[0].effort
-        rows.append(["any Stage above", shared(model), shared(effort)])
-        rows.append(["neither set", default(model), default(effort)])
-    return _table(["Stage", "Model", "Effort"], rows)
+        harness, model, effort = stages[0].harness, stages[0].model, stages[0].effort
+        rows.append(["any Stage above", shared(harness), shared(model), shared(effort)])
+        # A Caller that passes no model leaves it to the workflow's harness default.
+        unset = default(model) if model.default else f"the harness's default (`{sources.default_model}`)"
+        rows.append(["neither set", default(harness), unset, default(effort)])
+    return _table(["Stage", "Harness", "Model", "Effort"], rows)
 
 
 def _shell_word(value: str) -> str:

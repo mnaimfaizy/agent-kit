@@ -28,20 +28,21 @@ Run by a person, guidance counts only from thread replies by `OWNER`, `MEMBER` o
 
 ## The CI flow
 
-| Piece              | Where                                                                                                                                                                                  |
-| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Reusable workflow  | `.github/workflows/agent-review-response-reusable.yml`                                                                                                                                 |
-| Caller example     | [`examples/review-response-caller.yml`](../examples/review-response-caller.yml), or `npx @mnaimfaizy/agent-kit init --flows review-response`                                           |
-| Trusted script     | `.github/agent-review-response/review-response.mjs` (Kit-owned)                                                                                                                        |
-| Skill              | `.claude/skills/address-pr-review/` (Kit-owned)                                                                                                                                        |
-| Trigger label      | `agent:address-review` on a pull request (`trigger_label`), consumed by the gate                                                                                                       |
-| Kill switch        | `CLAUDE_REVIEW_RESPONSE_ENABLED`: the flow runs only when it is `true`, whatever the Agent flow's switch says                                                                          |
-| Mode               | `CLAUDE_REVIEW_RESPONSE_MODE`: exactly `auto` turns on [auto mode](#auto-mode); anything else, or unset, is manual                                                                     |
-| Model and effort   | `CLAUDE_REVIEW_RESPONSE_MODEL`, then `CLAUDE_MODEL`, then `claude-opus-5-5`; `CLAUDE_REVIEW_RESPONSE_EFFORT`, then `CLAUDE_EFFORT`, then none                                          |
-| Secret             | `CLAUDE_CODE_OAUTH_TOKEN`, from `claude setup-token`. GitHub access is the job token throughout: no Claude GitHub App, no personal access token.                                       |
-| Caller permissions | `contents: write`, `pull-requests: write`, `actions: write`. Only the publish job holds all three (the gate holds `pull-requests: write`); the job that runs the agent gets read-only. |
+| Piece              | Where                                                                                                                                                                                                       |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Reusable workflow  | `.github/workflows/agent-review-response-reusable.yml`                                                                                                                                                      |
+| Caller example     | [`examples/review-response-caller.yml`](../examples/review-response-caller.yml), or `npx @mnaimfaizy/agent-kit init --flows review-response`                                                                |
+| Trusted script     | `.github/agent-review-response/review-response.mjs` (Kit-owned)                                                                                                                                             |
+| Skill              | `.claude/skills/address-pr-review/` (Kit-owned)                                                                                                                                                             |
+| Trigger label      | `agent:address-review` on a pull request (`trigger_label`), consumed by the gate                                                                                                                            |
+| Kill switch        | `AGENT_KIT_REVIEW_RESPONSE_ENABLED`: the flow runs only when it is `true`, whatever the Agent flow's switch says                                                                                            |
+| Mode               | `AGENT_KIT_REVIEW_RESPONSE_MODE`: exactly `auto` turns on [auto mode](#auto-mode); anything else, or unset, is manual                                                                                       |
+| Harness            | `AGENT_KIT_REVIEW_RESPONSE_HARNESS`, then `AGENT_KIT_HARNESS`, then `claude-code`, the one harness that runs this flow so far                                                                               |
+| Model and effort   | `AGENT_KIT_REVIEW_RESPONSE_MODEL`, then `AGENT_KIT_MODEL`, then the harness's default (`claude-opus-5-5`); `AGENT_KIT_REVIEW_RESPONSE_EFFORT`, then `AGENT_KIT_EFFORT`, then none                           |
+| Secret             | `CLAUDE_CODE_OAUTH_TOKEN`, from `claude setup-token`, or `ANTHROPIC_API_KEY` (the token wins when both are set). GitHub access is the job token throughout: no Claude GitHub App, no personal access token. |
+| Caller permissions | `contents: write`, `pull-requests: write`, `actions: write`. Only the publish job holds all three (the gate holds `pull-requests: write`); the job that runs the agent gets read-only.                      |
 
-The Caller owns its toolchain and checks, the same way the implement Caller does: `setup_commands` (copy a [setup preset](../examples/setup-presets/)) runs before the agent, and `verify_commands` are the checks the agent runs before each fix commit, its only build command. Both are code the job runs: never build them from issue or pull request text. The agent runs `verify_commands` inside Claude Code's [sandbox](https://code.claude.com/docs/en/sandboxing), where a command can write only to the working tree and a temp directory, and has no network. Setup runs outside it, so install everything there, and in `verify_commands` call the installed tools directly (`.venv/bin/pytest`, `npm test`), not through a wrapper that writes a cache under the home directory or fetches packages: `uv run` exits 2 there, unable to create its cache. Prefer quiet reporters: the agent sees a long output cut short, and the staged script's last line names the command that failed. `format_commands` (optional) is a formatter the agent runs on its edits before the checks, in the same sandbox, such as `npx prettier --write .`; without one, it has to match the repository's format by hand, which a Markdown table rarely survives. During a round the kit writes `review-response-brief.md`, and the agent `review-response.json`, in the workspace root. Git ignores them through `.git/info/exclude`, but formatters such as prettier do not read that file: add `/review-response-brief.md` and `/review-response.json` to your formatter's ignore file (`.prettierignore`), or `prettier --check .` fails on the brief whatever the agent changed. The other inputs are `allowlist_actors`, `reviewer_logins`, `extra_protected_paths`, `ci_workflow`, `model` and `effort`; [reference.md](reference.md#review-response) has each one.
+The Caller owns its toolchain and checks, the same way the implement Caller does: `setup_commands` (copy a [setup preset](../examples/setup-presets/)) runs before the agent, and `verify_commands` are the checks the agent runs before each fix commit, its only build command. Both are code the job runs: never build them from issue or pull request text. The agent runs `verify_commands` inside Claude Code's [sandbox](https://code.claude.com/docs/en/sandboxing), where a command can write only to the working tree and a temp directory, and has no network. Setup runs outside it, so install everything there, and in `verify_commands` call the installed tools directly (`.venv/bin/pytest`, `npm test`), not through a wrapper that writes a cache under the home directory or fetches packages: `uv run` exits 2 there, unable to create its cache. Prefer quiet reporters: the agent sees a long output cut short, and the staged script's last line names the command that failed. `format_commands` (optional) is a formatter the agent runs on its edits before the checks, in the same sandbox, such as `npx prettier --write .`; without one, it has to match the repository's format by hand, which a Markdown table rarely survives. During a round the kit writes `review-response-brief.md`, and the agent `review-response.json`, in the workspace root. Git ignores them through `.git/info/exclude`, but formatters such as prettier do not read that file: add `/review-response-brief.md` and `/review-response.json` to your formatter's ignore file (`.prettierignore`), or `prettier --check .` fails on the brief whatever the agent changed. The other inputs are `allowlist_actors`, `reviewer_logins`, `extra_protected_paths`, `ci_workflow`, `harness`, `model` and `effort`; [reference.md](reference.md#review-response) has each one.
 
 ### What a round does
 
@@ -73,7 +74,7 @@ The default. A login on the Allowlist (`allowlist_actors`) applies `agent:addres
 
 ### Auto mode
 
-With `CLAUDE_REVIEW_RESPONSE_MODE` set to exactly `auto`, a finished review that left findings starts a round on its own: the **Handoff**. The review workflow's `handoff` job reads the trusted script from the default branch, counts the findings the round would see and the rounds the pull request has had, and dispatches your Review response Caller on the default branch with `pr_number`. A reusable workflow cannot be dispatched, so it dispatches your Caller file.
+With `AGENT_KIT_REVIEW_RESPONSE_MODE` set to exactly `auto`, a finished review that left findings starts a round on its own: the **Handoff**. The review workflow's `handoff` job reads the trusted script from the default branch, counts the findings the round would see and the rounds the pull request has had, and dispatches your Review response Caller on the default branch with `pr_number`. A reusable workflow cannot be dispatched, so it dispatches your Caller file.
 
 Both Callers need wiring.
 
@@ -89,7 +90,7 @@ review:
   uses: mnaimfaizy/agent-kit/.github/workflows/agent-review-reusable.yml@<tag>
   with:
     # ...the review inputs you already pass...
-    response_mode: ${{ vars.CLAUDE_REVIEW_RESPONSE_MODE || 'manual' }}
+    response_mode: ${{ vars.AGENT_KIT_REVIEW_RESPONSE_MODE || 'manual' }}
     response_workflow: .github/workflows/agent-review-response.yml
     # The handoff counts findings with the round's own lists: keep these equal
     # to the Review response Caller's allowlist_actors and reviewer_logins.
@@ -127,7 +128,7 @@ No round runs, and the pull request gets a comment saying why, on:
 
 - a pull request from a **fork**: its branch is not this repository's to push to, and a fork run gets no secrets. The example Caller also skips fork pull requests before any run starts;
 - a pull request **into any branch but the default one**;
-- a **Dependabot** pull request (author `dependabot[bot]` or a `dependabot/` branch): a round builds the pull request, which would run a package version nobody has read beside the subscription token;
+- a **Dependabot** pull request (author `dependabot[bot]` or a `dependabot/` branch): a round builds the pull request, which would run a package version nobody has read beside the model credential;
 - a pull request whose branch name has characters outside `A-Z`, `a-z`, `0-9`, `.`, `_`, `/` and `-`;
 - a pull request that **changes a protected path**. Address that review by hand.
 
@@ -186,4 +187,4 @@ The default reviewer login, `github-actions`, is shared. Every workflow in the r
 
 ## What the agent can reach
 
-The respond job builds pull request code, so whatever runs there (dependency code, build scripts, the agent's commands) may reach anything on that runner. The design gives that runner nothing that can write to GitHub. What it does hold is the subscription token, which the agent step needs while pull request code builds, and the read-only job token. See [Security model](security-model.md#review-response) for the full account, and [ADR 0005](adr/0005-review-responder-holds-no-write-credential.md) for the options rejected.
+The respond job builds pull request code, so whatever runs there (dependency code, build scripts, the agent's commands) may reach anything on that runner. The design gives that runner nothing that can write to GitHub. What it does hold is the model credential (the subscription token or the API key), which the agent step needs while pull request code builds, and the read-only job token. See [Security model](security-model.md#review-response) for the full account, and [ADR 0005](adr/0005-review-responder-holds-no-write-credential.md) for the options rejected.
