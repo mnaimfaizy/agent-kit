@@ -36,13 +36,18 @@ on:
         required: true
         type: string
       base_sha:
-        description: "PR base SHA. Trusted source for the review runtime restore."
+        description: "PR base SHA. The review runtime is restored from it when it is on `trusted_branch`, otherwise from that branch's tip."
         required: true
         type: string
       base_ref:
         description: "PR base branch name. Fetched when the base commit is not already local."
         required: true
         type: string
+      trusted_branch:
+        description: "Branch whose history the review runtime is trusted on. Empty means the repository's default branch."
+        required: false
+        type: string
+        default: ""
       is_fork:
         description: "True when the PR head is from a fork. The job no-ops."
         required: false
@@ -264,6 +269,7 @@ jobs:
         env:
           BASE_SHA: ${{ inputs.base_sha }}
           BASE_BRANCH: ${{ inputs.base_ref }}
+          TRUSTED_BRANCH: ${{ inputs.trusted_branch || github.event.repository.default_branch }}
           SKILL_PATH: ${{ inputs.skill_path }}
         shell: bash
         run: |
@@ -272,6 +278,27 @@ jobs:
           # GitHub rejects unadvertised object fetches; use the advertised base ref.
           if ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
             git fetch --no-tags origin "$BASE_BRANCH"
+          fi
+
+          # The PR's base is whatever branch the PR targets, and whoever opens the
+          # PR picks it: a PR into an unreviewed branch would restore this runtime
+          # from that branch. The runtime is trusted only on the trusted branch, so
+          # restore from the PR base when it is on that branch, and from the
+          # trusted branch's tip otherwise. The diff still uses the PR base.
+          if [ -z "${TRUSTED_BRANCH:-}" ] || ! git check-ref-format "refs/heads/$TRUSTED_BRANCH"; then
+            echo "::error title=No trusted branch::Set the trusted_branch input: this event names no default branch to restore the runtime from."
+            exit 1
+          fi
+          TRUSTED_REF="refs/remotes/origin/$TRUSTED_BRANCH"
+          if ! git rev-parse -q --verify "$TRUSTED_REF^{commit}" >/dev/null; then
+            git fetch --no-tags origin "+refs/heads/$TRUSTED_BRANCH:$TRUSTED_REF"
+          fi
+          TRUSTED_TIP="$(git rev-parse --verify "$TRUSTED_REF^{commit}")"
+          if git merge-base --is-ancestor "$BASE_SHA" "$TRUSTED_TIP"; then
+            RUNTIME_SHA="$BASE_SHA"
+          else
+            RUNTIME_SHA="$TRUSTED_TIP"
+            echo "PR base $BASE_SHA is not on $TRUSTED_BRANCH; restoring the runtime from $TRUSTED_BRANCH at $TRUSTED_TIP."
           fi
 
           # A pull request's .gitattributes decides how git writes files, and
@@ -293,7 +320,7 @@ jobs:
           MEMORY_LIST="$(mktemp)"
           {
             git ls-files -z
-            git ls-tree -r -z --name-only "$BASE_SHA"
+            git ls-tree -r -z --name-only "$RUNTIME_SHA"
           } | sort -z -u > "$MEMORY_LIST"
 
           # A pull request can replace a tracked symlink with a real directory and
@@ -323,8 +350,8 @@ jobs:
 
           restore_from_base() {
             local path="$1"
-            if git cat-file -e "$BASE_SHA:$path" 2>/dev/null; then
-              git restore --source="$BASE_SHA" --staged --worktree -- "$path"
+            if git cat-file -e "$RUNTIME_SHA:$path" 2>/dev/null; then
+              git restore --source="$RUNTIME_SHA" --staged --worktree -- "$path"
             elif resolves_through_symlink "$path"; then
               SKIPPED_THROUGH_LINK=$((SKIPPED_THROUGH_LINK + 1))
             else
@@ -371,7 +398,7 @@ jobs:
           if [ "$SKIPPED_THROUGH_LINK" -gt 0 ]; then
             echo "Restore skipped $SKIPPED_THROUGH_LINK path(s) resolving through a symlink."
           fi
-          echo "Review runtime restored from PR base $BASE_SHA"
+          echo "Review runtime restored from $RUNTIME_SHA"
 
       - name: List the reviewer's open threads
         # ADR 0011: the reviewer's brief carries its open threads with their

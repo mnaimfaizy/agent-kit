@@ -120,11 +120,16 @@ def test_audit_restores_runtime_and_stages_scripts_from_a_trusted_commit() -> No
     assert 'git fetch --no-tags origin "$BASE_BRANCH"' in restore
     assert 'origin "$BASE_SHA"' not in restore
     assert "git ls-files -z" in restore
-    assert 'git ls-tree -r -z --name-only "$BASE_SHA"' in restore
+    assert 'git ls-tree -r -z --name-only "$RUNTIME_SHA"' in restore
+    assert 'git restore --source="$RUNTIME_SHA"' in restore
+    assert 'git merge-base --is-ancestor "$BASE_SHA" "$TRUSTED_TIP"' in restore
+    assert 'echo "runtime_sha=$RUNTIME_SHA" >> "$GITHUB_OUTPUT"' in restore
     assert ".github/agent-runtime" in restore
     assert ".github/security-audit/prompt.md" in restore
     stage = _step(data, "Stage trusted audit scripts outside the agent workspace")
     assert "publish-draft-advisory.sh" in stage
+    assert "steps.restore.outputs.runtime_sha" in stage
+    assert "inputs.base_sha" not in stage
     assert "RUNNER_TEMP" in stage
 
 

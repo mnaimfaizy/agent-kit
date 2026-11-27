@@ -9,6 +9,7 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 ### Consumer action
 
 - **Required:** re-copy `.github/agent-runtime/` from this tag. It adds `security-audit.settings.json`, and the security audit refuses to start without it.
+- **Optional:** set the new `trusted_branch` input on your review and security-audit Callers when the branch your reviewed agent runtime lives on is not the default branch. Left empty, both use the default branch.
 
 ### Changed
 
@@ -24,6 +25,7 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ### Security
 
+- Review and PR-mode security audit no longer trust a base branch the pull request picks. They restored their instructions, skills and read hook, and the audit also staged its credentialed publish and notify scripts, from `base_sha`, the base of whatever branch the pull request targets. A pull request into a branch that holds unreviewed runtime changes was judged by that runtime. Both workflows now take a `trusted_branch` input (empty means the repository's default branch) and restore from `base_sha` only when it is on that branch, and from the branch's tip otherwise; the diff still uses `base_sha`. The implementer's push guard, edit denies and post-agent check now also cover the Kit-owned `.github/agent-runtime/`, `.github/agent-pipeline/`, `.github/security-audit/` and `.github/agent-review-response/`, so no implementer branch can carry a changed copy; an issue that needs a change there needs a human, as for workflows.
 - A PR-mode security audit no longer writes through symlinks the pull request commits. Its checkout is the pull request's head, and the job wrote the brief, the report directory, the session transcript and the CLI log at paths in that tree with no check, so a committed link could send a write outside the workspace or make the audit fail at will. Before it writes anything, the job now refuses a report directory reached through a symlink and removes any entry already at those paths, as the review workflow does. The audit agent now runs with the new `security-audit.settings.json`, which adds the write-confinement hook (`confine-writes-to-worktree.mjs`) to the read hook, so its Write is judged on the resolved path, not only by path-pattern deny rules. The staging step checks both hooks refuse what they exist to refuse, and the digest check after the agent covers both.
 
 ## [1.0.0-beta.11] - 2026-11-27
