@@ -1,0 +1,25 @@
+{
+  "$comment": "The security audit agent's settings, passed to claude-code-action via the settings input. Registers the read-confinement hook (see read-confinement.settings.json) and the write-confinement hook, which judges Edit/Write/MultiEdit/NotebookEdit on the resolved path, so a symlink in a pull request's tree cannot carry the report write out of the workspace, into .git, or onto Claude Code's project settings. The workflow stages the scripts and this file to $RUNNER_TEMP/read-confinement/ before the agent starts, outside the workspace, and runs the staged copies. Each command ends in `|| exit 2`: a hook that crashes is a non-blocking error in Claude Code, so any failure to decide must block the call instead. See .github/agent-runtime/confine-writes-to-worktree.mjs.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Read|Grep|Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$RUNNER_TEMP/read-confinement/confine-reads-to-workspace.mjs\" || exit 2"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$RUNNER_TEMP/read-confinement/confine-writes-to-worktree.mjs\" || exit 2"
+          }
+        ]
+      }
+    ]
+  }
+}
