@@ -32,11 +32,16 @@ on:
         required: false
         type: boolean
         default: false
-      model:
-        description: "Claude model id for the agent, such as claude-opus-5-5. A plain id only: letters, digits and `. _ : @ / [ ] -`; anything else fails the run before the scan starts."
+      harness:
+        description: "The harness that runs this Stage: `claude-code`, `codex`, `gemini`, `opencode`, `cursor` or `custom:<name>`. Empty means `claude-code`. Only `claude-code` runs this Stage so far; any other value fails the run before the agent starts."
         required: false
         type: string
-        default: "claude-opus-5-5"
+        default: "claude-code"
+      model:
+        description: "Model id in the harness's own words, such as claude-opus-5-5. A plain id only: letters, digits and `. _ : @ / [ ] -`; anything else fails the run before the scan starts. Empty takes the harness's default (`claude-code`: `claude-opus-5-5`)."
+        required: false
+        type: string
+        default: ""
       effort:
         description: "Claude Code effort level: `low`, `medium`, `high`, `xhigh` or `max`. Empty leaves `--effort` off, so the model's own default applies; anything else fails the run before the agent starts."
         required: false
@@ -68,6 +73,15 @@ on:
         required: false
       claude_code_oauth_token:
         description: "Subscription OAuth token from `claude setup-token`: the opt-in subscription path (deep-scan --credential subscription), at your own risk. It relies on undocumented Claude Code behaviour and may break with any release, has no refresh (rotate it by hand), leaves the terms question to you, and the max_tokens cap is its only spend lever. Set this or anthropic_api_key, not both. Only the launcher step sees it, and it never enters the sandbox."
+        required: false
+      openai_api_key:
+        description: "OpenAI API key. Optional: no harness that reads it runs this Stage yet."
+        required: false
+      gemini_api_key:
+        description: "Gemini API key. Optional: no harness that reads it runs this Stage yet."
+        required: false
+      cursor_api_key:
+        description: "Cursor API key. Optional: no harness that reads it runs this Stage yet."
         required: false
       advisories_token:
         description: "Token with repository security advisories write. Used only by the staged delivery script, after teardown."
@@ -105,14 +119,16 @@ jobs:
     # the rest is for the installs and the delivery.
     timeout-minutes: 180
     steps:
-      - name: Check model, effort and limit inputs
+      - name: Check the harness, model, effort, credential and limits
         # The values become launcher flags. Refuse anything but a plain value
-        # before anything else runs. The values are never echoed back.
+        # before anything else runs. No refused value is echoed back.
+        id: settings
         env:
           # Whether each model secret is set, as true or false: never its
           # value, which only the launcher step holds.
           HAS_API_KEY: ${{ secrets.anthropic_api_key != '' }}
           HAS_OAUTH_TOKEN: ${{ secrets.claude_code_oauth_token != '' }}
+          HARNESS: ${{ inputs.harness }}
           MODEL: ${{ inputs.model }}
           EFFORT: ${{ inputs.effort }}
           SETUP_MINUTES: ${{ inputs.setup_minutes }}
@@ -126,16 +142,37 @@ jobs:
           # delivery need. Expressions have no arithmetic, so the timeout
           # cannot follow the inputs: the inputs are held under it instead.
           MAX_PHASE_MINUTES=150
+          # Which harness runs the Stage (ADR 0022). Checked first: a typo, or
+          # a harness not wired for this Stage yet, costs nothing.
+          harness="${HARNESS:-claude-code}"
+          wired=claude-code
+          unknown() {
+            echo "::error title=Unknown harness::The harness input is not one of claude-code, codex, gemini, opencode, cursor, custom:<name>."
+            exit 1
+          }
+          case "$harness" in
+            claude-code | codex | gemini | opencode | cursor) ;;
+            custom:*)
+              [[ "$harness" =~ ^custom:[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || unknown
+              ;;
+            *) unknown ;;
+          esac
+          if [ "$harness" != "$wired" ]; then
+            echo "::error title=Harness not wired::The $harness harness is not yet wired for the Deep scan Stage. Only claude-code runs it: unset AGENT_KIT_DEEP_SCAN_HARNESS and AGENT_KIT_HARNESS, or set claude-code (the harness input)."
+            exit 1
+          fi
           if [ "$HAS_API_KEY" = true ] && [ "$HAS_OAUTH_TOKEN" = true ]; then
             echo "::error title=Two model credentials::Set anthropic_api_key or claude_code_oauth_token, not both."
             exit 1
           fi
           if [ "$HAS_API_KEY" != true ] && [ "$HAS_OAUTH_TOKEN" != true ]; then
-            echo "::error title=No model credential::Set the anthropic_api_key secret (the supported path) or, opted into at your own risk, claude_code_oauth_token."
+            echo "::error title=No model credential::The claude-code harness needs the anthropic_api_key secret (the supported path) or, opted into at your own risk, claude_code_oauth_token."
             exit 1
           fi
+          # An empty model takes the harness's default.
+          model="${MODEL:-claude-opus-5-5}"
           model_pattern='^[A-Za-z0-9][]A-Za-z0-9._:@/[-]*$'
-          if ! [[ "$MODEL" =~ $model_pattern ]]; then
+          if ! [[ "$model" =~ $model_pattern ]]; then
             echo "::error title=Invalid model input::The model input is not a plain model id (letters, digits and . _ : @ / [ ] -)."
             exit 1
           fi
@@ -163,6 +200,7 @@ jobs:
             echo "::error title=Limits past the job timeout::setup_minutes + scan_minutes must be at most ${MAX_PHASE_MINUTES}, so the job's timeout-minutes (180) stays above the phase limits."
             exit 1
           fi
+          echo "model=$model" >> "$GITHUB_OUTPUT"
 
       - name: Gate
         id: gate
@@ -350,7 +388,7 @@ jobs:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.claude_code_oauth_token }}
           AGENT_KIT: ${{ steps.cli.outputs.bin }}
           DEFAULT_BRANCH: ${{ steps.gate.outputs.default_branch }}
-          MODEL: ${{ inputs.model }}
+          MODEL: ${{ steps.settings.outputs.model }}
           EFFORT: ${{ inputs.effort }}
           SETUP_MINUTES: ${{ inputs.setup_minutes }}
           SCAN_MINUTES: ${{ inputs.scan_minutes }}

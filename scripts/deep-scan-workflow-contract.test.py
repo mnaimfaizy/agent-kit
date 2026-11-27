@@ -23,7 +23,7 @@ WORKFLOW = WORKFLOWS / "deep-scan-reusable.yml"
 STATIC = WORKFLOWS / "security-audit-reusable.yml"
 CALLER = ROOT / "examples" / "deep-scan-caller.yml"
 LAUNCHER = "Run the deep scan (agent-kit deep-scan)"
-CHECK = "Check model, effort and limit inputs"
+CHECK = "Check the harness, model, effort, credential and limits"
 STAGE = "Stage trusted delivery scripts"
 # Uploads and caches outlive the job and are readable beyond Private delivery.
 UPLOADS = re.compile(r"actions/(upload-artifact|upload-pages-artifact|cache|attest)")
@@ -105,6 +105,7 @@ def test_inputs_are_the_kill_switch_the_model_the_effort_and_the_limits() -> Non
     inputs = workflow()["on"]["workflow_call"]["inputs"]
     assert set(inputs) == {
         "kill_switch",
+        "harness",
         "model",
         "effort",
         "setup_minutes",
@@ -113,7 +114,9 @@ def test_inputs_are_the_kill_switch_the_model_the_effort_and_the_limits() -> Non
         "max_tokens",
     }
     assert inputs["kill_switch"]["default"] is False
-    assert inputs["model"]["default"] == "claude-opus-5-5"
+    assert inputs["harness"]["default"] == "claude-code" and inputs["harness"]["required"] is False
+    # Empty by default: the check step fills in the harness's own model (ADR 0022).
+    assert inputs["model"]["default"] == ""
     # The launcher's own defaults.
     assert {k: inputs[k]["default"] for k in ("setup_minutes", "scan_minutes", "max_turns", "max_tokens")} == {
         "setup_minutes": 20,
@@ -145,12 +148,14 @@ def test_the_effort_reaches_only_the_check_and_the_launcher() -> None:
 
 
 MODEL_SECRETS = {"anthropic_api_key": "ANTHROPIC_API_KEY", "claude_code_oauth_token": "CLAUDE_CODE_OAUTH_TOKEN"}
+# Every model secret a Caller passes (ADR 0030).
+PROVIDER_SECRETS = (*MODEL_SECRETS, "openai_api_key", "gemini_api_key", "cursor_api_key")
 
 
 def test_the_model_secrets_are_an_api_key_or_the_opt_in_subscription_token() -> None:
     secrets = workflow()["on"]["workflow_call"]["secrets"]
     # Exactly one is needed, so neither can be required: the first step checks.
-    for name in MODEL_SECRETS:
+    for name in PROVIDER_SECRETS:
         assert secrets[name]["required"] is False, name
     # The static workflow's own name for the same token.
     static = yaml.safe_load(STATIC.read_text(encoding="utf-8"))
@@ -303,19 +308,15 @@ def test_caller_example() -> None:
     assert set(on) == {"schedule", "workflow_dispatch"}
     (only,) = caller["jobs"].values()
     assert re.fullmatch(r"mnaimfaizy/agent-kit/\.github/workflows/deep-scan-reusable\.yml@v\S+", only["uses"])
-    assert only["secrets"]["anthropic_api_key"] == "${{ secrets.AGENT_KIT_DEEP_SCAN_ANTHROPIC_API_KEY }}"
-    # The subscription token is shown too, commented out: exactly one is set.
-    assert "claude_code_oauth_token" not in only["secrets"]
+    # Every provider secret is passed (ADR 0030), each under a Deep scan name of
+    # its own; the repository sets exactly one Claude Code credential.
+    for name in PROVIDER_SECRETS:
+        assert only["secrets"][name] == f"${{{{ secrets.AGENT_KIT_DEEP_SCAN_{name.upper()} }}}}", name
     raw_caller = CALLER.read_text(encoding="utf-8")
-    assert re.search(
-        r"^ +# claude_code_oauth_token: \$\{\{ secrets\.AGENT_KIT_DEEP_SCAN_CLAUDE_CODE_OAUTH_TOKEN \}\}$",
-        raw_caller,
-        re.M,
-    )
     for caveat in ("claude setup-token", "undocumented", "rotate it by", "terms question", "spend lever"):
         assert caveat in raw_caller, caveat
-    assert only["with"]["kill_switch"] == "${{ vars.CLAUDE_DEEP_SCAN_ENABLED != 'true' }}"
-    assert only["with"]["effort"] == "${{ vars.CLAUDE_DEEP_SCAN_EFFORT || vars.CLAUDE_EFFORT || '' }}"
+    assert only["with"]["kill_switch"] == "${{ vars.AGENT_KIT_DEEP_SCAN_ENABLED != 'true' }}"
+    assert only["with"]["effort"] == "${{ vars.AGENT_KIT_DEEP_SCAN_EFFORT || vars.AGENT_KIT_EFFORT || '' }}"
     assert caller["permissions"] == {"contents": "read"}
 
 
@@ -325,6 +326,7 @@ def test_caller_example() -> None:
 def run_check(**inputs: str) -> subprocess.CompletedProcess:
     env = {k.upper(): v for k, v in inputs.items()}
     defaults = {
+        "HARNESS": "claude-code",
         "MODEL": "claude-opus-5-5",
         "EFFORT": "",
         "SETUP_MINUTES": "20",
@@ -342,7 +344,7 @@ def run_check(**inputs: str) -> subprocess.CompletedProcess:
         script.write_text(step(CHECK)["run"], encoding="utf-8", newline="\n")
         return subprocess.run(
             [bash, str(script)],
-            env={**os.environ, **defaults, **env},
+            env={**os.environ, **defaults, "GITHUB_OUTPUT": (Path(tmp) / "output").as_posix(), **env},
             capture_output=True,
             text=True,
             check=False,
@@ -354,12 +356,13 @@ def test_the_check_reads_its_inputs_through_env() -> None:
     assert index(CHECK) == 0
     assert "${{" not in check["run"]
     assert check["env"]["MODEL"] == "${{ inputs.model }}"
+    assert check["env"]["HARNESS"] == "${{ inputs.harness }}"
 
 
 def test_the_check_takes_the_static_workflows_effort_check() -> None:
     check = step(CHECK)["run"]
     static = yaml.safe_load(STATIC.read_text(encoding="utf-8"))["jobs"]["security_audit"]["steps"]
-    (static_check,) = [s for s in static if s.get("name") == "Check model and effort inputs"]
+    (static_check,) = [s for s in static if s.get("name") == "Check the harness, model, effort and credential"]
     effort_case = static_check["run"][static_check["run"].index('case "$EFFORT" in') :]
     effort_case = effort_case[: effort_case.index("esac") + len("esac")]
     assert effort_case in check, "the same effort check as security-audit-reusable.yml"
@@ -385,7 +388,7 @@ def test_the_check_accepts_the_defaults_and_a_raised_scan() -> None:
 
 
 def test_the_check_refuses_a_bad_model_or_limit_and_a_sum_past_the_timeout() -> None:
-    for bad in ({"model": "m --x"}, {"model": ""}, {"max_turns": "1.5"}, {"max_tokens": "0"}, {"scan_minutes": "-1"}):
+    for bad in ({"model": "m --x"}, {"max_turns": "1.5"}, {"max_tokens": "0"}, {"scan_minutes": "-1"}):
         result = run_check(**bad)
         assert result.returncode == 1, bad
         assert "::error" in result.stdout, bad
@@ -394,6 +397,23 @@ def test_the_check_refuses_a_bad_model_or_limit_and_a_sum_past_the_timeout() -> 
     assert "timeout-minutes" in over.stdout
     # The values are never echoed back.
     assert "m --x" not in run_check(model="m --x").stdout
+
+
+def test_the_check_refuses_every_harness_but_claude_code() -> None:
+    for harness in ("codex", "gemini", "opencode", "cursor", "custom:mine"):
+        result = run_check(harness=harness)
+        assert result.returncode == 1, harness
+        assert f"The {harness} harness is not yet wired for the Deep scan Stage" in result.stdout, result.stdout
+    unknown = run_check(harness="claude --x")
+    assert unknown.returncode == 1 and "::error title=Unknown harness::" in unknown.stdout
+    assert "claude --x" not in unknown.stdout
+    assert run_check(harness="").returncode == 0
+
+
+def test_the_check_fills_an_empty_model_and_the_launcher_reads_it() -> None:
+    assert run_check(model="").returncode == 0
+    assert step(LAUNCHER)["env"]["MODEL"] == "${{ steps.settings.outputs.model }}"
+    assert step(CHECK)["id"] == "settings"
 
 
 def test_the_check_takes_exactly_one_model_credential() -> None:

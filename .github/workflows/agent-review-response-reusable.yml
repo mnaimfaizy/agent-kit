@@ -40,7 +40,7 @@ on:
   workflow_call:
     inputs:
       kill_switch:
-        description: "If true, skip this run. Callers pass `vars.CLAUDE_REVIEW_RESPONSE_ENABLED != 'true'`."
+        description: "If true, skip this run. Callers pass `vars.AGENT_KIT_REVIEW_RESPONSE_ENABLED != 'true'`."
         required: false
         type: boolean
         default: false
@@ -89,15 +89,20 @@ on:
         type: string
         default: ""
       response_mode:
-        description: "Callers pass `vars.CLAUDE_REVIEW_RESPONSE_MODE`. Exactly `auto` accepts a round dispatched by the review workflow's Handoff (`github-actions[bot]`, on the default branch, at most two rounds per pull request). Anything else, or empty, is manual: every `workflow_dispatch` run is refused and the label is the only way in."
+        description: "Callers pass `vars.AGENT_KIT_REVIEW_RESPONSE_MODE`. Exactly `auto` accepts a round dispatched by the review workflow's Handoff (`github-actions[bot]`, on the default branch, at most two rounds per pull request). Anything else, or empty, is manual: every `workflow_dispatch` run is refused and the label is the only way in."
         required: false
         type: string
         default: ""
-      model:
-        description: "Claude model id, such as claude-opus-5-5. A plain id only: letters, digits and `. _ : @ / [ ] -`; anything else fails the run before the agent starts."
+      harness:
+        description: "The harness that runs this Stage: `claude-code`, `codex`, `gemini`, `opencode`, `cursor` or `custom:<name>`. Empty means `claude-code`. Only `claude-code` runs this Stage so far; any other value fails the run before the agent starts."
         required: false
         type: string
-        default: "claude-opus-5-5"
+        default: "claude-code"
+      model:
+        description: "Model id in the harness's own words, such as claude-opus-5-5. A plain id only: letters, digits and `. _ : @ / [ ] -`; anything else fails the run before the agent starts. Empty takes the harness's default (`claude-code`: `claude-opus-5-5`)."
+        required: false
+        type: string
+        default: ""
       effort:
         description: "Claude Code effort level: `low`, `medium`, `high`, `xhigh` or `max`. Empty leaves `--effort` off, so the model's own default applies; anything else fails the run before the agent starts."
         required: false
@@ -105,8 +110,20 @@ on:
         default: ""
     secrets:
       claude_code_oauth_token:
-        description: "Subscription OAuth token from `claude setup-token`."
-        required: true
+        description: "Subscription OAuth token from `claude setup-token`. The `claude-code` harness needs this or anthropic_api_key; with both passed, this one is used."
+        required: false
+      anthropic_api_key:
+        description: "Anthropic API key, for the `claude-code` harness. Used only when claude_code_oauth_token is not passed."
+        required: false
+      openai_api_key:
+        description: "OpenAI API key. Optional: no harness that reads it runs this Stage yet."
+        required: false
+      gemini_api_key:
+        description: "Gemini API key. Optional: no harness that reads it runs this Stage yet."
+        required: false
+      cursor_api_key:
+        description: "Cursor API key. Optional: no harness that reads it runs this Stage yet."
+        required: false
 
 # What a Caller must grant. No job runs with this block: each names its own,
 # and only publish holds contents: write or actions: write.
@@ -142,19 +159,46 @@ jobs:
       trusted_sha: ${{ steps.check.outputs.trusted_sha }}
       allowlist: ${{ steps.check.outputs.allowlist }}
       reviewer_logins: ${{ steps.check.outputs.reviewer_logins }}
+      model: ${{ steps.settings.outputs.model }}
     steps:
-      - name: Check model and effort inputs
-        # Both values are pasted into claude_args, so a space or a newline in
-        # either would add Claude Code flags. Refuse anything but a plain value
-        # before the agent starts. The values are never echoed back.
+      - name: Check the harness, model, effort and credential
+        # The model and effort are pasted into claude_args, so a space or a
+        # newline in either would add Claude Code flags. Refuse anything but a
+        # plain value before the agent starts. No refused value is echoed back.
+        id: settings
         env:
+          HARNESS: ${{ inputs.harness }}
           MODEL: ${{ inputs.model }}
           EFFORT: ${{ inputs.effort }}
+          # Whether each model secret was passed, never its value.
+          HAS_OAUTH_TOKEN: ${{ secrets.claude_code_oauth_token != '' }}
+          HAS_API_KEY: ${{ secrets.anthropic_api_key != '' }}
         shell: bash
         run: |
           set -euo pipefail
+          # Which harness runs the Stage (ADR 0022). Checked first: a typo, or
+          # a harness not wired for this Stage yet, costs nothing.
+          harness="${HARNESS:-claude-code}"
+          wired=claude-code
+          unknown() {
+            echo "::error title=Unknown harness::The harness input is not one of claude-code, codex, gemini, opencode, cursor, custom:<name>."
+            exit 1
+          }
+          case "$harness" in
+            claude-code | codex | gemini | opencode | cursor) ;;
+            custom:*)
+              [[ "$harness" =~ ^custom:[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || unknown
+              ;;
+            *) unknown ;;
+          esac
+          if [ "$harness" != "$wired" ]; then
+            echo "::error title=Harness not wired::The $harness harness is not yet wired for the Review response Stage. Only claude-code runs it: unset AGENT_KIT_REVIEW_RESPONSE_HARNESS and AGENT_KIT_HARNESS, or set claude-code (the harness input)."
+            exit 1
+          fi
+          # An empty model takes the harness's default.
+          model="${MODEL:-claude-opus-5-5}"
           model_pattern='^[A-Za-z0-9][]A-Za-z0-9._:@/[-]*$'
-          if ! [[ "$MODEL" =~ $model_pattern ]]; then
+          if ! [[ "$model" =~ $model_pattern ]]; then
             echo "::error title=Invalid model input::The model input is not a plain model id (letters, digits and . _ : @ / [ ] -)."
             exit 1
           fi
@@ -165,6 +209,11 @@ jobs:
               exit 1
               ;;
           esac
+          if [ "$HAS_OAUTH_TOKEN" != true ] && [ "$HAS_API_KEY" != true ]; then
+            echo "::error title=No model credential::The claude-code harness needs the claude_code_oauth_token secret or the anthropic_api_key secret, and the Caller passed neither."
+            exit 1
+          fi
+          echo "model=$model" >> "$GITHUB_OUTPUT"
 
       - name: Gate
         id: check
@@ -221,7 +270,7 @@ jobs:
               stop "A dispatch by $TRIGGERING_ACTOR is refused: to start a Review response round, apply the ${LABEL:-agent:address-review} label to the pull request."
             fi
             if [ "$MODE" != "auto" ]; then
-              stop "Review response is manual (CLAUDE_REVIEW_RESPONSE_MODE is not auto), so a dispatch is refused: apply the ${LABEL:-agent:address-review} label to the pull request."
+              stop "Review response is manual (AGENT_KIT_REVIEW_RESPONSE_MODE is not auto), so a dispatch is refused: apply the ${LABEL:-agent:address-review} label to the pull request."
             fi
             DISPATCHED=true
           fi
@@ -728,6 +777,9 @@ jobs:
         with:
           path_to_bun_executable: ${{ steps.bun.outputs.path }}
           claude_code_oauth_token: ${{ secrets.claude_code_oauth_token }}
+          # The API key only when no subscription token was passed, so a
+          # repository holding both secrets keeps running on the token.
+          anthropic_api_key: ${{ secrets.claude_code_oauth_token == '' && secrets.anthropic_api_key || '' }}
           # The job token, which here can only read. Without this input the
           # action would exchange OIDC for the Claude App token, which can
           # write the repository; this job builds pull request code.
@@ -738,7 +790,7 @@ jobs:
             Read review-response-brief.md in the repository root and follow it exactly.
             It holds your instructions and the review findings to address.
           claude_args: |
-            --model ${{ inputs.model }}
+            --model ${{ needs.gate.outputs.model }}
             ${{ inputs.effort != '' && format('--effort {0}', inputs.effort) || '' }}
             --max-turns 150
             --allowedTools "${{ steps.tools.outputs.allowed }}"

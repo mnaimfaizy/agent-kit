@@ -137,6 +137,7 @@ def test_the_caller_contract() -> None:
         "format_commands",
         "ci_workflow",
         "response_mode",
+        "harness",
         "model",
         "effort",
     }
@@ -147,9 +148,15 @@ def test_the_caller_contract() -> None:
     assert contract["inputs"]["response_mode"]["default"] == ""
     for name in ("allowlist_actors", "reviewer_logins"):
         assert contract["inputs"][name]["default"] == "[]"
-    # GitHub access is the job token throughout: the only secret is the
-    # subscription token.
-    assert set(contract["secrets"]) == {"claude_code_oauth_token"}
+    # GitHub access is the job token throughout: the only secrets are the model
+    # providers' credentials.
+    assert set(contract["secrets"]) == {
+        "claude_code_oauth_token",
+        "anthropic_api_key",
+        "openai_api_key",
+        "gemini_api_key",
+        "cursor_api_key",
+    }
     assert set(workflow()["on"]) == {"workflow_call"}
 
 
@@ -395,7 +402,14 @@ def test_the_agent_holds_no_write_credential_and_no_gh() -> None:
     assert "track_progress" not in params
     assert params["settings"] == "${{ runner.temp }}/read-confinement/implementer.settings.json"
     text = RESPONSE.read_text(encoding="utf-8")
-    assert text.count("secrets.claude_code_oauth_token") == 1, "only the agent step gets the subscription token"
+    # Its value goes to the agent step alone (the token, and the check that picks
+    # the API key only without it); the first step learns only whether it is set.
+    uses = re.findall(r"secrets\.claude_code_oauth_token(?: != ''| == '')?", text)
+    assert sorted(uses) == [
+        "secrets.claude_code_oauth_token",
+        "secrets.claude_code_oauth_token != ''",
+        "secrets.claude_code_oauth_token == ''",
+    ]
     args = params["claude_args"]
     assert '--allowedTools "${{ steps.tools.outputs.allowed }}"' in args
     denied = set(args.split('--disallowedTools "')[1].split('"')[0].split(","))
@@ -594,7 +608,7 @@ def test_the_example_review_caller_carries_the_handoff_inputs_commented() -> Non
     params = uncommented["jobs"]["review"]["with"]
     assert set(params) - set(as_copied) == HANDOFF_INPUTS
     assert set(params) <= set(declared)
-    assert params["response_mode"] == "${{ vars.CLAUDE_REVIEW_RESPONSE_MODE || 'manual' }}"
+    assert params["response_mode"] == "${{ vars.AGENT_KIT_REVIEW_RESPONSE_MODE || 'manual' }}"
     assert params["response_workflow"] == ".github/workflows/agent-review-response.yml"
     assert params["response_allowlist_actors"] == '["your-github-login"]'
     assert params["response_reviewer_logins"] == "[]"
