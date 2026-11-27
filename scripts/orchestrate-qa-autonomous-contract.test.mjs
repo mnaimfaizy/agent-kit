@@ -954,8 +954,13 @@ describe("DESIGN.md, docs and the glossary give the typed-host flow (#421)", () 
 
   it("CHANGELOG.md has one entry for spec #413, naming each ticket and both ADRs", () => {
     const log = read("CHANGELOG.md");
-    const unreleased = log.slice(log.indexOf("## [Unreleased]"), log.indexOf("\n## [1."));
-    const entry = unreleased.split("\n").find((l) => l.includes("/issues/413"));
+    // The entry sits under [Unreleased] until a release moves it into
+    // [1.0.0-beta.11]; look in both, never in an older release.
+    const start = log.indexOf("## [Unreleased]");
+    const released = log.indexOf("\n## [1.0.0-beta.11]");
+    const end = log.indexOf("\n## [", (released === -1 ? start : released) + 1);
+    const sections = log.slice(start, end === -1 ? undefined : end);
+    const entry = sections.split("\n").find((l) => l.includes("/issues/413"));
     assert.ok(entry, "an entry links #413");
     for (const n of [415, 416, 417, 418, 419, 420, 421, 422]) {
       assert.ok(entry.includes(`/issues/${n}`), `#${n} is linked`);
