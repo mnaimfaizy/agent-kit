@@ -1,0 +1,42 @@
+# Antigravity permissions and command policy
+
+How this repository reduces repetitive approval prompts in Antigravity **Auto** mode while keeping risky and destructive commands gated.
+
+## How Antigravity handles permissions
+
+Unlike Claude Code's `.claude/settings.json`, Antigravity separates **machine-local permission lists** from **repository-committed hooks**:
+
+- **Native permission lists (`allow`, `ask`, `deny`)** live locally on your machine:
+  - **Antigravity App**: **Settings** > **General** > **Global Permissions** (all projects) or **Settings** > **Projects** (per-project override).
+  - **Antigravity CLI (`agy`)**: `~/.gemini/antigravity-cli/settings.json` under `"permissions"`, or interactively via `/permissions` (**Project**, **Shared**, or **Global** scopes).
+  - Precedence is strictly **`Deny > Ask > Allow`**, and explicit rules always override **Auto** mode and sandbox defaults.
+- **Repository-committed command policy** lives in `.agents/hooks.json`, which Antigravity App, CLI, and IDE all discover automatically from the repository root.
+
+### Why Auto mode prompts on `gh api` on Windows
+
+1. The Windows terminal sandbox blocks network access, `gh` config reads, and `.git/` writes, so `gh` and `git fetch`/`push` commands run outside the sandbox (`BypassSandbox: true`).
+2. Outside the sandbox, Auto mode conservatively prompts on raw `gh api` calls because `gh api` can run arbitrary REST or GraphQL writes.
+3. Antigravity disables literal prefix matching when a command uses shell constructs like `$(...)`, `{a,b}`, or Windows PowerShell syntax that cannot be split cleanly into words — use `command(regex:...)` rules in native settings, or let `.agents/hooks.json` inspect the parsed command.
+
+## Repository policy (`.agents/hooks.json` + `.agents/command-policy.mjs`)
+
+`.agents/hooks.json` registers a `PreToolUse` hook on `run_command` that runs `node ./command-policy.mjs` (cross-platform on Windows, macOS, and Linux) and returns an Antigravity hook decision:
+
+| Decision       | Behavior                                                                                               | Covered commands                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| -------------- | ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `auto_approve` | Runs without prompting when Auto/Default mode would ask; still honors explicit user `ask`/`deny` rules | Read-only `gh api` (GET/HEAD only — no `-X`/`--method` write verb, no `-f`/`-F`/`--field`/`--raw-field`/`--input`, no `graphql`); read-only `gh` (`issue/pr/repo/label/run/workflow/release view\|list`, `gh pr diff\|checks\|status`, `gh run watch`, `gh auth status`); read-only and reversible local `git` (`status`, `diff`, `log`, `show`, `fetch`, `switch`, `add`, `commit` without `--amend`, `merge-base`, `merge-tree`, `worktree list\|add\|prune`); repo checks (`npm test`, `npm run format`, `npm run format:check`, `npx prettier`, `node --test`, `uv run pytest`, `uv run ruff`, `uv run pre-commit`, read-only `records.mjs event\|derive\|board\|dashboard`, doc generators) |
+| `ask`          | Prompts for approval (respects user "Always Allow")                                                    | Routine GitHub writes (`gh issue create\|comment`, `gh pr create\|comment\|review`), `git commit --amend`, non-`--ff-only` `git pull`/`merge`, package installs (`npm ci\|install`, `uv sync\|add`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `force_ask`    | Always prompts for approval, ignoring cached "Always Allow" grants                                     | Mutating `gh api` (`-X POST\|PUT\|PATCH\|DELETE`, `-f`/`-F`/`--input`, `graphql`), high-impact `gh` (`pr merge\|close`, `issue close\|delete`, `release`, `secret`, `variable`, `label create\|delete`, `workflow run`, `repo delete`), `git push`, `git reset --hard`, `git clean`, `git rebase`, `git restore`, `git branch -D`, `git tag` writes, `git worktree remove`, `git config` writes, `git -c ...`, `scripts/cut-release.sh`, `scripts/prepare-release.sh`, `records.mjs upload\|upload-raw\|prune`, `npm publish`, `rm`/`Remove-Item`, `curl`/`wget`/`Invoke-WebRequest`, `ssh`/`scp`, `docker`, `kill`/`Stop-Process`                                                               |
+| `deny`         | Hard-blocks execution immediately                                                                      | Destructive `git push` (`--force`, `-f`, `--mirror`, `--delete`, `+`/`:` refspecs), catastrophic `rm`/`Remove-Item` (`/`, `~`, `$HOME`, `..`, drive roots, `.git`), remote-code-execution pipes (`curl\|sh`, `iwr\|iex`), `Invoke-Expression`/`iex`, privilege escalation (`sudo`, `runas`, `Start-Process -Verb RunAs`), `gh auth token`, environment secret dumps (`printenv`, bare `env`, `Get-ChildItem Env:`), reading `.env`/`.ssh`/`.aws`/`.config/gh`                                                                                                                                                                                                                                    |
+| `allow`        | Delegates to Antigravity's built-in Auto/Default policy                                                | Any unclassified command, or any command containing shell expansions (`$VAR`, `$(...)`, backticks), subshells, output redirections (other than `2>&1` / `>/dev/null` / `>$null`), or inline environment overrides                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+
+For chained commands (`&&`, `||`, `;`, `|`), every segment is evaluated independently and the strictest decision wins (`deny > force_ask > ask > allow > auto_approve`).
+
+Tests live in `scripts/antigravity-command-policy.test.mjs` and run under `npm test`.
+
+## Native Antigravity settings template (`.agents/permissions.example.json`)
+
+If you also want native Antigravity rules (which also guard file tools like `write_file(.git/)` and `read_file(.env)`, and apply even if hooks are disabled):
+
+- **Antigravity CLI (`agy`)**: copy the `"permissions"` object from `.agents/permissions.example.json` into `~/.gemini/antigravity-cli/settings.json`, or add individual rules interactively with `/permissions`.
+- **Antigravity App**: open **Settings** > **Projects** (for this repo) or **Settings** > **General** > **Global Permissions**, and add the rules from `.agents/permissions.example.json` to your **Allow**, **Ask**, and **Deny** lists.

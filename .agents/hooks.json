@@ -1,0 +1,16 @@
+{
+  "command-policy": {
+    "PreToolUse": [
+      {
+        "matcher": "run_command",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ./command-policy.mjs",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
