@@ -18,6 +18,7 @@ import {
   evidenceUpload,
   findComments,
   main,
+  mergeReports,
   parseComments,
   parseHeader,
   parseSummary,
@@ -2477,4 +2478,203 @@ test("a long local report does not block a short post: only the summary counts a
   const { body, problems } = reportComment(long);
   assert.deepEqual(problems, []);
   assert.ok(body.length < 2000);
+});
+
+// --- Scoped QA Delegation merge: one QA Report per head (#536) ---
+
+test("mergeReports replaces only the scoped scenarios' left-for-person rows and adds provenance (#536)", () => {
+  const base = reportFor([
+    "| S1: An admin invites a new member | PASS | `qa-report-pr-57/s1-http.log` | invite sent |",
+    "| S2: A signed-out visitor cannot open the members page | left for a person | none | no tool here can drive a `web` surface |",
+  ]);
+  const scoped = reportFor(
+    [
+      "| S2: A signed-out visitor cannot open the members page | PASS | `qa-report-pr-57/s2-storyboard.png` | redirected to sign-in |",
+    ],
+    "- S2: PASS\n- Build: verified by `gh`",
+  ).replace("driven by the built-in browser", "driven by `web.mjs`");
+
+  const { body, report, problems } = mergeReports(base, scoped, { delegation: "d42-qa2" });
+  assert.deepEqual(problems, []);
+  assert.ok(body);
+  assert.equal(report.headline, "QA passed");
+  assert.deepEqual(report.scopedRuns, [{ delegation: "d42-qa2", scenarios: ["S2"] }]);
+  assert.deepEqual(
+    report.results.map((r) => [r.id, r.result, r.evidence]),
+    [
+      ["S1", "PASS", ["qa-report-pr-57/s1-http.log"]],
+      ["S2", "PASS", ["qa-report-pr-57/s2-storyboard.png"]],
+    ],
+  );
+  assert.match(body, /^- \*\*Scoped runs:\*\* S2 from `d42-qa2`$/m);
+
+  // read, comment, summary, and findComments all agree on the merged report.
+  assert.deepEqual(readReport(body).problems, []);
+  assert.deepEqual(reportPlanProblems(report, PLAN), []);
+  const posted = reportComment(body);
+  assert.deepEqual(posted.problems, []);
+  assert.ok(
+    posted.body.includes(`QA Report: result=passed; commit=${HEAD}; left-for-person=0; deferred=0`),
+    posted.body,
+  );
+  assert.ok(posted.body.includes("S2 from `d42-qa2`"), posted.body);
+  const parsed = parseSummary(posted.body);
+  assert.deepEqual(parsed.problems, []);
+  assert.equal(parsed.summary.header.leftForPerson, 0);
+  assert.equal(parsed.summary.header.result, "passed");
+
+  // Where an earlier comment exists, findComments updates it in place (never posts a second).
+  const firstComment = reportComment(base).body;
+  assert.ok(firstComment.includes("left-for-person=1; deferred=0"));
+  const found = findComments([{ id: 99, body: firstComment, user: ME }], ME, { head: HEAD });
+  assert.equal(found.report.action, "update");
+  assert.equal(found.report.id, 99);
+});
+
+test("mergeReports updates left-for-person counts alongside open Review boxes and multiple scoped runs (#536)", () => {
+  const plan = withReviewPlan("[local] docs/x.html says the token lasts 30 days");
+  const base = reportFor([
+    "| S1: An admin invites a new member | left for a person | none | no browser driver |",
+    "| S2: A signed-out visitor cannot open the members page | left for a person | none | no browser driver |",
+  ]).replace(
+    "## Follow-ups\n\nNone.",
+    "## Follow-ups\n\n- Review, for a person: [local] docs/x.html says the token lasts 30 days",
+  );
+  assert.ok(reportComment(base).body.includes("left-for-person=3; deferred=0"));
+
+  const scoped1 = reportFor(
+    ["| S1: An admin invites a new member | PASS | `qa-report-pr-57/s1.png` | invite sent |"],
+    "- S1: PASS",
+  );
+  const first = mergeReports(base, scoped1, { delegation: "d42-qa2" });
+  assert.deepEqual(first.problems, []);
+  assert.equal(first.report.headline, "QA passed, with items listed");
+  assert.ok(reportComment(first.body).body.includes("left-for-person=2; deferred=0"));
+
+  const scoped2 = reportFor(
+    [
+      "| S2: A signed-out visitor cannot open the members page | PASS | `qa-report-pr-57/s2.png` | redirected |",
+    ],
+    "- S2: PASS",
+  );
+  const second = mergeReports(first.body, scoped2, { delegation: "d42-qa3", planText: plan });
+  assert.deepEqual(second.problems, []);
+  assert.equal(second.report.headline, "QA passed");
+  assert.deepEqual(second.report.scopedRuns, [
+    { delegation: "d42-qa2", scenarios: ["S1"] },
+    { delegation: "d42-qa3", scenarios: ["S2"] },
+  ]);
+  assert.match(second.body, /^- \*\*Scoped runs:\*\* S1 from `d42-qa2`; S2 from `d42-qa3`$/m);
+  const comment = reportComment(second.body);
+  assert.deepEqual(comment.problems, []);
+  assert.ok(comment.body.includes("left-for-person=1; deferred=0"), comment.body);
+  assert.equal(parseSummary(comment.body).summary.header.leftForPerson, 1);
+});
+
+test("mergeReports preserves Fix scenario Before cells and updates headline on FAIL (#536)", () => {
+  const base = graded([
+    row3("S1", "left for a person", "not run: no driver").replace(
+      "`qa-report-pr-57/s1.png`",
+      "none",
+    ),
+    ALL_PASS[1],
+    ALL_PASS[2],
+  ]);
+  const scoped = graded([row3("S1", "FAIL: regression", S1_BEFORE, "no badge")], "- S1: FAIL");
+  const { body, report, problems } = mergeReports(base, scoped, {
+    delegation: "d42-qa2",
+    planText: PLAN3,
+  });
+  assert.deepEqual(problems, []);
+  assert.equal(report.headline, "QA failed");
+  assert.equal(report.failed, true);
+  assert.equal(report.results[0].before, S1_BEFORE);
+  assert.ok(reportComment(body).body.includes("result=failed;"));
+});
+
+test("mergeReports refuses non-left-for-person rows, mismatched heads, bad ids, and missing scenarios (#536)", () => {
+  const base = reportFor([
+    "| S1: An admin invites a new member | PASS | `qa-report-pr-57/s1.png` | ok |",
+    "| S2: A signed-out visitor cannot open the members page | left for a person | none | no driver |",
+  ]);
+  const scopedS1 = reportFor([
+    "| S1: An admin invites a new member | PASS | `qa-report-pr-57/s1.png` | ok |",
+  ]);
+  assert.match(
+    mergeReports(base, scopedS1, { delegation: "d42-qa2" }).problems.join("\n"),
+    /S1 in the earlier report is `PASS`, not `left for a person`/,
+  );
+
+  const scopedS2 = reportFor([
+    "| S2: A signed-out visitor cannot open the members page | PASS | `qa-report-pr-57/s2.png` | ok |",
+  ]);
+  assert.match(
+    mergeReports(base, scopedS2.replaceAll(HEAD, "3".repeat(40)), {
+      delegation: "d42-qa2",
+    }).problems.join("\n"),
+    /head/,
+  );
+  assert.match(
+    mergeReports(base, scopedS2, { delegation: "not-a-qa-delegation" }).problems.join("\n"),
+    /delegation/,
+  );
+  assert.match(
+    mergeReports(base, scopedS2, { delegation: "d42-qa2", scenarios: ["S1"] }).problems.join("\n"),
+    /S1|scoped/,
+  );
+  const unknownS9 = reportFor(["| S9: Unknown | PASS | `qa-report-pr-57/s9.png` | ok |"]);
+  assert.match(
+    mergeReports(base, unknownS9, { delegation: "d42-qa2" }).problems.join("\n"),
+    /S9 is not in the earlier report/,
+  );
+});
+
+test("report.mjs CLI merge reads files, writes merged report, and validates via read/comment/summary (#536)", () => {
+  const base = reportFor([
+    "| S1: An admin invites a new member | PASS | `qa-report-pr-57/s1.png` | ok |",
+    "| S2: A signed-out visitor cannot open the members page | left for a person | none | no driver |",
+  ]);
+  const scoped = reportFor(
+    [
+      "| S2: A signed-out visitor cannot open the members page | PASS | `qa-report-pr-57/s2.png` | redirected |",
+    ],
+    "- S2: PASS",
+  );
+  const files = { "base.md": base, "scoped.md": scoped, "plan.md": PLAN };
+  const merged = main(
+    [
+      "merge",
+      "base.md",
+      "--with",
+      "scoped.md",
+      "--delegation",
+      "d42-qa2",
+      "--scenarios",
+      "S2",
+      "--plan",
+      "plan.md",
+    ],
+    { readFile: (p) => files[p] ?? null },
+  );
+  assert.equal(merged.code, 0, merged.out);
+  assert.equal(
+    main(["read", "merged.md", "--plan", "plan.md"], {
+      readFile: (p) => (p === "merged.md" ? merged.out : files[p]),
+    }).code,
+    0,
+  );
+  const comment = main(["comment", "merged.md"], { readFile: () => merged.out });
+  assert.equal(comment.code, 0, comment.out);
+  const summary = main(["summary", "comment.md"], { readFile: () => comment.out });
+  assert.equal(summary.code, 0, summary.out);
+  assert.equal(JSON.parse(summary.out).summary.header.leftForPerson, 0);
+
+  // Usage and error paths
+  assert.equal(main(["merge", "base.md"], { readFile: (p) => files[p] ?? null }).code, 2);
+  assert.equal(
+    main(["merge", "base.md", "--with", "missing.md", "--delegation", "d42-qa2"], {
+      readFile: (p) => files[p] ?? null,
+    }).code,
+    1,
+  );
 });

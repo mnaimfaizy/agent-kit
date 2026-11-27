@@ -380,7 +380,7 @@ With `working-copy`, skip this step. Otherwise pass `--link <file>=<url>` for ea
   node "<skill>/report.mjs" comment "<report file>" --link <file>=<url> … > "<tmp>/comment.md"
   ```
 
-  The command reads the Places from the config, and refuses a Review line whose Place is not in it. `report.mjs summary "<tmp>/comment.md"` reads a comment back as strictly as a program does. With `report: update`, edit that comment: `gh api -X PATCH "repos/{owner}/{repo}/issues/comments/<id>" -F body=@<tmp>/comment.md`. With `create`: `gh pr comment <pr> --body-file "<tmp>/comment.md"`. A re-run edits the comment it finds; it never posts a second. When the edit fails, say why and post nothing new. Name each `duplicates` id for a person to delete; delete none.
+  The command reads the Places from the config, and refuses a Review line whose Place is not in it. `report.mjs summary "<tmp>/comment.md"` reads a comment back as strictly as a program does. When a scoped QA Delegation (`d<issue>-qa<k>`) ran scenarios previously left for a person on the same head, `report.mjs merge "<earlier report>" --with "<scoped report>" --delegation <d<issue>-qa<k>> [--plan "<plan file>"]` builds the head's one merged QA Report first (replacing only those rows, adding the **Scoped runs:** provenance line, and updating the headline and counts), so `comment` updates the head's summary with the new `left-for-person=` count. With `report: update`, edit that comment: `gh api -X PATCH "repos/{owner}/{repo}/issues/comments/<id>" -F body=@<tmp>/comment.md`. With `create`: `gh pr comment <pr> --body-file "<tmp>/comment.md"`. A re-run edits the comment it finds; it never posts a second. When the edit fails, say why and post nothing new. Name each `duplicates` id for a person to delete; delete none.
 
 - **`tracker-issue`:** the plan's issue gets the ticks and the record, not the whole report.
 
@@ -416,6 +416,7 @@ Give the person the comment or issue URL, and each uploaded file's URL.
 - **Teardown:** `down` run, for the Before stack and the head stack; processes stopped; the Before worktree removed
 - **Run deviations:** <each departure, and what was done about it> ← only when there was one (step 8)
 - Run answers reused from <file>: <values> ← only when step 2 took `--answers` and used the file; the line `answers.reused` printed
+- **Scoped runs:** S<n> from `d<issue>-qa<k>` ← only when `report.mjs merge` merged a scoped QA Delegation's rows into this head's report
 
 ## Results
 

@@ -312,6 +312,10 @@ export function parseSummary(body, { places } = {}) {
 const DEVIATIONS_LABEL = "- **Run deviations:**";
 /** The optional QA Report header line saying the run took its run needs from an `--answers` file. */
 const REUSED_LABEL = "- Run answers reused from";
+/** The optional QA Report header line naming which scenarios came from scoped QA Delegations. */
+const SCOPED_RUNS_LABEL = "- **Scoped runs:**";
+/** A scoped QA Delegation id (`d<issue>-qa<k>`, or `d<spec>-p<n>-qa<k>`). */
+const SCOPED_DELEGATION_ID = /^d[1-9]\d*(?:-p[1-9]\d*)?-qa[1-9]\d*$/;
 /** A Follow-ups line for an open `Review:` box (SKILL.md, The QA Report), its text captured. */
 const REVIEW_FOLLOW_UP = /^\s*[-*]\s+Review, for a person:\s*(\S.*?)\s*$/;
 /** The line directly under a Review line that says a Ruling checked the box: `  (checked under R<n>)`. */
@@ -558,6 +562,8 @@ export function readReport(text) {
     deviations: null,
     // What the `Run answers reused from` line says after its label (`<file>: <values>`), or `null`.
     runAnswers: null,
+    // Scoped QA Delegations merged into this head's report (`{ delegation, scenarios }[]`).
+    scopedRuns: [],
     // The text of each `- Review, for a person: <text>` line under Follow-ups, outside fences.
     reviews: [],
     // The same lines, each with the Ruling a `(checked under R<n>)` line under it names, or `null`.
@@ -663,6 +669,37 @@ export function readReport(text) {
         "the `Run answers reused from` line still carries the template's placeholder: " +
           "write the file and the values, or leave the line out",
       );
+  }
+
+  const scopedLines = lines
+    .slice(0, headerEnd)
+    .filter((line, n) => !fenced[n] && line.startsWith(SCOPED_RUNS_LABEL));
+  if (scopedLines.length > 1)
+    problems.push(
+      `the header has ${scopedLines.length} **Scoped runs:** lines: put every scoped run on one line, separated by semicolons`,
+    );
+  if (scopedLines.length) {
+    const raw = scopedLines[0].slice(SCOPED_RUNS_LABEL.length).trim();
+    if (!raw)
+      problems.push(
+        "the **Scoped runs:** line is empty: list each scoped run as `S<n> from `d<issue>-qa<k>``, or leave the line out",
+      );
+    else {
+      for (const entry of raw.split(";")) {
+        const part = entry.trim();
+        const m = /^(S\d+(?:,\s*S\d+)*)\s+from\s+`([^`]+)`$/.exec(part);
+        if (!m || !SCOPED_DELEGATION_ID.test(m[2])) {
+          problems.push(
+            `the **Scoped runs:** entry \`${part}\` is malformed: write \`S<n> from \`d<issue>-qa<k>\`\``,
+          );
+          continue;
+        }
+        report.scopedRuns.push({
+          delegation: m[2],
+          scenarios: m[1].split(",").map((s) => s.trim()),
+        });
+      }
+    }
   }
 
   const followUps = found["Follow-ups"];
@@ -1138,6 +1175,10 @@ const linkLabel = (path) => {
   return posix.basename(normal);
 };
 
+/** Format scoped QA Delegation provenance entries (`S2, S3 from \`d42-qa2\`; ...`). */
+const formatScopedRuns = (scopedRuns) =>
+  scopedRuns.map((s) => `${s.scenarios.join(", ")} from \`${s.delegation}\``).join("; ");
+
 /** `a`, `a and b`, `a, b and c`. */
 const listed = (items) =>
   items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;
@@ -1194,9 +1235,12 @@ function summaryBody(report, places, links) {
     ...(report.surfaces.length ? [listed(report.surfaces.map((surface) => `\`${surface}\``))] : []),
     report.date,
   ].filter(Boolean);
+  const scopedSummary = report.scopedRuns.length
+    ? ` Scoped runs: ${formatScopedRuns(report.scopedRuns)}.`
+    : "";
   const run =
     `Run by an agent on \`${String(report.head).slice(0, 7)}\`` +
-    `${where.length ? ` (${where.join(", ")})` : ""}. Result: **${failed ? "QA failed" : "QA passed"}**`;
+    `${where.length ? ` (${where.join(", ")})` : ""}. Result: **${failed ? "QA failed" : "QA passed"}**${scopedSummary}`;
 
   const rows = report.results.map((row) => {
     const note = row.result === "PASS" ? (row.limits ?? "") : briefNote(row.notes);
@@ -1264,6 +1308,331 @@ export function reportComment(reportText, { links = {}, places } = {}) {
   if (!problems.length) problems.push(...parseSummary(built.body, { places: configured }).problems);
   if (!problems.length) checkBody(built.body, problems);
   return { body: problems.length ? null : built.body, problems };
+}
+
+/** Extract raw Results table rows keyed by scenario id, plus headline item lines and sections. */
+function extractReportParts(text) {
+  const lines = lf(text).split("\n");
+  const found = sections(lines);
+  const fenced = fencedLines(lines);
+  const firstHeading = lines.findIndex((line, n) => !fenced[n] && HEADING.test(line));
+  const headerEnd = firstHeading === -1 ? lines.length : firstHeading;
+  const titleAt = lines.findIndex((line) => /^# QA Report: \S/.test(line));
+  const headlineAt = lines.findIndex((line, n) => n > titleAt && line.trim() !== "");
+  const headlineItems = new Map();
+  let bulletsStart = headlineAt + 1;
+  for (let i = headlineAt + 1; i < headerEnd; i += 1) {
+    if (/^\s*[-*]\s+\*\*/.test(lines[i]) || lines[i].startsWith("**build not verified")) {
+      bulletsStart = i;
+      break;
+    }
+    const m = /^\s*[-*]\s+(S\d+)\b.*$/.exec(lines[i]);
+    if (m) headlineItems.set(m[1], lines[i]);
+    bulletsStart = i + 1;
+  }
+  const headerLines = lines.slice(bulletsStart, headerEnd).filter((line) => line.trim() !== "");
+
+  const rawRows = new Map();
+  let hasBefore = false;
+  const results = found.Results;
+  if (results) {
+    const tableLines = lines
+      .slice(results.start + 1, results.end)
+      .filter((line) => /^\s*\|.*\|\s*$/.test(line));
+    const beforeAt = tableLines.length ? cells(tableLines[0]).indexOf("Before") : -1;
+    hasBefore = beforeAt === 2;
+    for (const line of tableLines.slice(2)) {
+      const row = cells(line);
+      const id = /^S(\d+)\b/.exec(row[0] ?? "")?.[0];
+      if (!id) continue;
+      const [scenario = "", result = ""] = row;
+      const before = hasBefore ? (row[2] ?? "") : "";
+      const [evidence = "", ...notes] = row.slice(hasBefore ? 3 : 2);
+      rawRows.set(id, {
+        id,
+        scenario,
+        result,
+        before,
+        evidence,
+        notes: notes.join("|").trim(),
+      });
+    }
+  }
+  const sectionBody = (name) => {
+    const sec = found[name];
+    return sec
+      ? lines
+          .slice(sec.start + 1, sec.end)
+          .join("\n")
+          .trim()
+      : "";
+  };
+  return {
+    title: lines[titleAt],
+    headlineItems,
+    headerLines,
+    rawRows,
+    hasBefore,
+    followUps: sectionBody("Follow-ups"),
+    executionRecord: sectionBody("Execution record"),
+  };
+}
+
+/**
+ * Merge a scoped QA Delegation's results into the earlier QA Report for the
+ * same head: replaces only the named scenarios' `left for a person` rows, adds
+ * the `- **Scoped runs:**` provenance line naming `d<issue>-qa<k>`, updates the
+ * headline and Execution record, and checks the merged report cleanly.
+ *
+ * @param {string} baseText the earlier QA Report for this head
+ * @param {string} scopedText the scoped QA Delegation's QA Report
+ * @param {{delegation: string, scenarios?: string[], planText?: string}} options
+ * @returns {{body: string | null, report: ReturnType<typeof readReport>["report"] | null, problems: string[]}}
+ */
+export function mergeReports(baseText, scopedText, { delegation, scenarios, planText } = {}) {
+  if (!SCOPED_DELEGATION_ID.test(String(delegation ?? "")))
+    return {
+      body: null,
+      report: null,
+      problems: [
+        `delegation \`${delegation ?? ""}\` is not a QA Delegation id (expected \`d<issue>-qa<k>\`, e.g. \`d42-qa2\`)`,
+      ],
+    };
+  const base = readReport(baseText);
+  if (base.problems.length) return { body: null, report: null, problems: base.problems };
+  const scoped = readReport(scopedText);
+  if (scoped.problems.length) return { body: null, report: null, problems: scoped.problems };
+
+  if (
+    base.report.subject !== scoped.report.subject ||
+    base.report.pr !== scoped.report.pr ||
+    base.report.head !== scoped.report.head
+  )
+    return {
+      body: null,
+      report: null,
+      problems: [
+        `the earlier report is for subject #${base.report.subject}, pull request #${base.report.pr}, head ${base.report.head}; ` +
+          `the scoped report is for subject #${scoped.report.subject}, pull request #${scoped.report.pr}, head ${scoped.report.head}`,
+      ],
+    };
+  if (base.report.scopedRuns.some((entry) => entry.delegation === delegation))
+    return {
+      body: null,
+      report: null,
+      problems: [`the earlier report already includes scoped run \`${delegation}\``],
+    };
+  if (scoped.report.scopedRuns.length)
+    return {
+      body: null,
+      report: null,
+      problems: [
+        "the scoped report already carries a **Scoped runs:** line; pass its own run report",
+      ],
+    };
+  if (!scoped.report.results.length)
+    return {
+      body: null,
+      report: null,
+      problems: ["the scoped report has no scenario rows to merge"],
+    };
+
+  const scopedIds = scoped.report.results.map((r) => r.id);
+  let targetIds = scopedIds;
+  if (scenarios !== undefined) {
+    if (!Array.isArray(scenarios) || !scenarios.length)
+      return {
+        body: null,
+        report: null,
+        problems: ["`scenarios` must list at least one scenario"],
+      };
+    if (new Set(scenarios).size !== scenarios.length)
+      return {
+        body: null,
+        report: null,
+        problems: ["`scenarios` lists a scenario more than once"],
+      };
+    const missingFromScoped = scenarios.filter((id) => !scopedIds.includes(id));
+    if (missingFromScoped.length)
+      return {
+        body: null,
+        report: null,
+        problems: missingFromScoped.map((id) => `${id} is not in the scoped report`),
+      };
+    const extraInScoped = scopedIds.filter((id) => !scenarios.includes(id));
+    if (extraInScoped.length)
+      return {
+        body: null,
+        report: null,
+        problems: extraInScoped.map(
+          (id) => `the scoped report includes ${id}, which is not in the listed scenarios`,
+        ),
+      };
+    targetIds = scenarios;
+  }
+
+  const baseById = new Map(base.report.results.map((r) => [r.id, r]));
+  const problems = [];
+  for (const id of targetIds) {
+    const existing = baseById.get(id);
+    if (!existing) problems.push(`${id} is not in the earlier report`);
+    else if (existing.result !== "left for a person")
+      problems.push(
+        `${id} in the earlier report is \`${existing.result}\`, not \`left for a person\`: ` +
+          "a scoped QA Delegation replaces only `left for a person` rows",
+      );
+  }
+  if (problems.length) return { body: null, report: null, problems };
+
+  const baseParts = extractReportParts(baseText);
+  const scopedParts = extractReportParts(scopedText);
+  const targetSet = new Set(targetIds);
+
+  const mergedResults = base.report.results.map((r) =>
+    targetSet.has(r.id) ? scoped.report.results.find((s) => s.id === r.id) : r,
+  );
+  const mergedRawRows = base.report.results.map((r) =>
+    targetSet.has(r.id) ? scopedParts.rawRows.get(r.id) : baseParts.rawRows.get(r.id),
+  );
+  const mergedStopped = mergedResults.some((row) =>
+    /(?<![A-Za-z])the run stopped at S\d+/i.test(row.notes),
+  );
+  const headline = impliedHeadline(mergedResults, mergedStopped);
+  const headlineLines =
+    headline === "QA passed"
+      ? ["**QA passed**"]
+      : headline === "QA failed"
+        ? ["**QA failed**"]
+        : [
+            "**QA passed, with items listed:**",
+            "",
+            ...mergedResults
+              .filter((row) => row.result !== "PASS")
+              .map((row) => {
+                const map = targetSet.has(row.id)
+                  ? scopedParts.headlineItems
+                  : baseParts.headlineItems;
+                return (
+                  map.get(row.id) ??
+                  `- ${row.id}: ${row.result}${briefNote(row.notes) ? `, ${briefNote(row.notes)}` : ""}`
+                );
+              }),
+          ];
+
+  const mergedHeader = [];
+  for (const line of baseParts.headerLines) {
+    if (
+      line.startsWith(DEVIATIONS_LABEL) ||
+      line.startsWith(REUSED_LABEL) ||
+      line.startsWith(SCOPED_RUNS_LABEL)
+    )
+      continue;
+    if (line.startsWith("**build not verified")) {
+      mergedHeader.push(line, "");
+      continue;
+    }
+    if (line.startsWith("- **Run:**")) {
+      const extraSurfaces = scoped.report.surfaces.filter((s) => !base.report.surfaces.includes(s));
+      if (extraSurfaces.length) {
+        const suffix = extraSurfaces.map((s) => `\`${s}\``).join(", ");
+        const onIdx = line.indexOf(", on ");
+        mergedHeader.push(
+          onIdx !== -1
+            ? `${line.slice(0, onIdx)}, ${suffix}${line.slice(onIdx)}`
+            : `${line}, ${suffix}`,
+        );
+      } else mergedHeader.push(line);
+      continue;
+    }
+    mergedHeader.push(line);
+  }
+  const deviations = [base.report.deviations, scoped.report.deviations].filter(Boolean).join("; ");
+  if (deviations) mergedHeader.push(`${DEVIATIONS_LABEL} ${deviations}`);
+  const reused = base.report.runAnswers ?? scoped.report.runAnswers;
+  if (reused) mergedHeader.push(`${REUSED_LABEL} ${reused}`);
+  const allScoped = [...base.report.scopedRuns, { delegation, scenarios: targetIds }];
+  mergedHeader.push(`${SCOPED_RUNS_LABEL} ${formatScopedRuns(allScoped)}`);
+
+  const hasBefore = baseParts.hasBefore || mergedRawRows.some((r) => Boolean(r.before));
+  const tableHeader = hasBefore
+    ? [
+        "| Scenario | Result | Before | Evidence | Notes |",
+        "| -------- | ------ | ------ | -------- | ----- |",
+      ]
+    : ["| Scenario | Result | Evidence | Notes |", "| -------- | ------ | -------- | ----- |"];
+  const escapeCell = (text) =>
+    String(text ?? "")
+      .replace(/\|/g, "\\|")
+      .trim();
+  const tableRows = mergedRawRows.map((row) =>
+    hasBefore
+      ? `| ${escapeCell(row.scenario)} | ${row.result} | ${escapeCell(row.before)} | ${escapeCell(row.evidence)} | ${escapeCell(row.notes)} |`
+      : `| ${escapeCell(row.scenario)} | ${row.result} | ${escapeCell(row.evidence)} | ${escapeCell(row.notes)} |`,
+  );
+
+  const followUpLines = [baseParts.followUps, scopedParts.followUps]
+    .flatMap((block) => lf(block).split("\n"))
+    .map((line) => line.trimEnd())
+    .filter((line) => line.trim() !== "" && line.trim() !== "None.");
+  const dedupedFollowUps = [];
+  for (const line of followUpLines)
+    if (!dedupedFollowUps.includes(line)) dedupedFollowUps.push(line);
+
+  const baseRecordLines = baseParts.executionRecord
+    ? lf(baseParts.executionRecord)
+        .split("\n")
+        .filter((l) => l.trim() !== "")
+    : [];
+  const scopedRecordLines = scopedParts.executionRecord
+    ? lf(scopedParts.executionRecord)
+        .split("\n")
+        .filter((l) => l.trim() !== "")
+    : [];
+  const scopedRecordById = new Map();
+  const extraRecordLines = [];
+  for (const line of scopedRecordLines) {
+    const m = /^\s*[-*]\s+(S\d+):/.exec(line);
+    if (m && targetSet.has(m[1])) scopedRecordById.set(m[1], line);
+    else if (!baseRecordLines.includes(line)) extraRecordLines.push(line);
+  }
+  const mergedRecordLines = baseRecordLines.map((line) => {
+    const m = /^\s*[-*]\s+(S\d+):/.exec(line);
+    return m && scopedRecordById.has(m[1]) ? scopedRecordById.get(m[1]) : line;
+  });
+  for (const [id, line] of scopedRecordById)
+    if (!baseRecordLines.some((l) => new RegExp(`^\\s*[-*]\\s+${id}:`).test(l)))
+      mergedRecordLines.push(line);
+  mergedRecordLines.push(...extraRecordLines);
+
+  const body = [
+    baseParts.title,
+    "",
+    ...headlineLines,
+    "",
+    ...mergedHeader,
+    "",
+    "## Results",
+    "",
+    ...tableHeader,
+    ...tableRows,
+    "",
+    "## Follow-ups",
+    "",
+    ...(dedupedFollowUps.length ? dedupedFollowUps : ["None."]),
+    "",
+    "## Execution record",
+    "",
+    ...(mergedRecordLines.length ? mergedRecordLines : ["None."]),
+    "",
+  ].join("\n");
+
+  const reRead = readReport(body);
+  if (reRead.problems.length) return { body: null, report: null, problems: reRead.problems };
+  if (planText !== undefined) {
+    const planProblems = reportPlanProblems(reRead.report, planText);
+    if (planProblems.length) return { body: null, report: null, problems: planProblems };
+  }
+  return { body, report: reRead.report, problems: [] };
 }
 
 /**
@@ -1504,6 +1873,7 @@ export function main(argv, io = {}) {
     code: 2,
     out:
       "usage: node report.mjs read <report> [--plan <plan>] | " +
+      "merge <base-report> --with <scoped-report> --delegation <id> [--scenarios <S1,S2>] [--plan <plan>] | " +
       "find --login <login> [--head <sha>] < comments | stale --head <sha> < body | " +
       "comment <report> [--link p=url]… | summary <comment> | " +
       "tracker <report> --issue-body <file> [--link p=url]… | evidence <report> [--pick <path>]… " +
@@ -1527,8 +1897,50 @@ export function main(argv, io = {}) {
       ? { code: 1, out: json({ problems: result.problems }) }
       : { code: 0, out: result.body };
   }
-  if (!["read", "comment", "summary", "tracker", "evidence"].includes(command)) return usage;
+  if (!["read", "merge", "comment", "summary", "tracker", "evidence"].includes(command))
+    return usage;
   if (target === undefined || target.startsWith("--")) return usage;
+  if (command === "merge") {
+    const withPath = option(argv, "--with")[0];
+    const delegation = option(argv, "--delegation")[0];
+    if (
+      withPath === undefined ||
+      withPath.startsWith("--") ||
+      delegation === undefined ||
+      delegation.startsWith("--")
+    )
+      return usage;
+    const planPath = option(argv, "--plan")[0];
+    if (argv.includes("--plan") && (planPath === undefined || planPath.startsWith("--")))
+      return usage;
+    const scenarioArgs = option(argv, "--scenarios").concat(option(argv, "--scenario"));
+    if (
+      (argv.includes("--scenarios") || argv.includes("--scenario")) &&
+      (!scenarioArgs.length || scenarioArgs.some((s) => s.startsWith("--")))
+    )
+      return usage;
+    const scenarios = scenarioArgs.length
+      ? scenarioArgs
+          .flatMap((s) => s.split(","))
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : undefined;
+    const text = readFile(target);
+    if (text === null) return { code: 1, out: json({ problems: [`${target}: no such file`] }) };
+    const scopedText = readFile(withPath);
+    if (scopedText === null)
+      return { code: 1, out: json({ problems: [`${withPath}: no such file`] }) };
+    let planText;
+    if (planPath !== undefined) {
+      planText = readFile(planPath);
+      if (planText === null)
+        return { code: 1, out: json({ problems: [`${planPath}: no such file`] }) };
+    }
+    const result = mergeReports(text, scopedText, { delegation, scenarios, planText });
+    return result.body === null
+      ? { code: 1, out: json({ problems: result.problems }) }
+      : { code: 0, out: result.body };
+  }
   const text = readFile(target);
   if (text === null) return { code: 1, out: json({ problems: [`${target}: no such file`] }) };
   // The config, read when a command needs it: its problems stop the command.
