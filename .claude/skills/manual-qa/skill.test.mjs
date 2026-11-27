@@ -915,3 +915,11 @@ test("SKILL.md and ADAPTER.md specify rate-limit handling (429 / 503 with Retry-
   assert.match(flatAdapter, /never the body/);
   assert.match(flatAdapter, /no other (?:HTTP )?status is recorded/);
 });
+
+test("SKILL.md documents `{{json:<n>:<path>}}` in step 6 and `--answers` or chat for `run.playwright`", () => {
+  assert.match(skill, /--answers` or chat rather than `qa\.config\.yml`/);
+  assert.match(
+    skill,
+    /other than a cookie via `\{\{cookie:<name>\}\}` or a string or number field from an earlier JSON body via `\{\{json:<n>:<path>\}\}`/,
+  );
+});
