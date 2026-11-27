@@ -49,8 +49,10 @@ export const TIMEOUT_MS = 30_000;
 export const BODY_LIMIT = 65_536;
 /**
  * A value shorter than this is too common to find by its text: a cookie value
- * that short is redacted only in its `Set-Cookie` line, and a `QA_*` value
- * that short is not looked for in the sequence file.
+ * that short is redacted only in its `Set-Cookie` line, a `QA_*` value that
+ * short is not looked for in the sequence file, and a copied secret JSON field
+ * that short is redacted in its source field, fill log and path, not searched
+ * across the whole log.
  */
 const MIN_SECRET_LENGTH = 4;
 /** A cookie value this long is taken for an opaque token, whatever its name. */
@@ -655,30 +657,45 @@ export async function runSequence(sequence, { base, env, fetch: send = fetch }) 
   /** @type {({session: string, isJson: boolean, json: unknown} | undefined)[]} */
   const responses = [];
   const entries = [];
-  const fill = (text, jar, path, encode, where, entry, k) =>
-    text.replace(PLACEHOLDER, (_, kind, name) => {
+  const fillWithLog = (text, jar, path, encode, where, entry, k) => {
+    let logged = "";
+    let last = 0;
+    const sent = text.replace(PLACEHOLDER, (match, kind, name, offset) => {
+      logged += text.slice(last, offset);
+      last = offset + match.length;
       if (kind === "env") {
         const value = envValue(env, name);
         redact.add(value, `[redacted:${name}]`);
-        return encode ? encodePathValue(value) : value;
+        const out = encode ? encodePathValue(value) : value;
+        logged += out;
+        return out;
       }
       if (kind === "cookie") {
         const value = jar.value(name, path);
         if (value === undefined) throw new Error(`the Session has no cookie ${name}`);
-        return encode ? encodePathValue(value) : value;
+        const out = encode ? encodePathValue(value) : value;
+        logged += out;
+        return out;
       }
       const ref = resolveJsonRef(responses, k, name);
       const secret = ref.segments.some(secretName) || isTokenShaped(ref.value);
       const label = `[redacted:request ${ref.n} ${ref.path}]`;
-      if (secret) redact.add(ref.value, label);
+      if (secret && ref.value.length >= MIN_SECRET_LENGTH) redact.add(ref.value, label);
       entry.fills.push({
         where,
         n: ref.n,
         session: ref.session,
         value: secret ? label : ref.value,
       });
-      return encode ? encodePathValue(ref.value) : ref.value;
+      const out = encode ? encodePathValue(ref.value) : ref.value;
+      logged += secret ? label : out;
+      return out;
     });
+    logged += text.slice(last);
+    return { sent, logged };
+  };
+  const fill = (text, jar, path, encode, where, entry, k) =>
+    fillWithLog(text, jar, path, encode, where, entry, k).sent;
   const fillJson = (value, jar, path, where, entry, k) =>
     typeof value === "string"
       ? fill(value, jar, path, false, where, entry, k)
@@ -704,8 +721,16 @@ export async function runSequence(sequence, { base, env, fetch: send = fetch }) 
     try {
       // A `{{cookie:…}}` takes the value the jar would send to this path.
       const target = request.path.split("?")[0];
-      const path = fill(request.path, jar, target, true, "path", entry, k);
-      entry.path = path;
+      const { sent: path, logged: loggedPath } = fillWithLog(
+        request.path,
+        jar,
+        target,
+        true,
+        "path",
+        entry,
+        k,
+      );
+      entry.path = loggedPath;
       const url = new URL(path, origin);
       if (url.origin !== origin) throw new Error("the path leaves the checked address");
       const headers = new Headers();

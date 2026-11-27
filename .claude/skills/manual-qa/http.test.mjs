@@ -44,6 +44,8 @@ before(async () => {
         path: req.url,
         cookie: req.headers.cookie ?? null,
         csrf: req.headers["x-csrf-token"] ?? null,
+        pin: req.headers["x-pin"] ?? null,
+        otp: req.headers["x-otp"] ?? null,
         body,
       });
       const url = new URL(req.url, "http://x");
@@ -213,6 +215,16 @@ before(async () => {
             items: [{ id: "itm_99" }],
           }),
         );
+      }
+      if (url.pathname === "/short-secret") {
+        res.writeHead(200, { "content-type": "application/json" });
+        return res.end(
+          JSON.stringify({ data: { pin: "200", otp: "1" }, note: "count 200 and step 1" }),
+        );
+      }
+      if (url.pathname.startsWith("/verify")) {
+        res.writeHead(200, { "content-type": "application/json" });
+        return res.end(JSON.stringify({ verified: true }));
       }
       if (url.pathname.startsWith("/users/")) {
         res.writeHead(200, { "content-type": "application/json" });
@@ -1122,4 +1134,53 @@ test("a non-secret id copied into a path stays readable, while token-shaped or s
   assert.doesNotMatch(result.log, /eyJhbGciOiJIUzI1NiJ9|s3cr3t-anc3stor/);
   assert.match(result.log, /\[redacted:request 1 data\.jwt\]/);
   assert.match(result.log, /\[redacted:request 1 auth\.code\]/);
+});
+
+test("short secret-named JSON values neither corrupt unrelated log text nor leak in the using request", async () => {
+  const start = seen.length;
+  const result = await run({
+    requests: [
+      { session: "A", method: "GET", path: "/short-secret" },
+      {
+        session: "A",
+        method: "POST",
+        path: "/verify/{{json:1:data.pin}}",
+        headers: { "X-Pin": "{{json:1:data.pin}}", "X-Otp": "{{json:1:data.otp}}" },
+        json: { pin: "{{json:1:data.pin}}", otp: "{{json:1:data.otp}}" },
+      },
+      {
+        session: "A",
+        method: "GET",
+        path: "/verify?code={{json:1:data.otp}}",
+      },
+    ],
+  });
+  assert.equal(result.code, 0, result.stdout + result.stderr);
+  const [, verifyReq, queryReq] = seen.slice(start);
+  assert.equal(verifyReq.path, "/verify/200");
+  assert.equal(verifyReq.pin, "200");
+  assert.equal(verifyReq.otp, "1");
+  assert.deepEqual(JSON.parse(verifyReq.body), { pin: "200", otp: "1" });
+  assert.equal(queryReq.path, "/verify?code=1");
+
+  // Unrelated numbers in the log stay intact.
+  assert.match(result.log, /^## 1\. A GET \/short-secret$/m);
+  assert.equal(result.log.match(/^status: 200$/gm)?.length, 3);
+  assert.match(result.log, /"note": "count 200 and step 1"/);
+  assert.match(result.log, /"pin": "\[redacted\]"/);
+  assert.match(result.log, /"otp": "\[redacted\]"/);
+
+  // The short secrets are masked in the using requests' paths, fill lines, and stdout summary.
+  assert.match(result.log, /^## 2\. A POST \/verify\/\[redacted:request 1 data\.pin\]$/m);
+  assert.match(result.log, /^## 3\. A GET \/verify\?code=\[redacted:request 1 data\.otp\]$/m);
+  assert.match(result.log, /path from request 1, session A: \[redacted:request 1 data\.pin\]/);
+  assert.match(result.log, /X-Pin from request 1, session A: \[redacted:request 1 data\.pin\]/);
+  assert.match(result.log, /X-Otp from request 1, session A: \[redacted:request 1 data\.otp\]/);
+  assert.match(result.log, /json\.pin from request 1, session A: \[redacted:request 1 data\.pin\]/);
+  assert.match(result.log, /json\.otp from request 1, session A: \[redacted:request 1 data\.otp\]/);
+  assert.match(result.log, /path from request 1, session A: \[redacted:request 1 data\.otp\]/);
+
+  const out = JSON.parse(result.stdout);
+  assert.equal(out.requests[1].path, "/verify/[redacted:request 1 data.pin]");
+  assert.equal(out.requests[2].path, "/verify?code=[redacted:request 1 data.otp]");
 });
