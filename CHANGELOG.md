@@ -6,6 +6,10 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
+### Consumer action
+
+- **Required:** re-copy `.github/agent-runtime/` from this tag. It adds `security-audit.settings.json`, and the security audit refuses to start without it.
+
 ### Changed
 
 - **Stage settings are named for the kit, not the harness.** Every repository variable you set regardless of harness moves from `CLAUDE_` to `AGENT_KIT_`: each Stage's model, effort and Kill switch (the Deep scan included), the flow switches, `AGENT_KIT_MODEL`, `AGENT_KIT_EFFORT` and `AGENT_KIT_REVIEW_RESPONSE_MODE`. It is a clean cut with no fallback ([ADR 0022](docs/adr/0022-stage-settings-are-named-for-the-kit-not-the-harness.md)). `CLAUDE_CODE_VERSION` and the `CLAUDE_CODE_*` environment keep their names. The reusable workflows' inputs keep their names and types, so a Caller you have not replaced keeps working on the old variables ([#457](https://github.com/mnaimfaizy/agent-kit/issues/457), part of [#454](https://github.com/mnaimfaizy/agent-kit/issues/454)). **Consumer action:** when you copy the new example Callers, set each `AGENT_KIT_` variable to the old one's value and delete the old one; **the Agent flow stays off until `AGENT_KIT_AGENT_FLOW_ENABLED` is `true`**, and the other flows stay off until their new switch is set. `agent-kit doctor` names every old variable still set.
@@ -17,6 +21,10 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 - A new optional `harness` input on every Stage's reusable workflow, resolved by the example Callers from `AGENT_KIT_<STAGE>_HARNESS`, then `AGENT_KIT_HARNESS`, then `claude-code`. It is checked against `claude-code`, `codex`, `gemini`, `opencode`, `cursor` and `custom:<name>`. Only `claude-code` runs a Stage so far: any other value fails the run before the agent starts, naming why. **Consumer action:** none required.
 - Provider-named secret inputs `anthropic_api_key`, `openai_api_key`, `gemini_api_key` and `cursor_api_key`, passed by every example Caller job ([ADR 0030](docs/adr/0030-harness-facts-are-published-per-tag-as-data.md)). The plan, implement, review, Review response and security audit Stages now run on an Anthropic API key when no subscription token is passed; with both, the token is used. The Deep scan Caller passes both Claude Code secrets and still takes exactly one: set `AGENT_KIT_DEEP_SCAN_ANTHROPIC_API_KEY` or `AGENT_KIT_DEEP_SCAN_CLAUDE_CODE_OAUTH_TOKEN`, not both. **Consumer action:** none required.
+
+### Security
+
+- A PR-mode security audit no longer writes through symlinks the pull request commits. Its checkout is the pull request's head, and the job wrote the brief, the report directory, the session transcript and the CLI log at paths in that tree with no check, so a committed link could send a write outside the workspace or make the audit fail at will. Before it writes anything, the job now refuses a report directory reached through a symlink and removes any entry already at those paths, as the review workflow does. The audit agent now runs with the new `security-audit.settings.json`, which adds the write-confinement hook (`confine-writes-to-worktree.mjs`) to the read hook, so its Write is judged on the resolved path, not only by path-pattern deny rules. The staging step checks both hooks refuse what they exist to refuse, and the digest check after the agent covers both.
 
 ## [1.0.0-beta.11] - 2026-11-27
 

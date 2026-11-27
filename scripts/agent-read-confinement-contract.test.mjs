@@ -62,6 +62,9 @@ const CONFINED_AGENT_STEPS = [
     step: "Run security audit (Claude Code)",
     publish: "Publish draft GHSA (required private delivery)",
     denyRuntimeEdits: true,
+    // Also registers the write-confinement hook: the report lands in a tree
+    // the pull request controls.
+    settings: "security-audit.settings.json",
   },
 ];
 

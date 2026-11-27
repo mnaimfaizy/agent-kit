@@ -44,9 +44,10 @@ Don't install a Kit-owned skill with `npx skills` in a Consumer: [Install indivi
 - `.claude/skills/address-pr-review/` — a Kit-owned path copied with the rest. The [Review response](review-response.md) flow runs it unattended, reading it from your default branch; you can also run `/address-pr-review <n>` by hand to answer the review threads on an open pull request. It fixes in a worktree under a gitignored working directory, one commit per finding, and posts each reply and resolution only after you confirm. Its config, `address-pr-review.config.yml` at your repository root (keys: [`ADAPTER.md`](../.claude/skills/address-pr-review/ADAPTER.md)), is not Kit-owned and survives upgrades; without one, every key takes its default.
 - `.github/agent-runtime/` — hooks and settings the jobs load from the Consumer checkout and run from a read-only copy under `$RUNNER_TEMP`:
   - `confine-reads-to-workspace.mjs`: PreToolUse hook that denies Read/Grep/Glob outside the workspace. Plan, implement, review, audit.
-  - `read-confinement.settings.json`: settings that run the read hook. Plan, review, audit (implement checks it too).
+  - `read-confinement.settings.json`: settings that run the read hook. Plan, review (implement checks it too).
+  - `security-audit.settings.json`: settings that run the read hook and write hook. Audit.
   - `implementer.settings.json`: settings that run the read hook, write hook, and push guard. Implement.
-  - `confine-writes-to-worktree.mjs`: PreToolUse hook that keeps writes in the worktree and out of `.git/`. Implement.
+  - `confine-writes-to-worktree.mjs`: PreToolUse hook that keeps writes in the worktree and out of `.git/`, judged on the path with symlinks resolved. Implement, audit.
   - `guard-implementer-push.mjs`: PreToolUse hook that refuses any push except the expected one. Implement.
   - `review-threads.mjs`: the review job's trusted thread script: lists the reviewer's open threads with their Verdicts for its brief, checks that every Review report entry links a thread, and posts the reviewer's replies. Review.
   - `check-git-config.mjs`: allowlist check of the checkout's git config and hooks, run before and after the agent. Implement.
