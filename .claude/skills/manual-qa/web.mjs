@@ -491,6 +491,52 @@ const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 const hostnameOf = (url) => url.hostname.toLowerCase().replace(/\.$/, "");
 
 /**
+ * Returns the trimmed `Retry-After` header value from a Playwright Response, or
+ * null when absent or blank.
+ * @param {any} response
+ * @returns {string | null}
+ */
+function retryAfterHeader(response) {
+  const headers = typeof response?.headers === "function" ? response.headers() : null;
+  if (!headers || typeof headers !== "object") return null;
+  for (const [k, v] of Object.entries(headers))
+    if (k.toLowerCase() === "retry-after" && typeof v === "string" && v.trim() !== "")
+      return v.trim();
+  return null;
+}
+
+/**
+ * Extracts a rate-limit record if `response` is a `429`, or a `503` with
+ * `Retry-After`; returns null for any other HTTP status (never reads body).
+ * @param {any} response
+ * @param {{session: string, step: number | null, redact: Redactor}} context
+ */
+export function rateLimitEntry(response, { session, step, redact }) {
+  const status = typeof response?.status === "function" ? response.status() : null;
+  if (status !== 429 && status !== 503) return null;
+  const rawRetryAfter = retryAfterHeader(response);
+  if (status === 503 && rawRetryAfter === null) return null;
+  const req = typeof response.request === "function" ? response.request() : null;
+  const method = typeof req?.method === "function" ? req.method() : "GET";
+  const rawUrl = typeof req?.url === "function" ? req.url() : "";
+  let path;
+  try {
+    const parsed = new URL(rawUrl);
+    path = `${parsed.pathname}${parsed.search}`;
+  } catch {
+    path = rawUrl;
+  }
+  return {
+    session,
+    step,
+    method,
+    path: redact.text(path),
+    status,
+    retryAfter: rawRetryAfter !== null ? redact.text(rawRetryAfter) : null,
+  };
+}
+
+/**
  * If a page at a loopback address calls another loopback host spelled differently
  * (`127.0.0.1:3000` calling `localhost:8000`), returns a note explaining why
  * SameSite cookies are not shared; otherwise null.
@@ -608,6 +654,11 @@ export async function runSequence(
         if (value && !values.some((held) => held.value === value))
           values.push({ value, exact: usernameOnly(name) });
       }
+  for (const name of Object.keys(env)) {
+    if (!ENV_NAME.test(name) || !SECRET_VARIABLE.test(name)) continue;
+    const value = envValue(env, name);
+    if (value && value.length >= MIN_SECRET_LENGTH) redact.add(value, `[redacted:${name}]`);
+  }
 
   const start = clock();
   const steps = [];
@@ -616,6 +667,8 @@ export async function runSequence(
   const notedHosts = new Set();
   /** @type {string[]} */
   const notes = [];
+  /** @type {{session: string, step: number | null, method: string, path: string, status: number, retryAfter: string | null}[]} */
+  const rateLimits = [];
   const recordLoopback = (url) => {
     const note = loopbackNote(base, url);
     if (!note) return;
@@ -629,7 +682,7 @@ export async function runSequence(
   const writeSteps = () =>
     writeFileSync(
       join(out, "steps.json"),
-      `${JSON.stringify({ steps, sessions: sessionInfo, notes, error }, null, 2)}\n`,
+      `${JSON.stringify({ steps, sessions: sessionInfo, notes, rateLimits, error }, null, 2)}\n`,
     );
   writeSteps();
 
@@ -637,7 +690,7 @@ export async function runSequence(
   // Playwright's own list. An activated prerender is guarded by the main-frame
   // rule below, which decides per request.
   const browser = await playwright.chromium.launch({ headless: true });
-  /** @type {Map<string, {context: any, page: any, state: {left: boolean}}>} */
+  /** @type {Map<string, {context: any, page: any, state: {left: boolean, popup: boolean, action: number | null}}>} */
   const sessions = new Map();
   const open = async (session) => {
     if (sessions.has(session)) return sessions.get(session);
@@ -649,8 +702,13 @@ export async function runSequence(
     });
     context.setDefaultTimeout(ACTION_TIMEOUT_MS);
     context.setDefaultNavigationTimeout(NAVIGATION_TIMEOUT_MS);
-    const state = { left: false, popup: false };
+    const state = { left: false, popup: false, action: null };
     const page = await context.newPage();
+    if (typeof page.on === "function")
+      page.on("response", (response) => {
+        const entry = rateLimitEntry(response, { session, step: state.action, redact });
+        if (entry) rateLimits.push(entry);
+      });
     // A page that tries to leave the checked address is stopped before the request
     // is sent: a link, a script, or a redirect at any hop, since a 307 after a
     // sign-in POST would resend the form. Playwright's routes see only a redirect's
@@ -741,6 +799,7 @@ export async function runSequence(
       const [verb] = Object.keys(ACTIONS).filter((v) => v in action);
       try {
         const { page, state, pointer } = await open(session);
+        state.action = i + 1;
         if (verb === "goto") await page.goto(new URL(action.goto, origin).href);
         else if (verb === "click") {
           const target = locate(page, action.click);
@@ -899,6 +958,7 @@ export async function runSequence(
     steps,
     videos,
     notes,
+    rateLimits,
     ...(error ? { error } : {}),
   };
 }
@@ -1009,6 +1069,7 @@ export async function main(argv, io = {}) {
     withheld: result.steps.filter((s) => s.withheld).length,
     videos: result.videos,
     ...(result.notes.length ? { notes: result.notes } : {}),
+    ...(result.rateLimits.length ? { rateLimits: result.rateLimits } : {}),
     ...(result.error ? { error: result.error } : {}),
   };
   return { code: result.completed ? 0 : 1, out: json(summary) };

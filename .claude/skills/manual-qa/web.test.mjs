@@ -182,6 +182,22 @@ before(async () => {
             "<button>Send</button></form>",
         );
       if (url.pathname === "/away") return html(`<a href="http://localhost:${port}/who">Leave</a>`);
+      if (url.pathname === "/rate-limit-429") {
+        res.writeHead(429, { "content-type": "text/html", "retry-after": "30" });
+        return res.end(page("<p>Too many attempts: secret rate limit body</p>"));
+      }
+      if (url.pathname === "/rate-limit-503-retry") {
+        res.writeHead(503, { "content-type": "text/html", "retry-after": "45" });
+        return res.end(page("<p>Busy: service unavailable body</p>"));
+      }
+      if (url.pathname === "/rate-limit-503-plain") {
+        res.writeHead(503, { "content-type": "text/html" });
+        return res.end(page("<p>Plain 503 body</p>"));
+      }
+      if (url.pathname === "/rate-limit-fetch")
+        return html(
+          "<button onclick=\"fetch('/rate-limit-429?from=btn', { method: 'POST' })\">Trigger</button>",
+        );
       if (url.pathname === "/keys")
         // Counts each field's key and input events, and whether the email field was
         // masked when its value arrived, for the typing tests.
@@ -1178,8 +1194,12 @@ test("a long literal types faster, so its pauses stay within the budget", () => 
 
 // ── `run.playwright` and loopback-spelling notes (#533) ──────────────────────
 
-/** A stub Playwright module that records its launches and fires route handlers. */
-function stubPlaywrightModule(requestsToFire = [], pageUrl = "http://127.0.0.1:3000/") {
+/** A stub Playwright module that records its launches and fires route handlers and response events. */
+function stubPlaywrightModule(
+  requestsToFire = [],
+  pageUrl = "http://127.0.0.1:3000/",
+  responsesToFire = [],
+) {
   const state = { launched: 0 };
   const module = {
     chromium: {
@@ -1188,8 +1208,12 @@ function stubPlaywrightModule(requestsToFire = [], pageUrl = "http://127.0.0.1:3
         return {
           newContext: async () => {
             let routeHandler;
+            const listeners = {};
             const page = {
               url: () => pageUrl,
+              on: (event, handler) => {
+                (listeners[event] ??= []).push(handler);
+              },
               goto: async () => {
                 for (const reqUrl of requestsToFire) {
                   let continued = false;
@@ -1207,6 +1231,19 @@ function stubPlaywrightModule(requestsToFire = [], pageUrl = "http://127.0.0.1:3
                     },
                   });
                   assert.equal(continued, true, `request ${reqUrl} must continue`);
+                }
+                for (const resp of responsesToFire) {
+                  for (const h of listeners.response ?? []) {
+                    h({
+                      status: () => resp.status,
+                      headers: () => resp.headers ?? {},
+                      request: () => ({
+                        method: () => resp.method ?? "GET",
+                        url: () => resp.url,
+                      }),
+                      text: async () => resp.body ?? "",
+                    });
+                  }
                 }
               },
               frames: () => [
@@ -1387,6 +1424,7 @@ test("runSequence records one loopback note in steps.json without blocking, and 
     assert.equal(match.completed, true);
     const savedMatch = JSON.parse(readFileSync(join(outMatch, "steps.json"), "utf8"));
     assert.deepEqual(savedMatch.notes, []);
+    assert.deepEqual(savedMatch.rateLimits, []);
   } finally {
     rmSync(outMismatch, { recursive: true, force: true });
     rmSync(outMatch, { recursive: true, force: true });
@@ -1408,5 +1446,139 @@ test(
       `the page at 127.0.0.1:${port} called localhost:${other.address().port}; a SameSite cookie set by one is not sent from the other`,
     ]);
     assert.deepEqual(otherSeen, ["/embedded"]);
+  },
+);
+
+// ── Rate-limit recording (#538) ────────────────────────────────────────────
+
+test("runSequence records 429 and 503-with-Retry-After in steps.json, never the body or other statuses (#538)", async () => {
+  const out = mkdtempSync(join(tmpdir(), "web-rate-limit-"));
+  try {
+    const seq = {
+      actions: [
+        { session: "A", goto: "/login" },
+        { session: "A", step: "After login" },
+      ],
+    };
+    const stub = stubPlaywrightModule([], "http://127.0.0.1:3000/", [
+      { status: 200, method: "GET", url: "http://127.0.0.1:3000/sign-in", body: "ok body" },
+      { status: 401, method: "POST", url: "http://127.0.0.1:3000/api/login", body: "bad auth" },
+      {
+        status: 503,
+        method: "GET",
+        url: "http://127.0.0.1:3000/health",
+        headers: {},
+        body: "plain 503",
+      },
+      {
+        status: 429,
+        method: "POST",
+        url: `http://127.0.0.1:3000/api/login?email=${encodeURIComponent(EMAIL)}`,
+        headers: { "retry-after": "30" },
+        body: "DO_NOT_RECORD_429_BODY",
+      },
+      {
+        status: 503,
+        method: "GET",
+        url: "http://127.0.0.1:3000/api/me",
+        headers: { "Retry-After": "120" },
+        body: "DO_NOT_RECORD_503_BODY",
+      },
+      {
+        status: 429,
+        method: "GET",
+        url: "http://127.0.0.1:3000/api/other",
+        headers: {},
+        body: "DO_NOT_RECORD_429_NO_HEADER",
+      },
+    ]);
+    const result = await runSequence(seq, {
+      base: "http://127.0.0.1:3000",
+      env: ENV,
+      out,
+      video: false,
+      playwright: stub.module,
+    });
+    assert.equal(result.completed, true);
+    const saved = JSON.parse(readFileSync(join(out, "steps.json"), "utf8"));
+    assert.deepEqual(saved.rateLimits, [
+      {
+        session: "A",
+        step: 1,
+        method: "POST",
+        path: "/api/login?email=[redacted:QA_A_EMAIL]",
+        status: 429,
+        retryAfter: "30",
+      },
+      {
+        session: "A",
+        step: 1,
+        method: "GET",
+        path: "/api/me",
+        status: 503,
+        retryAfter: "120",
+      },
+      {
+        session: "A",
+        step: 1,
+        method: "GET",
+        path: "/api/other",
+        status: 429,
+        retryAfter: null,
+      },
+    ]);
+    const dumped = JSON.stringify(saved);
+    assert.ok(!dumped.includes("DO_NOT_RECORD"), "never records response body");
+    assert.ok(!dumped.includes(EMAIL), "redacts sign-in values in path");
+    assert.ok(!dumped.includes('"status":200') && !dumped.includes('"status":401'));
+  } finally {
+    rmSync(out, { recursive: true, force: true });
+  }
+});
+
+test(
+  "Chromium: web.mjs records 429 and 503 with Retry-After on document and request responses, and ignores plain 503 (#538)",
+  { skip: NEEDS_CHROMIUM },
+  async () => {
+    const { code, summary, steps, out, stdout } = await drive([
+      { session: "A", goto: "/rate-limit-429" },
+      { session: "A", goto: "/rate-limit-503-plain" },
+      { session: "B", goto: "/rate-limit-503-retry" },
+      { session: "B", goto: "/rate-limit-fetch" },
+      { session: "B", click: { role: "button", name: "Trigger" } },
+      { session: "B", step: "Done" },
+    ]);
+    assert.equal(code, 0, stdout);
+    assert.deepEqual(steps.rateLimits, [
+      {
+        session: "A",
+        step: 1,
+        method: "GET",
+        path: "/rate-limit-429",
+        status: 429,
+        retryAfter: "30",
+      },
+      {
+        session: "B",
+        step: 3,
+        method: "GET",
+        path: "/rate-limit-503-retry",
+        status: 503,
+        retryAfter: "45",
+      },
+      {
+        session: "B",
+        step: 5,
+        method: "POST",
+        path: "/rate-limit-429?from=btn",
+        status: 429,
+        retryAfter: "30",
+      },
+    ]);
+    assert.deepEqual(summary.rateLimits, steps.rateLimits);
+    const written = allText(out) + stdout;
+    assert.ok(!written.includes("secret rate limit body"));
+    assert.ok(!written.includes("service unavailable body"));
+    assert.ok(!written.includes("Plain 503 body"));
   },
 );

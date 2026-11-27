@@ -122,6 +122,10 @@ describe("examples/qa.config.yml", () => {
     assert.equal(parsed.config.run.playwright, "react-frontend");
   });
 
+  it("advises starting the QA Stack with sign-in rate limits off or raised (#538)", () => {
+    assert.match(CONFIG, /rate limits (?:off|disabled) or raised/i);
+  });
+
   it("names the sample Hazard pack, so a copy of both works together", () => {
     const { config } = planAdapter.parseConfig("qa.config.yml", CONFIG);
     assert.deepEqual(

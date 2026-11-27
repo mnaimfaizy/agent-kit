@@ -325,6 +325,8 @@ const TEXT_PLACE = /^\[([a-z0-9][a-z0-9-]*)\]\s+(\S[\s\S]*)$/;
 /** A scenario's note that a deviation limits how far its result can be trusted: a few words. */
 const LIMITS_TRUST = /(?<![A-Za-z])Limits trust:\s*([^;]*?)\s*(?:;|\.(?:\s|$)|$)/;
 const TRUST_NOTE_LIMIT = 160;
+/** A scenario's note that the runner ran it once more after a short Retry-After rate limit. */
+const RAN_TWICE = /(?<![A-Za-z])ran twice(?![A-Za-z])/i;
 /** The first line of the PR comment `qa-plan` posts naming its tracker issue. */
 export const PLAN_LINK_MARKER = "<!-- qa-plan-link -->";
 /** The five results a row may carry (SKILL.md step 6, DESIGN.md "Five results"). */
@@ -848,6 +850,7 @@ export function readReport(text) {
         evidence: paths,
         notes: note,
         limits: limits?.[1] || null,
+        ranTwice: RAN_TWICE.test(note),
       });
     }
     // `None.` in place of the table: a plan whose Residue is only `Review:` boxes has no
@@ -1243,7 +1246,13 @@ function summaryBody(report, places, links) {
     `${where.length ? ` (${where.join(", ")})` : ""}. Result: **${failed ? "QA failed" : "QA passed"}**${scopedSummary}`;
 
   const rows = report.results.map((row) => {
-    const note = row.result === "PASS" ? (row.limits ?? "") : briefNote(row.notes);
+    let note;
+    if (row.result === "PASS")
+      note = [row.limits, row.ranTwice ? "ran twice" : null].filter(Boolean).join("; ");
+    else {
+      note = briefNote(row.notes);
+      if (row.ranTwice && !RAN_TWICE.test(note)) note = note ? `${note}; ran twice` : "ran twice";
+    }
     const linked = row.evidence
       .filter((path) => Object.hasOwn(links, path))
       .map((path) => `[${linkLabel(path)}](${links[path]})`);

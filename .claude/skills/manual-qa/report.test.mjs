@@ -2678,3 +2678,84 @@ test("report.mjs CLI merge reads files, writes merged report, and validates via 
     1,
   );
 });
+
+// --- Rate-limit handling (#538) ---
+
+test("a scenario left for a person due to rate limit reads, posts to comment, parses via summary, and merges cleanly (#538)", () => {
+  const rateNote =
+    "not run: the app's rate limit — step 2 POST /api/sign-in returned 429 (Retry-After: 120)";
+  const rateLimited = reportFor([
+    "| S1: An admin invites a new member | PASS | `qa-report-pr-57/s1.png` | invite sent |",
+    `| S2: A signed-out visitor cannot open the members page | left for a person | none | ${rateNote} |`,
+  ]);
+
+  const read = readReport(rateLimited);
+  assert.deepEqual(read.problems, []);
+  assert.equal(read.report.headline, "QA passed, with items listed");
+  assert.equal(read.report.failed, false);
+  assert.deepEqual(read.report.items, ["S2"]);
+  assert.deepEqual(reportPlanProblems(read.report, PLAN), []);
+
+  const comment = main(["comment", "r.md"], { readFile: () => rateLimited });
+  assert.equal(comment.code, 0, comment.out);
+  assert.ok(
+    comment.out.includes(`QA Report: result=passed; commit=${HEAD}; left-for-person=1; deferred=0`),
+    comment.out,
+  );
+  assert.ok(
+    comment.out.includes(
+      `- [local] S2: A signed-out visitor cannot open the members page (${rateNote})`,
+    ),
+    comment.out,
+  );
+
+  const parsed = main(["summary", "c.md"], { readFile: () => comment.out });
+  assert.equal(parsed.code, 0, parsed.out);
+  const summaryOut = JSON.parse(parsed.out);
+  assert.equal(summaryOut.summary.header.result, "passed");
+  assert.equal(summaryOut.summary.header.leftForPerson, 1);
+  assert.equal(
+    summaryOut.summary.items[0].text,
+    `S2: A signed-out visitor cannot open the members page (${rateNote})`,
+  );
+
+  // Leaves S2 unchecked in tracker issue and can be resolved by a scoped QA Delegation merge.
+  assert.match(trackerBody(PLAN, rateLimited).body, /^- \[ \] S2:/m);
+  const scoped = reportFor(
+    [
+      "| S2: A signed-out visitor cannot open the members page | PASS | `qa-report-pr-57/s2.png` | redirected |",
+    ],
+    "- S2: PASS",
+  );
+  const merged = mergeReports(rateLimited, scoped, { delegation: "d42-qa2", planText: PLAN });
+  assert.deepEqual(merged.problems, []);
+  assert.equal(merged.report.headline, "QA passed");
+  assert.ok(reportComment(merged.body).body.includes("left-for-person=0; deferred=0"));
+});
+
+test("a row whose note says it ran twice preserves `ran twice` in the posted summary, including on PASS (#538)", () => {
+  const report = reportFor([
+    "| S1: An admin invites a new member | PASS | `qa-report-pr-57/s1.png` | invite sent; ran twice after 429 (Retry-After: 30) |",
+    "| S2: A signed-out visitor cannot open the members page | PASS | `qa-report-pr-57/s2.log` | redirected |",
+  ]);
+  const read = readReport(report);
+  assert.deepEqual(read.problems, []);
+  assert.equal(read.report.results[0].ranTwice, true);
+  assert.equal(read.report.results[1].ranTwice, false);
+
+  const comment = main(["comment", "r.md"], { readFile: () => report });
+  assert.equal(comment.code, 0, comment.out);
+  assert.ok(
+    comment.out.includes("| S1: An admin invites a new member | PASS | ran twice |"),
+    comment.out,
+  );
+  assert.ok(!comment.out.includes("invite sent"), "normal PASS side note still stays local");
+  assert.ok(
+    comment.out.includes("| S2: A signed-out visitor cannot open the members page | PASS | |"),
+    comment.out,
+  );
+
+  const parsed = main(["summary", "c.md"], { readFile: () => comment.out });
+  assert.equal(parsed.code, 0, parsed.out);
+  assert.equal(JSON.parse(parsed.out).summary.header.result, "passed");
+});

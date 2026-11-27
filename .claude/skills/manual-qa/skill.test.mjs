@@ -897,3 +897,21 @@ test("ADAPTER.md and SKILL.md document `run.playwright`, `--playwright-dir`, and
   assert.match(skill, /--playwright-dir/);
   assert.match(skill, /steps\.json`'s `notes`/);
 });
+
+test("SKILL.md and ADAPTER.md specify rate-limit handling (429 / 503 with Retry-After) (#538)", () => {
+  const flatSkill = skill.replace(/\s+/g, " ");
+  const flatAdapter = adapter.replace(/\s+/g, " ");
+
+  assert.match(flatSkill, /429.*503.*Retry-After/);
+  assert.match(flatSkill, /Expected result:.*about the (?:rate )?limit itself/);
+  assert.match(flatSkill, /not run: the app's rate limit/);
+  assert.match(flatSkill, /Retry-After.*60 seconds or less/);
+  assert.match(flatSkill, /from its first step, on fresh sessions/);
+  assert.match(flatSkill, /ran twice/);
+  assert.match(flatSkill, /http\.mjs.*web\.mjs.*no-retries rule|keep their own no-retries rule/);
+
+  assert.match(flatAdapter, /sign-in rate limits (?:off|disabled) or raised/);
+  assert.match(flatAdapter, /`rateLimits`/);
+  assert.match(flatAdapter, /never the body/);
+  assert.match(flatAdapter, /no other (?:HTTP )?status is recorded/);
+});
