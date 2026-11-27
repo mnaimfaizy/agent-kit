@@ -98,7 +98,7 @@ test("each `run:` problem is named with its line", () => {
     "  colour: blue",
   );
   assert.deepEqual(read.runProblems, [
-    "line 14: `run.colour`: unknown key (ADAPTER.md documents: target, surface, stack, hosts, accounts, version_endpoint, evidence)",
+    "line 14: `run.colour`: unknown key (ADAPTER.md documents: target, surface, stack, hosts, accounts, playwright, version_endpoint, evidence)",
     "line 2: `run.target`: expected one of: stack, url",
     "line 3: `run.surface`: expected one of: web, desktop, mobile, api",
     "line 4: `run.stack.start`: unknown key (ADAPTER.md documents: up, migrate, seed, down, address)",
@@ -1435,4 +1435,108 @@ test("a scenario with no surface never binds to a surface-less named service", (
     held.map((h) => h.id),
     ["S1"],
   );
+});
+
+// ── `run.playwright`: Playwright in a subdirectory (#533) ────────────────────
+
+/** Writes a fake Playwright with Chromium into `dir` under `repo`. */
+function installFakePlaywright(repo, subdir = ".") {
+  const baseDir = subdir === "." ? repo : join(repo, subdir);
+  const pkgDir = join(baseDir, "node_modules", "playwright");
+  mkdirSync(pkgDir, { recursive: true });
+  writeFileSync(join(baseDir, "package.json"), JSON.stringify({ name: "fake-app" }));
+  const browser = join(baseDir, "chromium-bin");
+  writeFileSync(browser, "");
+  writeFileSync(
+    join(pkgDir, "index.js"),
+    `module.exports = { chromium: { executablePath: () => ${JSON.stringify(browser)} } };\n`,
+  );
+}
+
+test("`run.playwright` refuses `/abs`, `../x`, and a folder with no `package.json`", () => {
+  for (const bad of ["/abs", "../x", ""]) {
+    const read = yaml("run:", `  playwright: ${JSON.stringify(bad)}`);
+    assert.deepEqual(
+      read.runProblems.map((p) => p.replace(/^line \d+: /, "").split(":")[0]),
+      ["`run.playwright`"],
+      bad,
+    );
+  }
+  const missingPkg = answersRepo({ "qa.config.yml": "run:\n  playwright: react-frontend\n" });
+  mkdirSync(join(missingPkg, "react-frontend"), { recursive: true });
+  const res = checkRun(missingPkg);
+  assert.equal(res.code, 1);
+  assert.match(res.result.problems[0], /^line 2: `run\.playwright`:.*package\.json/);
+
+  const jsonBad = parseConfig(
+    "qa.config.json",
+    JSON.stringify({ run: { playwright: "../outside" } }),
+  );
+  assert.match(jsonBad.runProblems[0], /^`run\.playwright`:/);
+});
+
+test("with Playwright only in `react-frontend` and `run.playwright: react-frontend`, `check --for run` reports it installed", () => {
+  const repo = answersRepo({
+    "qa.config.yml": `${STACK_RUN.join("\n")}\n  playwright: react-frontend\n`,
+  });
+  installFakePlaywright(repo, "react-frontend");
+  const { code, result } = checkRun(repo);
+  assert.equal(code, 0, JSON.stringify(result));
+  assert.deepEqual(result.problems, []);
+  assert.ok(result.readiness.notes.includes(WEB_NOTES.chromium));
+  assert.equal(result.effective.run.playwright, "react-frontend");
+});
+
+test("without `run.playwright`, a first-level subfolder with Playwright is hinted, never guessed, and deeper ones are ignored", () => {
+  const repo = answersRepo({ "qa.config.yml": `${STACK_RUN.join("\n")}\n` });
+  installFakePlaywright(repo, "react-frontend");
+  installFakePlaywright(repo, "apps/nested-frontend");
+  const { code, result } = checkRun(repo);
+  assert.equal(code, 0, JSON.stringify(result));
+  assert.equal(
+    result.readiness.notes.includes(
+      "`web`: no Playwright with Chromium at the repository root; `react-frontend` has it: set `run.playwright: react-frontend`",
+    ),
+    true,
+    JSON.stringify(result.readiness.notes),
+  );
+  assert.equal(result.readiness.notes.includes(WEB_NOTES.chromium), false);
+  assert.equal(
+    result.readiness.notes.some((n) => n.includes("nested-frontend")),
+    false,
+    "must not search deeper than one folder level",
+  );
+});
+
+test("`run.playwright` as a run answer (`--answers`) is used and shown in `Run answers reused`", () => {
+  const repo = answersRepo({
+    "qa.config.yml": `${STACK_RUN.join("\n")}\n`,
+    [ANSWERS_FILE]: { run: { playwright: "react-frontend" } },
+  });
+  installFakePlaywright(repo, "react-frontend");
+  const { code, result } = checkRun(repo, "--answers", ANSWERS_FILE);
+  assert.equal(code, 0, JSON.stringify(result));
+  assert.equal(result.effective.run.playwright, "react-frontend");
+  assert.ok(result.readiness.notes.includes(WEB_NOTES.chromium));
+  assert.equal(
+    result.answers.reused,
+    `Run answers reused from ${ANSWERS_FILE}: run.playwright="react-frontend"`,
+  );
+
+  // Invalid answer is refused too.
+  const badRepo = answersRepo({
+    [ANSWERS_FILE]: { run: { playwright: "missing-dir" } },
+  });
+  const bad = checkRun(badRepo, "--answers", ANSWERS_FILE);
+  assert.equal(bad.code, 1);
+  assert.match(bad.result.problems[0], /^the answers: `run\.playwright`:/);
+});
+
+test("Playwright at the repository root with no `run.playwright` behaves as before", () => {
+  const repo = answersRepo({ "qa.config.yml": `${STACK_RUN.join("\n")}\n` });
+  installFakePlaywright(repo, ".");
+  const { code, result } = checkRun(repo);
+  assert.equal(code, 0, JSON.stringify(result));
+  assert.ok(result.readiness.notes.includes(WEB_NOTES.chromium));
+  assert.equal(result.effective.run.playwright, undefined);
 });

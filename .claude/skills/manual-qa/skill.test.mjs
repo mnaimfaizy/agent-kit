@@ -888,3 +888,12 @@ test("`check --for run` documents --host and its readiness fields", () => {
     assert.match(adapter, new RegExp(`\`${field}\``));
   assert.match(main([], {}).out, /--host <name>=<typed host>/);
 });
+
+test("ADAPTER.md and SKILL.md document `run.playwright`, `--playwright-dir`, and the loopback note (#533)", () => {
+  assert.match(adapter, /\| `run\.playwright`/);
+  assert.match(adapter, /--playwright-dir <dir>/);
+  assert.match(adapter, /SameSite cookie/);
+  assert.match(skill, /run\.playwright/);
+  assert.match(skill, /--playwright-dir/);
+  assert.match(skill, /steps\.json`'s `notes`/);
+});

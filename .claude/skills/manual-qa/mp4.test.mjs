@@ -15,7 +15,15 @@
 
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { after, test } from "node:test";
@@ -1121,6 +1129,64 @@ test("the MP4 renders its band and captions in Chromium", { skip: NEEDS_BOTH }, 
   assert.equal(video.width, 2 * SIDE.width);
   assert.ok(video.height > SIDE.height + 100);
   assert.ok(existsSync(join(dir, "s1-storyboard.png")), "the Storyboard stays beside it");
+});
+
+test("mp4.mjs resolves Playwright from `run.playwright` (or `--playwright-dir`) while run from the repo root", async () => {
+  const { dir, metaPath } = runFolder({ videos: false });
+  for (const side of ["s1-web", "s1-before-web"])
+    writeFileSync(join(dir, side, "video-a.webm"), "");
+  const repo = mkdtempSync(join(tmpdir(), "mp4-subdir-"));
+  dirs.push(repo);
+  mkdirSync(join(repo, "react-frontend", "node_modules", "playwright"), { recursive: true });
+  writeFileSync(join(repo, "react-frontend", "package.json"), "{}");
+  const fakeBrowser = join(repo, "react-frontend", "chromium-bin");
+  writeFileSync(fakeBrowser, "");
+  const launchMarker = join(repo, "launched.txt");
+  writeFileSync(
+    join(repo, "react-frontend", "node_modules", "playwright", "index.js"),
+    [
+      `const fs = require("node:fs");`,
+      `module.exports = {`,
+      `  chromium: {`,
+      `    executablePath: () => ${JSON.stringify(fakeBrowser)},`,
+      `    launch: async () => {`,
+      `      fs.writeFileSync(${JSON.stringify(launchMarker)}, "ok");`,
+      `      throw new Error("stub launch stop");`,
+      `    },`,
+      `  },`,
+      `};`,
+    ].join("\n"),
+  );
+  const stubRun = (cmd, args) => {
+    if (cmd === "ffprobe") return { status: 0, stdout: "4.0\n", stderr: "" };
+    if (cmd === "ffmpeg" && args.includes("-encoders"))
+      return { status: 0, stdout: "libx264", stderr: "" };
+    return { status: 0, stdout: "", stderr: "" };
+  };
+
+  // Without `run.playwright`, running from `repo` stops with NO_CHROMIUM_MP4 without touching `react-frontend`.
+  const without = await main(["build", metaPath], { env: ENV, cwd: repo, run: stubRun });
+  assert.equal(without.code, 2);
+  assert.equal(JSON.parse(without.out).reason, NO_CHROMIUM_MP4);
+  assert.equal(existsSync(launchMarker), false);
+
+  // With `--playwright-dir react-frontend`, it loads and launches from `react-frontend`.
+  const byFlag = await main(["build", metaPath, "--playwright-dir", "react-frontend"], {
+    env: ENV,
+    cwd: repo,
+    run: stubRun,
+  });
+  assert.equal(byFlag.code, 2);
+  assert.equal(existsSync(launchMarker), true);
+  assert.match(JSON.parse(byFlag.out).reason, /stub launch stop/);
+
+  // With `qa.config.yml` setting `run.playwright: react-frontend`, no flag is needed.
+  rmSync(launchMarker, { force: true });
+  writeFileSync(join(repo, "qa.config.yml"), "run:\n  playwright: react-frontend\n");
+  const byConfig = await main(["build", metaPath], { env: ENV, cwd: repo, run: stubRun });
+  assert.equal(byConfig.code, 2);
+  assert.equal(existsSync(launchMarker), true);
+  assert.match(JSON.parse(byConfig.out).reason, /stub launch stop/);
 });
 
 const REPORT = `# QA Report: Profile names

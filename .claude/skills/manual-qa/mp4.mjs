@@ -36,12 +36,13 @@
 //     field is named (never its value), and it is kept as `[withheld]` in the
 //     file it came from, as the Storyboard does.
 //
-//   ffmpeg and ffprobe are found on `PATH`, Playwright is the repository's own;
+//   ffmpeg and ffprobe are found on `PATH`, Playwright is the repository's own
+//   (from `run.playwright` or `--playwright-dir`, else the root);
 //   Agent-kit takes no dependency on either. The raw `webm` recordings stay in
 //   `working_dir`, and are never the row's evidence.
 //
 // CLI (run from the repository root)
-//   node mp4.mjs build <s<n>-storyboard.json> [--out <file.mp4>]
+//   node mp4.mjs build <s<n>-storyboard.json> [--out <file.mp4>] [--playwright-dir <dir>]
 //
 //   Exit 0: the MP4 was written. Exit 1: refused (the privacy check, a problem
 //   in the files, a variable not given); no MP4 written.
@@ -56,7 +57,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { findPlaywright, onPath } from "./adapter.mjs";
+import { onPath, resolvePlaywright } from "./adapter.mjs";
 import {
   NO_CHROMIUM,
   bandHtml,
@@ -734,7 +735,8 @@ function checkStartTimes(meta, two) {
 
 // ── CLI ─────────────────────────────────────────────────────────────────────
 
-const USAGE = "usage: node mp4.mjs build <s<n>-storyboard.json> [--out <file.mp4>]\n";
+const USAGE =
+  "usage: node mp4.mjs build <s<n>-storyboard.json> [--out <file.mp4>] [--playwright-dir <dir>]\n";
 
 /**
  * @param {string[]} argv the arguments after the script
@@ -750,8 +752,15 @@ export async function main(argv, io = {}) {
   const [command, target, ...rest] = argv;
   if (command !== "build" || target === undefined || target.startsWith("--")) return usage;
   let out;
+  let playwrightDir;
   for (let i = 0; i < rest.length; i += 1) {
     if (rest[i] === "--out" && rest[i + 1] !== undefined && out === undefined) out = rest[++i];
+    else if (
+      rest[i] === "--playwright-dir" &&
+      rest[i + 1] !== undefined &&
+      playwrightDir === undefined
+    )
+      playwrightDir = rest[++i];
     else return usage;
   }
   if (out !== undefined && !out.endsWith(".mp4")) return usage;
@@ -826,7 +835,9 @@ export async function main(argv, io = {}) {
 
   let renderer = io.renderer;
   if (!renderer) {
-    const found = findPlaywright(io.cwd ?? process.cwd());
+    const resolved = resolvePlaywright(io.cwd ?? process.cwd(), playwrightDir);
+    if (resolved.error) return none(2, { reason: resolved.error });
+    const found = resolved.found;
     if (!found.chromium) return none(2, { reason: NO_CHROMIUM_MP4 });
     renderer = (pages) => renderPages(pages, { playwright: found.module });
   }
