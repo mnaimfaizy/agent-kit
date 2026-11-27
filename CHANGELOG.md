@@ -6,6 +6,14 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
+### Consumer action
+
+- **Required:** re-copy `.github/agent-runtime/` from this tag. It adds `security-audit.settings.json`, and the security audit refuses to start without it.
+
+### Security
+
+- A PR-mode security audit no longer writes through symlinks the pull request commits. Its checkout is the pull request's head, and the job wrote the brief, the report directory, the session transcript and the CLI log at paths in that tree with no check, so a committed link could send a write outside the workspace or make the audit fail at will. Before it writes anything, the job now refuses a report directory reached through a symlink and removes any entry already at those paths, as the review workflow does. The audit agent now runs with the new `security-audit.settings.json`, which adds the write-confinement hook (`confine-writes-to-worktree.mjs`) to the read hook, so its Write is judged on the resolved path, not only by path-pattern deny rules. The staging step checks both hooks refuse what they exist to refuse, and the digest check after the agent covers both.
+
 ## [1.0.0-beta.11] - 2026-11-27
 
 ### Fixed

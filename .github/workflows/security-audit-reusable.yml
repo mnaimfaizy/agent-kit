@@ -492,11 +492,27 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # On a pull-request audit the checkout is the PR head, so any path this
+          # job writes can be a symlink the PR committed, and mkdir, a redirect
+          # or cp follows it out of the tree. Refuse a report directory reached
+          # through a link, then clear every path the job writes before writing
+          # it: the brief, the report, the transcript and the CLI log.
+          REPORT_DIR="$(dirname "$REPORT_PATH")"
+          dir="$REPORT_DIR"
+          while [ "$dir" != "." ] && [ "$dir" != "/" ] && [ "$dir" != "$GITHUB_WORKSPACE" ]; do
+            if [ -L "$dir" ]; then
+              echo "::error title=Report path through a symlink::The report directory passes through a symlink ($dir). Refusing to write through it."
+              exit 1
+            fi
+            dir="$(dirname "$dir")"
+          done
+          BRIEF="$GITHUB_WORKSPACE/security-audit-brief.md"
+          rm -rf -- "$BRIEF" "$REPORT_PATH" \
+            "$REPORT_DIR/security-audit-session.md" "$REPORT_DIR/security-audit-cli.log"
           # Create the directory only. Claude Code's Write refuses to overwrite
           # a file the session has not Read, so an empty report file here can
           # end a run that reports success with no report.
-          mkdir -p "$(dirname "$REPORT_PATH")"
-          BRIEF="$GITHUB_WORKSPACE/security-audit-brief.md"
+          mkdir -p "$REPORT_DIR"
           {
             echo "Mode: $MODE"
             echo "Repository: $REPO"
@@ -592,26 +608,37 @@ jobs:
           SRC=.github/agent-runtime
           STAGED="$RUNNER_TEMP/read-confinement"
           test -s "$SRC/confine-reads-to-workspace.mjs"
-          test -s "$SRC/read-confinement.settings.json"
+          test -s "$SRC/confine-writes-to-worktree.mjs"
+          test -s "$SRC/security-audit.settings.json"
           # The settings must end each command in `|| exit 2`: a hook that crashes
           # is a non-blocking error, so without it a hook that cannot run allows.
           # Single quotes on purpose: match the literal `$RUNNER_TEMP` in the file.
           # shellcheck disable=SC2016
-          if ! grep -qF '$RUNNER_TEMP/read-confinement/confine-reads-to-workspace.mjs\" || exit 2' "$SRC/read-confinement.settings.json"; then
-            echo "$SRC/read-confinement.settings.json must run the hook from \$RUNNER_TEMP/read-confinement/ and end in || exit 2."
+          if ! grep -qF '$RUNNER_TEMP/read-confinement/confine-reads-to-workspace.mjs\" || exit 2' "$SRC/security-audit.settings.json" \
+            || ! grep -qF '$RUNNER_TEMP/read-confinement/confine-writes-to-worktree.mjs\" || exit 2' "$SRC/security-audit.settings.json"; then
+            echo "$SRC/security-audit.settings.json must run the hooks from \$RUNNER_TEMP/read-confinement/ and end in || exit 2."
             echo "Copy .github/agent-runtime/ from the same tag as the workflow pin."
             exit 1
           fi
           rm -rf "$STAGED"
           mkdir "$STAGED"
-          cp "$SRC/confine-reads-to-workspace.mjs" "$SRC/read-confinement.settings.json" "$STAGED/"
+          cp "$SRC/confine-reads-to-workspace.mjs" "$SRC/confine-writes-to-worktree.mjs" \
+            "$SRC/security-audit.settings.json" "$STAGED/"
           chmod 444 "$STAGED"/*
-          # A hook that cannot run decides nothing. Show the staged copy refuses
-          # an out-of-tree read before any agent relies on it.
+          # A hook that cannot run decides nothing. Show each staged copy refuses
+          # what it exists to refuse before any agent relies on it.
           PROBE='{"tool_name":"Read","tool_input":{"file_path":"/proc/self/environ"}}'
           DECISION="$(printf '%s' "$PROBE" | node "$STAGED/confine-reads-to-workspace.mjs" || true)"
           if ! printf '%s' "$DECISION" | grep -qF '"permissionDecision":"deny"'; then
             echo "The staged read-confinement hook did not refuse an out-of-tree read."
+            exit 1
+          fi
+          # The agent writes its report into a tree the PR controls, so Write is
+          # judged on the resolved path: a link cannot carry it out of the tree.
+          PROBE='{"tool_name":"Write","tool_input":{"file_path":".claude/settings.json"}}'
+          DECISION="$(printf '%s' "$PROBE" | node "$STAGED/confine-writes-to-worktree.mjs" || true)"
+          if ! printf '%s' "$DECISION" | grep -qF '"permissionDecision":"deny"'; then
+            echo "The staged write-confinement hook did not refuse a write to project settings."
             exit 1
           fi
           echo "hook_sha256=$(cat "$STAGED"/* | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
@@ -692,11 +719,12 @@ jobs:
           # Installed above; the action then skips its own Bun download.
           path_to_bun_executable: ${{ steps.bun.outputs.path }}
           claude_code_oauth_token: ${{ secrets.claude_code_oauth_token }}
-          # A PreToolUse hook confines Read/Glob/Grep to the workspace — an
-          # allowlist entry only pre-approves and cannot revoke the action's base
-          # read grant, so scoping must be a deny decision (see the hook script).
-          # On a PR run it is restored from the base before the agent runs.
-          settings: ${{ runner.temp }}/read-confinement/read-confinement.settings.json
+          # PreToolUse hooks confine Read/Glob/Grep to the workspace, and
+          # Edit/Write to the working tree by resolved path — an allowlist entry
+          # only pre-approves and cannot revoke the action's base grants, so
+          # scoping must be a deny decision (see the hook scripts). On a PR run
+          # they are restored from the base before the agent runs.
+          settings: ${{ runner.temp }}/read-confinement/security-audit.settings.json
           # The job token, scoped by the permissions block above. Without this
           # input the action uses the Claude App token, which can write this
           # repository; this job reads attacker-influenced text and never pushes.
@@ -749,6 +777,8 @@ jobs:
           echo "session=$SESSION" >> "$GITHUB_ENV"
           echo "cli_log=$CLI_LOG" >> "$GITHUB_ENV"
 
+          # Remove first, so neither write below can follow a link into place.
+          rm -f -- "$SESSION" "$CLI_LOG"
           # The execution file can contain finding detail, so it only ever
           # travels to the private advisory / email — never to an artifact or the log.
           if [ -n "${EXECUTION_FILE:-}" ] && [ -f "$EXECUTION_FILE" ]; then
