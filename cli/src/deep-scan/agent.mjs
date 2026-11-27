@@ -332,8 +332,13 @@ export function threatPackAndRecipe({ handIn, recipePath, recipeText }) {
 export function agentScript({ report, workspace, plan, ...request }) {
   const launched = plan ?? agentPlan(request);
   const { launch, stops, transcript } = launched;
-  const outDir = report.slice(0, report.lastIndexOf("/"));
+  if (launch.files.length) {
+    // No adapter has one yet: refused, rather than launched without them.
+    throw new Error("the launcher does not write a launch plan's config files yet");
+  }
   const logs = LOGS_DIR;
+  const folderOf = (path) => path.slice(0, path.lastIndexOf("/"));
+  const folders = [...new Set([folderOf(report), logs, folderOf(transcript.path)])];
   const stdin = launch.stdin ? ` < ${shQuote(launch.stdin.file)}` : "";
   // The harness's error output reaches the launcher through a pipe, as it
   // happens, and a copy goes to agent.err for the turn check. The agent can
@@ -341,7 +346,7 @@ export function agentScript({ report, workspace, plan, ...request }) {
   // printed, and a planted status that is not a number counts as a failure.
   return [
     "set -eu",
-    `mkdir -p ${outDir} ${logs}`,
+    `mkdir -p ${folders.join(" ")}`,
     `cd ${workspace}`,
     `rm -f ${logs}/agent.status`,
     `{ ${launch.argv.map(shQuote).join(" ")}${stdin} 2>&1 > ${shQuote(transcript.path)} || echo "$?" > ${logs}/agent.status; } | tee ${logs}/agent.err >&2`,

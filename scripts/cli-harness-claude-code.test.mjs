@@ -240,6 +240,16 @@ describe("the Launcher runs the plan it is handed", () => {
     assert.doesNotMatch(text, /claude/i);
   });
 
+  it("makes the folder of a transcript that is outside its own logs folder", () => {
+    const text = script({ ...given, transcript: { path: "/agent-kit/stream/raw.jsonl" } });
+    assert.match(text, /^mkdir -p \/agent-kit\/out \/agent-kit\/logs \/agent-kit\/stream$/m);
+  });
+
+  it("refuses a plan with config files, which it does not write yet", () => {
+    const launch = { ...given.launch, files: [{ path: "/etc/other.json", text: "{}" }] };
+    assert.throws(() => script({ ...given, launch }), /config files/);
+  });
+
   it("looks for no turn marker where the plan reports no turn cap", () => {
     assert.doesNotMatch(script({ ...given, stops: { turnCap: null } }), /grep|turn limit/);
   });
