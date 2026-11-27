@@ -33,8 +33,8 @@ const AUTO_UPDATER_OFF = "DISABLE_AUTOUPDATER=1";
 const MANAGED_SETTINGS = JSON.stringify({ env: { DISABLE_AUTOUPDATER: "1" } });
 
 /** The tools the agent has; the web tools are not among them. */
-export const TOOLS = ["Bash", "Read", "Write", "Edit", "Glob", "Grep"];
-export const WEB_TOOLS = ["WebFetch", "WebSearch"];
+export const TOOLS = Object.freeze(["Bash", "Read", "Write", "Edit", "Glob", "Grep"]);
+export const WEB_TOOLS = Object.freeze(["WebFetch", "WebSearch"]);
 
 /**
  * The credentials Claude Code accepts, by kind: the kit secret, the
@@ -179,6 +179,6 @@ export function claudeCode({
     // Print mode says "Error: Reached max turns" on its error output.
     stops: { turnCap: { stderrPattern: "^Error: Reached max turns" } },
     // Where the Launcher keeps Claude Code's own output.
-    transcript: { path: "/agent-kit/logs/agent.log" },
+    transcript: { path: `${kitDir ?? "/agent-kit"}/logs/agent.log` },
   };
 }

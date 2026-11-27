@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
-import { agentScript } from "../cli/src/deep-scan/agent.mjs";
+import { AGENT_TOOLS, agentScript, WEB_TOOLS } from "../cli/src/deep-scan/agent.mjs";
 import { claudeCode } from "../cli/src/harness/claude-code.mjs";
 import { layerDockerfile } from "../cli/src/harness/install-layer.mjs";
 
@@ -203,6 +203,16 @@ describe("the Claude Code adapter starts nothing", () => {
   it("returns a fresh plan each time, so a caller's change stays its own", () => {
     claudeCode(REQUEST).credentials.scrub.push("OTHER");
     assert.equal(claudeCode(REQUEST).credentials.scrub.includes("OTHER"), false);
+  });
+
+  it("refuses a change to the tool lists it exports, which every plan reads", () => {
+    assert.throws(() => AGENT_TOOLS.push("WebFetch"), TypeError);
+    assert.throws(() => WEB_TOOLS.pop(), TypeError);
+  });
+
+  it("keeps its transcript in the logs folder of the request's kit folder", () => {
+    const plan = claudeCode({ ...REQUEST, kitDir: "/other-kit" });
+    assert.deepEqual(plan.transcript, { path: "/other-kit/logs/agent.log" });
   });
 });
 
