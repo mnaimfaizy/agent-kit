@@ -75,6 +75,7 @@
   allowed_paths:
     - cli/src/checks/secrets-and-variables.mjs
     - scripts/cli-doctor-contract.test.mjs
+    - scripts/cli-init-contract.test.mjs
 - kind: variable
   old: CLAUDE_SECURITY_AUDIT_ENABLED
   replacement: AGENT_KIT_SECURITY_AUDIT_ENABLED
@@ -82,6 +83,7 @@
   allowed_paths:
     - cli/src/checks/secrets-and-variables.mjs
     - scripts/cli-doctor-contract.test.mjs
+    - scripts/cli-init-contract.test.mjs
 - kind: variable
   old: CLAUDE_REVIEW_RESPONSE_ENABLED
   replacement: AGENT_KIT_REVIEW_RESPONSE_ENABLED
@@ -89,6 +91,7 @@
   allowed_paths:
     - cli/src/checks/secrets-and-variables.mjs
     - scripts/cli-doctor-contract.test.mjs
+    - scripts/cli-init-contract.test.mjs
 - kind: variable
   old: CLAUDE_DEEP_SCAN_ENABLED
   replacement: AGENT_KIT_DEEP_SCAN_ENABLED
@@ -222,3 +225,4 @@
   allowed_paths:
     - cli/src/checks/secrets-and-variables.mjs
     - scripts/cli-doctor-contract.test.mjs
+    - scripts/cli-init-contract.test.mjs
