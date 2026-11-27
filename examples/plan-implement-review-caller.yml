@@ -44,15 +44,20 @@ jobs:
       (github.event_name == 'workflow_dispatch' && inputs.mode == 'plan')
     uses: mnaimfaizy/agent-kit/.github/workflows/agent-plan-reusable.yml@v1.0.0-beta.11
     with:
-      kill_switch: ${{ vars.CLAUDE_AGENT_FLOW_ENABLED != 'true' || vars.CLAUDE_PLAN_ENABLED == 'false' }}
-      model: ${{ vars.CLAUDE_PLAN_MODEL || vars.CLAUDE_MODEL || 'claude-opus-5-5' }}
-      effort: ${{ vars.CLAUDE_PLAN_EFFORT || vars.CLAUDE_EFFORT || '' }}
+      kill_switch: ${{ vars.AGENT_KIT_AGENT_FLOW_ENABLED != 'true' || vars.AGENT_KIT_PLAN_ENABLED == 'false' }}
+      harness: ${{ vars.AGENT_KIT_PLAN_HARNESS || vars.AGENT_KIT_HARNESS || 'claude-code' }}
+      model: ${{ vars.AGENT_KIT_PLAN_MODEL || vars.AGENT_KIT_MODEL || '' }}
+      effort: ${{ vars.AGENT_KIT_PLAN_EFFORT || vars.AGENT_KIT_EFFORT || '' }}
       allowlist_actors: '["your-github-login"]'
       trigger_label: "agent:plan"
       issue_number: ${{ github.event_name == 'issues' && github.event.issue.number || inputs.issue_number }}
       planner_marker: "<!-- agent-kit-plan -->"
     secrets:
       claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+      openai_api_key: ${{ secrets.OPENAI_API_KEY }}
+      gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
+      cursor_api_key: ${{ secrets.CURSOR_API_KEY }}
 
   implement:
     if: |
@@ -60,9 +65,10 @@ jobs:
       (github.event_name == 'workflow_dispatch' && inputs.mode == 'implement')
     uses: mnaimfaizy/agent-kit/.github/workflows/agent-implement-reusable.yml@v1.0.0-beta.11
     with:
-      kill_switch: ${{ vars.CLAUDE_AGENT_FLOW_ENABLED != 'true' || vars.CLAUDE_IMPLEMENT_ENABLED == 'false' }}
-      model: ${{ vars.CLAUDE_IMPLEMENT_MODEL || vars.CLAUDE_MODEL || 'claude-opus-5-5' }}
-      effort: ${{ vars.CLAUDE_IMPLEMENT_EFFORT || vars.CLAUDE_EFFORT || '' }}
+      kill_switch: ${{ vars.AGENT_KIT_AGENT_FLOW_ENABLED != 'true' || vars.AGENT_KIT_IMPLEMENT_ENABLED == 'false' }}
+      harness: ${{ vars.AGENT_KIT_IMPLEMENT_HARNESS || vars.AGENT_KIT_HARNESS || 'claude-code' }}
+      model: ${{ vars.AGENT_KIT_IMPLEMENT_MODEL || vars.AGENT_KIT_MODEL || '' }}
+      effort: ${{ vars.AGENT_KIT_IMPLEMENT_EFFORT || vars.AGENT_KIT_EFFORT || '' }}
       allowlist_actors: '["your-github-login"]'
       trigger_label: "agent:implement"
       issue_number: ${{ github.event_name == 'issues' && github.event.issue.number || inputs.issue_number }}
@@ -92,6 +98,10 @@ jobs:
       # branch_name_template: "{{prefix}}{{entityNumber}}-{{description}}"
     secrets:
       claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+      openai_api_key: ${{ secrets.OPENAI_API_KEY }}
+      gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
+      cursor_api_key: ${{ secrets.CURSOR_API_KEY }}
 
   review:
     if: |
@@ -106,9 +116,10 @@ jobs:
       actions: write
     uses: mnaimfaizy/agent-kit/.github/workflows/agent-review-reusable.yml@v1.0.0-beta.11
     with:
-      kill_switch: ${{ vars.CLAUDE_AGENT_FLOW_ENABLED != 'true' || vars.CLAUDE_REVIEW_ENABLED == 'false' }}
-      model: ${{ vars.CLAUDE_REVIEW_MODEL || vars.CLAUDE_MODEL || 'claude-opus-5-5' }}
-      effort: ${{ vars.CLAUDE_REVIEW_EFFORT || vars.CLAUDE_EFFORT || '' }}
+      kill_switch: ${{ vars.AGENT_KIT_AGENT_FLOW_ENABLED != 'true' || vars.AGENT_KIT_REVIEW_ENABLED == 'false' }}
+      harness: ${{ vars.AGENT_KIT_REVIEW_HARNESS || vars.AGENT_KIT_HARNESS || 'claude-code' }}
+      model: ${{ vars.AGENT_KIT_REVIEW_MODEL || vars.AGENT_KIT_MODEL || '' }}
+      effort: ${{ vars.AGENT_KIT_REVIEW_EFFORT || vars.AGENT_KIT_EFFORT || '' }}
       allowlist_actors: '["your-github-login"]'
       trigger_label: "agent:review"
       pr_number: ${{ github.event_name == 'pull_request' && github.event.pull_request.number || inputs.pr_number }}
@@ -121,14 +132,18 @@ jobs:
       # Without a Verified plan, accept a maintainer's issue comment that starts
       # with <!-- agent-kit-brief --> as the spec. Logins only; empty turns it off.
       # trusted_spec_authors: '["your-github-login"]'
-      # Auto mode (CLAUDE_REVIEW_RESPONSE_MODE set to exactly `auto`) hands a
+      # Auto mode (AGENT_KIT_REVIEW_RESPONSE_MODE set to exactly `auto`) hands a
       # finished review that left findings to your Review response Caller
       # (docs/review-response.md). Keep the two lists equal to that Caller's
       # allowlist_actors and reviewer_logins. Commented, they change nothing:
       # manual mode, nothing handed off.
-      # response_mode: ${{ vars.CLAUDE_REVIEW_RESPONSE_MODE || 'manual' }}
+      # response_mode: ${{ vars.AGENT_KIT_REVIEW_RESPONSE_MODE || 'manual' }}
       # response_workflow: .github/workflows/agent-review-response.yml
       # response_allowlist_actors: '["your-github-login"]'
       # response_reviewer_logins: "[]"
     secrets:
       claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+      openai_api_key: ${{ secrets.OPENAI_API_KEY }}
+      gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
+      cursor_api_key: ${{ secrets.CURSOR_API_KEY }}

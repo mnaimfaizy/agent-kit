@@ -178,7 +178,7 @@ def test_callers_grant_what_the_called_jobs_request() -> None:
                     )
 
 
-# ADR 0009: every Stage setting is CLAUDE_<STAGE>_<SETTING>.
+# ADR 0009 and 0022: every Stage setting is AGENT_KIT_<STAGE>_<SETTING>.
 STAGE = {
     "agent-plan-reusable.yml": "PLAN",
     "agent-implement-reusable.yml": "IMPLEMENT",
@@ -204,36 +204,108 @@ def test_callers_default_to_kill_switch_on() -> None:
     for path, job_name, stage, inputs in caller_jobs():
         kill = str(inputs.get("kill_switch", ""))
         if stage in AGENT_FLOW_STAGES:
-            expected = f"${{{{ vars.CLAUDE_AGENT_FLOW_ENABLED != 'true' || vars.CLAUDE_{stage}_ENABLED == 'false' }}}}"
+            expected = (
+                f"${{{{ vars.AGENT_KIT_AGENT_FLOW_ENABLED != 'true' || vars.AGENT_KIT_{stage}_ENABLED == 'false' }}}}"
+            )
         else:
-            expected = f"${{{{ vars.CLAUDE_{stage}_ENABLED != 'true' }}}}"
+            expected = f"${{{{ vars.AGENT_KIT_{stage}_ENABLED != 'true' }}}}"
         assert kill == expected, f"{path.name}:{job_name}: kill_switch must be {expected}"
 
 
-# Each Stage has its own model and effort variable, so one can change without
-# the others; the shared CLAUDE_MODEL / CLAUDE_EFFORT apply to any Stage whose
-# own variable is unset. No effort at all leaves --effort off.
-def test_callers_read_model_and_effort_from_repository_variables() -> None:
+# Each Stage has its own harness, model and effort variable, so one can change
+# without the others; the shared AGENT_KIT_HARNESS / _MODEL / _EFFORT apply to
+# any Stage whose own variable is unset. An empty model takes the harness's
+# default in the reusable workflow; no effort at all leaves --effort off.
+CHAINS = {"harness": ("HARNESS", "claude-code"), "model": ("MODEL", ""), "effort": ("EFFORT", "")}
+
+
+def test_callers_resolve_harness_model_and_effort_from_repository_variables() -> None:
     for path, job_name, stage, inputs in caller_jobs():
         called = WORKFLOWS / next(name for name, token in STAGE.items() if token == stage)
-        model = str(inputs.get("model", ""))
-        assert re.fullmatch(
-            rf"\$\{{\{{ vars\.CLAUDE_{stage}_MODEL \|\| vars\.CLAUDE_MODEL \|\| '[a-z0-9-]+' \}}\}}", model
-        ), f"{path.name}:{job_name}: model must read vars.CLAUDE_{stage}_MODEL, then vars.CLAUDE_MODEL, then a literal"
-        assert "effort" in (workflow_call(called).get("inputs") or {}), f"{called.name} takes an effort input"
-        effort = str(inputs.get("effort", ""))
-        assert effort == f"${{{{ vars.CLAUDE_{stage}_EFFORT || vars.CLAUDE_EFFORT || '' }}}}", (
-            f"{path.name}:{job_name}: effort must read vars.CLAUDE_{stage}_EFFORT, then vars.CLAUDE_EFFORT, then ''"
-        )
+        for key, (setting, default) in CHAINS.items():
+            assert key in (workflow_call(called).get("inputs") or {}), f"{called.name} takes a {key} input"
+            expected = f"${{{{ vars.AGENT_KIT_{stage}_{setting} || vars.AGENT_KIT_{setting} || '{default}' }}}}"
+            assert inputs.get(key) == expected, f"{path.name}:{job_name}: {key} must be {expected}"
+
+
+PROVIDER_SECRETS = (
+    "claude_code_oauth_token",
+    "anthropic_api_key",
+    "openai_api_key",
+    "gemini_api_key",
+    "cursor_api_key",
+)
+
+
+# ADR 0030: a Stage changes harness by one variable and one secret, never by a
+# Caller edit. The Deep scan keeps secrets of its own.
+def test_callers_pass_every_provider_secret() -> None:
+    for path in callers():
+        for job_name, job in load(path)["jobs"].items():
+            if "uses" not in job:
+                continue
+            prefix = "AGENT_KIT_DEEP_SCAN_" if "deep-scan-reusable.yml" in job["uses"] else ""
+            for name in PROVIDER_SECRETS:
+                expected = f"${{{{ secrets.{prefix}{name.upper()} }}}}"
+                assert job.get("secrets", {}).get(name) == expected, f"{path.name}:{job_name}: pass {name}: {expected}"
+
+
+# The names a Consumer may set, wherever they are read: the old ones are gone,
+# while the names that configure Claude Code itself stay (ADR 0022).
+OLD_SETTING = re.compile(r"\bCLAUDE_(?!CODE_)(?:[A-Z_]+_)?(?:ENABLED|MODEL|EFFORT|MODE)\b|\bCLAUDE_MODEL_[A-Z_]+\b")
+
+
+def test_no_workflow_or_caller_names_a_setting_under_its_old_name() -> None:
+    for path in live_workflows() + example_callers():
+        found = sorted(set(OLD_SETTING.findall(path.read_text(encoding="utf-8"))))
+        assert not found, f"{path.name}: {found}"
+
+
+# The reusable workflows' inputs and secrets as released in v1.0.0-beta.11: an
+# old Caller keeps working against a new tag only while each stays declared, with
+# the same type and no stricter requirement (`?` marks an optional one).
+RELEASED_INPUTS = {
+    "agent-plan-reusable.yml": "kill_switch:boolean? allowlist_actors:string? trigger_label:string? issue_number:string planner_marker:string? model:string? effort:string?",
+    "agent-implement-reusable.yml": "kill_switch:boolean? allowlist_actors:string? trigger_label:string? issue_number:string planner_marker:string? trusted_plan_author:string? base_branch:string? branch_prefix:string? branch_name_template:string? verify_commands:string? setup_commands:string? extra_allowed_tools:string? model:string? effort:string?",
+    "agent-review-reusable.yml": "kill_switch:boolean? allowlist_actors:string? trigger_label:string? pr_number:string head_sha:string base_sha:string base_ref:string is_fork:boolean? issue_number:string? planner_marker:string? trusted_plan_author:string? trusted_spec_authors:string? skill_path:string? model:string? effort:string? response_mode:string? response_workflow:string? response_allowlist_actors:string? response_reviewer_logins:string?",
+    "agent-review-response-reusable.yml": "kill_switch:boolean? allowlist_actors:string? trigger_label:string? pr_number:string reviewer_logins:string? extra_protected_paths:string? setup_commands:string? verify_commands:string? format_commands:string? ci_workflow:string? response_mode:string? model:string? effort:string?",
+    "security-audit-reusable.yml": "mode:string? kill_switch:boolean? allowlist_actors:string? threat_model_path:string findings_ledger_path:string audit_prompt_path:string? skill_dir:string? report_path:string? scan_command:string? pr_number:string? head_sha:string? base_sha:string? base_ref:string? model:string? effort:string? trigger_label:string? notify_email:boolean?",
+    "deep-scan-reusable.yml": "kill_switch:boolean? model:string? effort:string? setup_minutes:number? scan_minutes:number? max_turns:number? max_tokens:number?",
+}
+RELEASED_SECRETS = {
+    "agent-plan-reusable.yml": "claude_code_oauth_token",
+    "agent-implement-reusable.yml": "claude_code_oauth_token",
+    "agent-review-reusable.yml": "claude_code_oauth_token",
+    "agent-review-response-reusable.yml": "claude_code_oauth_token",
+    "security-audit-reusable.yml": "advisories_token claude_code_oauth_token dependabot_alerts_token notify_email_to notify_email_from notify_email_smtp_host notify_email_smtp_port notify_email_smtp_username notify_email_smtp_password",
+    "deep-scan-reusable.yml": "anthropic_api_key claude_code_oauth_token advisories_token notify_email_to notify_email_from notify_email_smtp_host notify_email_smtp_port notify_email_smtp_username notify_email_smtp_password",
+}
+
+
+def test_an_old_caller_keeps_working() -> None:
+    for name, spec in RELEASED_INPUTS.items():
+        contract = workflow_call(WORKFLOWS / name)
+        released = {}
+        for item in spec.split():
+            input_name, kind = item.split(":")
+            released[input_name] = (kind.rstrip("?"), not kind.endswith("?"))
+        inputs = contract.get("inputs") or {}
+        for input_name, (kind, required) in released.items():
+            assert input_name in inputs, f"{name}: input {input_name} is gone"
+            assert inputs[input_name]["type"] == kind, f"{name}: input {input_name} changed type"
+            assert bool(inputs[input_name].get("required")) <= required, f"{name}: {input_name} became required"
+        for input_name in set(inputs) - set(released):
+            assert not inputs[input_name].get("required"), f"{name}: new input {input_name} must be optional"
+        secrets = contract.get("secrets") or {}
+        for secret in RELEASED_SECRETS[name].split():
+            assert secret in secrets, f"{name}: secret {secret} is gone"
+        for secret, body in secrets.items():
+            if (body or {}).get("required"):
+                assert secret == "advisories_token", f"{name}: {secret} must be optional"
 
 
 if __name__ == "__main__":
-    test_reusable_secrets_avoid_reserved_names()
-    test_reusable_secret_references_are_declared()
-    test_permission_scopes_are_valid()
-    test_live_step_actions_are_sha_pinned()
-    test_callers_match_reusable_contract()
-    test_callers_grant_what_the_called_jobs_request()
-    test_callers_default_to_kill_switch_on()
-    test_callers_read_model_and_effort_from_repository_variables()
+    for name, fn in list(globals().items()):
+        if name.startswith("test_") and callable(fn):
+            fn()
     print("workflow-validity-contract tests passed")
