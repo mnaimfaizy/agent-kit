@@ -11,7 +11,7 @@ Agent-kit releases are whole-kit snapshots, not partial artifacts.
   - shipped skills
   - docs
   - Copilot archive assets (when present)
-  - the `@mnaimfaizy/agent-kit` npm CLI (`cli/`), published from the tag with the same version (`v1.0.0-beta.11` → `1.0.0-beta.11`); the package holds CLI code only and reads kit files from the tag
+  - the `@mnaimfaizy/agent-kit` npm CLI (`cli/`), published from the tag with the same version (`v1.0.0-beta.12` → `1.0.0-beta.12`); the package holds CLI code only and reads kit files from the tag
 
 Each release is paired with a GitHub Release entry.
 

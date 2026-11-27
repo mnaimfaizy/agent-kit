@@ -261,7 +261,7 @@ def test_no_workflow_or_caller_names_a_setting_under_its_old_name() -> None:
         assert not found, f"{path.name}: {found}"
 
 
-# The reusable workflows' inputs and secrets as released in v1.0.0-beta.11: an
+# The reusable workflows' inputs and secrets as released in v1.0.0-beta.12: an
 # old Caller keeps working against a new tag only while each stays declared, with
 # the same type and no stricter requirement (`?` marks an optional one).
 RELEASED_INPUTS = {
@@ -277,10 +277,10 @@ RELEASED_INPUTS = {
     ),
     "agent-review-reusable.yml": (
         "kill_switch:boolean? allowlist_actors:string? trigger_label:string? pr_number:string head_sha:string "
-        "base_sha:string base_ref:string is_fork:boolean? issue_number:string? planner_marker:string? "
-        "trusted_plan_author:string? trusted_spec_authors:string? skill_path:string? model:string? "
-        "effort:string? response_mode:string? response_workflow:string? response_allowlist_actors:string? "
-        "response_reviewer_logins:string?"
+        "base_sha:string base_ref:string trusted_branch:string? is_fork:boolean? issue_number:string? "
+        "planner_marker:string? trusted_plan_author:string? trusted_spec_authors:string? skill_path:string? "
+        "model:string? effort:string? response_mode:string? response_workflow:string? "
+        "response_allowlist_actors:string? response_reviewer_logins:string?"
     ),
     "agent-review-response-reusable.yml": (
         "kill_switch:boolean? allowlist_actors:string? trigger_label:string? pr_number:string "
@@ -291,7 +291,7 @@ RELEASED_INPUTS = {
         "mode:string? kill_switch:boolean? allowlist_actors:string? threat_model_path:string "
         "findings_ledger_path:string audit_prompt_path:string? skill_dir:string? report_path:string? "
         "scan_command:string? pr_number:string? head_sha:string? base_sha:string? base_ref:string? "
-        "model:string? effort:string? trigger_label:string? notify_email:boolean?"
+        "trusted_branch:string? model:string? effort:string? trigger_label:string? notify_email:boolean?"
     ),
     "deep-scan-reusable.yml": (
         "kill_switch:boolean? model:string? effort:string? setup_minutes:number? scan_minutes:number? "

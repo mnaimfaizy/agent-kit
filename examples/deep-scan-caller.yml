@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   deep-scan:
-    uses: mnaimfaizy/agent-kit/.github/workflows/deep-scan-reusable.yml@v1.0.0-beta.11
+    uses: mnaimfaizy/agent-kit/.github/workflows/deep-scan-reusable.yml@v1.0.0-beta.12
     with:
       kill_switch: ${{ vars.AGENT_KIT_DEEP_SCAN_ENABLED != 'true' }}
       harness: ${{ vars.AGENT_KIT_DEEP_SCAN_HARNESS || vars.AGENT_KIT_HARNESS || 'claude-code' }}

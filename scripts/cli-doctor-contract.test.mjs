@@ -2370,7 +2370,7 @@ describe("doctor's rename map and the Deprecation register", () => {
     const entries = registerEntries(readRepo(REGISTER)).filter((e) => e.kind === "variable");
     const vars = entries.filter((e) => e.release === "1.0.0-beta.8");
     assert.equal(vars.length, 6);
-    const kit = entries.filter((e) => e.release === "1.0.0-beta.12");
+    const kit = entries.filter((e) => e.release === "1.0.0-beta.13");
     assert.equal(kit.length, 22);
     for (const e of kit)
       assert.equal(e.replacement, e.old.replace(/^CLAUDE_/, "AGENT_KIT_"), e.old);
