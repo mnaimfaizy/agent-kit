@@ -19,3 +19,7 @@ Single-context: one `GLOSSARY.md` and `docs/adr/` at the repo root. See `docs/ag
 ### Docs map
 
 Doc pages for each code area. See `docs/agents/docs-map.md`.
+
+### Antigravity permissions
+
+Repository `PreToolUse` command policy (`.agents/hooks.json`, `.agents/command-policy.mjs`) and native Antigravity permission template (`.agents/permissions.example.json`). See `docs/agents/antigravity-permissions.md`.
