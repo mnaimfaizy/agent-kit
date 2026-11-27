@@ -10,6 +10,7 @@
 import { join } from "node:path";
 import { DEFAULT_KIT_REPO } from "./callers.mjs";
 import { command } from "./checks/result.mjs";
+import { RENAMED_VARIABLES } from "./checks/secrets-and-variables.mjs";
 import { fileAndPinChecks, printFileAndPinChecks } from "./doctor.mjs";
 import { firstLine } from "./exec.mjs";
 import { openKitTag, PreManifestTagError, serverFromEnv } from "./kit-tag.mjs";
@@ -419,10 +420,21 @@ export function planInit({ runner, root, snap, answers, force }) {
 }
 
 /**
+ * The variable the written Callers read for `name`: an older tag's Callers read
+ * the name it replaced, and setting the newer one would turn nothing on.
+ */
+function variableRead(name, callers) {
+  const reads = (n) => new RegExp(`\\bvars\\.${n}\\b`).test(callers);
+  if (reads(name)) return name;
+  const old = Object.keys(RENAMED_VARIABLES).find((n) => RENAMED_VARIABLES[n] === name && reads(n));
+  return old ?? name;
+}
+
+/**
  * The GitHub-side steps init does not take, as POSIX-shell commands built
  * with checks/result.mjs `command()` (every argument fixed or allowlisted).
  */
-export function manualSteps({ flows, tag, kitRepo, serverUrl }) {
+export function manualSteps({ flows, tag, kitRepo, serverUrl, callers = "" }) {
   const pipeline = flows.includes("pipeline");
   const audit = flows.includes("audit");
   const response = flows.includes("review-response");
@@ -432,8 +444,14 @@ export function manualSteps({ flows, tag, kitRepo, serverUrl }) {
     lines.push(`${++n}. ${title}`);
     for (const c of cmds) lines.push(`  $ ${c}`);
   };
+  // Offered only when the Callers pass it; an older tag's do not.
+  const apiKey = /\bsecrets\.ANTHROPIC_API_KEY\b/.test(callers)
+    ? ", or set ANTHROPIC_API_KEY instead"
+    : "";
+  const setVariable = (name, value) =>
+    command("gh", "variable", "set", variableRead(name, callers), "--body", value);
   step(
-    "Secrets (gh asks for each value; CLAUDE_CODE_OAUTH_TOKEN comes from `claude setup-token`):",
+    `Secrets (gh asks for each value; CLAUDE_CODE_OAUTH_TOKEN comes from \`claude setup-token\`${apiKey}):`,
     command("gh", "secret", "set", "CLAUDE_CODE_OAUTH_TOKEN"),
     ...(audit ? [command("gh", "secret", "set", "AGENT_KIT_ADVISORIES_TOKEN")] : []),
   );
@@ -456,22 +474,16 @@ export function manualSteps({ flows, tag, kitRepo, serverUrl }) {
   );
   step(
     "Last, after you have reviewed and pushed the Callers, turn the flows on (Kill switch variables):",
-    ...(pipeline
-      ? [command("gh", "variable", "set", "CLAUDE_AGENT_FLOW_ENABLED", "--body", "true")]
-      : []),
-    ...(audit
-      ? [command("gh", "variable", "set", "CLAUDE_SECURITY_AUDIT_ENABLED", "--body", "true")]
-      : []),
-    ...(response
-      ? [command("gh", "variable", "set", "CLAUDE_REVIEW_RESPONSE_ENABLED", "--body", "true")]
-      : []),
+    ...(pipeline ? [setVariable("AGENT_KIT_AGENT_FLOW_ENABLED", "true")] : []),
+    ...(audit ? [setVariable("AGENT_KIT_SECURITY_AUDIT_ENABLED", "true")] : []),
+    ...(response ? [setVariable("AGENT_KIT_REVIEW_RESPONSE_ENABLED", "true")] : []),
   );
   if (response) {
     step(
       "Optional, Review response auto mode (a finished review starts a round): first give your " +
         "review Caller response_mode and response_workflow, as " +
         `${serverUrl}/${kitRepo}/blob/${tag}/docs/review-response.md#auto-mode says, then:`,
-      command("gh", "variable", "set", "CLAUDE_REVIEW_RESPONSE_MODE", "--body", "auto"),
+      setVariable("AGENT_KIT_REVIEW_RESPONSE_MODE", "auto"),
     );
   }
   return lines;
@@ -637,6 +649,10 @@ export async function runInit({
       tag: answers.tag,
       kitRepo: DEFAULT_KIT_REPO,
       serverUrl,
+      callers: answers.flows
+        .map((flow) => FLOWS[flow].caller)
+        .map((path) => plan.writes.find((w) => w.path === path).bytes.toString("utf8"))
+        .join("\n"),
     })) {
       out(line);
     }

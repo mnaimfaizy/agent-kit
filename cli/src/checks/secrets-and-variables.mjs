@@ -1,11 +1,23 @@
 // Secrets and repository variables, worked out from the Consumer's Callers.
 // A secret is required when the reusable workflow at the pinned tag declares
 // the secret it is passed to as `required: true`; otherwise it is optional.
+// The model credentials are optional there, because only the chosen harness
+// needs one (ADR 0030), so they are asked for as a group.
 // A variable is optional when every read of it falls back with `||`.
 
 import { secretNames } from "../callers.mjs";
 import { parseWorkflowCallSecrets } from "../workflow-call.mjs";
 import { byHand, command, NAME_PATTERN, result } from "./result.mjs";
+
+/** The secret inputs `claude-code` accepts, the preferred one first (ADR 0024). */
+const CLAUDE_CODE_INPUTS = ["claude_code_oauth_token", "anthropic_api_key"];
+/** Every model credential input: the others belong to harnesses no Stage runs yet. */
+const MODEL_INPUTS = new Set([
+  ...CLAUDE_CODE_INPUTS,
+  "openai_api_key",
+  "gemini_api_key",
+  "cursor_api_key",
+]);
 
 /** GitHub provides `secrets.GITHUB_TOKEN`; no `GITHUB_*` secret can be set by hand. */
 const isProvided = (name) => /^github_/i.test(name);
@@ -57,7 +69,7 @@ export function deriveRequirements(callers, readReusable) {
     }
     return specs.get(file);
   };
-  const addSecret = (names, required, where) => {
+  const addSecret = (names, required, job, input) => {
     // A GITHUB_* secret is always set, so an expression that falls back to one is too.
     if (names.some(isProvided)) return;
     const key = names.join(" || ");
@@ -65,7 +77,9 @@ export function deriveRequirements(callers, readReusable) {
     secrets.set(key, {
       names,
       required: Boolean(prev?.required || required),
-      where: [...(prev?.where ?? []), where],
+      where: [...(prev?.where ?? []), input ? `${job} (${input})` : job],
+      // The job and the secret input each use fills; null under `secrets: inherit`.
+      uses: [...(prev?.uses ?? []), { job, input: input?.toLowerCase() ?? null }],
     });
   };
 
@@ -80,7 +94,9 @@ export function deriveRequirements(callers, readReusable) {
       }
       if (job.secrets === "inherit") {
         for (const { name, required } of spec.values()) {
-          addSecret([name.toUpperCase()], required, where);
+          // Inherited, the secret's name is the input's.
+          addSecret([name.toUpperCase()], required, where, null);
+          secrets.get(name.toUpperCase()).uses.at(-1).input = name.toLowerCase();
         }
         continue;
       }
@@ -95,7 +111,7 @@ export function deriveRequirements(callers, readReusable) {
           );
           continue;
         }
-        addSecret(names, declared.required, `${where} (${input})`);
+        addSecret(names, declared.required, where, input);
       }
       for (const { name, required } of spec.values()) {
         if (required && !passed.has(name.toLowerCase())) {
@@ -131,6 +147,35 @@ function listNames(github, repo, kind, ownerType) {
     }
   }
   return { names: new Set([...names].map((n) => n.toUpperCase())), orgNote };
+}
+
+const isModelCredential = (x) =>
+  !x.required && x.uses.every(({ input }) => MODEL_INPUTS.has(input));
+
+/**
+ * The jobs left with no model credential: for each, the secrets that would give
+ * `claude-code`, the one harness that runs a Stage, its credential. Jobs that
+ * need the same ones are listed together.
+ */
+function jobsWithoutCredential(secrets, isSet) {
+  const jobs = new Map();
+  for (const secret of secrets) {
+    for (const { job, input } of secret.uses) {
+      if (!CLAUDE_CODE_INPUTS.includes(input)) continue;
+      if (!jobs.has(job)) jobs.set(job, []);
+      jobs.get(job).push({ secret, rank: CLAUDE_CODE_INPUTS.indexOf(input) });
+    }
+  }
+  const missing = new Map();
+  for (const [job, passed] of jobs) {
+    // A required one is reported as missing on its own.
+    if (passed.some(({ secret }) => secret.required || isSet(secret))) continue;
+    const wanted = passed.sort((a, b) => a.rank - b.rank).map(({ secret }) => secret);
+    const key = wanted.map((x) => x.names.join(" or ")).join(" or ");
+    if (!missing.has(key)) missing.set(key, { first: wanted[0], jobs: [] });
+    missing.get(key).jobs.push(job);
+  }
+  return [...missing].map(([names, { first, jobs: where }]) => ({ names, first, where }));
 }
 
 /** `gh secret set` / `gh variable set` for a valid name, or a by-hand note. */
@@ -170,20 +215,28 @@ export function checkSecrets({ github, repo, ownerType, requirements }) {
   }
   const isSet = (x) => x.names.some((n) => listed.names.has(n.toUpperCase()));
   const missingRequired = requirements.secrets.filter((x) => x.required && !isSet(x));
-  const missingOptional = requirements.secrets.filter((x) => !x.required && !isSet(x));
+  const missingOptional = requirements.secrets.filter(
+    (x) => !x.required && !isModelCredential(x) && !isSet(x),
+  );
+  const uncredentialed = jobsWithoutCredential(requirements.secrets, isSet);
   const describe = (x) => `${x.names.join(" or ")} (${x.where.join(", ")})`;
   // No --body: gh prompts for the value, so it never lands in shell history.
+  const wanted = [...missingRequired, ...uncredentialed.map((x) => x.first), ...missingOptional];
   const { fix, notes } = splitFixes(
-    [...missingRequired, ...missingOptional].map((x) => setCommand("secret", x.names[0], repo)),
+    [...new Set(wanted.map((x) => x.names[0]))].map((name) => setCommand("secret", name, repo)),
   );
   const details = [
     ...problems,
     ...missingRequired.map((x) => `required, not set: ${describe(x)}`),
+    ...uncredentialed.map(
+      (x) =>
+        `no model credential set: ${x.names} (${x.where.join(", ")}); the run fails without one`,
+    ),
     ...missingOptional.map((x) => `optional, not set: ${describe(x)}`),
     ...unsupported,
     ...notes,
   ];
-  if (listed.orgNote && (missingRequired.length || missingOptional.length)) {
+  if (listed.orgNote && wanted.length) {
     details.push(listed.orgNote);
   }
   if (missingRequired.length || problems.length) {
@@ -192,14 +245,15 @@ export function checkSecrets({ github, repo, ownerType, requirements }) {
       : `${problems.length} Caller problem(s) with secrets.`;
     return result(ID, TITLE, "fail", summary, { details, fix });
   }
-  if (missingOptional.length) {
-    return result(
-      ID,
-      TITLE,
-      "warn",
-      `${missingOptional.length} optional secret(s) referenced but not set.`,
-      { details, fix },
-    );
+  if (uncredentialed.length || missingOptional.length) {
+    const summary = [
+      uncredentialed.length && "No model credential is set for some jobs.",
+      missingOptional.length &&
+        `${missingOptional.length} optional secret(s) referenced but not set.`,
+    ]
+      .filter(Boolean)
+      .join(" ");
+    return result(ID, TITLE, "warn", summary, { details, fix });
   }
   if (unsupported.length) {
     return result(
@@ -210,17 +264,14 @@ export function checkSecrets({ github, repo, ownerType, requirements }) {
       { details: unsupported },
     );
   }
-  return result(
-    ID,
-    TITLE,
-    "pass",
-    `All ${requirements.secrets.length} secret(s) the Callers pass are set.`,
-  );
+  return result(ID, TITLE, "pass", "Every secret the Callers need is set.");
 }
 
 /**
- * Variables ADR 0009 renamed, old name to new. The Callers have no fallback to
- * an old name, so one still set does nothing once the Caller reads the new one.
+ * Variables the kit renamed (ADR 0009, then ADR 0022), old name to new: the
+ * Deprecation register's variable entries. A replacement may be an old name
+ * itself. The Callers have no fallback to an old name, so one still set does
+ * nothing once the Caller reads a newer one.
  */
 export const RENAMED_VARIABLES = {
   CLAUDE_PIPELINE_ENABLED: "CLAUDE_AGENT_FLOW_ENABLED",
@@ -229,7 +280,36 @@ export const RENAMED_VARIABLES = {
   CLAUDE_MODEL_REVIEW: "CLAUDE_REVIEW_MODEL",
   CLAUDE_MODEL_REVIEW_RESPONSE: "CLAUDE_REVIEW_RESPONSE_MODEL",
   CLAUDE_MODEL_AUDIT: "CLAUDE_SECURITY_AUDIT_MODEL",
+  CLAUDE_AGENT_FLOW_ENABLED: "AGENT_KIT_AGENT_FLOW_ENABLED",
+  CLAUDE_SECURITY_AUDIT_ENABLED: "AGENT_KIT_SECURITY_AUDIT_ENABLED",
+  CLAUDE_REVIEW_RESPONSE_ENABLED: "AGENT_KIT_REVIEW_RESPONSE_ENABLED",
+  CLAUDE_DEEP_SCAN_ENABLED: "AGENT_KIT_DEEP_SCAN_ENABLED",
+  CLAUDE_PLAN_ENABLED: "AGENT_KIT_PLAN_ENABLED",
+  CLAUDE_IMPLEMENT_ENABLED: "AGENT_KIT_IMPLEMENT_ENABLED",
+  CLAUDE_REVIEW_ENABLED: "AGENT_KIT_REVIEW_ENABLED",
+  CLAUDE_MODEL: "AGENT_KIT_MODEL",
+  CLAUDE_EFFORT: "AGENT_KIT_EFFORT",
+  CLAUDE_PLAN_MODEL: "AGENT_KIT_PLAN_MODEL",
+  CLAUDE_PLAN_EFFORT: "AGENT_KIT_PLAN_EFFORT",
+  CLAUDE_IMPLEMENT_MODEL: "AGENT_KIT_IMPLEMENT_MODEL",
+  CLAUDE_IMPLEMENT_EFFORT: "AGENT_KIT_IMPLEMENT_EFFORT",
+  CLAUDE_REVIEW_MODEL: "AGENT_KIT_REVIEW_MODEL",
+  CLAUDE_REVIEW_EFFORT: "AGENT_KIT_REVIEW_EFFORT",
+  CLAUDE_REVIEW_RESPONSE_MODEL: "AGENT_KIT_REVIEW_RESPONSE_MODEL",
+  CLAUDE_REVIEW_RESPONSE_EFFORT: "AGENT_KIT_REVIEW_RESPONSE_EFFORT",
+  CLAUDE_SECURITY_AUDIT_MODEL: "AGENT_KIT_SECURITY_AUDIT_MODEL",
+  CLAUDE_SECURITY_AUDIT_EFFORT: "AGENT_KIT_SECURITY_AUDIT_EFFORT",
+  CLAUDE_DEEP_SCAN_MODEL: "AGENT_KIT_DEEP_SCAN_MODEL",
+  CLAUDE_DEEP_SCAN_EFFORT: "AGENT_KIT_DEEP_SCAN_EFFORT",
+  CLAUDE_REVIEW_RESPONSE_MODE: "AGENT_KIT_REVIEW_RESPONSE_MODE",
 };
+
+/** The first name `read` holds among those `oldName` was renamed to, or null. */
+function replacementRead(oldName, read) {
+  let name = RENAMED_VARIABLES[oldName];
+  while (name && !read.has(name)) name = RENAMED_VARIABLES[name];
+  return name ?? null;
+}
 
 const killSwitch = (name) => /_ENABLED$/.test(name);
 
@@ -247,9 +327,11 @@ export function checkVariables({ github, repo, ownerType, requirements }) {
   const missing = required.filter((v) => !isSet(v.name));
   // An old name still set while a Caller reads its replacement: the value is ignored.
   const read = new Map(requirements.variables.map((v) => [v.name.toUpperCase(), v]));
-  const renamed = Object.entries(RENAMED_VARIABLES)
-    .filter(([oldName, newName]) => isSet(oldName) && read.has(newName))
-    .map(([oldName, newName]) => ({ oldName, newName, v: read.get(newName) }));
+  const renamed = Object.keys(RENAMED_VARIABLES)
+    .filter(isSet)
+    .map((oldName) => ({ oldName, newName: replacementRead(oldName, read) }))
+    .filter(({ newName }) => newName)
+    .map((r) => ({ ...r, v: read.get(r.newName), stillRead: read.get(r.oldName) }));
   if (missing.length === 0 && renamed.length === 0) {
     return result(ID, TITLE, "pass", `All ${required.length} required variable(s) are set.`);
   }
@@ -261,29 +343,45 @@ export function checkVariables({ github, repo, ownerType, requirements }) {
           ? " — the Kill switch: the flow never runs until it is set to true"
           : ""),
     ),
-    ...renamed.map(
-      ({ oldName, newName, v }) =>
-        `renamed: ${oldName} is still set, but the Callers read ${newName} (${v.where.join(", ")}). ` +
-        `${oldName} is ignored: ` +
+    ...renamed.map(({ oldName, newName, v, stillRead }) => {
+      const start = `renamed: ${oldName} is still set, but ${newName} replaces it (${v.where.join(", ")}). `;
+      // Callers part-way through an upgrade: the old name still does something.
+      if (stillRead) {
+        return (
+          `${start}${oldName} is still read by ${stillRead.where.join(", ")}: ` +
+          (isSet(newName) ? "" : `set ${newName} to its value, and `) +
+          `delete ${oldName} once no Caller reads it.`
+        );
+      }
+      return (
+        `${start}${oldName} is ignored: ` +
         (isSet(newName)
           ? `${newName} is set too, so delete ${oldName}.`
-          : `set ${newName} to its value, then delete ${oldName}.`),
-    ),
+          : `set ${newName} to its value, then delete ${oldName}.`)
+      );
+    }),
   ];
   if (listed.orgNote && missing.length) details.push(listed.orgNote);
-  // The Kill switch takes true; for anything else, gh prompts for the value.
+  // A missing Kill switch takes true; for anything else, gh prompts for the
+  // value: a renamed Stage switch may have been set to false.
+  const turnsOn = new Set(missing.map((v) => v.name));
   const toSet = [
     ...missing.map((v) => v.name),
     ...renamed.filter((r) => !isSet(r.newName)).map((r) => r.newName),
   ].filter((name, i, all) => all.indexOf(name) === i);
   const { fix, notes } = splitFixes(
     toSet.map((name) =>
-      setCommand("variable", name, repo, killSwitch(name) ? ["--body", "true"] : []),
+      setCommand(
+        "variable",
+        name,
+        repo,
+        turnsOn.has(name) && killSwitch(name) ? ["--body", "true"] : [],
+      ),
     ),
   );
   // Each old name goes last, once its replacement has a value: deleting first
   // would lose the value before it is copied. The old names are the kit's own.
-  for (const { oldName } of renamed) {
+  for (const { oldName } of renamed.filter((r) => !r.stillRead)) {
     fix.push(command("gh", "variable", "delete", oldName, "--repo", repo));
   }
   if (missing.length) {
