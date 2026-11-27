@@ -6,6 +6,20 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
+## [1.0.0-beta.12] - 2026-11-27
+
+Security release for [GHSA-3wmq-p452-fw6h](https://github.com/mnaimfaizy/agent-kit/security/advisories/GHSA-3wmq-p452-fw6h), classed **Minor** (per [docs/releases.md](docs/releases.md)). **Consumer action required**: see the first item.
+
+### Consumer action
+
+- **Required:** re-copy `.github/agent-runtime/` from this tag. It adds `security-audit.settings.json`, and the security audit refuses to start without it.
+- **Optional:** set the new `trusted_branch` input on your review and security-audit Callers when the branch your reviewed agent runtime lives on is not the default branch. Left empty, both use the default branch.
+
+### Security
+
+- Review and PR-mode security audit no longer trust a base branch the pull request picks. They restored their instructions, skills and read hook, and the audit also staged its credentialed publish and notify scripts, from `base_sha`, the base of whatever branch the pull request targets. A pull request into a branch that holds unreviewed runtime changes was judged by that runtime. Both workflows now take a `trusted_branch` input (empty means the repository's default branch) and restore from `base_sha` only when it is on that branch, and from the branch's tip otherwise; the diff still uses `base_sha`. The implementer's push guard, edit denies and post-agent check now also cover the Kit-owned `.github/agent-runtime/`, `.github/agent-pipeline/`, `.github/security-audit/` and `.github/agent-review-response/`, so no implementer branch can carry a changed copy; an issue that needs a change there needs a human, as for workflows.
+- A PR-mode security audit no longer writes through symlinks the pull request commits. Its checkout is the pull request's head, and the job wrote the brief, the report directory, the session transcript and the CLI log at paths in that tree with no check, so a committed link could send a write outside the workspace or make the audit fail at will. Before it writes anything, the job now refuses a report directory reached through a symlink and removes any entry already at those paths, as the review workflow does. The audit agent now runs with the new `security-audit.settings.json`, which adds the write-confinement hook (`confine-writes-to-worktree.mjs`) to the read hook, so its Write is judged on the resolved path, not only by path-pattern deny rules. The staging step checks both hooks refuse what they exist to refuse, and the digest check after the agent covers both.
+
 ## [1.0.0-beta.11] - 2026-11-27
 
 ### Fixed
@@ -280,6 +294,7 @@ Second beta on the `1.0.0` line, classed **Minor** (per [docs/releases.md](docs/
 - **Install individual skills.** People who want one Portable skill without adopting the kit (Skill installers) can install it from a release tag with `npx skills add mnaimfaizy/agent-kit#<tag> --skill <name>`. [Install individual skills](docs/install-skills.md) has the command for each skill, says which ones work from your own skills directory (`-g`) and which need a repository, and says that upgrading means re-running the command with the new tag. Installs without a tag are not supported. If you adopt the kit, don't use it: see the note in [Adopt](docs/adopt.md).
 - **Each Portable skill declares its scope** in its `SKILL.md` frontmatter as `metadata.agent-kit-scope`: `user` (works from your own skills directory in any repository) or `repo` (needs supporting files in the repository). `security-audit` is `repo`; the other five are `user`. [Releases](docs/releases.md) now says that a skill moving from User-scope to Repo-scope, or needing a new supporting file, is a Major change, and the reverse is Minor.
 - Contract tests that keep this honest:
+
   - a skills-list gate fails when a skill folder is added or removed without every list following (`kit-owned-paths.txt`, the [Adopt](docs/adopt.md) copy list, the README _What ships_ row, the scope table on the install page, and each skill's own scope), and names each list out of step;
   - every User-scope skill is checked to import and link nothing outside its own folder, and to work when copied alone outside any repository;
   - `security-audit` must keep its Threat pack stop as its first step.

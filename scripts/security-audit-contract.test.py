@@ -3,6 +3,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -100,7 +101,7 @@ def test_audit_agent_cannot_see_the_advisory_token_or_widen_tools() -> None:
     # allowlist; only a deny keeps the auditor off Bash entirely.
     denied = agent.split('--disallowedTools "')[1].split('"')[0].split(",")
     assert "Bash" in denied
-    assert "read-confinement.settings.json" in agent
+    assert "${{ runner.temp }}/read-confinement/security-audit.settings.json" in agent
     assert "--dangerously-skip-permissions" not in data
     assert f"anthropics/claude-code-action@{CLAUDE_ACTION_SHA}" in data
     assert "id-token:" not in data
@@ -119,11 +120,16 @@ def test_audit_restores_runtime_and_stages_scripts_from_a_trusted_commit() -> No
     assert 'git fetch --no-tags origin "$BASE_BRANCH"' in restore
     assert 'origin "$BASE_SHA"' not in restore
     assert "git ls-files -z" in restore
-    assert 'git ls-tree -r -z --name-only "$BASE_SHA"' in restore
+    assert 'git ls-tree -r -z --name-only "$RUNTIME_SHA"' in restore
+    assert 'git restore --source="$RUNTIME_SHA"' in restore
+    assert 'git merge-base --is-ancestor "$BASE_SHA" "$TRUSTED_TIP"' in restore
+    assert 'echo "runtime_sha=$RUNTIME_SHA" >> "$GITHUB_OUTPUT"' in restore
     assert ".github/agent-runtime" in restore
     assert ".github/security-audit/prompt.md" in restore
     stage = _step(data, "Stage trusted audit scripts outside the agent workspace")
     assert "publish-draft-advisory.sh" in stage
+    assert "steps.restore.outputs.runtime_sha" in stage
+    assert "inputs.base_sha" not in stage
     assert "RUNNER_TEMP" in stage
 
 
@@ -223,7 +229,7 @@ def test_nothing_creates_the_report_before_the_agent() -> None:
     before_agent = data[: data.index("- name: Run security audit (Claude Code)")]
     assert not re.search(r':\s*>\s*"\$REPORT_PATH"', before_agent)
     assert not re.search(r"(touch|truncate)[^\n]*\$REPORT_PATH", before_agent)
-    assert 'mkdir -p "$(dirname "$REPORT_PATH")"' in audit_step("Build audit brief")["run"]
+    assert 'mkdir -p "$REPORT_DIR"' in audit_step("Build audit brief")["run"]
 
 
 # Behavior seams: run a step's real script, or a staged delivery script, with
@@ -334,6 +340,162 @@ def test_collect_never_logs_a_final_line_outside_the_closed_pattern(tmp_path: Pa
 def test_collect_reports_an_absent_final_line_without_an_execution_file(tmp_path: Path) -> None:
     result, _ = run_collect(tmp_path, None, None)
     assert "Final line: (absent)" in result.stdout
+
+
+# A pull-request audit checks out the PR head, so every path the job writes is
+# one the PR can commit a symlink at. A redirect, mkdir or cp follows a link out
+# of the tree, so the job clears those paths, and refuses a report directory
+# reached through a link, before it writes anything.
+
+AUDIT_SETTINGS = ROOT / ".github" / "agent-runtime" / "security-audit.settings.json"
+ORIGINAL = "ORIGINAL-OUTSIDE-THE-TREE"
+
+
+def skip(reason: str) -> None:
+    """Skip under pytest; under plain `python` say so and let the `__main__` block go on."""
+    if "pytest" in sys.modules:
+        import pytest
+
+        pytest.skip(reason)
+    print(f"skipped: {reason}", file=sys.stderr)
+
+
+def symlink(link: Path, target: Path) -> bool:
+    """Plant a link as a pull request would. False, after a skip, where this OS user cannot make one."""
+    try:
+        link.symlink_to(target, target_is_directory=target.is_dir())
+    except OSError as error:
+        skip(f"cannot create a symlink here: {error}")
+        return False
+    if not link.is_symlink():
+        skip("the filesystem did not create a real symlink")
+        return False
+    return True
+
+
+def brief_workspace(tmp_path: Path, report_path: str = ".tmp/security-audit-report.md") -> tuple[Path, dict]:
+    ws = tmp_path / "ws"
+    (ws / "skill").mkdir(parents=True)
+    for name in ("skill/SKILL.md", "skill/report-format.md", "prompt.md", "ledger.md", "threat.md"):
+        (ws / name).write_text(f"{name}\n", encoding="utf-8")
+    env = {
+        **os.environ,
+        "MODE": "full",
+        "REPO": "owner/repo",
+        "BASE_SHA": "",
+        "GITHUB_WORKSPACE": ws.as_posix(),
+        "REPORT_PATH": report_path,
+        "SKILL_DIR": "skill",
+        "AUDIT_PROMPT_PATH": "prompt.md",
+        "FINDINGS_LEDGER_PATH": "ledger.md",
+        "THREAT_MODEL_PATH": "threat.md",
+    }
+    return ws, env
+
+
+def run_brief(ws: Path, env: dict) -> subprocess.CompletedProcess:
+    return run_bash(
+        audit_step("Build audit brief")["run"], env=env, capture_output=True, text=True, check=False, cwd=ws
+    )
+
+
+def test_brief_clears_every_path_it_writes_before_writing() -> None:
+    brief = audit_step("Build audit brief")["run"]
+    cleared = brief.index('rm -rf -- "$BRIEF" "$REPORT_PATH"')
+    made = brief.index('mkdir -p "$REPORT_DIR"')
+    for path in ('"$REPORT_DIR/security-audit-session.md"', '"$REPORT_DIR/security-audit-cli.log"'):
+        assert path in brief[cleared:made]
+    assert brief.index('[ -L "$dir" ]') < cleared < made < brief.index('} > "$BRIEF"')
+    collect = audit_step("Collect transcript")["run"]
+    removed = collect.index('rm -f -- "$SESSION" "$CLI_LOG"')
+    assert removed < collect.index('cp "$EXECUTION_FILE" "$SESSION"')
+    assert removed < collect.index(': > "$CLI_LOG"')
+
+
+def test_brief_refuses_a_report_directory_reached_through_a_symlink(tmp_path: Path) -> None:
+    for case, report_path, link_at in (
+        ("dir", ".tmp/security-audit-report.md", ".tmp"),
+        ("parent", "out/reports/security-audit-report.md", "out"),
+    ):
+        ws, env = brief_workspace(tmp_path / case, report_path)
+        outside = tmp_path / case / "outside"
+        (outside / "reports").mkdir(parents=True)
+        if not symlink(ws / link_at, outside):
+            return
+        result = run_brief(ws, env)
+        assert result.returncode != 0, case
+        assert "passes through a symlink" in result.stdout, case
+        assert not (ws / "security-audit-brief.md").exists(), case
+        assert sorted(p.name for p in outside.rglob("*")) == ["reports"], case
+
+
+def test_brief_removes_links_planted_at_the_paths_it_writes(tmp_path: Path) -> None:
+    ws, env = brief_workspace(tmp_path)
+    (ws / ".tmp").mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    planted = {
+        "security-audit-brief.md": "brief",
+        ".tmp/security-audit-report.md": "report",
+        ".tmp/security-audit-session.md": "session",
+        ".tmp/security-audit-cli.log": "cli-log",
+    }
+    for at, victim in planted.items():
+        (outside / victim).write_text(ORIGINAL, encoding="utf-8")
+        if not symlink(ws / at, outside / victim):
+            return
+    result = run_brief(ws, env)
+    assert result.returncode == 0, result.stdout + result.stderr
+    for victim in planted.values():
+        assert (outside / victim).read_text(encoding="utf-8") == ORIGINAL, victim
+    brief = ws / "security-audit-brief.md"
+    assert brief.is_file() and not brief.is_symlink()
+    assert "report-format.md" in brief.read_text(encoding="utf-8")
+    for at in list(planted)[1:]:
+        assert not (ws / at).exists() and not (ws / at).is_symlink(), at
+
+
+def test_collect_writes_the_transcript_and_cli_log_in_place_of_planted_links(tmp_path: Path) -> None:
+    report_dir = tmp_path / ".tmp"
+    report_dir.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    for name in ("security-audit-session.md", "security-audit-cli.log"):
+        (outside / name).write_text(ORIGINAL, encoding="utf-8")
+        if not symlink(report_dir / name, outside / name):
+            return
+    result, _ = run_collect(tmp_path, REPORT, execution_file(tmp_path, "audit complete: 0 findings"))
+    assert result.returncode == 0, result.stdout + result.stderr
+    for name in ("security-audit-session.md", "security-audit-cli.log"):
+        assert (outside / name).read_text(encoding="utf-8") == ORIGINAL, name
+        assert not (report_dir / name).is_symlink(), name
+    assert SECRET in (report_dir / "security-audit-session.md").read_text(encoding="utf-8")
+
+
+def test_audit_agent_runs_the_staged_write_hook() -> None:
+    hooks = json.loads(read(AUDIT_SETTINGS))["hooks"]["PreToolUse"]
+    commands = {entry["matcher"]: [h["command"] for h in entry["hooks"]] for entry in hooks}
+    assert commands["Read|Grep|Glob"] == [
+        'node "$RUNNER_TEMP/read-confinement/confine-reads-to-workspace.mjs" || exit 2'
+    ]
+    assert commands["Edit|Write|MultiEdit|NotebookEdit"] == [
+        'node "$RUNNER_TEMP/read-confinement/confine-writes-to-worktree.mjs" || exit 2'
+    ]
+    stage = audit_step("Stage read-confinement hook outside the workspace")["run"]
+    copy = stage[stage.index('cp "$SRC/') : stage.index('chmod 444 "$STAGED"/*')]
+    for name in ("confine-reads-to-workspace.mjs", "confine-writes-to-worktree.mjs", "security-audit.settings.json"):
+        assert f"$SRC/{name}" in copy, name
+    assert (
+        """grep -qF '$RUNNER_TEMP/read-confinement/confine-writes-to-worktree.mjs\\" || exit 2' """
+        '"$SRC/security-audit.settings.json"'
+    ) in stage
+    probe = stage.index('| node "$STAGED/confine-writes-to-worktree.mjs"')
+    assert stage.index('chmod 444 "$STAGED"/*') < probe < stage.index("hook_sha256=")
+    assert '"tool_name":"Write"' in stage
+    # The digest after the agent covers every staged file, the write hook included.
+    assert 'cat "$STAGED"/* | sha256sum' in stage
+    verify = audit_step("Verify read-confinement hook unchanged")["run"]
+    assert 'cat "$RUNNER_TEMP/read-confinement"/* | sha256sum' in verify
 
 
 def fake_gh(tmp_path: Path) -> tuple[dict, Path]:
@@ -613,6 +775,11 @@ if __name__ == "__main__":
     test_collect_logs_a_matching_final_line_with_its_count(Path(tempfile.mkdtemp()))
     test_collect_never_logs_a_final_line_outside_the_closed_pattern(Path(tempfile.mkdtemp()))
     test_collect_reports_an_absent_final_line_without_an_execution_file(Path(tempfile.mkdtemp()))
+    test_brief_clears_every_path_it_writes_before_writing()
+    test_brief_refuses_a_report_directory_reached_through_a_symlink(Path(tempfile.mkdtemp()))
+    test_brief_removes_links_planted_at_the_paths_it_writes(Path(tempfile.mkdtemp()))
+    test_collect_writes_the_transcript_and_cli_log_in_place_of_planted_links(Path(tempfile.mkdtemp()))
+    test_audit_agent_runs_the_staged_write_hook()
     test_publisher_files_a_failed_run_advisory_with_the_transcript(Path(tempfile.mkdtemp()))
     test_publisher_still_requires_a_report_outside_the_failed_run_mode(Path(tempfile.mkdtemp()))
     test_notifier_emails_the_transcript_after_an_empty_report(Path(tempfile.mkdtemp()))

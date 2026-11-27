@@ -69,12 +69,17 @@ on:
         type: string
         default: ""
       base_sha:
-        description: "PR base SHA. Required in pr mode; must be empty in full mode. Trusted commit for the runtime restore and staged scripts."
+        description: "PR base SHA. Required in pr mode; must be empty in full mode. The runtime is restored, and the credentialed scripts staged, from it when it is on `trusted_branch`, otherwise from that branch's tip."
         required: false
         type: string
         default: ""
       base_ref:
         description: "PR base branch name. Required in pr mode."
+        required: false
+        type: string
+        default: ""
+      trusted_branch:
+        description: "Branch whose history the audit runtime and scripts are trusted on, in pr mode. Empty means the repository's default branch."
         required: false
         type: string
         default: ""
@@ -284,12 +289,14 @@ jobs:
           persist-credentials: false
 
       - name: Restore trusted audit runtime from PR base
+        id: restore
         if: ${{ success() && inputs.mode == 'pr' }}
         env:
           BASE_SHA: ${{ inputs.base_sha }}
           # Named BASE_BRANCH, not BASE_REF: BASE_REF on the job is the branch
           # input, and this step must not give one name two meanings.
           BASE_BRANCH: ${{ inputs.base_ref }}
+          TRUSTED_BRANCH: ${{ inputs.trusted_branch || github.event.repository.default_branch }}
         shell: bash
         run: |
           set -euo pipefail
@@ -299,6 +306,29 @@ jobs:
           if ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
             git fetch --no-tags origin "$BASE_BRANCH"
           fi
+
+          # The PR's base is whatever branch the PR targets, and whoever opens the
+          # PR picks it: a PR into an unreviewed branch would restore this runtime
+          # from that branch. The runtime is trusted only on the trusted branch, so
+          # restore from the PR base when it is on that branch, and from the
+          # trusted branch's tip otherwise. The diff still uses the PR base.
+          if [ -z "${TRUSTED_BRANCH:-}" ] || ! git check-ref-format "refs/heads/$TRUSTED_BRANCH"; then
+            echo "::error title=No trusted branch::Set the trusted_branch input: this event names no default branch to restore the runtime from."
+            exit 1
+          fi
+          TRUSTED_REF="refs/remotes/origin/$TRUSTED_BRANCH"
+          if ! git rev-parse -q --verify "$TRUSTED_REF^{commit}" >/dev/null; then
+            git fetch --no-tags origin "+refs/heads/$TRUSTED_BRANCH:$TRUSTED_REF"
+          fi
+          TRUSTED_TIP="$(git rev-parse --verify "$TRUSTED_REF^{commit}")"
+          if git merge-base --is-ancestor "$BASE_SHA" "$TRUSTED_TIP"; then
+            RUNTIME_SHA="$BASE_SHA"
+          else
+            RUNTIME_SHA="$TRUSTED_TIP"
+            echo "PR base $BASE_SHA is not on $TRUSTED_BRANCH; restoring the runtime from $TRUSTED_BRANCH at $TRUSTED_TIP."
+          fi
+          # The credentialed scripts are staged from the same commit.
+          echo "runtime_sha=$RUNTIME_SHA" >> "$GITHUB_OUTPUT"
 
           # A pull request's .gitattributes decides how git writes files, and
           # checkout already wrote the tree that way: working-tree-encoding can
@@ -316,7 +346,7 @@ jobs:
           MEMORY_LIST="$(mktemp)"
           {
             git ls-files -z
-            git ls-tree -r -z --name-only "$BASE_SHA"
+            git ls-tree -r -z --name-only "$RUNTIME_SHA"
           } | sort -z -u > "$MEMORY_LIST"
 
           resolves_through_symlink() {
@@ -341,8 +371,8 @@ jobs:
 
           restore_from_base() {
             local path="$1"
-            if git cat-file -e "$BASE_SHA:$path" 2>/dev/null; then
-              git restore --source="$BASE_SHA" --staged --worktree -- "$path"
+            if git cat-file -e "$RUNTIME_SHA:$path" 2>/dev/null; then
+              git restore --source="$RUNTIME_SHA" --staged --worktree -- "$path"
             elif resolves_through_symlink "$path"; then
               SKIPPED_THROUGH_LINK=$((SKIPPED_THROUGH_LINK + 1))
             else
@@ -389,13 +419,17 @@ jobs:
           if [ "$SKIPPED_THROUGH_LINK" -gt 0 ]; then
             echo "Restore skipped $SKIPPED_THROUGH_LINK path(s) resolving through a symlink."
           fi
-          echo "Audit runtime restored from PR base $BASE_SHA"
+          echo "Audit runtime restored from $RUNTIME_SHA"
 
       - name: Stage trusted audit scripts outside the agent workspace
         id: stage
         env:
-          # The PR base on a pull-request audit; the checked-out commit on a full run.
-          TRUSTED_SHA: ${{ inputs.mode == 'pr' && inputs.base_sha || github.sha }}
+          # The commit the runtime was restored from on a pull-request audit (the
+          # PR base when it is on the trusted branch, else that branch's tip); the
+          # checked-out commit on a full run. An empty output in pr mode becomes the
+          # null SHA, which no repository has, so staging fails rather than falling
+          # back to github.sha, which on a pull_request event is the PR's merge.
+          TRUSTED_SHA: ${{ inputs.mode == 'pr' && (steps.restore.outputs.runtime_sha || '0000000000000000000000000000000000000000') || github.sha }}
           BASE_BRANCH: ${{ inputs.base_ref }}
         shell: bash
         run: |
@@ -492,11 +526,27 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # On a pull-request audit the checkout is the PR head, so any path this
+          # job writes can be a symlink the PR committed, and mkdir, a redirect
+          # or cp follows it out of the tree. Refuse a report directory reached
+          # through a link, then clear every path the job writes before writing
+          # it: the brief, the report, the transcript and the CLI log.
+          REPORT_DIR="$(dirname "$REPORT_PATH")"
+          dir="$REPORT_DIR"
+          while [ "$dir" != "." ] && [ "$dir" != "/" ] && [ "$dir" != "$GITHUB_WORKSPACE" ]; do
+            if [ -L "$dir" ]; then
+              echo "::error title=Report path through a symlink::The report directory passes through a symlink ($dir). Refusing to write through it."
+              exit 1
+            fi
+            dir="$(dirname "$dir")"
+          done
+          BRIEF="$GITHUB_WORKSPACE/security-audit-brief.md"
+          rm -rf -- "$BRIEF" "$REPORT_PATH" \
+            "$REPORT_DIR/security-audit-session.md" "$REPORT_DIR/security-audit-cli.log"
           # Create the directory only. Claude Code's Write refuses to overwrite
           # a file the session has not Read, so an empty report file here can
           # end a run that reports success with no report.
-          mkdir -p "$(dirname "$REPORT_PATH")"
-          BRIEF="$GITHUB_WORKSPACE/security-audit-brief.md"
+          mkdir -p "$REPORT_DIR"
           {
             echo "Mode: $MODE"
             echo "Repository: $REPO"
@@ -592,26 +642,37 @@ jobs:
           SRC=.github/agent-runtime
           STAGED="$RUNNER_TEMP/read-confinement"
           test -s "$SRC/confine-reads-to-workspace.mjs"
-          test -s "$SRC/read-confinement.settings.json"
+          test -s "$SRC/confine-writes-to-worktree.mjs"
+          test -s "$SRC/security-audit.settings.json"
           # The settings must end each command in `|| exit 2`: a hook that crashes
           # is a non-blocking error, so without it a hook that cannot run allows.
           # Single quotes on purpose: match the literal `$RUNNER_TEMP` in the file.
           # shellcheck disable=SC2016
-          if ! grep -qF '$RUNNER_TEMP/read-confinement/confine-reads-to-workspace.mjs\" || exit 2' "$SRC/read-confinement.settings.json"; then
-            echo "$SRC/read-confinement.settings.json must run the hook from \$RUNNER_TEMP/read-confinement/ and end in || exit 2."
+          if ! grep -qF '$RUNNER_TEMP/read-confinement/confine-reads-to-workspace.mjs\" || exit 2' "$SRC/security-audit.settings.json" \
+            || ! grep -qF '$RUNNER_TEMP/read-confinement/confine-writes-to-worktree.mjs\" || exit 2' "$SRC/security-audit.settings.json"; then
+            echo "$SRC/security-audit.settings.json must run the hooks from \$RUNNER_TEMP/read-confinement/ and end in || exit 2."
             echo "Copy .github/agent-runtime/ from the same tag as the workflow pin."
             exit 1
           fi
           rm -rf "$STAGED"
           mkdir "$STAGED"
-          cp "$SRC/confine-reads-to-workspace.mjs" "$SRC/read-confinement.settings.json" "$STAGED/"
+          cp "$SRC/confine-reads-to-workspace.mjs" "$SRC/confine-writes-to-worktree.mjs" \
+            "$SRC/security-audit.settings.json" "$STAGED/"
           chmod 444 "$STAGED"/*
-          # A hook that cannot run decides nothing. Show the staged copy refuses
-          # an out-of-tree read before any agent relies on it.
+          # A hook that cannot run decides nothing. Show each staged copy refuses
+          # what it exists to refuse before any agent relies on it.
           PROBE='{"tool_name":"Read","tool_input":{"file_path":"/proc/self/environ"}}'
           DECISION="$(printf '%s' "$PROBE" | node "$STAGED/confine-reads-to-workspace.mjs" || true)"
           if ! printf '%s' "$DECISION" | grep -qF '"permissionDecision":"deny"'; then
             echo "The staged read-confinement hook did not refuse an out-of-tree read."
+            exit 1
+          fi
+          # The agent writes its report into a tree the PR controls, so Write is
+          # judged on the resolved path: a link cannot carry it out of the tree.
+          PROBE='{"tool_name":"Write","tool_input":{"file_path":".claude/settings.json"}}'
+          DECISION="$(printf '%s' "$PROBE" | node "$STAGED/confine-writes-to-worktree.mjs" || true)"
+          if ! printf '%s' "$DECISION" | grep -qF '"permissionDecision":"deny"'; then
+            echo "The staged write-confinement hook did not refuse a write to project settings."
             exit 1
           fi
           echo "hook_sha256=$(cat "$STAGED"/* | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
@@ -692,11 +753,12 @@ jobs:
           # Installed above; the action then skips its own Bun download.
           path_to_bun_executable: ${{ steps.bun.outputs.path }}
           claude_code_oauth_token: ${{ secrets.claude_code_oauth_token }}
-          # A PreToolUse hook confines Read/Glob/Grep to the workspace — an
-          # allowlist entry only pre-approves and cannot revoke the action's base
-          # read grant, so scoping must be a deny decision (see the hook script).
-          # On a PR run it is restored from the base before the agent runs.
-          settings: ${{ runner.temp }}/read-confinement/read-confinement.settings.json
+          # PreToolUse hooks confine Read/Glob/Grep to the workspace, and
+          # Edit/Write to the working tree by resolved path — an allowlist entry
+          # only pre-approves and cannot revoke the action's base grants, so
+          # scoping must be a deny decision (see the hook scripts). On a PR run
+          # they are restored from the base before the agent runs.
+          settings: ${{ runner.temp }}/read-confinement/security-audit.settings.json
           # The job token, scoped by the permissions block above. Without this
           # input the action uses the Claude App token, which can write this
           # repository; this job reads attacker-influenced text and never pushes.
@@ -749,6 +811,8 @@ jobs:
           echo "session=$SESSION" >> "$GITHUB_ENV"
           echo "cli_log=$CLI_LOG" >> "$GITHUB_ENV"
 
+          # Remove first, so neither write below can follow a link into place.
+          rm -f -- "$SESSION" "$CLI_LOG"
           # The execution file can contain finding detail, so it only ever
           # travels to the private advisory / email — never to an artifact or the log.
           if [ -n "${EXECUTION_FILE:-}" ] && [ -f "$EXECUTION_FILE" ]; then
