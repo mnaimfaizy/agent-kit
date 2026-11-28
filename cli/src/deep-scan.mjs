@@ -359,7 +359,7 @@ export async function runDeepScan({
       [
         `${tokens.join(" and ")} ${tokens.length > 1 ? "are" : "is"} set in deep-scan's environment, and a GitHub token must never reach the sandbox.`,
         `Unset ${tokens.length > 1 ? "them" : "it"} for this run, for example:`,
-        "  env -u GH_TOKEN -u GITHUB_TOKEN npx @mnaimfaizy/agent-kit deep-scan",
+        `  env -u GH_TOKEN -u GITHUB_TOKEN npx @mnaimfaizy/agent-kit deep-scan${provingRun ? " --proving-run" : ""}`,
         "  In PowerShell: Remove-Item Env:GH_TOKEN, Env:GITHUB_TOKEN -ErrorAction SilentlyContinue, then run it again.",
       ],
       RUNTIMES_DOCS_URL,
