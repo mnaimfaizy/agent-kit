@@ -36,7 +36,7 @@ const VERSION = "2.1.328";
  * (`node docker/harness-images/image.mjs record claude-code`).
  */
 const IMAGE = "ghcr.io/mnaimfaizy/agent-kit-sandbox-claude-code";
-const IMAGE_DIGEST = "sha256:07639f096861d011ffdb5f8ba8a191b884ea449a41456e048703e81f90eb1744"; // inputs-377fe8ee201e90f814db7b0844d3d8ca
+const IMAGE_DIGEST = "sha256:076c453ea2c86191e20e0c66d717c886dffda18549f1df2e6fdc0630d48e9a5f"; // inputs-bbd92fca1095d0aa25d8c7b8d963b90d
 
 /** The environment that keeps the auto-updater off. */
 const AUTO_UPDATER_OFF = "DISABLE_AUTOUPDATER=1";
