@@ -21,7 +21,7 @@
 //   value the launcher gave the sandboxed agent in place of a real
 //   credential, so another process in the sandbox that never read it cannot
 //   spend the real one;
-// - only a JSON body the profile's filter passes, within its size bound;
+// - only a JSON object the profile's filter passes, within its size bound;
 // - at most MAX_IN_FLIGHT requests at once, each holding a reservation of
 //   the tokens it may spend, so the cap holds against requests sent together.
 
@@ -85,8 +85,8 @@ const DROPPED = [
  * @property {{ scope: string, route: string }} refusals  what a caller refused by
  *   `inScope` or by `routes` is told
  * @property {number} maxRequestBytes  the largest request body read, judged and forwarded
- * @property {(body: unknown) => string | null} requestRefusal  why the parsed body is
- *   refused, as a short fixed reason, or null
+ * @property {(body: object) => string | null} requestRefusal  why the parsed body, a JSON
+ *   object, is refused, as a short fixed reason, or null
  * @property {(body: Buffer) => number} inputEstimate  the input tokens a request may spend
  * @property {(body: any) => unknown} declaredLimit  the output tokens a request declares
  * @property {(kind: "unauthenticated" | "cap_reached" | "invalid_request" | "too_large" | "busy", message: string) => object} errorBody
@@ -275,7 +275,11 @@ export async function startProxy(
       } catch {
         parsed = undefined;
       }
-      const why = profile.requestRefusal(parsed);
+      // The core refuses a body that is no object itself, so no profile's
+      // body hook is ever handed one.
+      const why = isObject(parsed)
+        ? profile.requestRefusal(parsed)
+        : "a body that is not a JSON object";
       if (why) {
         refuse(why);
         answerError(res, 400, "invalid_request", `refused ${why}`);
@@ -439,6 +443,11 @@ function decodePlainPath(path) {
     !/(^|\/)\.{1,2}(\/|$)|\\/.test(decoded) &&
     !/(^|\/)(\.|%2e){1,2}(\/|$)|%2f|\\/i.test(path);
   return plain ? decoded : null;
+}
+
+/** Whether a parsed body is a JSON object, not a list, a bare value or nothing. */
+function isObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 /** A declared token limit as a reservation counts it: a positive whole number, or nothing. */

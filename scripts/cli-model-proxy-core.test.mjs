@@ -242,6 +242,20 @@ describe("the model proxy core takes everything about a provider from its profil
       assert.equal(api.seen.length, 2);
     }));
 
+  it("refuses a body that is not a JSON object itself, before any of the profile's body hooks", () =>
+    withProxy({}, async ({ api, proxy }) => {
+      // The toy filter passes these, and its declared limit would throw on some.
+      for (const body of ["not json", "", "null", "[]", "7", '"text"']) {
+        const res = await fetch(`http://127.0.0.1:${proxy.port}/toy/say`, { method: "PUT", body });
+        assert.equal(res.status, 400, JSON.stringify(body));
+        assert.deepEqual(await res.json(), {
+          toy: "invalid_request",
+          message: "model proxy: refused a body that is not a JSON object",
+        });
+      }
+      assert.equal(api.seen.length, 0);
+    }));
+
   it("refuses what the profile's body filter and size bound refuse", () =>
     withProxy({}, async ({ api, send }) => {
       const filtered = await send({ say: { forbidden: true } });
