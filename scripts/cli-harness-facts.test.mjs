@@ -156,6 +156,13 @@ describe("the file's shape is grow-only", () => {
     }
   });
 
+  it("has every field of a harness in the docs' table", () => {
+    const docs = readFileSync(join(ROOT, "docs", "harnesses.md"), "utf8");
+    for (const field of Object.keys(shipped().harnesses["claude-code"])) {
+      assert.match(docs, new RegExp(`^\\| \`${field}\` +\\|`, "m"), field);
+    }
+  });
+
   it("says so in the docs", () => {
     const docs = readFileSync(join(ROOT, "docs", "harnesses.md"), "utf8");
     assert.match(

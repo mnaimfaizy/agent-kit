@@ -1,6 +1,8 @@
 // Contract for `agent-kit deep-scan` (cli/): the Support Level preflight and
 // the Proving run flag (ADR 0028). Every pair starts at `documented`, so a
-// Deep scan is refused before anything runs unless it is a Proving run.
+// Deep scan is refused before anything runs unless it is a Proving run. The
+// refusal cases run while the shipped cell is below `tried`; the rule at each
+// level is held by cli-harness-preflight.test.mjs, whatever the cell says.
 // Fixtures and the fakes behind every run: scripts/cli-deep-scan-fixtures.mjs.
 
 import assert from "node:assert/strict";
@@ -24,7 +26,12 @@ import {
 const CELL = readHarnesses().harnesses["claude-code"].supportLevels["deep-scan"];
 const REFUSED =
   /^REFUSED {2}Claude Code on the deep-scan Stage is at Support Level documented, below tried/m;
-const SUMMARY = /^Harness: claude-code; Support Level: documented; Proving run: yes$/m;
+const SUMMARY = new RegExp(
+  `^Harness: claude-code; Support Level: ${CELL.level}; Proving run: yes$`,
+  "m",
+);
+/** A level raised by pull request lifts the refusal, and these cases with it. */
+const below = { skip: CELL.level !== "documented" && "the shipped cell is no longer below tried" };
 const inCI = (extra = {}) => ({
   PATH: "/usr/bin",
   ANTHROPIC_API_KEY: REAL_KEY,
@@ -32,21 +39,21 @@ const inCI = (extra = {}) => ({
   ...extra,
 });
 
-describe("a Deep scan on a pair below tried", () => {
-  it("starts at documented, which is why these cases hold", () => {
-    assert.equal(CELL.level, "documented");
-  });
+describe("a Deep scan and its pair's Support Level", () => {
+  it(
+    "is refused before anything runs without --proving-run, pointing at the docs",
+    below,
+    async () => {
+      const res = await run(recipeRepo(VALID), [], { provingRun: false });
+      assert.equal(res.code, 1, res.text);
+      assert.match(res.err, REFUSED);
+      assert.match(res.err, /only as a Proving run \(--proving-run\)/);
+      assert.match(res.err, /docs\/harnesses\.md#proving-runs/);
+      assert.deepEqual(res.calls, [], "no git and no runtime command");
+    },
+  );
 
-  it("is refused before anything runs without --proving-run, pointing at the docs", async () => {
-    const res = await run(recipeRepo(VALID), [], { provingRun: false });
-    assert.equal(res.code, 1, res.text);
-    assert.match(res.err, REFUSED);
-    assert.match(res.err, /only as a Proving run \(--proving-run\)/);
-    assert.match(res.err, /docs\/harnesses\.md#proving-runs/);
-    assert.deepEqual(res.calls, [], "no git and no runtime command");
-  });
-
-  it("is refused in GitHub Actions too, and writes no run summary", async () => {
+  it("is refused in GitHub Actions too, and writes no run summary", below, async () => {
     const summary = join(tmp, `summary-${nextId()}`);
     const res = await run(recipeRepo(VALID), [], {
       provingRun: false,
@@ -57,7 +64,7 @@ describe("a Deep scan on a pair below tried", () => {
     assert.throws(() => readFileSync(summary), /ENOENT/);
   });
 
-  it("refuses a Verification run as well", async () => {
+  it("refuses a Verification run as well", below, async () => {
     const res = await run(verifyRepo(), verifyArgs(), { host: verifyHost(), provingRun: false });
     assert.equal(res.code, 1, res.text);
     assert.match(res.err, REFUSED);
@@ -68,7 +75,9 @@ describe("a Deep scan on a pair below tried", () => {
     const res = await run(recipeRepo(VALID), ["--proving-run"], { provingRun: false });
     assert.equal(res.code, 0, res.text);
     assert.match(res.out, SUMMARY);
-    assert.match(res.err, /Claude Code on the deep-scan Stage is at Support Level documented/);
+    if (!below.skip) {
+      assert.match(res.err, /Claude Code on the deep-scan Stage is at Support Level documented/);
+    }
   });
 
   it("writes harness, level and Proving run to the run summary, and nothing else", async () => {
@@ -77,7 +86,7 @@ describe("a Deep scan on a pair below tried", () => {
     assert.equal(res.code, 0, res.text);
     assert.equal(
       readFileSync(summary, "utf8"),
-      "Harness: `claude-code` · Support Level: `documented` · Proving run: yes\n",
+      `Harness: \`claude-code\` · Support Level: \`${CELL.level}\` · Proving run: yes\n`,
     );
   });
 

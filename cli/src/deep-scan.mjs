@@ -49,7 +49,7 @@ import {
   strayTokens,
   writeRunSummary,
 } from "./deep-scan/preflight.mjs";
-import { readHarnesses } from "./harness/facts.mjs";
+import { effortFor, readHarnesses } from "./harness/facts.mjs";
 import { RUNTIMES_DOCS_URL, selectRuntime } from "./deep-scan/runtime.mjs";
 import {
   readFindingFile,
@@ -59,11 +59,11 @@ import {
 } from "./deep-scan/verify.mjs";
 import { CLI_VERSION } from "./tags.mjs";
 
-/**
- * The effort levels the Deep scan's harness accepts, from
- * `cli/harnesses.json`: nothing else reaches the command line.
- */
-export const EFFORTS = Object.freeze(readHarnesses().harnesses["claude-code"].effortValues);
+/** The Deep scan's harness, as `cli/harnesses.json` describes it. */
+const HARNESS = readHarnesses().harnesses["claude-code"];
+
+/** The effort levels it accepts: nothing else reaches the command line. */
+export const EFFORTS = Object.freeze(HARNESS.effortValues);
 
 const CREDENTIALS_DOCS_URL = `https://github.com/mnaimfaizy/agent-kit/blob/v${CLI_VERSION}/docs/security-audit.md#credentials`;
 const PROVING_DOCS_URL = `https://github.com/mnaimfaizy/agent-kit/blob/v${CLI_VERSION}/docs/harnesses.md#proving-runs`;
@@ -183,7 +183,8 @@ export async function runDeepScan({
     );
     return 2;
   }
-  if (effort !== undefined && !EFFORTS.includes(effort)) {
+  // The Stage's own effort: one its harness does not accept is refused.
+  if (effort !== undefined && (effort === "" || "refused" in effortFor(HARNESS, { effort }))) {
     err(
       `--effort must be one of ${EFFORTS.slice(0, -1).join(", ")} or ${EFFORTS.at(-1)}, got: ${JSON.stringify(effort)}`,
     );

@@ -124,7 +124,7 @@ Copy the templates for the flows you want into `.github/workflows/`:
 - [`examples/security-audit-caller.yml`](../examples/security-audit-caller.yml)
 - [`examples/plan-implement-review-caller.yml`](../examples/plan-implement-review-caller.yml)
 - [`examples/review-response-caller.yml`](../examples/review-response-caller.yml)
-- [`examples/deep-scan-caller.yml`](../examples/deep-scan-caller.yml), opt-in: it needs a Scan recipe and its own secret (step 4). See [Deep scan in CI](security-audit.md#deep-scan-in-ci).
+- [`examples/deep-scan-caller.yml`](../examples/deep-scan-caller.yml), opt-in: it needs a Scan recipe and its own secret (step 4), and its scan is refused while its harness is below the `tried` [Support Level](harnesses.md#support-levels). See [Deep scan in CI](security-audit.md#deep-scan-in-ci).
 
 Then edit:
 
