@@ -49,6 +49,9 @@ NOREPLY_SUFFIX = "@users.noreply.github.com"
 # The `main branch` ruleset requires these checks (CONTRIBUTING.md, Branch protection).
 REQUIRED_CHECKS = ("Tests", "Lint and format", "Internal links")
 PUBLISH_WORKFLOW = "publish-cli.yml"
+# The weekly live suite puts this label on its issue when a Guard probe failed (ADR 0031,
+# .github/harness-live/report-failure.mjs). An open one blocks the next release.
+GUARD_FAILURE_LABEL = "guard-failure"
 NOTES_TEMPLATE = SCRIPTS / "release-notes-template.md"
 # A line the release notes template asks the author to replace. Neither a
 # commit from `prepare` nor a cut ships notes that still carry one.
@@ -727,6 +730,34 @@ def ci_problem(sha: str) -> str | None:
     return None
 
 
+def guard_problem() -> str | None:
+    """Why an open failed-Guard-probe issue stops the release, or None. Refuses when it cannot tell."""
+    done = gh(
+        [
+            "issue",
+            "list",
+            "--repo",
+            repo_slug(),
+            "--state",
+            "open",
+            "--label",
+            GUARD_FAILURE_LABEL,
+            "--json",
+            "url",
+        ],
+        "check for an open failed Guard probe",
+    )
+    if done.returncode != 0:
+        return f"Could not list the open {GUARD_FAILURE_LABEL} issues: {done.stderr.strip()}"
+    urls = [issue["url"] for issue in json.loads(done.stdout or "[]")]
+    if urls:
+        return (
+            f"A failed Guard probe blocks the release, open as {', '.join(urls)}. Resolve it, see a later"
+            " Harness live run pass, close the issue, then re-run."
+        )
+    return None
+
+
 def head_file(path: str, rev: str = "HEAD") -> str | None:
     done = subprocess.run(
         ["git", "show", f"{rev}:{path}"], capture_output=True, text=True, encoding="utf-8", check=False
@@ -872,6 +903,13 @@ def cut(args: argparse.Namespace) -> int:
         ci = str(err)
     if ci:
         problems.append(ci)
+    try:
+        guard = guard_problem()
+    except ReleaseError as err:
+        guard = str(err)
+    # A gh that cannot run at all is reported once, by the CI check.
+    if guard and guard != ci:
+        problems.append(guard)
 
     existing = local_tag(tag)
     replace = False

@@ -54,6 +54,7 @@ Before it tags, the cut checks that:
 
 - you are on `main`, the working tree is clean, and `HEAD` equals `origin/main` after a fetch;
 - CI on that commit is green: the `Tests`, `Lint and format` and `Internal links` checks, read with `gh`;
+- no open issue carries the `guard-failure` label: a Guard probe failed (see [A failed Guard probe](#a-failed-guard-probe));
 - the tag is not on `origin`, and it comes after the latest tag there;
 - `cli/package.json`'s version at `HEAD` is the tag without its `v`;
 - for beta, rc and stable, `CHANGELOG.md` has the tag's section, and `release-notes/<tag>.md` is committed with no `TODO(release-notes)` line left;
@@ -196,6 +197,17 @@ User-facing notes summarize contract-impacting changes — not a raw commit dump
 ```
 
 The GitHub Release body is `release-notes/<tag>.md` on the tag. `prepare-release.sh` writes it from the template for beta, rc and stable. An alpha without a notes file gets the body `Pre-release <tag>`.
+
+## A failed Guard probe
+
+The [Harness live](../.github/workflows/harness-live.yml) workflow runs each pinned harness against the kit's stub model in the real sandbox, and has it attempt a breach of each Guard (ADR [0031](adr/0031-adapters-are-proven-against-a-stub-model-in-the-real-sandbox.md)). When its weekly run on `main` fails, it opens an issue, or adds to the open one. If a Guard was not held (breached, or its probe could not show it held), the issue is labelled `ready-for-human` and `guard-failure`.
+
+While any open issue carries `guard-failure`, `cut-release.sh` refuses to tag, dry run included, with no override. It also refuses when `gh` cannot list the issues. To unblock:
+
+1. Read the run the issue links to. It names each scenario and Guard.
+2. Fix the cause on `main`.
+3. Run **Harness live** by hand on `main` (**Actions → Harness live → Run workflow**) and see it pass.
+4. Close the issue.
 
 ## A tag turned out broken
 

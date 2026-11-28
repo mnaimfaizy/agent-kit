@@ -95,6 +95,8 @@ class FakeGh:
         # Extra check runs as (name, status, conclusion, started_at), beside the green ones above.
         self.extra_checks: list[tuple[str, str, str, str]] = []
         self.open_pr: str | None = None
+        # Open issues labelled as a failed Guard probe, by URL; None: gh cannot list them.
+        self.guard_issues: list[str] | None = []
         self.calls: list[list[str]] = []
 
     def __call__(self, args: list[str], stdin: str | None = None) -> subprocess.CompletedProcess:
@@ -110,6 +112,10 @@ class FakeGh:
         if args[0] == "api" and "check-runs" in args[1]:
             rows = [(n, s, c, "2026-11-14T10:00:00Z") for n, (s, c) in self.checks.items()] + self.extra_checks
             return done(0, "".join("\t".join(row) + "\n" for row in rows))
+        if args[:2] == ["issue", "list"]:
+            if self.guard_issues is None:
+                return done(1, err="HTTP 502")
+            return done(0, json.dumps([{"url": url} for url in self.guard_issues]))
         if args[:2] == ["release", "view"]:
             return done(0, self.release_url) if self.release_url else done(1, err="release not found")
         if args[:2] == ["run", "list"]:
@@ -640,6 +646,34 @@ def test_cut_requires_green_ci_and_a_working_gh() -> None:
         fake.installed, fake.signed_in = True, False
         code, out = run("cut", "--tag", "v1.0.0-beta.2")
         assert code == 1 and "gh auth login" in out
+
+
+def test_cut_refuses_while_a_failed_guard_probe_s_issue_is_open() -> None:
+    with sandbox() as fake:
+        ready_main()
+        url = "https://github.com/o/r/issues/9"
+        fake.guard_issues = [url]
+        for flags in ([], ["--apply", "--publish"]):
+            code, out = run("cut", "--tag", "v1.0.0-beta.2", *flags)
+            assert code == 1 and "Guard probe" in out and url in out, out
+        assert g("tag", "--list", "v1.0.0-beta.2") == "" and origin_tag("v1.0.0-beta.2") == ""
+        asked = next(call for call in fake.calls if call[:2] == ["issue", "list"])
+        assert asked[asked.index("--label") + 1] == release.GUARD_FAILURE_LABEL
+        assert asked[asked.index("--state") + 1] == "open"
+        assert asked[asked.index("--repo") + 1] == "o/r"
+        # It cannot tell, so it refuses.
+        fake.guard_issues = None
+        code, out = run("cut", "--tag", "v1.0.0-beta.2")
+        assert code == 1 and "Could not list" in out and "HTTP 502" in out, out
+        fake.guard_issues = []
+        assert run("cut", "--tag", "v1.0.0-beta.2")[0] == 0, "closed, it blocks nothing"
+
+
+def test_the_release_blocks_on_the_label_the_weekly_report_sets() -> None:
+    script = (ROOT / ".github" / "harness-live" / "report-failure.mjs").read_text(encoding="utf-8")
+    assert f'GUARD_LABEL = "{release.GUARD_FAILURE_LABEL}";' in script
+    doc = (ROOT / "docs" / "cutting-releases.md").read_text(encoding="utf-8")
+    assert f"`{release.GUARD_FAILURE_LABEL}`" in doc
 
 
 def test_cut_requires_the_version_changelog_and_finished_notes() -> None:
