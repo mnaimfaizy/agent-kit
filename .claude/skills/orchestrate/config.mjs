@@ -1578,6 +1578,13 @@ export function readiness({ path, config, problems, qaConfig = null }) {
           "an issue with none of its labels matches no entry, which stops the Dispatch Plan",
       );
   }
+  for (const key of EXECUTOR_KEYS) {
+    const own = effective.harness;
+    const named = effective.executors[key];
+    if (effective.efforts[key] === null || own === null) continue;
+    if ((named === null || named === own) && HARNESSES[own]?.effort === null)
+      notes.push(unusedEffort(key, own));
+  }
   if (qaConfig !== null) {
     const qaSet = isMapping(config.ready_to_merge) && config.ready_to_merge.qa !== undefined;
     if (!qaSet)
@@ -1599,6 +1606,9 @@ export function readiness({ path, config, problems, qaConfig = null }) {
     );
   return { ready: needs.length === 0, needs, notes };
 }
+
+const unusedEffort = (kind, id) =>
+  `\`efforts.${kind}\` is not used: \`${id}\` takes no effort, so that work runs with its default`;
 
 /** A label name as it is compared; null, a catch-all's, stays null. */
 const labelKey = (name) => (name === null ? null : name.trim().toLowerCase());
@@ -1627,12 +1637,13 @@ export function reasonText(reason) {
  * @param {{id: string, kind: string, labels?: string[]}[]} delegations in Dispatch Plan order
  * @param {Record<string, {ok: boolean, cause?: string}>} available each other
  *   harness's step-1 result. The Chief of Staff's own harness needs none.
- * @returns {{choices: {id: string, harness: string, model: string | null, effort: string | null, reason: Record<string, any> | null}[], problems: string[]}}
+ * @returns {{choices: {id: string, harness: string, model: string | null, effort: string | null, reason: Record<string, any> | null}[], problems: string[], notes: string[]}} `notes` are for the Dispatch Plan to say
  */
 export function chooseExecutors(settings, delegations, available = {}) {
   const { executors = {}, models = {}, efforts = {}, harness: own } = settings;
   const choices = [];
   const problems = [];
+  const notes = new Set();
   const turns = new Map();
   const state = (id) =>
     id === own ? { ok: true } : Object.hasOwn(available, id) ? available[id] : null;
@@ -1659,15 +1670,19 @@ export function chooseExecutors(settings, delegations, available = {}) {
       if (bad !== null) problem(bad);
       else if (!isOpen(harness))
         problem(`\`executors.${kind}\`: \`${harness}\` is ${state(harness).cause}`);
-      else
+      else {
+        // None where the harness takes none, so the plan never promises one.
+        const takes = Boolean(HARNESSES[harness]?.effort);
+        const effort = efforts[kind] ?? null;
+        if (effort !== null && !takes) notes.add(unusedEffort(kind, harness));
         choices.push({
           id,
           harness,
           model: models[kind] ?? null,
-          // None where the harness takes none, so the plan never promises one.
-          effort: HARNESSES[harness]?.effort ? (efforts[kind] ?? null) : null,
+          effort: takes ? effort : null,
           reason: null,
         });
+      }
       continue;
     }
 
@@ -1715,7 +1730,7 @@ export function chooseExecutors(settings, delegations, available = {}) {
       reason = { by: "fallback", harness: passed.harness, cause: state(passed.harness).cause };
     choices.push({ id, harness: entry.harness, model: entry.model, effort: entry.effort, reason });
   }
-  return { choices, problems };
+  return { choices, problems, notes: [...notes] };
 }
 
 /** The re-gate commands, whether `regate` is a list or a mapping; null when unset. */
@@ -2091,7 +2106,7 @@ function chooseCommand(rest, io) {
   const choices = result.choices.map((c) => ({ ...c, why: reasonText(c.reason) }));
   return {
     code: result.problems.length ? 1 : 0,
-    out: `${JSON.stringify({ choices, problems: result.problems }, null, 2)}\n`,
+    out: `${JSON.stringify({ choices, problems: result.problems, notes: result.notes }, null, 2)}\n`,
   };
 }
 

@@ -149,7 +149,7 @@ Each value is a model name the Executor's harness accepts, passed as written: wi
 
 The same keys as `models`, for the effort that work runs with. It applies where `executors` names one harness for that kind of work, and to work on the Chief of Staff's own harness where that harness lets a Delegation or phase choose its effort, the same limit `models.review` has. Unset, that work runs with the harness's default. A list of entries in [`executors`](#executors) reads none of it: each entry names its own `effort`.
 
-Each value is passed through as written, in the harness's own words: no table maps one harness's effort names to another's. A harness file's **Effort** line gives the flag its headless run takes, or `none`. An `efforts` value for a kind of work that `executors` moves to another harness whose line says `none` is a problem. Otherwise the harness's CLI rejects a value it does not take, and the Delegation's log shows why.
+Each value is passed through as written, in the harness's own words: no table maps one harness's effort names to another's. A harness file's **Effort** line gives the flag its headless run takes, or `none`. An `efforts` value for a kind of work that `executors` moves to another harness whose line says `none` is a problem. On the Chief of Staff's own harness, a value that harness cannot take is not used: `check` notes it when `harness` is pinned, and `choose` notes it either way. Otherwise the harness's CLI rejects a value it does not take, and the Delegation's log shows why.
 
 ### `harness`
 
@@ -198,7 +198,7 @@ Each Delegation gets its entry when the Dispatch Plan is made, in the plan's ord
 
 The plan gives each choice its reason: `label <name>`, `catch-all`, `round-robin <i>/<n>`, or `fallback: <harness> <cause>` (`missing` or `signed-out`), which names the entry passed over in place of the label or the turn. Fallback happens only here: nothing changes harness after "go", and a harness that fails or reaches its rate limit mid-run stops or raises a Decision Request.
 
-`node "<skill>/config.mjs" choose --harness <id> --delegations <file.json> --available <file.json>` applies the rule, with `--answers <file.json>` as `check` takes it. `--harness` is the Chief of Staff's own, which may be one with no harness file. `--delegations` is a list of `{ id, kind, labels }` in plan order, `kind` one of `build`, `analysis` or `qa`. `--available` maps every other harness `executors` names to `{ "ok": true }` or `{ "ok": false, "cause": "missing" }`. Both paths are relative to the repository. It prints each Delegation's `harness`, `model`, `effort`, `reason` and `why`, and any problems; it exits 0, 1 on a problem, and 2 on bad usage.
+`node "<skill>/config.mjs" choose --harness <id> --delegations <file.json> --available <file.json>` applies the rule, with `--answers <file.json>` as `check` takes it. `--harness` is the Chief of Staff's own, which may be one with no harness file. `--delegations` is a list of `{ id, kind, labels }` in plan order, `kind` one of `build`, `analysis` or `qa`. `--available` maps every other harness `executors` names to `{ "ok": true }` or `{ "ok": false, "cause": "missing" }`. Both paths are relative to the repository. It prints each Delegation's `harness`, `model`, `effort`, `reason` and `why`, any problems, and `notes` for the plan to say, such as an `efforts` value its harness cannot use; it exits 0, 1 on a problem, and 2 on bad usage.
 
 #### The harnesses it may name
 

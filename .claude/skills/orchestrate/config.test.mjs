@@ -25,6 +25,9 @@ import { after, test } from "node:test";
 import {
   CONFIG_FILES,
   DEFAULTS,
+  ENTRY_KEYS,
+  SPREADS,
+  UNAVAILABLE_CAUSES,
   chooseExecutors,
   reasonText,
   HARNESSES,
@@ -1813,6 +1816,17 @@ test("CONFIG.md's `executors` example reads with no problems", () => {
   assert.deepEqual(parseConfig("orchestrate.config.yml", block).problems, []);
 });
 
+test("CONFIG.md lists every entry key, spread and unavailable cause the reader knows", () => {
+  const section = CONFIG_MD.split("\n### `executors`")[1].split("\n### `")[0];
+  const rows = [...section.matchAll(/^\| `([a-z_]+)` +\|/gm)].map((m) => m[1]);
+  assert.deepEqual(
+    rows.filter((row) => !["build", "analysis", "qa"].includes(row)),
+    [...ENTRY_KEYS],
+  );
+  for (const word of [...SPREADS, ...UNAVAILABLE_CAUSES])
+    assert.ok(section.includes(`\`${word}\``), word);
+});
+
 test("CONFIG.md's `team` example reads with no problems, and is the defaults", () => {
   const block = configBlock("yaml", 4);
   assert.match(block, /^team:/);
@@ -2607,8 +2621,12 @@ test("choosing: a list entry uses only its own model and effort; a single id use
     ],
   );
   assert.equal(choices[2].reason, null);
-  // The Chief of Staff's own harness takes no effort here, so none is promised.
+  // The Chief of Staff's own harness takes no effort here, so none is promised,
+  // and the plan is told.
   assert.equal(choices[3].effort, null);
+  assert.deepEqual(pick(executors, delegations, OK, settings).notes, [
+    "`efforts.qa` is not used: `claude-code-desktop` takes no effort, so that work runs with its default",
+  ]);
 });
 
 test("choosing: labels match whatever their case or spacing", () => {
@@ -2674,4 +2692,24 @@ test("`choose` prints each Delegation's entry and why, from the config and two f
   assert.equal(run(...inputs).code, 1);
   assert.equal(run("--delegations", "run/delegations.json").code, 2);
   assert.equal(run("--delegations", "run/nope.json", "--available", "run/available.json").code, 2);
+});
+
+test("readiness notes an `efforts` value the pinned harness cannot use", () => {
+  const notes = (...lines) =>
+    readiness(
+      readConfig(reader({ "orchestrate.config.yml": [...READY_BASE, ...lines].join("\n") })),
+    ).notes.filter((n) => n.includes("is not used"));
+  assert.deepEqual(notes("harness: claude-code-desktop", "efforts: { build: high }"), [
+    "`efforts.build` is not used: `claude-code-desktop` takes no effort, so that work runs with its default",
+  ]);
+  assert.deepEqual(notes("harness: claude-code-cli", "efforts: { build: high }"), []);
+  assert.deepEqual(
+    notes(
+      "harness: claude-code-desktop",
+      "efforts: { build: high }",
+      "executors: { build: claude-code-cli }",
+    ),
+    [],
+  );
+  assert.deepEqual(notes("efforts: { build: high }"), []);
 });
