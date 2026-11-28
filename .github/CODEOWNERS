@@ -1,7 +1,7 @@
 # Changes under these paths request review from the maintainer: the reusable
 # workflows, the runtime files and skills Consumers copy, the manifest that
 # lists them, the Caller templates Consumers copy, the contract tests and
-# release scripts, the npm CLI, this repository's Threat pack and Scan recipe
+# release scripts, the npm CLI, the Harness images, this repository's Threat pack and Scan recipe
 # (whose edits steer the next Deep scan), and the files
 # that control review routing and dependency bumps.
 # See CONTRIBUTING.md, section "Repository layout".
@@ -18,6 +18,7 @@
 /examples/                @mnaimfaizy
 /scripts/                 @mnaimfaizy
 /cli/                     @mnaimfaizy
+/docker/                  @mnaimfaizy
 
 # Self-protection: a PR must not silently change who reviews, or re-enable
 # automatic bumps of hand-pinned actions.
