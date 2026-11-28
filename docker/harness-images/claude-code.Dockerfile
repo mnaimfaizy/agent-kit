@@ -36,6 +36,9 @@ RUN set -eu; \
 # The sandbox is one run's own, so pip may install beside Debian's packages.
 ENV DISABLE_AUTOUPDATER=1 PIP_BREAK_SYSTEM_PACKAGES=1
 COPY --from=harness /opt/agent-kit /opt/agent-kit
+# The pinned CLI first, as on a layered image: a `claude` a setup step installs
+# never runs in its place. This `bin` holds that CLI alone, never the Node.
+ENV PATH="/opt/agent-kit/bin:${PATH}"
 # The adapter's install layer, as it runs on another image.
 RUN ln -sf /opt/agent-kit/bin/claude /usr/local/bin/claude \
   && mkdir -p /etc/claude-code \

@@ -66,11 +66,12 @@ describe("the Dockerfile of the Claude Code image", () => {
     }
     assert.match(DOCKERFILE, /cp \/usr\/local\/bin\/node \/opt\/agent-kit\/node\/bin\/node/);
     assert.match(DOCKERFILE, /^COPY --from=harness \/opt\/agent-kit \/opt\/agent-kit$/m);
-    assert.doesNotMatch(
-      DOCKERFILE,
-      /^ENV .*PATH=/m,
-      "the harness's Node stays off the project's path",
-    );
+    // The one PATH change: the harness's bin, which holds the CLI alone, goes
+    // first, so a `claude` a setup step installs never runs in its place. The
+    // harness's Node stays off the project's path.
+    const lines = DOCKERFILE.split(/\r?\n/);
+    const paths = lines.filter((l) => l.startsWith("ENV ") && l.includes("PATH="));
+    assert.deepEqual(paths, ['ENV PATH="/opt/agent-kit/bin:${PATH}"']);
   });
 
   it("holds the adapter's install layer, so it runs alone as a layered image does", () => {
