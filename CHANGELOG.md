@@ -6,6 +6,10 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
+## [1.0.0-beta.13] - 2026-11-28
+
+Security release for [GHSA-pcmj-6fhc-546w](https://github.com/mnaimfaizy/agent-kit/security/advisories/GHSA-pcmj-6fhc-546w) and [GHSA-vrhj-cf3v-6rvj](https://github.com/mnaimfaizy/agent-kit/security/advisories/GHSA-vrhj-cf3v-6rvj), classed **Minor** (per [docs/releases.md](docs/releases.md)). **Consumer action required**: re-copy `.github/agent-runtime/` from this tag (the `upgrade` command does it). A Scan recipe whose `grounding` names an `http://` URL, an IP address, a single-label host or `localhost`, or a page that redirects, must name the final public `https://` URL instead.
+
 ### Security
 
 - The Deep scan's grounding fetch now reaches only public HTTPS hosts. It fetched each grounding URL on the maintainer's machine with redirects followed, and checked neither the scheme nor the address, so a grounding page, or the server behind it, could make the host fetch a service only the host can reach and hand the answer to the sandbox. The recipe check now refuses a grounding URL that is not `https://`, names an IP address, a single-label host or `localhost`; the fetch follows no redirect, refuses a host that resolves to a loopback, private, link-local or other non-public address, and connects only to the address it checked. Name each grounding page by its final URL.
