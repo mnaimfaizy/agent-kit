@@ -5,6 +5,7 @@
 - **Tier:** 1.
 - **Headless run:** none: a Live Session belongs to the app. This harness can start the Claude Code CLI's (`claude-code-cli`).
 - **Headless QA:** none: QA is a Live Session.
+- **Effort:** none: it has no headless run, and the facts above name no way to give a Live Session or a sub-agent an effort.
 - **Facts from:** the session tools the app gives a session, as offered on 2026-11-13. The waiting facts (`await`, `message` and the Limits on them) come from the session tools offered on 2026-11-18 (`start_session`, `SendMessage`, `request_keep_awake`, `CronCreate`) and the Claude Code docs pages scheduled-tasks, desktop-scheduled-tasks, tools-reference, cross-session-messaging and desktop, read on 2026-11-18; Agent-kit's `docs/research/orchestrate-idle-chief-of-staff.md` cites each one. Each fact marked "(seen in the spec-314 run)" was seen in the run of 2026-11-19 that the Support Level rests on, and is recorded in its Activity Log. Each fact marked "(seen in the spec-344 run)" was seen in the second run of 2026-11-19, and is recorded in that run's Activity Log. Each fact marked "(seen in the spec-413 run)" was seen in `/orchestrate --spec 413` on `mnaimfaizy/agent-kit`, 2026-11-24, which ended in pull request 478, and is recorded in that run's Activity Log.
 - **Executors:** building, a Live Session; analysis, a sub-agent, or a Live Session if long; QA, a Live Session, parked at the `go` turn when QA is approved (see **Verbs**), else started with its head, as in a plain `go` run; `executors.qa: claude-code-cli` moves QA to a headless run ([claude-code-cli.md](claude-code-cli.md)).
 - **Notify:** a `PushNotification` tool, among the session tools the app offered on 2026-11-17: send it the Delegation's id and that a question is queued. The tool is not always offered: the spec-344 run's session had none, deferred or loaded (seen in the spec-344 run). Where the tool is not offered, a queued question waits in the session and on the board.
@@ -55,3 +56,4 @@
 - Whether a sub-agent can be sent a follow-up message after it finishes.
 - Whether the app runs a slash command sent as a message as the user's own invocation. Try it; if the session does not run it, the human types it. Record which happened.
 - Whether a `PushNotification` reaches the human when the app is in the background or closed.
+- Whether a Live Session or a sub-agent can be given an effort when it starts.

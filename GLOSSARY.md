@@ -336,7 +336,7 @@ A QA Delegation (`d<issue>-qa<k>`) started when the human picks a new QA Delegat
 _Avoid_: partial re-QA, follow-up QA
 
 **Dispatch Plan**:
-The one table the Chief of Staff shows before any Delegation starts, giving each one's scope, Executor, model and wave, with the kinds of routine write the human may approve; one "go" approves it whole.
+The one table the Chief of Staff shows before any Delegation starts, giving each one's scope, Executor, harness, model, effort (with why that harness entry was chosen) and wave, with the kinds of routine write the human may approve; one "go" approves it whole.
 _Avoid_: run plan, schedule
 
 **Activity Log**:

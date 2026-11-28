@@ -5,6 +5,7 @@
 - **Tier:** between 1 and 2. It starts sub-agents in the background and tells the Chief of Staff when one ends, but the human cannot talk to a sub-agent while it works.
 - **Headless run:** `agent -p`
 - **Headless QA:** yes, else a session the human starts.
+- **Effort:** none: no reasoning-effort option on cursor.com/docs/cli/reference/parameters, read on 2026-11-28.
 - **Facts from:** cursor.com/docs, the Subagents, Worktrees, Skills, Headless and Run modes pages, read on 2026-11-14 with Cursor 3.28; and the first run. The waiting facts (`await` and the `stop` hook) are from the Subagents, Hooks and Agent overview pages and the CLI changelog, read on 2026-11-18 with Cursor 3.30.14.
 - **Executors:** building and analysis, a background sub-agent in its own worktree; QA, a headless run of the Cursor CLI (`agent`), else a session the human starts.
 - **Notify:** none known: the sources in **Facts from** name no way for the Chief of Staff to notify the human. A queued question waits in its session and on the board.
@@ -42,3 +43,4 @@
 - Whether `-p` runs `/qa-plan <n>` as the user's own invocation, and whether a headless run has a browser.
 - Which copy wins when both `~/.claude/skills` and `.claude/skills` hold `orchestrate`: Cursor loads both.
 - Whether the harness can notify the human that a question is queued, and how: record what was found.
+- Whether `agent` takes an effort, as a flag or as part of a model name.

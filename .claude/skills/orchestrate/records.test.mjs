@@ -1099,6 +1099,32 @@ describe("derive: the cause list", () => {
 describe("the safe-field check", () => {
   const good = async () => derived();
 
+  it("takes a Delegation's harness and effort, and needs neither", async () => {
+    const record = await good();
+    assert.deepEqual(checkRecord(record), []);
+    assert.equal(Object.hasOwn(record.delegations[0], "harness"), false);
+    Object.assign(record.delegations[0], { harness: "codex-cli", effort: "high" });
+    assert.deepEqual(checkRecord(record), []);
+    record.delegations[0].effort = "as hard as it can";
+    assert.match(checkRecord(record)[0], /^delegations\[0\]\.effort: /);
+  });
+
+  it("derives the harness and effort a Delegation's start event carries", async () => {
+    const dir = root();
+    const file = join(dir, "tmp", "orchestrate", RUN, "delegations", "d348", "events.jsonl");
+    const text = readFileSync(file, "utf8");
+    const found = '"kind":"delegation-started",';
+    assert.ok(text.includes(found));
+    writeFileSync(file, text.replace(found, `${found}"harness":"codex-cli","effort":"high",`));
+    const record = await derived(dir);
+    assert.deepEqual(
+      record.delegations
+        .filter((d) => d.harness !== undefined)
+        .map((d) => [d.id, d.harness, d.effort]),
+      [["d348", "codex-cli", "high"]],
+    );
+  });
+
   it("refuses a free-text field, naming it, and never strips it", async () => {
     const record = await good();
     record.human_steps[2].reason = "the harness refused to start the session";

@@ -5,13 +5,14 @@
 - **Tier:** 2.
 - **Headless run:** `codex exec`
 - **Headless QA:** yes, with a browser MCP server; else a session the human starts.
+- **Effort:** `-c model_reasoning_effort=<effort>` on the headless run: the `-c` override (`codex exec --help`, version 0.172.0) of the `model_reasoning_effort` config key (learn.chatgpt.com/docs/config-file/config-reference), both read on 2026-11-28. The levels depend on the model.
 - **Facts from:** `openai/codex` rust-v0.169.0 and its docs at learn.chatgpt.com/docs, read on 2026-11-14. Codex was not run with a prompt.
 - **Executors:** building and QA, a headless run in a worktree the Chief of Staff makes ([HARNESSES.md](../HARNESSES.md#a-headless-run-in-a-worktree)); analysis, a sub-agent; QA falls back to a session the human starts.
 - **Notify:** none known: the sources in **Facts from** name no way for the Chief of Staff to notify the human. A queued question waits in its session and on the board.
 
 ## Verbs
 
-- `spawn`: `codex exec -C <worktree> -m <model> --json --add-dir <run folder> "<brief>"` in the background, with stdout to `delegations/<id>/output.jsonl`. The handle is the `thread_id` in its `thread.started` event, with the process id.
+- `spawn`: `codex exec -C <worktree> -m <model> [-c model_reasoning_effort=<effort>] --json --add-dir <run folder> "<brief>"` in the background, with stdout to `delegations/<id>/output.jsonl`. The handle is the `thread_id` in its `thread.started` event, with the process id.
 - `message`: `codex exec resume <thread_id> "<text>"` from inside the worktree, once the run has ended.
 - `await`: the process's end. The heartbeat is the foreground watch ([HARNESSES.md](../HARNESSES.md#waiting-an-event-and-a-heartbeat)): while the run waits on a Delegation, the Chief of Staff does not end its turn, and the process's end is one more change the watch sees.
 - `report`: the report file, which `--add-dir` makes writable.
@@ -34,3 +35,4 @@
 - Whether `--approve-for-me`, or an allow rule, approves a `git push`.
 - Whether `codex queue` reaches a running `exec` run, which would let a `message` arrive while it works.
 - Whether the harness can notify the human that a question is queued, and how: record what was found.
+- Whether `codex exec -c model_reasoning_effort=<effort>` takes effect, and whether `resume` needs it again: no source shows that exact command, and none was run.

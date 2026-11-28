@@ -62,7 +62,8 @@ Tabs, anchors, aliases, multi-line scalars, flow collections that span lines, a 
 | `triage_labels`  | each role's name    | The repository's own mapping of the five triage roles to its labels. See below.                                                                                                                                           |
 | `models`         | the harness default | The model for each kind of work. See below.                                                                                                                                                                               |
 | `harness`        | none: detected      | The harness the Chief of Staff runs on, as an id from [HARNESSES.md](HARNESSES.md#the-harnesses). See below.                                                                                                              |
-| `executors`      | this harness        | Another harness for one kind of Delegation. Not the default. See below.                                                                                                                                                   |
+| `efforts`        | the harness default | The effort for each kind of work. See below.                                                                                                                                                                              |
+| `executors`      | this harness        | Another harness, or an ordered list of harnesses, for one kind of Delegation. Not the default. See below.                                                                                                                 |
 | `limits`         | see below           | How many building Delegations run at once, and the shared resources that have one holder at a time.                                                                                                                       |
 | `decisions`      | see below           | Where a human decision is recorded, so a reviewer of the pull request can see it.                                                                                                                                         |
 | `ready_to_merge` | see below           | What Ready to Merge requires beyond green CI and a clean merge into the default branch as it now is.                                                                                                                      |
@@ -142,7 +143,13 @@ Both run from the repository root, or with `--repo <dir>`, and print what they d
 | `review`   | The code-review phase of a building brief, where the harness lets a phase run on its own model. |
 | `qa`       | QA Delegations: composing a QA Plan and running it.                                             |
 
-Each value is a model name the Executor's harness accepts, passed as written: with `executors` set for that kind of work, a model on that harness. Unset, that work runs on the harness's default model.
+Each value is a model name the Executor's harness accepts, passed as written: with `executors` naming one harness for that kind of work, a model on that harness. Unset, that work runs on the harness's default model. A list of entries in [`executors`](#executors) reads none of it: each entry names its own `model`.
+
+### `efforts`
+
+The same keys as `models`, for the effort that work runs with. It applies where `executors` names one harness for that kind of work, and to work on the Chief of Staff's own harness where that harness lets a Delegation or phase choose its effort, the same limit `models.review` has. Unset, that work runs with the harness's default. A list of entries in [`executors`](#executors) reads none of it: each entry names its own `effort`.
+
+Each value is passed through as written, in the harness's own words: no table maps one harness's effort names to another's. A harness file's **Effort** line gives the flag its headless run takes, or `none`. An `efforts` value for a kind of work that `executors` moves to another harness whose line says `none` is a problem. On the Chief of Staff's own harness, a value that harness cannot take is not used: `check` notes it when `harness` is pinned, and `choose` notes it either way. Otherwise the harness's CLI rejects a value it does not take, and the Delegation's log shows why.
 
 ### `harness`
 
@@ -156,7 +163,50 @@ An id from [HARNESSES.md](HARNESSES.md#the-harnesses), such as `claude-code-desk
 | `analysis` | Analysis        |
 | `qa`       | QA              |
 
-Each value is a harness id whose Delegations of that kind run as that harness's headless run, started from the Chief of Staff's shell, instead of on the Chief of Staff's own harness ([HARNESSES.md](HARNESSES.md#executors-on-another-harness)). For example, a Chief of Staff in Cursor with `executors: { build: claude-code-cli }` builds with `claude -p`. Its CLI must be installed and signed in, `models` for that work names a model there, and its Support Level and Limits join the Dispatch Plan's. Unset, every Delegation runs on the Chief of Staff's harness. A value that names the pinned `harness` is that harness's own default, and moves nothing. Any other harness with no headless run, such as `claude-code-desktop` named from Cursor, is a problem here. So is `qa` naming a harness whose headless run cannot carry QA (its harness file's **Headless QA** line is `none`), such as `gemini-cli` or `devin`.
+Each value takes one of three forms:
+
+- a **harness id**;
+- a **list of entries**, which means `spread: first`;
+- a mapping of `spread` (`first`, the default, or `round-robin`) and `entries`, that list.
+
+```yaml
+executors:
+  analysis: claude-code-cli
+  build:
+    spread: round-robin
+    entries:
+      - { harness: codex-cli, model: gpt-codex, effort: high, when_label: backend }
+      - { harness: claude-code-cli, model: claude-sonnet-5-5 }
+      - { harness: copilot-cli }
+```
+
+| Entry key    | Meaning                                                                                      |
+| ------------ | -------------------------------------------------------------------------------------------- |
+| `harness`    | Required. A harness id.                                                                      |
+| `model`      | A model name on that harness. Unset, the harness's default, never `models.<kind>`.           |
+| `effort`     | An effort that harness takes. Unset, the harness's default, never `efforts.<kind>`.          |
+| `when_label` | The entry matches only an issue with this label. Unset, it matches every issue: a catch-all. |
+
+#### Choosing an entry
+
+Each Delegation gets its entry when the Dispatch Plan is made, in the plan's order:
+
+- The entries are read in order. An entry matches when its `when_label` is one of the issue's labels, compared whatever its case, or it has none. Labels are the only selector: nothing is read from the issue body.
+- The first matching, available entry wins. An entry is unavailable when its harness's CLI is missing or signed out at step 1; the Delegation passes to the next match, and the plan says so.
+- With `spread: round-robin`, the available matching entries with the winner's `when_label` (the same label, or all the catch-alls) take turns, in plan order.
+- A Delegation with no matching, available entry is a config problem.
+
+The plan gives each choice its reason: `label <name>`, `catch-all`, `round-robin <i>/<n>`, or `fallback: <harness> <cause>` (`missing` or `signed-out`), which names the entry passed over in place of the label or the turn. Fallback happens only here: nothing changes harness after "go", and a harness that fails or reaches its rate limit mid-run stops or raises a Decision Request.
+
+`node "<skill>/config.mjs" choose --harness <id> --delegations <file.json> --available <file.json>` applies the rule, with `--answers <file.json>` as `check` takes it. `--harness` is the Chief of Staff's own, which may be one with no harness file. `--delegations` is a list of `{ id, kind, labels }` in plan order, `kind` one of `build`, `analysis` or `qa`. `--available` maps every other harness `executors` names to `{ "ok": true }` or `{ "ok": false, "cause": "missing" }`. Both paths are relative to the repository. It prints each Delegation's `harness`, `model`, `effort`, `reason` and `why`, any problems, and `notes` for the plan to say, such as an `efforts` value its harness cannot use; it exits 0, or 1 when a Delegation has a problem, listed in `problems`. Bad usage, an input file it cannot read, or a config with problems exits 2 and prints text, not JSON.
+
+#### The harnesses it may name
+
+A harness other than the Chief of Staff's own runs the work as that harness's headless run, started from the Chief of Staff's shell ([HARNESSES.md](HARNESSES.md#executors-on-another-harness)). For example, a Chief of Staff in Cursor with `executors: { build: claude-code-cli }` builds with `claude -p`. Its CLI must be installed and signed in, `models` for that work (or the entry's `model`) names a model there, and its Support Level and Limits join the Dispatch Plan's. Unset, every Delegation runs on the Chief of Staff's harness. A value that names the pinned `harness` is that harness's own default, and moves nothing. Any other harness with no headless run, such as `claude-code-desktop` named from Cursor, is a problem here. So is `qa` naming a harness whose headless run cannot carry QA (its harness file's **Headless QA** line is `none`), such as `gemini-cli` or `devin`.
+
+The same checks apply to every entry, and each problem names the entry by its index and the key that is wrong, such as `executors.build[1].harness`. An unknown key, a `spread` that is neither word, an empty list, and an `effort` on a harness whose **Effort** line says `none` are problems too. A list with no catch-all entry is a note. An entry that names the pinned `harness` runs that work on the Chief of Staff's own harness, with the entry's model and effort where that harness allows.
+
+`check` prints a single id as written, and either list form as `{ spread, entries }`, with `null` for a key not given.
 
 ### `limits`
 
