@@ -114,7 +114,7 @@ export function isPublicAddress(address) {
  * only to the addresses returned here.
  */
 export function publicLookup(hostname, options, callback) {
-  const opts = typeof options === "function" ? {} : options ?? {};
+  const opts = typeof options === "function" ? {} : (options ?? {});
   const done = typeof options === "function" ? options : callback;
   dnsLookup(hostname, { ...opts, all: true }, (error, addresses) => {
     if (error) return done(error);

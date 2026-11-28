@@ -45,6 +45,7 @@ import { firstLine } from "../exec.mjs";
 import { AUTO_UPDATER_OFF, layerDockerfile } from "./claude-code.mjs";
 import { LABEL } from "./docker-driver.mjs";
 import { allowlistOf } from "./egress.mjs";
+import { imageDigestNote } from "./recipe.mjs";
 import { ENDS_HERE, must, StepFailed } from "./steps.mjs";
 
 const UNINITIALIZED = /global network policy has not been initialized/i;
@@ -188,6 +189,8 @@ export function sbxDriver({ id, call }) {
       out(
         `Image: layering the pinned Claude Code on ${steps.image} with Docker on this machine, auto-updater off, as the sandbox's template.`,
       );
+      const note = imageDigestNote(steps.image);
+      if (note) out(note);
       const pulled = await docker(["pull", steps.image]);
       if (pulled.status === null) {
         throw new StepFailed([
