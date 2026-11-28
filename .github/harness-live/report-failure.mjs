@@ -108,7 +108,14 @@ export function reportFailure({ env, gh }) {
   const number = String(open.number);
   // Labelled first, so the release is blocked even if the comment fails.
   if (guardFailed) {
-    run(["issue", "edit", number, ...GUARD_LABELS.flatMap((l) => ["--add-label", l])]);
+    // One triage role at a time: an issue opened for triage becomes the human's.
+    run([
+      "issue",
+      "edit",
+      number,
+      ...GUARD_LABELS.flatMap((l) => ["--add-label", l]),
+      ...OTHER_LABELS.flatMap((l) => ["--remove-label", l]),
+    ]);
   }
   run(["issue", "comment", number, "--body-file", "-"], body);
   return `Added to issue ${number}`;

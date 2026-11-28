@@ -98,7 +98,13 @@ jobs:
           runsc --version | head -n 1
       - name: Run the live suite
         id: suite
-        run: node cli/src/harness-live/run.mjs
+        # Under the job's limit, so a hung run still hands its outputs on.
+        timeout-minutes: 35
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The suite's own command line holds it; no sandbox may see it.
+          node cli/src/harness-live/run.mjs "AKCANARY-$(openssl rand -hex 16)"
 
   gate:
     # The one check to require: it always reports.

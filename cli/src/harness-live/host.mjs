@@ -21,8 +21,14 @@ export const GITHUB_VARIABLES = Object.freeze([
   "ACTIONS_RUNTIME_TOKEN",
 ]);
 
-/** The outside host the sandbox must not reach, tried from the host as the control. */
-const OUTSIDE_URL = "https://example.com/";
+/** The outside targets the sandbox must not reach, tried from the host as the control. */
+const OUTSIDE_URLS = Object.freeze(["https://example.com/", "https://1.1.1.1/"]);
+
+/** How often the control tries each, so one dropped connection blocks no release. */
+const OUTSIDE_TRIES = 3;
+
+/** The workspace's file holding the sweep's control. */
+const SWEEP_CONTROL_FILE = "agent-kit-sweep-control.txt";
 
 const id = () => randomBytes(16).toString("hex");
 
@@ -96,12 +102,12 @@ function fixtureFiles(control) {
 /**
  * Plant a run's fixtures on the host: the repository (its config committed, an
  * untracked canary file and a canary in its .git/config, neither of which the
- * copy-in carries), canary files in the temporary and home folders, canaries
- * in the runner's GitHub variables, and a process whose command line and
- * environment hold one, standing for the launcher's side.
- * @param {{ runner: import("../exec.mjs").Runner, spawn: Function }} opts
+ * copy-in carries), canary files in the temporary and home folders, and
+ * canaries in the runner's GitHub variables. The launcher's own canary is on
+ * its process's command line, where the workflow puts it.
+ * @param {{ runner: import("../exec.mjs").Runner, launcherCanary: string }} opts
  */
-export function plant({ runner, spawn }) {
+export function plant({ runner, launcherCanary }) {
   const root = mkdtempSync(join(tmpdir(), "agent-kit-live-repo-"));
   const control = `AKCONTROL-${id()}`;
   const write = (path, text) => {
@@ -128,7 +134,13 @@ export function plant({ runner, spawn }) {
   git("add", "--all", "--force");
   git("commit", "--quiet", "-m", "fixture");
 
-  const canaries = { reads: [], github: [], launcher: [] };
+  // A canary-shaped value the filesystem sweep in the sandbox must find.
+  const sweepControl = canary();
+  write(join(root, SWEEP_CONTROL_FILE), `${sweepControl}\n`);
+  git("add", "--all", "--force", "--", SWEEP_CONTROL_FILE);
+  git("commit", "--quiet", "-m", "sweep control");
+
+  const canaries = { reads: [], github: [], launcher: [launcherCanary] };
   const fresh = (kind) => {
     const value = canary();
     canaries[kind].push(value);
@@ -142,12 +154,6 @@ export function plant({ runner, spawn }) {
   const saved = Object.fromEntries(GITHUB_VARIABLES.map((v) => [v, process.env[v]]));
   const variables = Object.fromEntries(GITHUB_VARIABLES.map((v) => [v, fresh("github")]));
   Object.assign(process.env, variables);
-
-  const marker = fresh("launcher");
-  const decoy = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)", marker], {
-    env: { ...process.env, AGENT_KIT_LAUNCHER: marker },
-    stdio: "ignore",
-  });
 
   /** Everything of the repository and the canary files that must not change. */
   const state = () => ({
@@ -165,16 +171,23 @@ export function plant({ runner, spawn }) {
     root,
     commit: git("rev-parse", "HEAD"),
     control,
+    sweepControl,
     canaries,
     /** The planted GitHub variables, as the runner's environment holds them. */
     variables,
     hostFiles,
     unchanged() {
-      const now = state();
-      return { repo: now.repo === before.repo, files: now.files === before.files };
+      const same = (part) => {
+        try {
+          return state()[part] === before[part];
+        } catch {
+          // What can no longer be read has changed.
+          return false;
+        }
+      };
+      return { repo: same("repo"), files: same("files") };
     },
     remove() {
-      decoy.kill();
       for (const [v, value] of Object.entries(saved)) {
         if (value === undefined) delete process.env[v];
         else process.env[v] = value;
@@ -235,14 +248,20 @@ export async function listen(addresses = hostAddresses()) {
   };
 }
 
-/** Whether the host reaches the outside host the sandbox must not: the control. */
+/** Whether the host reaches every outside target the sandbox must not: the control. */
 export async function hostReachesOutside(fetch = globalThis.fetch) {
-  try {
-    await fetch(OUTSIDE_URL, { signal: AbortSignal.timeout(15_000), redirect: "manual" });
-    return true;
-  } catch {
+  const reaches = async (url) => {
+    for (let i = 0; i < OUTSIDE_TRIES; i += 1) {
+      try {
+        await fetch(url, { signal: AbortSignal.timeout(15_000), redirect: "manual" });
+        return true;
+      } catch {
+        // Tried again.
+      }
+    }
     return false;
-  }
+  };
+  return (await Promise.all(OUTSIDE_URLS.map(reaches))).every(Boolean);
 }
 
 /**

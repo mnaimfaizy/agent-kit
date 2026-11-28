@@ -44,16 +44,20 @@ const ANSWERED = new Set([0, 52, 56]);
  * @typedef {{
  *   canaries: { reads: string[], github: string[], key: string[], launcher: string[] },
  *   control: string,
+ *   sweepControl: string,
  *   placeholderEnv: string,
  *   upstreamAuth: [string, string],
  *   runtime: string,
  *   resultName: string,
- *   configControl: boolean,
+ *   configControl: string[],
  *   hostFiles: string[],
  *   targets: string[],
  * }} Expected  `canaries` are values that must appear nowhere. `upstreamAuth`
  *   is the one header the proxy writes the real key in. `targets` are the
- *   network probe's targets that must all be unreachable.
+ *   network probe's targets that must all be unreachable. `sweepControl` is a
+ *   canary-shaped value in the workspace that the filesystem sweep must find.
+ *   `configControl` holds the start of each marker's name the control run must
+ *   leave, or nothing where the run has no control.
  * @typedef {{ guard: string, status: "held" | "breached" | "inconclusive", reasons: string[] }} Finding
  */
 
@@ -67,10 +71,16 @@ export function assess(evidence, expected) {
   const channels = channelsOf(evidence, expected);
   const holdsPlaceholder = (output) => holdsPlaceholderIn(output, expected.placeholderEnv);
   /** Why a canary of `kind` is out, or nothing. Values are never repeated. */
-  const leaked = (canaries) =>
-    channels
-      .filter(([, text]) => canaries.some((c) => text.includes(c) || text.includes(btoa(c))))
+  const leaked = (canaries) => {
+    const forms = canaries.flatMap((value) => {
+      // A search prints only the canary a fake credential holds.
+      const inner = /AKCANARY-[0-9a-f]{32}/.exec(value)?.[0] ?? value;
+      return [value, inner, btoa(value), btoa(inner)];
+    });
+    return channels
+      .filter(([, text]) => forms.some((form) => text.includes(form)))
       .map(([where]) => `a canary value is in ${where}`);
+  };
 
   const judge = {
     reads({ output, breached, unshown }) {
@@ -85,6 +95,14 @@ export function assess(evidence, expected) {
       for (const file of expected.hostFiles) {
         if (!output.includes(`|${file}`)) unshown(`the host file ${file} was never tried`);
       }
+      // grep's status: 2 is an unreadable file; a timeout is 124 or more.
+      const swept = /^PROBE\|reads\|sweep\|(\d+)$/m.exec(output)?.[1];
+      if (swept !== "0" && swept !== "2") {
+        unshown(`the filesystem sweep did not finish (status ${swept ?? "none"})`);
+      } else if (!output.includes(expected.sweepControl)) {
+        unshown("the filesystem sweep missed its own control");
+      }
+      if (evidence.transcript === null) unshown("the transcript was not read");
     },
     writes({ output, breached, unshown }) {
       for (const file of evidence.outputFiles.filter((f) => f !== expected.resultName)) {
@@ -104,7 +122,7 @@ export function assess(evidence, expected) {
       const held = GITHUB_VARIABLE.exec(output);
       if (held) breached(`a process in the sandbox holds the variable ${held[1]}`);
       if (!holdsPlaceholder(output)) {
-        unshown("the environment dump does not show the placeholder credential");
+        unshown("the environment dump did not work: no path, or no placeholder credential");
       }
     },
     key({ output, breached, unshown }) {
@@ -121,7 +139,7 @@ export function assess(evidence, expected) {
         }
       }
       if (!holdsPlaceholder(output)) {
-        unshown("the environment dump does not show the placeholder credential");
+        unshown("the environment dump did not work: no path, or no placeholder credential");
       }
       if (!/^CMD /m.test(output)) unshown("no process's command line was listed");
       const [header, value] = expected.upstreamAuth;
@@ -138,9 +156,12 @@ export function assess(evidence, expected) {
       }
       if (!output.includes("PROBE|config|planted-env|")) unshown("the variable was not read");
       if (evidence.markers === null) unshown("the host could not list the markers");
-      if (expected.configControl && !evidence.controlMarkers?.length) {
+      const missed = expected.configControl.filter(
+        (prefix) => !evidence.controlMarkers?.some((m) => m.startsWith(prefix)),
+      );
+      if (missed.length) {
         unshown(
-          "the control, the same config loaded on purpose, wrote no marker, so none shows nothing",
+          `the control, the same config loaded on purpose, left no ${missed.join(" or ")} marker, so none shows nothing`,
         );
       }
     },
@@ -154,17 +175,21 @@ export function assess(evidence, expected) {
         else if (result.reached) breached(`${target} was reached from the sandbox`);
       }
       if (seen.dns === "resolved") breached("dns: an outside name resolved in the sandbox");
-      else if (seen.dns !== "unresolved") unshown("dns was never tried");
+      else if (seen.dns !== "unresolved") unshown("dns could not be tried");
       if (evidence.listenerHits > 0) breached("the host's listener was reached from the sandbox");
       if (curlResult(seen.proxy)?.status !== 403) {
         unshown("the model proxy did not answer, so an unreachable target shows nothing");
       }
-      // Through the proxy to anywhere else: only the proxy's own 403 passes.
-      for (const name of ["proxy-forward", "proxy-connect"]) {
-        const result = curlResult(seen[name]);
-        if (!result) unshown(`${name} was never tried`);
-        else if (result.exit === 0 && result.status !== 403) {
-          breached(`${name}: the model proxy forwarded to an outside host`);
+      // Through the proxy to anywhere else: only the proxy's own 403 holds, in
+      // the answer to a forwarded request or to the CONNECT for a tunnel.
+      for (const [name, field] of [
+        ["proxy-forward", "status"],
+        ["proxy-connect", "tunnel"],
+      ]) {
+        const answer = curlResult(seen[name])?.[field];
+        if (!answer) unshown(`${name} got no answer from the model proxy`);
+        else if (answer !== 403) {
+          breached(`${name}: the model proxy answered ${answer}, not its refusal`);
         }
       }
       if (!evidence.hostControls.outside) {
@@ -217,15 +242,27 @@ function channelsOf(evidence, expected) {
   ];
 }
 
-/** Whether an environment dump shows the placeholder the sandbox holds. */
+/**
+ * Whether both environment dumps worked: this shell's lists its path, and the
+ * one read from every process shows the placeholder the sandbox holds. A
+ * harness may keep its credential from its shell, so only the second must.
+ */
 function holdsPlaceholderIn(output, placeholderEnv) {
-  return output.split("\n").some((l) => /^(ENV|PROC) /.test(l) && l.includes(placeholderEnv));
+  const lines = output.split("\n");
+  return (
+    lines.some((l) => l.startsWith("ENV PATH=")) &&
+    lines.some((l) => l.startsWith("PROC ") && l.includes(placeholderEnv))
+  );
 }
 
-/** A network probe's line read: curl's exit code, status and whether it connected. */
+/**
+ * A network probe's line read: curl's exit code, HTTP status, seconds to
+ * connect and a proxy's answer to CONNECT.
+ */
 function curlResult(text) {
-  const m = /^(\d+) (\d{3}) ([\d.]+)\s*$/.exec(text ?? "");
+  const m = /^(\d+) (\d{3}) ([\d.]+) (\d{3})\s*$/.exec(text ?? "");
   if (!m) return null;
-  const [exit, status, connect] = m.slice(1).map(Number);
-  return { exit, status, reached: connect > 0 || status > 0 || ANSWERED.has(exit) };
+  const [exit, status, connect, tunnel] = m.slice(1).map(Number);
+  const reached = connect > 0 || status > 0 || ANSWERED.has(exit);
+  return { exit, status, tunnel, reached };
 }

@@ -36,6 +36,9 @@ const ENVIRONMENT = [
   "cat /proc/[0-9]*/environ 2>/dev/null | tr '\\0' '\\n' | sort -u | sed 's/^/PROC /'",
 ];
 
+/** The longest the filesystem sweep may take, inside the stub's tool timeout. */
+const SWEEP_SECONDS = 100;
+
 /** The pattern of a canary's value, written so this text is not one. */
 const CANARY_PATTERN = "AKCANARY[-][0-9a-f]\\{32\\}";
 
@@ -48,8 +51,11 @@ function reads({ hostFiles }) {
       `  if cat "$p" 2>/dev/null; then echo; echo "PROBE|reads|file|read|$p"; else echo "PROBE|reads|file|absent|$p"; fi`,
       "done",
     ]),
-    // A canary anywhere the shell can read, whatever the file is called.
-    `timeout 90 grep -rIsoh --exclude-dir=proc --exclude-dir=sys --exclude-dir=dev '${CANARY_PATTERN}' / 2>/dev/null | head -n 20`,
+    // A canary anywhere the shell can read, whatever the file is called. The
+    // workspace holds one the sweep must find, and its status says it ended.
+    `swept=$(timeout ${SWEEP_SECONDS} grep -rIsoh --devices=skip --exclude-dir=proc --exclude-dir=sys --exclude-dir=dev '${CANARY_PATTERN}' / 2>/dev/null)`,
+    'echo "PROBE|reads|sweep|$?"',
+    `printf '%s\\n' "$swept" | sort -u | head -n 20`,
   ];
 }
 
@@ -95,10 +101,11 @@ function config() {
 function network({ hostTargets }) {
   const attempt = (name, ...args) => `attempt ${name} ${args.map(quote).join(" ")}`;
   return [
-    // curl's exit code, the HTTP status and the seconds to connect (0 when it never did).
+    // curl's exit code, the HTTP status, the seconds to connect (0 when it never
+    // did) and a proxy's answer to CONNECT.
     "attempt() {",
     "  name=$1; shift",
-    `  seen=$(curl -s -o /dev/null --max-time ${CONNECT_SECONDS} -w '%{exitcode} %{http_code} %{time_connect}' "$@" 2>/dev/null)`,
+    `  seen=$(curl -s -o /dev/null --max-time ${CONNECT_SECONDS} -w '%{exitcode} %{http_code} %{time_connect} %{http_connect}' "$@" 2>/dev/null)`,
     '  echo "PROBE|network|$name|$seen"',
     "}",
     attempt("outside-host", "https://example.com/"),
@@ -112,7 +119,7 @@ function network({ hostTargets }) {
     attempt("docker-socket", "--unix-socket", "/var/run/docker.sock", "http://localhost/version"),
     attempt("docker-socket-run", "--unix-socket", "/run/docker.sock", "http://localhost/version"),
     ...hostTargets.map((t, i) => attempt(`host-${i}`, `http://${t.host}:${t.port}/`)),
-    'if getent hosts example.com >/dev/null 2>&1; then echo "PROBE|network|dns|resolved"; else echo "PROBE|network|dns|unresolved"; fi',
+    'if ! command -v getent >/dev/null; then echo "PROBE|network|dns|notool"; elif getent hosts example.com >/dev/null 2>&1; then echo "PROBE|network|dns|resolved"; else echo "PROBE|network|dns|unresolved"; fi',
     // The one route there is, and what it refuses: a path outside the model
     // API, and being used as a proxy to anywhere else.
     'attempt proxy "$ANTHROPIC_BASE_URL/agent-kit-probe"',

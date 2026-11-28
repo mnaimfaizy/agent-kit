@@ -74,6 +74,10 @@ def test_the_suite_runs_when_the_changes_job_says_so():
     assert run.index("runsc install") < run.index("node cli/src/harness-live/run.mjs")
     assert "sha512sum --check --strict" in run
     assert set(suite["outputs"]) == {"guard_failed", "failed"}
+    step = suite["steps"][-1]
+    # A hung run ends before the job does, so what had failed is still reported.
+    assert step["timeout-minutes"] < suite["timeout-minutes"]
+    assert 'run.mjs "AKCANARY-$(openssl rand -hex 16)"' in step["run"]
 
 
 def test_it_installs_the_gvisor_release_the_deep_scan_workflow_installs():
@@ -105,3 +109,10 @@ def test_a_weekly_failure_of_any_kind_is_reported():
     assert step["run"] == "node .github/harness-live/report-failure.mjs"
     assert step["env"]["GUARD_FAILED"] == "${{ needs.suite.outputs.guard_failed }}"
     assert step["env"]["FAILED"] == "${{ needs.suite.outputs.failed }}"
+
+
+if __name__ == "__main__":
+    for name, test in sorted(globals().items()):
+        if name.startswith("test_"):
+            test()
+    print("harness-live workflow contract tests passed")

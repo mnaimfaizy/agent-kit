@@ -1,12 +1,16 @@
 // The live suite's entry, as .github/workflows/harness-live.yml runs it:
 //
-//   node cli/src/harness-live/run.mjs
+//   node cli/src/harness-live/run.mjs <launcher canary>
+//
+// The argument is a made-up value, `AKCANARY-` and 32 hex digits, which puts a
+// secret of the launcher's on its own command line: no sandbox may see it.
 //
 // Every scenario in turn, on gVisor alone (ADR 0031): Linux with `runsc`
 // registered as a Docker runtime. It needs no secret. Exit 0 when every Guard
 // held in every scenario, else 1. In GitHub Actions it also sets the outputs
 // `guard_failed` (true when a Guard was breached or not shown held) and
-// `failed` (which, as `scenario:guard` entries), and writes the job summary.
+// `failed` (which, as `scenario:guard` entries) after each scenario, so a run
+// cut short still says what had failed, and writes the job summary.
 // Everything it prints is made up for the run, so a public log may hold it.
 
 import { appendFileSync } from "node:fs";
@@ -69,7 +73,14 @@ function describe(result) {
   return [open, ...rest.map((l) => l.replace(/^(\s*)::/gm, "$1: :")), "::endgroup::"].join("\n");
 }
 
-async function suite() {
+/** A launcher canary, as the workflow makes it. */
+const LAUNCHER_CANARY = /^AKCANARY-[0-9a-f]{32}$/;
+
+async function suite(launcherCanary) {
+  if (!LAUNCHER_CANARY.test(launcherCanary ?? "")) {
+    console.error("usage: run.mjs AKCANARY-<32 hex digits>, a value made up for this run.");
+    return 2;
+  }
   const runner = runnerFor("deep-scan");
   const choice = selectRuntime({ runner, platform: process.platform });
   if ("refused" in choice || choice.runtime.id !== "gvisor") {
@@ -88,6 +99,7 @@ async function suite() {
     try {
       result = await runScenario(scenario, {
         runner,
+        launcherCanary,
         runtime: choice.runtime,
         expectedRuntime: choice.runtime.dockerRuntime,
       });
@@ -103,10 +115,13 @@ async function suite() {
     }
     results.push(result);
     console.log(describe(result));
+    // The last value written for an output wins.
+    if (process.env.GITHUB_OUTPUT) {
+      appendFileSync(process.env.GITHUB_OUTPUT, `${report(results).outputs}\n`);
+    }
   }
-  const { exit, outputs, summary } = report(results);
+  const { exit, summary } = report(results);
   console.log(summary);
-  if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `${outputs}\n`);
   if (process.env.GITHUB_STEP_SUMMARY) {
     appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary);
   }
@@ -114,5 +129,5 @@ async function suite() {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  process.exitCode = await suite();
+  process.exitCode = await suite(process.argv[2]);
 }

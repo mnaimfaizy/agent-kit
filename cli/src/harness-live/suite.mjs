@@ -6,7 +6,6 @@
 // The Deep scan enters through `agent-kit deep-scan` itself, with the model
 // API pointed at the stub; the read-only Stage through stage.mjs.
 
-import { spawn as spawnChild } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -47,6 +46,9 @@ const TARGETS = Object.freeze([
   "docker-socket-run",
 ]);
 
+/** The markers the control run must leave, by the start of their names. */
+const CONTROL_MARKERS = Object.freeze(["settings-", "local-", "mcp-server"]);
+
 /** The sandbox's own container name, as the driver gives it. */
 const SANDBOX = /^agent-kit-deep-[0-9a-f]{12}$/;
 
@@ -82,11 +84,13 @@ function loadingConfig({ url }) {
  * @param {typeof SCENARIOS[number]} scenario
  * @param {{
  *   runner: import("../exec.mjs").Runner,
+ *   launcherCanary: string,
  *   runtime: import("../deep-scan/runtime.mjs").Runtime,
  *   expectedRuntime?: string,
  *   platform?: string,
- * }} opts  `runner` runs the launcher's commands. `expectedRuntime` is the
- *   Docker runtime the sandbox must run under.
+ * }} opts  `runner` runs the launcher's commands. `launcherCanary` is a value
+ *   on this process's own command line, which the sandbox must never see.
+ *   `expectedRuntime` is the Docker runtime the sandbox must run under.
  * @returns {Promise<{
  *   name: string,
  *   verdict: "pass" | "guard-failed" | "error",
@@ -99,39 +103,55 @@ function loadingConfig({ url }) {
  */
 export async function runScenario(
   scenario,
-  { runner, runtime, expectedRuntime = "runsc", platform = process.platform },
+  { runner, launcherCanary, runtime, expectedRuntime = "runsc", platform = process.platform },
 ) {
-  const planted = plant({ runner, spawn: spawnChild });
-  const listener = await listen();
-  const hostControls = { listener: await listener.check(), outside: await hostReachesOutside() };
-  const stageRun = scenario.run === "read-only-stage";
-  const resultPath = stageRun ? STAGE_RESULT_PATH : DEEP_SCAN_RESULT_PATH;
-  const scripts = probeScripts({
-    hostFiles: planted.hostFiles,
-    hostTargets: listener.targets,
-    resultPath,
-  });
-  const stub = await startStubModel({ commands: scripts.map((s) => s.script) });
-  const outDir = mkdtempSync(join(tmpdir(), "agent-kit-live-out-"));
-  const credential = FAKE_CREDENTIAL[scenario.credentialKind]();
-  const { env: variable } = claudeCode().credentials.accepted[scenario.credentialKind];
-  const savedCredential = process.env[variable];
-  process.env[variable] = credential;
-  let log = "";
-  const say = (line) => {
-    log += `${line}\n`;
-  };
-
-  /** What the host read of the sandbox, and the probes' output at that moment. */
-  let seen = { sandbox: null, markers: null, transcript: null };
-  let outputs = null;
-  let controlMarkers = null;
-  const readSandbox = (container) => {
-    seen = inspectSandbox(runner, container);
-    outputs = Object.fromEntries(stub.results().map((r) => [scripts[r.index].guard, r.text]));
-  };
-
+  /** What to undo, newest first, however the run ends. */
+  const undo = [];
   try {
+    return await run();
+  } finally {
+    for (const step of undo.reverse()) await step();
+  }
+
+  async function run() {
+    const planted = plant({ runner, launcherCanary });
+    undo.push(() => planted.remove());
+    const listener = await listen();
+    undo.push(() => listener.close());
+    const hostControls = { listener: await listener.check(), outside: await hostReachesOutside() };
+    const stageRun = scenario.run === "read-only-stage";
+    const resultPath = stageRun ? STAGE_RESULT_PATH : DEEP_SCAN_RESULT_PATH;
+    const scripts = probeScripts({
+      hostFiles: planted.hostFiles,
+      hostTargets: listener.targets,
+      resultPath,
+    });
+    const stub = await startStubModel({ commands: scripts.map((s) => s.script) });
+    undo.push(() => stub.close());
+    const outDir = mkdtempSync(join(tmpdir(), "agent-kit-live-out-"));
+    undo.push(() => rmSync(outDir, { recursive: true, force: true }));
+    const credential = FAKE_CREDENTIAL[scenario.credentialKind]();
+    const { env: variable } = claudeCode().credentials.accepted[scenario.credentialKind];
+    const savedCredential = process.env[variable];
+    process.env[variable] = credential;
+    undo.push(() => {
+      if (savedCredential === undefined) delete process.env[variable];
+      else process.env[variable] = savedCredential;
+    });
+    let log = "";
+    const say = (line) => {
+      log += `${line}\n`;
+    };
+
+    /** What the host read of the sandbox, and the probes' output at that moment. */
+    let seen = { sandbox: null, markers: null, transcript: null };
+    let outputs = null;
+    let controlMarkers = null;
+    const readSandbox = (container) => {
+      seen = inspectSandbox(runner, container);
+      outputs = Object.fromEntries(stub.results().map((r) => [scripts[r.index].guard, r.text]));
+    };
+
     let exit;
     if (stageRun) {
       exit = await runReadOnlyStage({
@@ -236,21 +256,37 @@ export async function runScenario(
           : ["authorization", `Bearer ${credential}`],
       runtime: expectedRuntime,
       resultName,
-      configControl: stageRun,
+      sweepControl: planted.sweepControl,
+      configControl: stageRun ? [...CONTROL_MARKERS] : [],
       hostFiles: planted.hostFiles,
       targets: [...TARGETS, ...listener.targets.map((_, i) => `host-${i}`)],
     });
-    const started = stub.requests.length > 0;
-    let verdict = verdictOf(findings);
-    if (!started) verdict = NOT_ISOLATED.test(log) ? "guard-failed" : "error";
-    else if (verdict === "pass" && exit !== 0) verdict = "error";
-    return { name: scenario.name, verdict, findings, exit, log, outputs: evidence.outputs };
-  } finally {
-    if (savedCredential === undefined) delete process.env[variable];
-    else process.env[variable] = savedCredential;
-    await stub.close();
-    await listener.close();
-    planted.remove();
-    rmSync(outDir, { recursive: true, force: true });
+    return {
+      name: scenario.name,
+      verdict: scenarioVerdict({ findings, started: stub.requests.length > 0, exit, log }),
+      findings,
+      exit,
+      log,
+      outputs: evidence.outputs,
+    };
   }
+}
+
+/**
+ * A scenario's verdict from its findings. A breach counts however the run went.
+ * A Guard not shown counts once the harness started, or when the sandbox failed
+ * its own isolation check; otherwise the run failed for another reason.
+ * @param {{
+ *   findings: import("./assess.mjs").Finding[],
+ *   started: boolean,
+ *   exit: number,
+ *   log: string,
+ * }} run
+ * @returns {"pass" | "guard-failed" | "error"}
+ */
+export function scenarioVerdict({ findings, started, exit, log }) {
+  if (findings.some((f) => f.status === "breached")) return "guard-failed";
+  if (!started) return NOT_ISOLATED.test(log) ? "guard-failed" : "error";
+  if (verdictOf(findings) !== "pass") return "guard-failed";
+  return exit === 0 ? "pass" : "error";
 }

@@ -13,7 +13,7 @@ import { needsSuite, SUITE_PATHS } from "../.github/harness-live/paths.mjs";
 import { GUARD_LABEL, reportFailure, TITLE } from "../.github/harness-live/report-failure.mjs";
 import { GUARDS } from "../cli/src/harness-live/assess.mjs";
 import { report } from "../cli/src/harness-live/run.mjs";
-import { SCENARIOS } from "../cli/src/harness-live/suite.mjs";
+import { SCENARIOS, scenarioVerdict } from "../cli/src/harness-live/suite.mjs";
 
 const ROOT = join(import.meta.dirname, "..");
 
@@ -88,6 +88,18 @@ describe("what the suite reports", () => {
         ["deep-scan", "subscription"],
       ],
     );
+  });
+
+  it("calls a breach a Guard failure however the run went, and not another failure", () => {
+    const judge = (bad, rest) =>
+      scenarioVerdict({ findings: findings(bad), started: true, exit: 0, log: "", ...rest });
+    assert.equal(judge({}), "pass");
+    assert.equal(judge({}, { exit: 1 }), "error");
+    assert.equal(judge({ reads: "inconclusive" }), "guard-failed");
+    assert.equal(judge({ reads: "inconclusive" }, { started: false }), "error");
+    assert.equal(judge({ config: "breached" }, { started: false }), "guard-failed");
+    const log = "FAILED  the network is not cut: reached.";
+    assert.equal(judge({ reads: "inconclusive" }, { started: false, log }), "guard-failed");
   });
 
   it("passes only when every scenario passed", () => {
@@ -177,6 +189,7 @@ describe("a failed weekly run", () => {
       ],
     );
     assert.deepEqual(flag(acts[0].args, "--add-label"), ["ready-for-human", "guard-failure"]);
+    assert.deepEqual(flag(acts[0].args, "--remove-label"), ["needs-triage"]);
   });
 
   it("looks only at issues the job token opened, and fails when gh does", () => {

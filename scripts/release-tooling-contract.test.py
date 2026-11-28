@@ -921,6 +921,8 @@ if __name__ == "__main__":
     test_cut_refuses_off_main_dirty_or_behind()
     test_cut_dry_run_passes_on_a_ready_main_and_writes_nothing()
     test_cut_requires_green_ci_and_a_working_gh()
+    test_cut_refuses_while_a_failed_guard_probe_s_issue_is_open()
+    test_the_release_blocks_on_the_label_the_weekly_report_sets()
     test_cut_requires_the_version_changelog_and_finished_notes()
     test_cut_refuses_a_private_tagger_email_without_printing_it()
     test_cut_apply_then_publish_reuses_the_unpushed_tag()
