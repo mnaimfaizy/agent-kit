@@ -8,15 +8,18 @@
 /** An image reference that ends in a sha256 digest, with nothing else on the line. */
 const BY_DIGEST = /^[^\s@]+@sha256:[0-9a-f]{64}$/;
 
-/** The line the musl check prints; the command text itself never holds it whole. */
-export const MUSL_MARKER = "agent-kit-musl-image";
+/** The two halves of the musl check's line: its command text never holds it whole. */
+const MARKER = ["agent-kit", "musl-image"];
+
+/** The line the musl check prints. */
+export const MUSL_MARKER = MARKER.join("-");
 
 /**
  * The build step that fails on a musl image: the harness's CLI and Node are
  * glibc builds. A glibc image answers `getconf GNU_LIBC_VERSION`, even one
  * that also has the musl loader installed.
  */
-const MUSL_CHECK = `RUN if ! getconf GNU_LIBC_VERSION >/dev/null 2>&1 && ls /lib/ld-musl-* >/dev/null 2>&1; then printf '%s-%s\\n' agent-kit musl-image >&2; exit 1; fi`;
+const MUSL_CHECK = `RUN if ! getconf GNU_LIBC_VERSION >/dev/null 2>&1 && ls /lib/ld-musl-* >/dev/null 2>&1; then printf '%s-%s\\n' ${MARKER.join(" ")} >&2; exit 1; fi`;
 
 /**
  * The plan's Harness image. Throws unless it is named by digest: a tag alone
@@ -35,7 +38,9 @@ export function pinnedHarnessImage({ image }) {
 
 /**
  * The Dockerfile that layers a plan's `installLayer` on `base`, which must be
- * glibc Linux: the musl check, then `/opt/agent-kit` from the Harness image.
+ * glibc Linux: the musl check, then `/opt/agent-kit` from the Harness image,
+ * its `bin` (the harness's CLI alone, never its Node) first on the path, so a
+ * CLI of the same name in the image never runs in the pinned one's place.
  * @param {string} base
  * @param {import("./claude-code.mjs").LaunchPlan["installLayer"]} installLayer
  */
@@ -45,6 +50,7 @@ export function layerDockerfile(base, installLayer) {
     `FROM ${base}`,
     MUSL_CHECK,
     `COPY --from=${pinnedHarnessImage(installLayer)} /opt/agent-kit /opt/agent-kit`,
+    'ENV PATH="/opt/agent-kit/bin:${PATH}"',
     ...env.map((v) => `ENV ${v}`),
     `RUN ${run.join("\n")}`,
     "",

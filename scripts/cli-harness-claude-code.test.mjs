@@ -261,6 +261,8 @@ describe("the Launcher runs the plan it is handed", () => {
     assert.match(lines[1], /^RUN .*getconf GNU_LIBC_VERSION.*ld-musl-/, "the musl check first");
     assert.deepEqual(lines.slice(2), [
       `COPY --from=${IMAGE} /opt/agent-kit /opt/agent-kit`,
+      // The pinned CLI first: one already in the image never runs in its place.
+      'ENV PATH="/opt/agent-kit/bin:${PATH}"',
       "ENV OTHER=1",
       "RUN install other",
       "",
