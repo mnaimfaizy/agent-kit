@@ -11,6 +11,13 @@ import { byHand, command, NAME_PATTERN, result } from "./result.mjs";
 
 /** The secret inputs `claude-code` accepts, the preferred one first (ADR 0024). */
 const CLAUDE_CODE_INPUTS = ["claude_code_oauth_token", "anthropic_api_key"];
+/**
+ * The Deep scan takes exactly one of the two (its first step fails on both),
+ * and the API key is its supported one.
+ */
+const DEEP_SCAN_REUSABLE = "deep-scan-reusable.yml";
+const preferred = (file) =>
+  file === DEEP_SCAN_REUSABLE ? [...CLAUDE_CODE_INPUTS].reverse() : CLAUDE_CODE_INPUTS;
 /** Every model credential input: the others belong to harnesses no Stage runs yet. */
 const MODEL_INPUTS = new Set([
   ...CLAUDE_CODE_INPUTS,
@@ -71,7 +78,7 @@ export function deriveRequirements(callers, readReusable) {
     return specs.get(file);
   };
   // `shown` is false under `secrets: inherit`, where the Caller writes no input.
-  const addSecret = (names, required, job, input, shown = true) => {
+  const addSecret = (names, required, job, file, input, shown = true) => {
     // A GITHUB_* secret is always set, so an expression that falls back to one is too.
     if (names.some(isProvided)) return;
     const key = names.join(" || ");
@@ -80,8 +87,8 @@ export function deriveRequirements(callers, readReusable) {
       names,
       required: Boolean(prev?.required || required),
       where: [...(prev?.where ?? []), shown ? `${job} (${input})` : job],
-      // The job and the secret input each use fills; null under `secrets: inherit`.
-      uses: [...(prev?.uses ?? []), { job, input: input.toLowerCase() }],
+      // The job, the reusable workflow it calls and the secret input each use fills.
+      uses: [...(prev?.uses ?? []), { job, file, input: input.toLowerCase() }],
     });
   };
 
@@ -97,7 +104,7 @@ export function deriveRequirements(callers, readReusable) {
       if (job.secrets === "inherit") {
         for (const { name, required } of spec.values()) {
           // Inherited, the secret's name is the input's.
-          addSecret([name.toUpperCase()], required, where, name, false);
+          addSecret([name.toUpperCase()], required, where, job.uses.file, name, false);
         }
         continue;
       }
@@ -112,7 +119,7 @@ export function deriveRequirements(callers, readReusable) {
           );
           continue;
         }
-        addSecret(names, declared.required, where, input);
+        addSecret(names, declared.required, where, job.uses.file, input);
       }
       // Optional in the workflow, so nothing refuses a job without either.
       const accepted = CLAUDE_CODE_INPUTS.filter((input) => spec.has(input));
@@ -166,29 +173,56 @@ const isModelCredential = (x) =>
   !x.required && x.uses.every(({ input }) => MODEL_INPUTS.has(input));
 
 /**
- * The jobs left with no model credential: for each, the secrets that would give
- * `claude-code`, the one harness that runs a Stage, its credential. Jobs that
- * need the same ones are listed together.
+ * Each job that passes a Claude Code secret, with what it passes, the preferred
+ * input of its workflow first.
  */
-function jobsWithoutCredential(secrets, isSet) {
+function claudeCodeJobs(secrets) {
   const jobs = new Map();
   for (const secret of secrets) {
-    for (const { job, input } of secret.uses) {
+    for (const { job, file, input } of secret.uses) {
       if (!CLAUDE_CODE_INPUTS.includes(input)) continue;
-      if (!jobs.has(job)) jobs.set(job, []);
-      jobs.get(job).push({ secret, rank: CLAUDE_CODE_INPUTS.indexOf(input) });
+      if (!jobs.has(job)) jobs.set(job, { file, passed: [] });
+      jobs.get(job).passed.push({ secret, rank: preferred(file).indexOf(input) });
     }
   }
-  const missing = new Map();
-  for (const [job, passed] of jobs) {
+  for (const { passed } of jobs.values()) passed.sort((a, b) => a.rank - b.rank);
+  return jobs;
+}
+
+/** Jobs grouped under the secrets a message names: those that need the same ones together. */
+function byNames(entries, joiner) {
+  const groups = new Map();
+  for (const { job, secrets } of entries) {
+    const names = secrets.map((x) => x.names.join(" or ")).join(joiner);
+    if (!groups.has(names)) groups.set(names, { names, first: secrets[0], where: [] });
+    groups.get(names).where.push(job);
+  }
+  return [...groups.values()];
+}
+
+/**
+ * The jobs left with no model credential: for each, the secrets that would give
+ * `claude-code`, the one harness that runs a Stage, its credential.
+ */
+function jobsWithoutCredential(jobs, isSet) {
+  const missing = [];
+  for (const [job, { passed }] of jobs) {
     // A required one is reported as missing on its own.
     if (passed.some(({ secret }) => secret.required || isSet(secret))) continue;
-    const wanted = passed.sort((a, b) => a.rank - b.rank).map(({ secret }) => secret);
-    const key = wanted.map((x) => x.names.join(" or ")).join(" or ");
-    if (!missing.has(key)) missing.set(key, { first: wanted[0], jobs: [] });
-    missing.get(key).jobs.push(job);
+    missing.push({ job, secrets: passed.map((x) => x.secret) });
   }
-  return [...missing].map(([names, { first, jobs: where }]) => ({ names, first, where }));
+  return byNames(missing, " or ");
+}
+
+/** The Deep scan jobs with more than one model credential set, which fail every run. */
+function jobsWithTwoCredentials(jobs, isSet) {
+  const doubled = [];
+  for (const [job, { file, passed }] of jobs) {
+    if (file !== DEEP_SCAN_REUSABLE) continue;
+    const set = passed.map((x) => x.secret).filter(isSet);
+    if (set.length > 1) doubled.push({ job, secrets: set });
+  }
+  return byNames(doubled, " and ");
 }
 
 /** `gh secret set` / `gh variable set` for a valid name, or a by-hand note. */
@@ -231,7 +265,9 @@ export function checkSecrets({ github, repo, ownerType, requirements }) {
   const missingOptional = requirements.secrets.filter(
     (x) => !x.required && !isModelCredential(x) && !isSet(x),
   );
-  const uncredentialed = jobsWithoutCredential(requirements.secrets, isSet);
+  const claudeCode = claudeCodeJobs(requirements.secrets);
+  const uncredentialed = jobsWithoutCredential(claudeCode, isSet);
+  const doubled = jobsWithTwoCredentials(claudeCode, isSet);
   const describe = (x) => `${x.names.join(" or ")} (${x.where.join(", ")})`;
   // No --body: gh prompts for the value, so it never lands in shell history.
   const wanted = [...missingRequired, ...uncredentialed.map((x) => x.first), ...missingOptional];
@@ -240,6 +276,11 @@ export function checkSecrets({ github, repo, ownerType, requirements }) {
   );
   const details = [
     ...problems,
+    ...doubled.map(
+      (x) =>
+        `two model credentials set: ${x.names} (${x.where.join(", ")}); every run fails. ` +
+        "Delete one: the API key is the supported path.",
+    ),
     ...missingRequired.map((x) => `required, not set: ${describe(x)}`),
     ...uncredentialed.map(
       (x) =>
@@ -253,10 +294,14 @@ export function checkSecrets({ github, repo, ownerType, requirements }) {
   if (listed.orgNote && wanted.length) {
     details.push(listed.orgNote);
   }
-  if (missingRequired.length || problems.length) {
-    const summary = missingRequired.length
-      ? `${missingRequired.length} required secret(s) missing.`
-      : `${problems.length} Caller problem(s) with secrets.`;
+  if (missingRequired.length || problems.length || doubled.length) {
+    const summary = [
+      missingRequired.length && `${missingRequired.length} required secret(s) missing.`,
+      doubled.length && "Two model credentials are set for the Deep scan.",
+      problems.length && `${problems.length} Caller problem(s) with secrets.`,
+    ]
+      .filter(Boolean)
+      .join(" ");
     return result(ID, TITLE, "fail", summary, { details, fix });
   }
   const bare = uncredentialed.length + noCredential.length;

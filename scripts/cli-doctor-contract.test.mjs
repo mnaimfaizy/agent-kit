@@ -112,6 +112,7 @@ const KIT_FILES = {
   ".github/workflows/agent-review-response-reusable.yml": readRepo(
     ".github/workflows/agent-review-response-reusable.yml",
   ),
+  ".github/workflows/deep-scan-reusable.yml": readRepo(".github/workflows/deep-scan-reusable.yml"),
 };
 
 function callerFor(tag) {
@@ -567,6 +568,63 @@ describe("secret and variable derivation", () => {
       secrets.details.join("\n"),
       /caller\.yml:plan passes neither claude_code_oauth_token nor anthropic_api_key/,
     );
+  });
+
+  // The Deep scan takes exactly one of its two Claude Code secrets, and the API
+  // key is the supported one.
+  const deepScanSecrets = (name, listed) => {
+    const dir = makeConsumer(name, {
+      files: {
+        ".github/workflows/deep-scan.yml": readRepo("examples/deep-scan-caller.yml").replace(
+          /@v[\w.-]+/,
+          `@${TAG}`,
+        ),
+      },
+    });
+    const { runner } = fakeGh({
+      ...ALL_GOOD,
+      "repos/acme/app/actions/secrets": [
+        "CLAUDE_CODE_OAUTH_TOKEN",
+        "AGENT_KIT_ADVISORIES_TOKEN",
+        ...listed,
+      ],
+    });
+    return runDoctor({ cwd: dir, runner, openTag }).results.find((r) => r.id === "secrets");
+  };
+  const DEEP_KEY = "AGENT_KIT_DEEP_SCAN_ANTHROPIC_API_KEY";
+  const DEEP_TOKEN = "AGENT_KIT_DEEP_SCAN_CLAUDE_CODE_OAUTH_TOKEN";
+
+  it("secrets: with no Deep scan credential, doctor suggests the API key, not the subscription token", () => {
+    const secrets = deepScanSecrets("deep-scan-none", []);
+    assert.equal(secrets.status, "warn", JSON.stringify(secrets));
+    assert.match(
+      secrets.details.join("\n"),
+      new RegExp(`no model credential set: ${DEEP_KEY} or ${DEEP_TOKEN} \\(`),
+    );
+    assert.ok(
+      secrets.fix.includes(`gh secret set ${DEEP_KEY} --repo acme/app`),
+      secrets.fix.join("\n"),
+    );
+    assert.ok(!secrets.fix.some((f) => f.includes(DEEP_TOKEN)), secrets.fix.join("\n"));
+  });
+
+  it("secrets: both Deep scan credentials set fails, since every Deep scan would", () => {
+    for (const one of [DEEP_KEY, DEEP_TOKEN]) {
+      const single = deepScanSecrets(`deep-scan-${one.toLowerCase()}`, [one]);
+      assert.doesNotMatch(single.details?.join("\n") ?? "", /model credential/, one);
+      assert.notEqual(single.status, "fail", JSON.stringify(single));
+    }
+    const both = deepScanSecrets("deep-scan-both", [DEEP_KEY, DEEP_TOKEN]);
+    assert.equal(both.status, "fail", JSON.stringify(both));
+    assert.match(both.summary, /two model credentials/i);
+    assert.match(
+      both.details.join("\n"),
+      new RegExp(
+        `two model credentials set: ${DEEP_KEY} and ${DEEP_TOKEN} \\(.*deep-scan\\.yml:deep-scan\\)`,
+      ),
+    );
+    // Doctor prints no command that deletes a secret: its value cannot be read back.
+    assert.ok(!both.fix.some((f) => f.includes("delete")), both.fix.join("\n"));
   });
 
   it("doctor fails on a missing required secret and warns on a missing optional one", () => {
