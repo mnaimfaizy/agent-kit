@@ -131,19 +131,19 @@ notes: # what stays static-only, so a report never implies it was exercised
 
 <!-- generated:deep-scan-recipe-fields -->
 
-| Field          | Required                                                   | Holds                                                                                               |
-| -------------- | ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| `image`        | one of `image` and `dockerfile`                            | A base image. Agent-kit layers a pinned Claude Code on top.                                         |
-| `dockerfile`   | one of `image` and `dockerfile`                            | A Dockerfile's path in the repository. Not a compose file.                                          |
-| `setup`        | yes (`[]` for none)                                        | Commands run before the agent enters, without the agent or the model credential.                    |
-| `registries`   | yes (`[]` for none)                                        | Hosts the setup phase may reach. The network is cut after setup.                                    |
-| `start`        | with `ready`; optional when every entry point is a command | Commands that start the services as processes inside the one sandbox.                               |
-| `ready`        | with `start`                                               | Commands that confirm the services are up.                                                          |
-| `seed`         | no                                                         | Commands that load test data.                                                                       |
-| `entry_points` | yes, at least one                                          | Each one of `url` (http or https), `port` (1 to 65535) or `command`, with a one-line `note`.        |
-| `fixtures`     | yes (`[]` for none)                                        | Mappings of test users, roles and similar. Fake values only.                                        |
-| `grounding`    | no                                                         | URLs or repository paths `deep-scan` copies in before the agent enters, since it has no web access. |
-| `notes`        | yes                                                        | A line or a list of lines: what stays static-only.                                                  |
+| Field          | Required                                                   | Holds                                                                                                                 |
+| -------------- | ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `image`        | one of `image` and `dockerfile`                            | A base image. Agent-kit layers a pinned Claude Code on top.                                                           |
+| `dockerfile`   | one of `image` and `dockerfile`                            | A Dockerfile's path in the repository. Not a compose file.                                                            |
+| `setup`        | yes (`[]` for none)                                        | Commands run before the agent enters, without the agent or the model credential.                                      |
+| `registries`   | yes (`[]` for none)                                        | Hosts the setup phase may reach. The network is cut after setup.                                                      |
+| `start`        | with `ready`; optional when every entry point is a command | Commands that start the services as processes inside the one sandbox.                                                 |
+| `ready`        | with `start`                                               | Commands that confirm the services are up.                                                                            |
+| `seed`         | no                                                         | Commands that load test data.                                                                                         |
+| `entry_points` | yes, at least one                                          | Each one of `url` (http or https), `port` (1 to 65535) or `command`, with a one-line `note`.                          |
+| `fixtures`     | yes (`[]` for none)                                        | Mappings of test users, roles and similar. Fake values only.                                                          |
+| `grounding`    | no                                                         | Public `https://` URLs or repository paths `deep-scan` copies in before the agent enters, since it has no web access. |
+| `notes`        | yes                                                        | A line or a list of lines: what stays static-only.                                                                    |
 
 <!-- /generated:deep-scan-recipe-fields -->
 
@@ -198,7 +198,7 @@ Once a runtime is chosen, `agent-kit deep-scan` runs the sandbox on it: see [Wha
 3. **Copy in.** Into the sandbox go only (on Docker Engine, each as a tar unpacked by `docker exec` at the sandbox's root, never `docker cp`, which gVisor's overlay can hide from a running sandbox):
 
    - an export of the default branch's tip (`git archive`), at `/workspace`: never the working tree, the checked-out branch, uncommitted or untracked files, or a pull request head, and never a mount;
-   - the recipe's `grounding`, at `/agent-kit/grounding`: repository paths as committed on the default branch, and URLs fetched by `deep-scan` on your machine, before the agent step (each URL at most 10 MiB).
+   - the recipe's `grounding`, at `/agent-kit/grounding`: repository paths as committed on the default branch, and URLs fetched by `deep-scan` on your machine, before the agent step (each URL at most 10 MiB). A grounding URL must be `https://` and name a public host by its DNS name: the recipe check refuses another scheme, an IP address, a single-label name and `localhost`. The fetch follows no redirect, so name each page by its final URL, and it refuses a host that resolves to a loopback, private, link-local or other non-public address, connecting only to the address it checked.
 
    Each export is held in memory to copy in, so one larger than 1 GiB ends the run with a message naming the limit.
 

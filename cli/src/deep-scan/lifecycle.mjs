@@ -33,6 +33,7 @@ import { agentBrief, agentEnv, agentScript, BRIEF_PATH, TURNS_MARKER } from "./a
 import { CLAUDE_CODE_VERSION, layerDockerfile } from "./claude-code.mjs";
 import { callerKeyFor } from "./credential.mjs";
 import { dockerDriver, LABEL } from "./docker-driver.mjs";
+import { groundingUrlProblem, isGroundingUrl } from "./grounding-url.mjs";
 import {
   LimitReached,
   STOPPED_EXIT,
@@ -341,7 +342,7 @@ async function lifecycle({
   const grounding = [];
   for (const [i, source] of steps.grounding.entries()) {
     const where = `grounding[${i}]`;
-    if (/^https?:\/\//i.test(source)) {
+    if (isGroundingUrl(source)) {
       const path = `agent-kit/grounding/urls/${i}-${basename(source)}`;
       fetched.push({
         path,
@@ -656,13 +657,24 @@ async function fetchGrounding(fetch, url, where, clocks) {
   const fail = (why) =>
     new StepFailed([`FAILED  ${where}: could not fetch ${url}: ${why}`, ENDS_HERE]);
   const tooLarge = `larger than ${MAX_GROUNDING_BYTES / 1024 / 1024} MiB`;
+  // The recipe check refuses these first; this holds for any caller.
+  const problem = groundingUrlProblem(url);
+  if (problem) throw fail(`the URL ${problem}`);
   // The request and the body read share one error path: an interrupt or a
   // limit that fires mid-download stops the run as it would anywhere else.
   try {
     const res = await fetch(url, {
-      redirect: "follow",
+      // A redirect could name any address, so none is followed.
+      redirect: "manual",
       signal: AbortSignal.any([clocks.signal(), AbortSignal.timeout(GROUNDING_TIMEOUT_MS)]),
     });
+    if (res.status >= 300 && res.status < 400) {
+      res.body?.cancel().catch(() => {});
+      const location = res.headers.get("location");
+      throw fail(
+        `it redirects (HTTP ${res.status}${location ? ` to ${location}` : ""}); name the final https:// URL in the recipe`,
+      );
+    }
     if (!res.ok) throw fail(`HTTP ${res.status}`);
     if (Number(res.headers.get("content-length") ?? "0") > MAX_GROUNDING_BYTES) {
       throw fail(tooLarge);
