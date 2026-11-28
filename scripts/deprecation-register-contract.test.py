@@ -12,6 +12,7 @@ from __future__ import annotations
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
@@ -19,6 +20,10 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "scripts"))
+
+from release import deprecations_block, register_entries  # noqa: E402 - needs the sys.path entry above
+
 REGISTER = "docs/deprecations.yml"
 KINDS = {"variable", "input", "label", "path", "command"}
 KEYS = {"kind", "old", "replacement", "release", "allowed_paths"}
@@ -352,7 +357,23 @@ def test_only_a_whole_old_name_of_each_kind_is_a_mention() -> None:
     )
 
 
+# The notes of a release still being built are written by hand before
+# prepare-release runs, and it leaves an existing file as it is: so the table it
+# would have generated has to be there, and stay the register's (#457).
+def test_the_newest_release_s_notes_hold_the_register_s_table() -> None:
+    entries = register_entries((ROOT / REGISTER).read_text(encoding="utf-8"), "here")
+    releases = {e["release"] for e in entries}
+    newest = max(releases, key=lambda v: [int(n) for n in re.findall(r"\d+", v)])
+    notes = ROOT / "release-notes" / f"v{newest}.md"
+    if notes.is_file():
+        block = deprecations_block(entries, f"v{newest}")
+        assert block.rstrip("\n") in notes.read_text(encoding="utf-8"), (
+            f"{notes.name} must hold release.py's table for v{newest}, as docs/deprecations.yml has it now"
+        )
+
+
 if __name__ == "__main__":
+    test_the_newest_release_s_notes_hold_the_register_s_table()
     test_register_entries_are_well_formed()
     test_no_old_name_outside_history_and_its_allowed_paths()
     test_a_mention_outside_the_allowed_paths_fails_naming_the_file_and_entry()

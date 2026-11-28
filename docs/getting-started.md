@@ -57,7 +57,7 @@ The steps below are the same adoption by hand.
 ## 1. Prerequisites
 
 - A GitHub repository where you are an admin (you will add secrets, variables, and labels).
-- A Claude subscription that works with Claude Code, and the `claude` CLI installed locally (for `claude setup-token`).
+- A Claude subscription that works with Claude Code, and the `claude` CLI installed locally (for `claude setup-token`); or an Anthropic API key.
 - `gh` CLI, authenticated (`gh auth status`), for the label and settings commands below. The web UI works too.
 - For **plan → implement → review**: the [Claude GitHub App](https://github.com/apps/claude) installed on the repository. The implementer opens its draft PR as the App, because GitHub does not start CI for PRs opened with the job token.
 
@@ -103,11 +103,17 @@ Settings → Secrets and variables → Actions → **New repository secret**, or
 | Secret                                        | Used by                     | How to get it                                                                                                                                                                         |
 | --------------------------------------------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `CLAUDE_CODE_OAUTH_TOKEN`                     | all flows but the deep scan | Run `claude setup-token` locally and paste the token.                                                                                                                                 |
+| `ANTHROPIC_API_KEY`                           | all flows but the deep scan | Instead of the token: an Anthropic API key. With both set, the token is used.                                                                                                         |
 | `AGENT_KIT_ADVISORIES_TOKEN`                  | audit                       | Fine-grained PAT, this repository only, **Repository security advisories: Read and write**. Set an expiry you will track.                                                             |
 | `AGENT_KIT_DEPENDABOT_ALERTS_TOKEN`           | audit, optional             | Fine-grained PAT, this repository only, **Dependabot alerts: Read-only**. Lets `full` mode ground on open alerts; skipped when unset.                                                 |
 | `AGENT_KIT_NOTIFY_*`                          | audit, optional             | SMTP settings for the optional email notice (counts only; the full report only if publishing fails). See [examples/security-audit-caller.yml](../examples/security-audit-caller.yml). |
 | `AGENT_KIT_DEEP_SCAN_ANTHROPIC_API_KEY`       | deep scan, opt-in           | An Anthropic API key, from a Console workspace with its own spend limit. Set this or the next one, not both. See [Deep scan in CI](security-audit.md#deep-scan-in-ci).                |
 | `AGENT_KIT_DEEP_SCAN_CLAUDE_CODE_OAUTH_TOKEN` | deep scan, opt-in           | Instead of the key: a subscription token from `claude setup-token`, an opt-in at your own risk ([the subscription path](security-audit.md#the-subscription-path-opt-in)).             |
+| `AGENT_KIT_DEEP_SCAN_OPENAI_API_KEY`          | deep scan, not yet used     | Leave unset: no harness that reads it runs the Deep scan yet.                                                                                                                         |
+| `AGENT_KIT_DEEP_SCAN_GEMINI_API_KEY`          | deep scan, not yet used     | Leave unset: no harness that reads it runs the Deep scan yet.                                                                                                                         |
+| `AGENT_KIT_DEEP_SCAN_CURSOR_API_KEY`          | deep scan, not yet used     | Leave unset: no harness that reads it runs the Deep scan yet.                                                                                                                         |
+
+Each model secret is optional in the workflows: a run fails before the agent starts only when the chosen harness's credential is missing. The example Callers also pass `OPENAI_API_KEY`, `GEMINI_API_KEY` and `CURSOR_API_KEY` (the Deep scan Caller `AGENT_KIT_DEEP_SCAN_` names for each), so that changing harness later needs no Caller edit. No harness that reads them runs a Stage yet: leave them unset ([ADR 0030](adr/0030-harness-facts-are-published-per-tag-as-data.md)).
 
 The job token (`GITHUB_TOKEN`) is **not** passed as a secret; the reusable workflows use `github.token`, limited by your Caller's `permissions:`.
 
@@ -161,61 +167,65 @@ Skip if you only use plan → implement → review.
 
 ## 8. Turn the flows on (Kill switch variables)
 
-Callers read every Stage setting from repository variables named `CLAUDE_<STAGE>_<SETTING>`, with the Stage tokens `PLAN`, `IMPLEMENT`, `REVIEW`, `REVIEW_RESPONSE`, `SECURITY_AUDIT` and `DEEP_SCAN` ([ADR 0009](adr/0009-stage-settings-resolve-in-the-caller.md)). Each Stage's **Kill switch** variables keep it off until every condition in its row holds:
+Callers read every Stage setting from repository variables named `AGENT_KIT_<STAGE>_<SETTING>`, with the Stage tokens `PLAN`, `IMPLEMENT`, `REVIEW`, `REVIEW_RESPONSE`, `SECURITY_AUDIT` and `DEEP_SCAN` ([ADR 0009](adr/0009-stage-settings-resolve-in-the-caller.md), [ADR 0022](adr/0022-stage-settings-are-named-for-the-kit-not-the-harness.md)). Settings that configure Claude Code itself (`CLAUDE_CODE_VERSION`, the `CLAUDE_CODE_*` environment) keep their names.
+
+**Upgrading from `v1.0.0-beta.13` or earlier.** These variables started with `CLAUDE_` before. The new example Callers read only the new names, with no fallback, so copying one turns its flow off until you set the new switch (`AGENT_KIT_AGENT_FLOW_ENABLED` for plan, implement and review), and every model and effort you set under an old name is ignored. Set each new variable to the old one's value, then delete the old one; `agent-kit doctor` names every one still set. A Caller you have not replaced keeps reading the old names against the new tag.
+
+Each Stage's **Kill switch** variables keep it off until every condition in its row holds:
 
 <!-- generated:stage-kill-switches -->
 
-| Stage           | Runs when                                                                           |
-| --------------- | ----------------------------------------------------------------------------------- |
-| deep scan       | `CLAUDE_DEEP_SCAN_ENABLED` is `true`                                                |
-| plan            | `CLAUDE_AGENT_FLOW_ENABLED` is `true` and `CLAUDE_PLAN_ENABLED` is not `false`      |
-| implement       | `CLAUDE_AGENT_FLOW_ENABLED` is `true` and `CLAUDE_IMPLEMENT_ENABLED` is not `false` |
-| review          | `CLAUDE_AGENT_FLOW_ENABLED` is `true` and `CLAUDE_REVIEW_ENABLED` is not `false`    |
-| Review response | `CLAUDE_REVIEW_RESPONSE_ENABLED` is `true`                                          |
-| security audit  | `CLAUDE_SECURITY_AUDIT_ENABLED` is `true`                                           |
+| Stage           | Runs when                                                                                 |
+| --------------- | ----------------------------------------------------------------------------------------- |
+| deep scan       | `AGENT_KIT_DEEP_SCAN_ENABLED` is `true`                                                   |
+| plan            | `AGENT_KIT_AGENT_FLOW_ENABLED` is `true` and `AGENT_KIT_PLAN_ENABLED` is not `false`      |
+| implement       | `AGENT_KIT_AGENT_FLOW_ENABLED` is `true` and `AGENT_KIT_IMPLEMENT_ENABLED` is not `false` |
+| review          | `AGENT_KIT_AGENT_FLOW_ENABLED` is `true` and `AGENT_KIT_REVIEW_ENABLED` is not `false`    |
+| Review response | `AGENT_KIT_REVIEW_RESPONSE_ENABLED` is `true`                                             |
+| security audit  | `AGENT_KIT_SECURITY_AUDIT_ENABLED` is `true`                                              |
 
 <!-- /generated:stage-kill-switches -->
 
 ```bash
-gh variable set CLAUDE_AGENT_FLOW_ENABLED --body true
-gh variable set CLAUDE_SECURITY_AUDIT_ENABLED --body true
-gh variable set CLAUDE_REVIEW_RESPONSE_ENABLED --body true
+gh variable set AGENT_KIT_AGENT_FLOW_ENABLED --body true
+gh variable set AGENT_KIT_SECURITY_AUDIT_ENABLED --body true
+gh variable set AGENT_KIT_REVIEW_RESPONSE_ENABLED --body true
 ```
 
-The Agent flow's master switch is `CLAUDE_AGENT_FLOW_ENABLED`, and each of its Stages also has its own switch, as the table shows; Review response is not under the master switch. Unset counts as on; only `false` turns that Stage off (GitHub compares these values without regard to case, so `False` does too, and `TRUE` counts as `true` for a flow's switch). For example, to keep plan and review but have a person write the code:
+The Agent flow's master switch is `AGENT_KIT_AGENT_FLOW_ENABLED`, and each of its Stages also has its own switch, as the table shows; Review response is not under the master switch. Unset counts as on; only `false` turns that Stage off (GitHub compares these values without regard to case, so `False` does too, and `TRUE` counts as `true` for a flow's switch). For example, to keep plan and review but have a person write the code:
 
 ```bash
-gh variable set CLAUDE_IMPLEMENT_ENABLED --body false
+gh variable set AGENT_KIT_IMPLEMENT_ENABLED --body false
 ```
 
-`CLAUDE_REVIEW_RESPONSE_MODE` (optional) set to exactly `auto` lets a finished review start a Review response round on its own; unset, a person applies the label. See [Review response](review-response.md#manual-and-auto-mode).
+`AGENT_KIT_REVIEW_RESPONSE_MODE` (optional) set to exactly `auto` lets a finished review start a Review response round on its own; unset, a person applies the label. See [Review response](review-response.md#manual-and-auto-mode).
 
 Set a flow's switch to anything but `true` (or delete it) to stop it instantly without a commit.
 
-**Model and effort (optional).** Each Stage reads its own variable first, then the shared one, then the default in the last row. With no effort set, `--effort` is left off and the model's own default applies. Change either at any time, with no commit needed:
+**Harness, model and effort (optional).** Each Stage reads its own variable first, then the shared one, then the default in the last row. The harness is `claude-code`, `codex`, `gemini`, `opencode`, `cursor` or `custom:<name>`; only `claude-code` runs a Stage so far, and any other value fails the run before the agent starts, naming why. A model left empty is filled in by the reusable workflow with the harness's default. With no effort set, `--effort` is left off and the model's own default applies. Change any of them at any time, with no commit needed:
 
-<!-- generated:stage-model-and-effort -->
+<!-- generated:stage-harness-model-and-effort -->
 
-| Stage           | Model                          | Effort                          |
-| --------------- | ------------------------------ | ------------------------------- |
-| deep scan       | `CLAUDE_DEEP_SCAN_MODEL`       | `CLAUDE_DEEP_SCAN_EFFORT`       |
-| plan            | `CLAUDE_PLAN_MODEL`            | `CLAUDE_PLAN_EFFORT`            |
-| implement       | `CLAUDE_IMPLEMENT_MODEL`       | `CLAUDE_IMPLEMENT_EFFORT`       |
-| review          | `CLAUDE_REVIEW_MODEL`          | `CLAUDE_REVIEW_EFFORT`          |
-| Review response | `CLAUDE_REVIEW_RESPONSE_MODEL` | `CLAUDE_REVIEW_RESPONSE_EFFORT` |
-| security audit  | `CLAUDE_SECURITY_AUDIT_MODEL`  | `CLAUDE_SECURITY_AUDIT_EFFORT`  |
-| any Stage above | `CLAUDE_MODEL`                 | `CLAUDE_EFFORT`                 |
-| neither set     | `claude-opus-5-5`              | none                            |
+| Stage           | Harness                             | Model                                     | Effort                             |
+| --------------- | ----------------------------------- | ----------------------------------------- | ---------------------------------- |
+| deep scan       | `AGENT_KIT_DEEP_SCAN_HARNESS`       | `AGENT_KIT_DEEP_SCAN_MODEL`               | `AGENT_KIT_DEEP_SCAN_EFFORT`       |
+| plan            | `AGENT_KIT_PLAN_HARNESS`            | `AGENT_KIT_PLAN_MODEL`                    | `AGENT_KIT_PLAN_EFFORT`            |
+| implement       | `AGENT_KIT_IMPLEMENT_HARNESS`       | `AGENT_KIT_IMPLEMENT_MODEL`               | `AGENT_KIT_IMPLEMENT_EFFORT`       |
+| review          | `AGENT_KIT_REVIEW_HARNESS`          | `AGENT_KIT_REVIEW_MODEL`                  | `AGENT_KIT_REVIEW_EFFORT`          |
+| Review response | `AGENT_KIT_REVIEW_RESPONSE_HARNESS` | `AGENT_KIT_REVIEW_RESPONSE_MODEL`         | `AGENT_KIT_REVIEW_RESPONSE_EFFORT` |
+| security audit  | `AGENT_KIT_SECURITY_AUDIT_HARNESS`  | `AGENT_KIT_SECURITY_AUDIT_MODEL`          | `AGENT_KIT_SECURITY_AUDIT_EFFORT`  |
+| any Stage above | `AGENT_KIT_HARNESS`                 | `AGENT_KIT_MODEL`                         | `AGENT_KIT_EFFORT`                 |
+| neither set     | `claude-code`                       | the harness's default (`claude-opus-5-5`) | none                               |
 
-<!-- /generated:stage-model-and-effort -->
+<!-- /generated:stage-harness-model-and-effort -->
 
 ```bash
-gh variable set CLAUDE_MODEL --body claude-opus-5-5
-gh variable set CLAUDE_SECURITY_AUDIT_MODEL --body claude-fable-5-2
-gh variable set CLAUDE_PLAN_EFFORT --body low
+gh variable set AGENT_KIT_MODEL --body claude-opus-5-5
+gh variable set AGENT_KIT_SECURITY_AUDIT_MODEL --body claude-fable-5-2
+gh variable set AGENT_KIT_PLAN_EFFORT --body low
 ```
 
-Effort is one of `low`, `medium`, `high`, `xhigh` or `max`, and a model is a plain model id. The run fails before the agent starts if either is anything else, and the error names the input. Whether a model supports a given effort level is up to Claude Code; if it refuses, the workflow log says why. Delete a Stage's variable to fall back to the shared one, and delete that to fall back to the default.
+Effort is one of `low`, `medium`, `high`, `xhigh` or `max`, and a model is a plain model id in the harness's own words. The run fails before the agent starts if either is anything else, and the error names the input. Whether a model supports a given effort level is up to Claude Code; if it refuses, the workflow log says why. Delete a Stage's variable to fall back to the shared one, and delete that to fall back to the default.
 
 ## 9. First run
 
