@@ -23,7 +23,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: harness-images-${{ github.head_ref || github.ref_name }}
+  # By pull request, so a fork's branch of the same name never replaces a queued run.
+  group: harness-images-${{ github.event.pull_request.number || github.ref }}
   # A cancelled push could leave a tag whose digest no one saw.
   cancel-in-progress: false
 
@@ -51,6 +52,7 @@ jobs:
           node-version-file: .nvmrc
       - name: Set up a builder for amd64 and arm64
         run: |
+          # QEMU (binfmt, latest) and BuildKit (buildx-stable-1), pinned in 2026-11.
           docker run --privileged --rm tonistiigi/binfmt@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0 --install arm64
           docker buildx create --use --driver docker-container \
             --driver-opt image=moby/buildkit@sha256:baf6138eb8c37644800c7c913fba051e840ebb9ba13eaf92d92ef9a1712d0b4c

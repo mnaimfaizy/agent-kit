@@ -9,9 +9,9 @@
 //   node docker/harness-images/image.mjs check <harness>
 //     Fail unless the adapter records that image's digest.
 //   node docker/harness-images/image.mjs record <harness>
-//     Write that digest into the adapter.
+//     Write that digest, and the inputs tag it came from, into the adapter.
 //   node docker/harness-images/image.mjs refresh
-//     Move every Dockerfile to its bases' current digests and this month.
+//     Move every Dockerfile to its bases' current digests and today's date.
 //
 // An image is tagged with a hash of its inputs (its Dockerfile and the CLI
 // version), and an existing tag is never rebuilt: a rebuild would give another
@@ -37,7 +37,7 @@ export const PLATFORMS = Object.freeze(["linux/amd64", "linux/arm64"]);
 
 const SOURCE_LABEL = "org.opencontainers.image.source=https://github.com/mnaimfaizy/agent-kit";
 const DIGEST = /^sha256:[0-9a-f]{64}$/;
-const DIGEST_LINE = /^const IMAGE_DIGEST = "[^"]*";$/m;
+const DIGEST_LINE = /^const IMAGE_DIGEST = "[^"]*";.*$/m;
 
 class Failed extends Error {}
 
@@ -53,25 +53,34 @@ export function inputsTag(dockerfile, version) {
   return `inputs-${hash.slice(0, 32)}`;
 }
 
-/** An adapter's source with `digest` as its recorded Harness image digest. */
-export function recordDigest(source, digest) {
+/**
+ * An adapter's source with `digest` as its recorded Harness image digest, and
+ * beside it the inputs tag the image was built under. A contract test holds
+ * that tag to the current Dockerfile and CLI version without a registry, so a
+ * pin changed with no new digest fails the tests on every pull request.
+ * @param {string} source
+ * @param {string} digest
+ * @param {string} tag
+ */
+export function recordDigest(source, digest, tag) {
   if (!DIGEST.test(digest)) throw new Failed(`not a sha256 digest: ${JSON.stringify(digest)}`);
   if (!DIGEST_LINE.test(source)) throw new Failed("the adapter has no `const IMAGE_DIGEST` line.");
-  return source.replace(DIGEST_LINE, `const IMAGE_DIGEST = "${digest}";`);
+  return source.replace(DIGEST_LINE, `const IMAGE_DIGEST = "${digest}"; // ${tag}`);
 }
 
 /**
  * A Dockerfile with each `FROM <tag>@<digest>` at the digest `resolve(tag)`
- * gives, and its REFRESHED month moved, so the packages are taken again.
+ * gives, and its REFRESHED date moved, so the packages are taken again, even
+ * on a second refresh in one month (a security fix).
  * @param {string} text
- * @param {{ resolve: (tag: string) => string, month: string }} opts
+ * @param {{ resolve: (tag: string) => string, date: string }} opts
  */
-export function refreshDockerfile(text, { resolve, month }) {
+export function refreshDockerfile(text, { resolve, date }) {
   const refreshed = /^ARG REFRESHED=.*$/m;
   if (!refreshed.test(text)) throw new Failed("the Dockerfile has no `ARG REFRESHED=` line.");
   return text
     .replace(/^FROM (\S+?)@sha256:[0-9a-f]{64}/gm, (_, tag) => `FROM ${tag}@${resolve(tag)}`)
-    .replace(refreshed, `ARG REFRESHED=${month}`);
+    .replace(refreshed, `ARG REFRESHED=${date}`);
 }
 
 function docker(argv, { input } = {}) {
@@ -97,7 +106,6 @@ export function main(
     run = docker,
     read = (path) => readFileSync(fileURLToPath(new URL(path, ROOT)), "utf8"),
     write = (path, text) => writeFileSync(fileURLToPath(new URL(path, ROOT)), text),
-    recorded,
     log = console.log,
     now = new Date(),
   } = {},
@@ -114,9 +122,11 @@ export function main(
   const digestOf = (ref) => {
     const r = run(["buildx", "imagetools", "inspect", ref, "--format", "{{.Manifest.Digest}}"]);
     if (r.status !== 0) {
-      // Only a plain "not found" means absent: after any other answer (a rate
-      // limit, an outage) a build would move the tag off a recorded digest.
-      if (/not found|manifest unknown|name unknown/i.test(r.stderr)) return null;
+      // Only the registry's "not found" for this reference means absent: after
+      // any other answer (a rate limit, an outage, a missing credential
+      // helper) a build would move the tag off a recorded digest.
+      if (r.stderr.includes(`${ref}: not found`)) return null;
+      if (/manifest unknown|name unknown/i.test(r.stderr)) return null;
       throw new Failed(`could not inspect ${ref}: ${r.stderr.trim()}`);
     }
     const digest = r.stdout.trim();
@@ -126,15 +136,15 @@ export function main(
 
   try {
     if (command === "refresh") {
-      const month = now.toISOString().slice(0, 7);
+      const date = now.toISOString().slice(0, 10);
       const resolve = (tag) => {
         const digest = digestOf(tag);
         if (digest === null) throw new Failed(`the base ${tag} was not found.`);
         return digest;
       };
       for (const { dockerfile } of Object.values(HARNESSES)) {
-        write(dockerfile, refreshDockerfile(read(dockerfile), { resolve, month }));
-        log(`Refreshed ${dockerfile} to ${month}.`);
+        write(dockerfile, refreshDockerfile(read(dockerfile), { resolve, date }));
+        log(`Refreshed ${dockerfile} to ${date}.`);
       }
       return 0;
     }
@@ -143,10 +153,11 @@ export function main(
     if (!Object.hasOwn(HARNESSES, name ?? "")) return usage();
     const harness = HARNESSES[name];
     const plan = harness.adapter();
-    const [image, pinned] = plan.installLayer.image.split("@");
+    const [image] = plan.installLayer.image.split("@");
     const { version } = plan.identity;
     const dockerfile = read(harness.dockerfile);
-    const ref = `${image}:${inputsTag(dockerfile, version)}`;
+    const tag = inputsTag(dockerfile, version);
+    const ref = `${image}:${tag}`;
 
     const build = (extra) => {
       const r = run(
@@ -192,7 +203,7 @@ export function main(
       throw new Failed(`the image of this pin has not been pushed: ${ref}`);
     }
     if (command === "record") {
-      write(harness.source, recordDigest(read(harness.source), digest));
+      write(harness.source, recordDigest(read(harness.source), digest, tag));
       log(`Recorded ${image}@${digest} in ${harness.source}.`);
       return 0;
     }
@@ -204,13 +215,14 @@ export function main(
     );
     const missing = PLATFORMS.filter((p) => !platforms.includes(p));
     if (missing.length) throw new Failed(`${ref} lacks ${missing.join(" and ")}.`);
-    const held = recorded ?? pinned;
-    if (held !== digest) {
+    const source = read(harness.source);
+    if (recordDigest(source, digest, tag) !== source) {
+      const held = DIGEST_LINE.exec(source)[0];
       throw new Failed(
         [
-          `${harness.source} records ${held}, and the image of this pin is ${digest}.`,
+          `${harness.source} holds \`${held}\`, and the image of this pin is ${digest}.`,
           `Record it: node docker/harness-images/image.mjs record ${name} (logged in to ghcr.io),`,
-          `or write const IMAGE_DIGEST = "${digest}"; there, then commit and push.`,
+          `or write \`const IMAGE_DIGEST = "${digest}"; // ${tag}\` there, then commit and push.`,
         ].join("\n"),
       );
     }

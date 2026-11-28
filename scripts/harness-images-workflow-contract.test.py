@@ -122,3 +122,12 @@ def test_the_refresh_rebuilds_every_image_then_opens_a_pull_request():
     # Never a push to the default branch.
     assert not re.search(r"git push\b.*\bmain\b", run)
     assert "--force" not in run
+
+
+if __name__ == "__main__":
+    test_the_image_workflow_runs_on_the_pull_request_that_changes_a_pin()
+    test_the_image_workflow_publishes_then_checks_every_harness()
+    test_a_fork_pull_request_builds_without_logging_in_or_pushing()
+    test_the_refresh_runs_monthly_and_by_hand_on_main_only()
+    test_the_refresh_rebuilds_every_image_then_opens_a_pull_request()
+    print("harness images workflow contract tests passed")

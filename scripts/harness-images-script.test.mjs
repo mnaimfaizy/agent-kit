@@ -81,29 +81,37 @@ describe("the inputs tag", () => {
 });
 
 describe("recording a digest in the adapter", () => {
-  it("replaces the one IMAGE_DIGEST line", () => {
-    const next = recordDigest(ADAPTER, digest("d"));
-    assert.ok(next.includes(`const IMAGE_DIGEST = "${digest("d")}";`));
+  it("replaces the one IMAGE_DIGEST line, with the inputs tag beside it", () => {
+    const next = recordDigest(ADAPTER, digest("d"), "inputs-abc");
+    assert.ok(next.includes(`const IMAGE_DIGEST = "${digest("d")}"; // inputs-abc\n`));
     assert.equal(next.split("\n").length, ADAPTER.split("\n").length);
   });
 
+  // Offline, on every pull request: a pin changed with no new image recorded
+  // fails here, so a release cannot carry a digest of another pin.
+  it("holds the digest of the current Dockerfile and CLI version", () => {
+    const tag = inputsTag(DOCKERFILE, claudeCode().identity.version);
+    const line = `const IMAGE_DIGEST = "${claudeCode().installLayer.image.split("@")[1]}"; // ${tag}`;
+    assert.ok(ADAPTER.replace(/\r/g, "").includes(`${line}\n`), `expected ${tag}`);
+  });
+
   it("refuses what is not a digest, and a source with no such line", () => {
-    assert.throws(() => recordDigest(ADAPTER, "latest"), /not a sha256 digest/);
-    assert.throws(() => recordDigest("const x = 1;\n", digest("d")), /IMAGE_DIGEST/);
+    assert.throws(() => recordDigest(ADAPTER, "latest", "t"), /not a sha256 digest/);
+    assert.throws(() => recordDigest("const x = 1;\n", digest("d"), "t"), /IMAGE_DIGEST/);
   });
 });
 
 describe("refreshing the base", () => {
-  it("moves every FROM digest and the package month", () => {
+  it("moves every FROM digest and the package date", () => {
     const asked = [];
     const next = refreshDockerfile(DOCKERFILE, {
       resolve: (tag) => (asked.push(tag), digest(String(asked.length))),
-      month: "2027-01",
+      date: "2027-01-01",
     });
     assert.deepEqual(asked, ["node:24-trixie-slim", "debian:trixie-slim"]);
     assert.ok(next.includes(`FROM node:24-trixie-slim@${digest("1")} AS harness`), next);
     assert.ok(next.includes(`FROM debian:trixie-slim@${digest("2")}\n`), next);
-    assert.match(next, /^ARG REFRESHED=2027-01$/m);
+    assert.match(next, /^ARG REFRESHED=2027-01-01$/m);
   });
 
   it("refuses a Dockerfile with no REFRESHED line to move", () => {
@@ -111,7 +119,7 @@ describe("refreshing the base", () => {
       () =>
         refreshDockerfile(`FROM a:1@${digest("a")}\n`, {
           resolve: () => digest("b"),
-          month: "2027-01",
+          date: "2027-01-01",
         }),
       /REFRESHED/,
     );
@@ -122,12 +130,18 @@ describe("refreshing the base", () => {
  * Run a command of the script with a fake docker. `tags` maps a tag
  * reference to its digest; a build adds the tag it pushes.
  */
-function script(args, { tags = {}, recorded, platforms, inspectError, buildStatus = 0 } = {}) {
+function script(
+  args,
+  { tags = {}, recorded, recordedTag, platforms, inspectError, buildStatus = 0 } = {},
+) {
+  recordedTag ??= TAG.split(":")[1];
   const calls = [];
   const out = [];
   const files = {
     "docker/harness-images/claude-code.Dockerfile": DOCKERFILE,
-    "cli/src/harness/claude-code.mjs": ADAPTER,
+    "cli/src/harness/claude-code.mjs": recorded
+      ? recordDigest(ADAPTER, recorded, recordedTag)
+      : ADAPTER,
   };
   const held = { ...tags };
   const run = (argv, { input } = {}) => {
@@ -152,7 +166,6 @@ function script(args, { tags = {}, recorded, platforms, inspectError, buildStatu
     run,
     read: (p) => files[p],
     write: (p, text) => (files[p] = text),
-    recorded,
     log: (s) => out.push(s),
     now: new Date("2027-01-01T06:00:00Z"),
   });
@@ -200,6 +213,14 @@ describe("publish", () => {
     assert.match(r.out, /429 Too Many Requests/);
   });
 
+  it("builds nothing when a local tool is what was not found", () => {
+    const inspectError =
+      "error getting credentials: docker-credential-x: executable file not found";
+    const r = script(["publish", "claude-code"], { inspectError });
+    assert.equal(r.code, 1);
+    assert.deepEqual(builds(r), []);
+  });
+
   it("fails when the build fails", () => {
     assert.equal(script(["publish", "claude-code"], { buildStatus: 1 }).code, 1);
   });
@@ -225,6 +246,15 @@ describe("check", () => {
     assert.equal(r.code, 1);
     assert.ok(r.out.includes(digest("a")), r.out);
     assert.match(r.out, /node docker\/harness-images\/image\.mjs record claude-code/);
+  });
+
+  it("fails when the tag beside the digest is another pin's", () => {
+    const r = script(["check", "claude-code"], {
+      tags,
+      recorded: digest("a"),
+      recordedTag: "inputs-old",
+    });
+    assert.equal(r.code, 1);
   });
 
   it("fails when no image of this pin was ever pushed", () => {
@@ -260,7 +290,7 @@ describe("record and refresh", () => {
     assert.equal(r.code, 0, r.out);
     const text = r.files["docker/harness-images/claude-code.Dockerfile"];
     assert.ok(text.includes(digest("1")) && text.includes(digest("2")), text);
-    assert.match(text, /^ARG REFRESHED=2027-01$/m);
+    assert.match(text, /^ARG REFRESHED=2027-01-01$/m);
   });
 
   it("refuses an unknown command or harness", () => {

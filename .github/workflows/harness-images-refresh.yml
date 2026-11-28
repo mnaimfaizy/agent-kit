@@ -43,6 +43,7 @@ jobs:
           node-version-file: .nvmrc
       - name: Set up a builder for amd64 and arm64
         run: |
+          # QEMU (binfmt, latest) and BuildKit (buildx-stable-1), pinned in 2026-11.
           docker run --privileged --rm tonistiigi/binfmt@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0 --install arm64
           docker buildx create --use --driver docker-container \
             --driver-opt image=moby/buildkit@sha256:baf6138eb8c37644800c7c913fba051e840ebb9ba13eaf92d92ef9a1712d0b4c
@@ -56,7 +57,8 @@ jobs:
         run: |
           set -euo pipefail
           month="$(date -u +%Y-%m)"
-          branch="chore/harness-images-$month-$GITHUB_RUN_ID"
+          # The attempt too: a re-run must not push onto its first attempt's branch.
+          branch="chore/harness-images-$month-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           git switch --create "$branch"
           node docker/harness-images/image.mjs refresh
           for harness in $HARNESSES; do
@@ -64,7 +66,7 @@ jobs:
             node docker/harness-images/image.mjs record "$harness"
           done
           if git diff --quiet; then
-            echo "Nothing changed: the bases and packages are this month's already."
+            echo "Nothing changed: the bases and packages were refreshed today already."
             exit 0
           fi
           git config user.name "github-actions[bot]"
