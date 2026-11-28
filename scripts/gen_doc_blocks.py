@@ -275,7 +275,7 @@ def deep_scan_limits(sources: Sources) -> str:
 
 # The Scan recipe field table: each field in cli/src/deep-scan/recipe.mjs, whether it is required, and what it holds.
 RECIPE_FIELD_ROWS = {
-    "image": ("one of `image` and `dockerfile`", "A base image. Agent-kit layers a pinned Claude Code on top."),
+    "image": ("one of `image` and `dockerfile`", "A base image, pinned by digest (`@sha256:`). Agent-kit layers a pinned Claude Code on top."),
     "dockerfile": ("one of `image` and `dockerfile`", "A Dockerfile's path in the repository. Not a compose file."),
     "setup": (
         "yes (`[]` for none)",

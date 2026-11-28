@@ -793,7 +793,8 @@ describe("Docker Engine: the sandbox's only route to the host is a relay on an i
   it("prints no Note: about other host services: the route reaches the relay alone", async () => {
     const res = await run(recipeRepo(VALID));
     assert.equal(res.code, 0, res.text);
-    assert.doesNotMatch(res.text, /^Note:/m);
+    // The fixture's image is a bare tag, so the image-digest note is expected.
+    assert.doesNotMatch(res.text, /^Note:(?! the recipe's image )/m);
     assert.doesNotMatch(res.text, /can also reach any other service/);
   });
 });

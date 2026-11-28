@@ -103,7 +103,7 @@ A Deep scan needs a **Scan recipe**: one Consumer-owned YAML file, beside the Th
 - **No recipe, no scan.** With no recipe, or an invalid one, `agent-kit deep-scan` refuses, lists every problem with its field, points here, and exits 1. It never falls back to a `full` audit.
 
 ```yaml
-image: node:22-bookworm # or dockerfile: docker/scan.Dockerfile, never both
+image: node:22-bookworm@sha256:<digest> # pin by digest; or dockerfile: docker/scan.Dockerfile, never both
 setup: # run before the agent enters, with egress limited to registries
   - npm ci
 registries: # the setup phase's egress allowlist; [] for none
@@ -133,7 +133,7 @@ notes: # what stays static-only, so a report never implies it was exercised
 
 | Field          | Required                                                   | Holds                                                                                                                 |
 | -------------- | ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `image`        | one of `image` and `dockerfile`                            | A base image. Agent-kit layers a pinned Claude Code on top.                                                           |
+| `image`        | one of `image` and `dockerfile`                            | A base image, pinned by digest (`@sha256:`). Agent-kit layers a pinned Claude Code on top.                            |
 | `dockerfile`   | one of `image` and `dockerfile`                            | A Dockerfile's path in the repository. Not a compose file.                                                            |
 | `setup`        | yes (`[]` for none)                                        | Commands run before the agent enters, without the agent or the model credential.                                      |
 | `registries`   | yes (`[]` for none)                                        | Hosts the setup phase may reach. The network is cut after setup.                                                      |
@@ -193,7 +193,7 @@ Once a runtime is chosen, `agent-kit deep-scan` runs the sandbox on it: see [Wha
 
 `agent-kit deep-scan` runs the sandbox from image to teardown on the runtime it chose. The agent step is the real Claude Code, behind a key-injecting model proxy on your machine. Your API key never enters the sandbox: see [Credentials](#credentials). In order:
 
-1. **Image.** It pulls the recipe's `image`, or builds its `dockerfile` from the default branch's tree (sent to `docker build` as an archive, never your working tree). Then it layers a pinned Claude Code on top, installed with npm, so the image needs Node.js and npm. The Claude Code auto-updater is off, both by environment and by managed settings in `/etc/claude-code/`, which the repository's own project settings cannot override. A Dockerfile is built by your Docker engine's builder, outside the sandbox runtime, so treat it like the recipe: it is read from the default branch only.
+1. **Image.** It pulls the recipe's `image`, or builds its `dockerfile` from the default branch's tree (sent to `docker build` as an archive, never your working tree). Then it layers a pinned Claude Code on top, installed with npm, so the image needs Node.js and npm. The Claude Code auto-updater is off, both by environment and by managed settings in `/etc/claude-code/`, which the repository's own project settings cannot override. A Dockerfile is built by your Docker engine's builder, outside the sandbox runtime, so treat it like the recipe: it is read from the default branch only. The `image` is trusted the same way, on every runtime: your Docker engine pulls it and builds the pinned layer on it, outside the sandbox runtime and the `registries` limit. So pin it by digest (`name:tag@sha256:<digest>`), so a moved tag cannot change what runs; `deep-scan` prints a note on the `Image:` step when it has none.
 2. **Start.** It starts one sandbox with no mount of any host folder, no host environment variables, no Docker socket and no extra privilege (`no-new-privileges`), under the chosen runtime (`--runtime runsc`, for example). On Docker Engine the sandbox always starts on its one isolated network, even with `registries: []` (only the setup relay depends on `registries`), and the route to the host is checked first (see **The route to your machine**, below).
 3. **Copy in.** Into the sandbox go only (on Docker Engine, each as a tar unpacked by `docker exec` at the sandbox's root, never `docker cp`, which gVisor's overlay can hide from a running sandbox):
 
