@@ -8,15 +8,15 @@
 //
 // The launch: print mode, the brief on stdin. `--bare` skips skill and
 // CLAUDE.md discovery, so the Launcher hands the agent everything
-// explicitly, in its brief. The agent holds only a placeholder API key. Its
-// model API base URL is pinned by the Launcher's own `--settings`, which
+// explicitly, in its brief. The agent holds only the run's caller key as its
+// API key. Its model API base URL is pinned by the Launcher's own `--settings`, which
 // outrank project settings, and project and local settings are not even
 // loaded (`--setting-sources user`), so the scanned repository's
 // `.claude/settings.json` cannot point it elsewhere. Web tools are not in
 // its tool set, and are denied as well. Its turn limit is `--max-turns` on
 // the command line (#371).
 //
-// On the subscription path (#375) it holds a placeholder
+// On the subscription path (#375) it holds the caller key as its
 // CLAUDE_CODE_OAUTH_TOKEN instead, and runs without `--bare`, which never
 // reads one. So it can discover the scanned repository's CLAUDE.md and
 // skills: the brief says they are that repository's content, and that its
@@ -38,9 +38,10 @@ export const WEB_TOOLS = Object.freeze(["WebFetch", "WebSearch"]);
 
 /**
  * The credentials Claude Code accepts, by kind: the kit secret, the
- * variable it reads in the sandbox, and the non-secret value it holds there,
- * which the model proxy swaps. The subscription placeholder is shaped like a
- * token, in case Claude Code checks the prefix.
+ * variable it reads in the sandbox, and the placeholder it holds there,
+ * which the model proxy swaps. A run with a caller key holds that instead,
+ * made by the Launcher to start with this placeholder. The subscription one
+ * is shaped like a token, in case Claude Code checks the prefix.
  */
 const CREDENTIALS = {
   "api-key": {
@@ -65,11 +66,14 @@ const CREDENTIALS = {
  *   briefPath?: string,
  *   kitDir?: string,
  *   maxTurns?: number,
+ *   callerKey?: string,
  * }} StageRequest  `model` and `effort` pass through verbatim, already
  *   checked by the Launcher; without either, Claude Code runs on its own
  *   default. `proxyUrl` is the model proxy as the sandbox reaches it,
  *   `kitDir` the Launcher's folder there, outside the workspace, and
- *   `maxTurns` the turn limit. A request without them (before the sandbox
+ *   `maxTurns` the turn limit. `callerKey` is the run's caller key, which the
+ *   model proxy requires: it is the chosen kind's placeholder in the plan, and
+ *   so what the sandbox holds. A request without them (before the sandbox
  *   exists) gets a plan whose launch leaves them out.
  *
  * @typedef {{
@@ -109,9 +113,12 @@ export function claudeCode({
   briefPath,
   kitDir,
   maxTurns,
+  callerKey,
 } = {}) {
   const subscription = credentialKind === "subscription";
-  const credential = CREDENTIALS[credentialKind];
+  const accepted = structuredClone(CREDENTIALS);
+  const credential = accepted[credentialKind];
+  if (callerKey !== undefined) credential.placeholder = callerKey;
   // The Launcher's own settings. Hooks are off where no `--bare` skips
   // them: a setup step could have written some into the user settings.
   const settings = {
@@ -135,7 +142,7 @@ export function claudeCode({
     },
     modelRoute: { profile: "anthropic" },
     credentials: {
-      accepted: structuredClone(CREDENTIALS),
+      accepted,
       scrub: ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"],
     },
     launch: {

@@ -39,11 +39,13 @@ const LOGS_DIR = `${KIT_DIR}/logs`;
  * The harness's launch plan for a Deep scan. Without a `baseUrl` (before the
  * model route is open) its launch is not yet one to run; its identity and
  * install layer are.
- * @param {{ baseUrl?: string, maxTurns?: number, model?: string, effort?: string, kind?: "api-key" | "subscription" }} [opts]
+ * @param {{ baseUrl?: string, maxTurns?: number, model?: string, effort?: string, kind?: "api-key" | "subscription", callerKey?: string }} [opts]
  *   `model` is a plain model id and `effort` an effort level, both checked by
  *   the launcher. `kind` is the credential's (default an API key).
+ *   `callerKey` is the run's (callerKeyFor): the agent holds it in place of
+ *   the credential.
  */
-export function agentPlan({ baseUrl, maxTurns, model, effort, kind } = {}) {
+export function agentPlan({ baseUrl, maxTurns, model, effort, kind, callerKey } = {}) {
   return claudeCode({
     stage: "deep-scan",
     proxyUrl: baseUrl,
@@ -53,6 +55,7 @@ export function agentPlan({ baseUrl, maxTurns, model, effort, kind } = {}) {
     model,
     effort,
     credentialKind: kind,
+    callerKey,
   });
 }
 

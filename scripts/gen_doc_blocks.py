@@ -275,7 +275,10 @@ def deep_scan_limits(sources: Sources) -> str:
 
 # The Scan recipe field table: each field in cli/src/deep-scan/recipe.mjs, whether it is required, and what it holds.
 RECIPE_FIELD_ROWS = {
-    "image": ("one of `image` and `dockerfile`", "A base image. Agent-kit layers a pinned Claude Code on top."),
+    "image": (
+        "one of `image` and `dockerfile`",
+        "A base image, pinned by digest (`@sha256:`). Agent-kit layers a pinned Claude Code on top.",
+    ),
     "dockerfile": ("one of `image` and `dockerfile`", "A Dockerfile's path in the repository. Not a compose file."),
     "setup": (
         "yes (`[]` for none)",
@@ -292,7 +295,8 @@ RECIPE_FIELD_ROWS = {
     "fixtures": ("yes (`[]` for none)", "Mappings of test users, roles and similar. Fake values only."),
     "grounding": (
         "no",
-        "URLs or repository paths `deep-scan` copies in before the agent enters, since it has no web access.",
+        "Public `https://` URLs or repository paths `deep-scan` copies in before the agent enters,"
+        " since it has no web access.",
     ),
     "notes": ("yes", "A line or a list of lines: what stays static-only."),
 }

@@ -10,6 +10,7 @@
 // gets an environment with the model credential variables removed, and the
 // sandbox gets only a placeholder.
 
+import { randomBytes } from "node:crypto";
 import { firstLine } from "../exec.mjs";
 import { claudeCode } from "../harness/claude-code.mjs";
 import { GITHUB_TOKEN_VARS } from "./preflight.mjs";
@@ -19,6 +20,31 @@ import { GITHUB_TOKEN_VARS } from "./preflight.mjs";
  * variable is also the one it is read from by default.
  */
 const { accepted, scrub } = claudeCode().credentials;
+
+/**
+ * The start of the key the sandboxed agent holds in place of a real one;
+ * the proxy swaps it for the real key.
+ */
+export const PLACEHOLDER_API_KEY = accepted["api-key"].placeholder;
+
+/**
+ * The start of the token the sandboxed agent holds on the subscription
+ * path; the proxy swaps the bearer value it sends.
+ */
+export const PLACEHOLDER_OAUTH_TOKEN = accepted.subscription.placeholder;
+
+/**
+ * The run's caller key: a placeholder with 24 random bytes added, made once
+ * per run. The sandboxed Claude Code holds it in place of a credential, and
+ * the model proxy forwards only a request that carries it, so a process in
+ * the sandbox that never read Claude Code's environment cannot spend the
+ * real credential. It is worth nothing outside the run's proxy.
+ * @param {"api-key" | "subscription"} kind
+ */
+export function callerKeyFor(kind) {
+  const start = kind === SUBSCRIPTION ? PLACEHOLDER_OAUTH_TOKEN : PLACEHOLDER_API_KEY;
+  return `${start}-${randomBytes(24).toString("hex")}`;
+}
 
 /** The kinds `--credential` takes: an API key (the default) or the opt-in. */
 export const API_KEY = "api-key";

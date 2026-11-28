@@ -19,6 +19,11 @@
 // resolved; a dangling symlink anywhere on the way is refused, because the
 // write would create its target.
 //
+// A target that starts with `~`, or has surrounding whitespace, is refused, as
+// in confine-reads-to-workspace.mjs: resolved against the workspace it is an
+// in-tree name, while the tool may expand the home prefix or trim the string
+// and write outside the tree.
+//
 // Paths are resolved with POSIX rules, as in confine-reads-to-workspace.mjs.
 //
 // Contract: stdin is the PreToolUse hook JSON. Print a deny decision as JSON on
@@ -93,6 +98,19 @@ function resolveForWrite(abs) {
   }
 }
 
+/**
+ * Why a target cannot be judged as written, or null. A `~` prefix (`~`, `~/x`,
+ * `~user/x`) may be expanded to a home directory, and surrounding whitespace
+ * may be trimmed, before the tool writes it. Kept in step with
+ * confine-reads-to-workspace.mjs; each hook is staged on its own.
+ */
+export function unjudgeableTarget(value) {
+  const s = String(value);
+  if (s.startsWith("~")) return "a home-relative path";
+  if (s !== s.trim()) return "a path with leading or trailing whitespace";
+  return null;
+}
+
 /** Decide on one hook payload. Returns a deny reason, or null to allow. */
 export function decideWrite(payload, workspace) {
   const tool = payload?.tool_name;
@@ -101,6 +119,11 @@ export function decideWrite(payload, workspace) {
   const input = payload?.tool_input;
   const target = tool === "NotebookEdit" ? input?.notebook_path : input?.file_path;
   if (target == null || target === "") return null; // nothing to write to
+
+  const unjudgeable = unjudgeableTarget(target);
+  if (unjudgeable) {
+    return `writes confined to the workspace; refused ${unjudgeable}, which may name a place outside GITHUB_WORKSPACE: ${JSON.stringify(String(target))}`;
+  }
 
   if (!workspace) return "write confinement hook: GITHUB_WORKSPACE is unset";
 

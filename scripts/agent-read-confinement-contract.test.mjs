@@ -174,6 +174,110 @@ describe("agent read-confinement hook contract", () => {
     }
   });
 
+  it("refuses a home-relative or whitespace-padded location for every read tool", () => {
+    // Resolved against the workspace, these are in-tree names that do not
+    // exist, so the on-disk check would allow them; the tool may expand `~` or
+    // trim the string and open a path outside the tree.
+    const ws = "/home/runner/work/repo/repo";
+    const unjudgeable = [
+      "~",
+      "~/",
+      "~/.ssh",
+      "~/.ssh/id_rsa",
+      "~runner/.config",
+      "~root",
+      " /etc",
+      "/etc ",
+      " src",
+      "src ",
+      "\t/etc",
+      "/etc\t",
+      "\n/etc",
+      "/etc\n",
+      "\u00a0/etc",
+    ];
+    for (const value of unjudgeable) {
+      for (const payload of [
+        { tool_name: "Read", tool_input: { file_path: value } },
+        { tool_name: "Grep", tool_input: { pattern: "x", path: value } },
+        { tool_name: "Glob", tool_input: { pattern: "*", path: value } },
+        { tool_name: "Glob", tool_input: { pattern: "**/*.conf", path: value } },
+      ]) {
+        const reason = decide(payload, ws);
+        assert.match(
+          reason ?? "",
+          /refused a (home-relative path|path with leading or trailing whitespace)/,
+          JSON.stringify(payload),
+        );
+        assert.match(reason, /outside GITHUB_WORKSPACE/);
+      }
+    }
+    // Refused even with no workspace to judge against.
+    assert.match(
+      decide({ tool_name: "Read", tool_input: { file_path: "~/.ssh" } }, "") ?? "",
+      /home-relative/,
+    );
+    // A `~` or a space that is not at either end is an ordinary name.
+    for (const file_path of ["docs/~draft.md", "a~b", "docs/my notes.md", "./~"]) {
+      assert.equal(decide({ tool_name: "Read", tool_input: { file_path } }, ws), null, file_path);
+    }
+  });
+
+  it("refuses a Glob pattern with leading or trailing whitespace", () => {
+    const ws = "/home/runner/work/repo/repo";
+    for (const pattern of [" /etc/*", "/etc/* ", "\t**/*", " {/etc,src}/*"]) {
+      assert.match(
+        decide({ tool_name: "Glob", tool_input: { pattern } }, ws) ?? "",
+        /Glob pattern with leading or trailing whitespace/,
+        JSON.stringify(pattern),
+      );
+    }
+  });
+
+  it("judges each tool on its own location field, and refuses a call carrying another", () => {
+    // Read takes file_path; Grep and Glob take path. A second, in-tree
+    // location field must not vouch for the one the tool searches.
+    const ws = "/home/runner/work/repo/repo";
+    const foreign = [
+      { tool_name: "Grep", tool_input: { pattern: "x", file_path: "README.md", path: "/etc" } },
+      { tool_name: "Grep", tool_input: { pattern: "x", file_path: "README.md", path: "src" } },
+      { tool_name: "Grep", tool_input: { pattern: "x", file_path: "/etc/passwd" } },
+      { tool_name: "Glob", tool_input: { pattern: "*", file_path: "README.md", path: "/etc" } },
+      {
+        tool_name: "Glob",
+        tool_input: { pattern: "*.conf", file_path: "README.md", path: "/etc" },
+      },
+      { tool_name: "Glob", tool_input: { pattern: "**/*", file_path: "README.md", path: "/home" } },
+      { tool_name: "Glob", tool_input: { pattern: "**/*", file_path: "README.md" } },
+      { tool_name: "Read", tool_input: { file_path: "README.md", path: "/etc" } },
+      { tool_name: "Read", tool_input: { path: "/etc/passwd" } },
+      { tool_name: "Read", tool_input: { file_path: "README.md", notebook_path: "/etc/x" } },
+      { tool_name: "Grep", tool_input: { pattern: "x", path: "src", notebook_path: "/etc" } },
+    ];
+    for (const payload of foreign) {
+      assert.match(
+        decide(payload, ws) ?? "",
+        /a location field (Read|Grep|Glob) does not use/,
+        JSON.stringify(payload),
+      );
+    }
+    // Wildcard patterns have no literal prefix, so path alone decides them.
+    for (const payload of [
+      { tool_name: "Glob", tool_input: { pattern: "*.conf", path: "/etc" } },
+      { tool_name: "Glob", tool_input: { pattern: "**/*", path: "/home/runner" } },
+    ]) {
+      assert.match(decide(payload, ws) ?? "", /outside GITHUB_WORKSPACE/, JSON.stringify(payload));
+    }
+    // An empty or null foreign field is no location, and the one field decides.
+    for (const payload of [
+      { tool_name: "Grep", tool_input: { pattern: "x", file_path: "", path: "src" } },
+      { tool_name: "Glob", tool_input: { pattern: "**/*", file_path: null, path: "." } },
+      { tool_name: "Read", tool_input: { file_path: "README.md", path: "" } },
+    ]) {
+      assert.equal(decide(payload, ws), null, JSON.stringify(payload));
+    }
+  });
+
   it("fails closed when the workspace is unset, and stays silent on nothing to judge", () => {
     const call = {
       tool_name: "Read",

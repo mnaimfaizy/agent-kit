@@ -173,7 +173,7 @@ describe("the repository is copied in, never mounted, and only the listed inputs
           assert.match(
             args[i + 1],
             new RegExp(
-              `^(HTTPS?_PROXY|https?_proxy|NO_PROXY|no_proxy)=|^ANTHROPIC_API_KEY=${PLACEHOLDER}$|^CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1$`,
+              `^(HTTPS?_PROXY|https?_proxy|NO_PROXY|no_proxy)=|^ANTHROPIC_API_KEY=${PLACEHOLDER}-[0-9a-f]{48}$|^CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1$`,
             ),
           );
         }
@@ -700,7 +700,10 @@ describe("the sandbox docs", () => {
     for (const fact of [
       "key-injecting model proxy",
       "`--bare`",
-      "placeholder `ANTHROPIC_API_KEY`",
+      "the run's caller key as its `ANTHROPIC_API_KEY`",
+      "only `POST` to the Messages API's own paths",
+      "a server-side tool",
+      "`mcp_servers`",
       "`--settings`",
       "`--setting-sources user`",
       "web tools off",

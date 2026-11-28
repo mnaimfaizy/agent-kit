@@ -191,6 +191,28 @@ describe("the Claude Code launch plan with a subscription token", () => {
   });
 });
 
+describe("the run's caller key in the plan", () => {
+  const KEYS = [
+    ["api-key", "ANTHROPIC_API_KEY", "subscription"],
+    ["subscription", "CLAUDE_CODE_OAUTH_TOKEN", "api-key"],
+  ];
+  for (const [credentialKind, variable, other] of KEYS) {
+    it(`is the ${credentialKind} credential the sandbox holds, in place of the placeholder`, () => {
+      const callerKey = `run-key-for-${credentialKind}-0123456789abcdef`;
+      const plan = claudeCode({ ...REQUEST, credentialKind, callerKey });
+      const fixed = claudeCode({ ...REQUEST, credentialKind });
+      assert.equal(plan.credentials.accepted[credentialKind].placeholder, callerKey);
+      assert.deepEqual(plan.credentials.accepted[other], fixed.credentials.accepted[other]);
+      assert.deepEqual(plan.launch.env, [
+        `${variable}=${callerKey}`,
+        "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1",
+      ]);
+      assert.deepEqual(plan.launch.argv, fixed.launch.argv, "never on the command line");
+      assert.deepEqual(claudeCode({ ...REQUEST, credentialKind }), fixed, "one run's key only");
+    });
+  }
+});
+
 describe("the Claude Code adapter starts nothing", () => {
   it("imports no module, so it can reach no process, file or network", () => {
     const source = readFileSync(
