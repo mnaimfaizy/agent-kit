@@ -13,7 +13,9 @@ So the kit publishes a **Harness image** for each built-in harness. Each is the 
 - **The Deep scan uses the same path.** `agent-kit deep-scan` drops its run-time npm layer, so the Launcher has one way to install a harness.
 - **A Custom harness has no Harness image.** It keeps the run-time npm install from its exact version.
 
-**The base image** is Debian slim with git, bash, curl, CA certificates, and Debian's own Node LTS and Python 3 on the path. A Consumer with an ordinary Node or Python project sets no image. The harness's own Node stays in `/opt/agent-kit`, off the project's path.
+**The base image** is Debian slim with git, bash, curl, CA certificates, Node 24 LTS and Debian's own Python 3 on the path. A Consumer with an ordinary Node or Python project sets no image. The harness's own Node stays in `/opt/agent-kit`, off the project's path.
+
+_Amended 2026-11-28 (the maintainer's decision on [#459](https://github.com/mnaimfaizy/agent-kit/issues/459)):_ the base first took Debian's own Node. Debian trixie ships Node 20, which is past upstream end of life, so the base carries Node 24 LTS, copied from the official `node` image that is pinned by digest and moved by the monthly refresh.
 
 **Publishing and pinning.** Images go to GHCR under the repository owner, public, for amd64 and arm64 (`ghcr.io/mnaimfaizy/agent-kit-sandbox-<harness>`). Each digest is written into its adapter's source beside the CLI version, and the Launcher pulls by digest only. An image is built in the pull request that changes its pin, so a kit release carries only digests that already exist. The base is refreshed by a monthly pull request that a scheduled workflow opens; it rebuilds all five. Every digest change follows [ADR 0028](0028-a-security-stage-runs-only-on-a-harness-with-a-recorded-run.md)'s rule for a pin bump: the contract tests must pass, and the Support Level is kept if they do.
 
