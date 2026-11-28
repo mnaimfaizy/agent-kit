@@ -43,6 +43,30 @@ const AUTO_UPDATER_OFF = "DISABLE_AUTOUPDATER=1";
 
 const MANAGED_SETTINGS = JSON.stringify({ env: { DISABLE_AUTOUPDATER: "1" } });
 
+/**
+ * What a Consumer needs to know about Claude Code, which `cli/harnesses.json`
+ * publishes per tag (ADR 0030): the kit secrets it accepts, the preferred one
+ * first, each with where to get it; the effort levels `--effort` takes at the
+ * pinned version (its --help); and the model a Stage gets when none is named.
+ */
+export const FACTS = Object.freeze({
+  displayName: "Claude Code",
+  secrets: Object.freeze([
+    {
+      name: "claude_code_oauth_token",
+      whereToGet:
+        "Run `claude setup-token` on your machine, signed in to your Claude subscription, and paste the token.",
+    },
+    {
+      name: "anthropic_api_key",
+      whereToGet:
+        "Create an API key in the Anthropic Console: https://console.anthropic.com/settings/keys.",
+    },
+  ]),
+  effortValues: Object.freeze(["low", "medium", "high", "xhigh", "max"]),
+  defaultModel: "claude-opus-5-5",
+});
+
 /** The tools the agent has; the web tools are not among them. */
 export const TOOLS = Object.freeze(["Bash", "Read", "Write", "Edit", "Glob", "Grep"]);
 export const WEB_TOOLS = Object.freeze(["WebFetch", "WebSearch"]);
