@@ -7,6 +7,7 @@
 
 import { CLI_VERSION } from "../tags.mjs";
 import { checkSafePath } from "../safe-paths.mjs";
+import { groundingUrlProblem, isGroundingUrl } from "./grounding-url.mjs";
 import {
   isMapping,
   parseScalar,
@@ -93,6 +94,21 @@ export function readRecipeAtRef({ runner, root, ref, path }) {
 }
 
 /**
+ * A note for a recipe `image` named by tag alone, or null when it carries a
+ * `@sha256:` digest. The image is trusted like the recipe, and is pulled and
+ * built on the host's Docker, outside the sandbox runtime, so what a tag
+ * names should not change between runs unseen. A warning, not a refusal, so
+ * existing recipes still run.
+ *
+ * @param {string} image
+ * @returns {string | null}
+ */
+export function imageDigestNote(image) {
+  if (/@sha256:[0-9a-f]{64}$/.test(String(image))) return null;
+  return `Note: the recipe's image ${image} has no @sha256: digest, so what it names can change between runs. Pin it as ${String(image).split("@")[0]}@sha256:<digest>; the image is pulled and built on this machine's Docker, outside the sandbox runtime, and is trusted like the recipe.`;
+}
+
+/**
  * Every problem with a recipe's text, each one line naming its field. An
  * empty list means the recipe is valid.
  *
@@ -128,7 +144,7 @@ export function validateRecipe(text) {
     say("image and dockerfile", "give one of them, not both.");
   }
   if (hasImage && !isWord(recipe.image)) {
-    say("image", "must be one image reference, such as node:22-bookworm.");
+    say("image", "must be one image reference, such as node:22-bookworm@sha256:<digest>.");
   }
   if (hasDockerfile) {
     const file = recipe.dockerfile;
@@ -215,6 +231,11 @@ export function validateRecipe(text) {
   if ("grounding" in recipe) {
     asList(recipe.grounding, "grounding", say)?.forEach((g, i) => {
       if (!isWord(g)) say(`grounding[${i}]`, "must be one URL or repository path.");
+      else if (isGroundingUrl(g)) {
+        // Fetched on the host, so only a public https:// page (see grounding-url.mjs).
+        const problem = groundingUrlProblem(g);
+        if (problem) say(`grounding[${i}]`, `${problem}.`);
+      }
     });
   }
 

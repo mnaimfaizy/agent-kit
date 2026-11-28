@@ -261,7 +261,7 @@ def test_no_workflow_or_caller_names_a_setting_under_its_old_name() -> None:
         assert not found, f"{path.name}: {found}"
 
 
-# The reusable workflows' inputs and secrets as released in v1.0.0-beta.12: an
+# The reusable workflows' inputs and secrets as released in v1.0.0-beta.13: an
 # old Caller keeps working against a new tag only while each stays declared, with
 # the same type and no stricter requirement (`?` marks an optional one).
 RELEASED_INPUTS = {

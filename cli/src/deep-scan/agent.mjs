@@ -325,16 +325,16 @@ export function agentSettings(baseUrl, kind = "api-key") {
 }
 
 /**
- * The agent's environment: a placeholder, never the real credential. On
- * the subscription path it is the token alone, since an API key would
- * outrank it in Claude Code's auth order.
+ * The agent's environment: the run's caller key (callerKeyFor), never the
+ * real credential. On the subscription path it is the token alone, since an
+ * API key would outrank it in Claude Code's auth order.
  * @param {"api-key" | "subscription"} [kind]
+ * @param {string} [key]  the run's caller key; without one, the bare placeholder
  */
-export function agentEnv(kind = "api-key") {
+export function agentEnv(kind = "api-key", key) {
+  const held = key ?? (kind === SUBSCRIPTION ? PLACEHOLDER_OAUTH_TOKEN : PLACEHOLDER_API_KEY);
   return [
-    kind === SUBSCRIPTION
-      ? `CLAUDE_CODE_OAUTH_TOKEN=${PLACEHOLDER_OAUTH_TOKEN}`
-      : `ANTHROPIC_API_KEY=${PLACEHOLDER_API_KEY}`,
+    kind === SUBSCRIPTION ? `CLAUDE_CODE_OAUTH_TOKEN=${held}` : `ANTHROPIC_API_KEY=${held}`,
     "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1",
   ];
 }

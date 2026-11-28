@@ -34,6 +34,7 @@
 import { isIPv4 } from "node:net";
 import { layerDockerfile } from "./claude-code.mjs";
 import { startEgressProxy } from "./egress.mjs";
+import { imageDigestNote } from "./recipe.mjs";
 import {
   OTHER_HOST_PORT,
   probeFailure,
@@ -112,6 +113,8 @@ export function dockerDriver({ runtime, id, call }) {
       } else {
         base = steps.image;
         out(`Image: pulling ${base}.`);
+        const note = imageDigestNote(base);
+        if (note) out(note);
         must(await docker(["pull", base]), `pulling ${base}`, { showOutput: true });
       }
       out("Image: layering the pinned Claude Code, auto-updater off.");

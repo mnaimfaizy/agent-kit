@@ -423,7 +423,10 @@ describe("the agent step runs the real Claude Code, with only a placeholder key 
     assert.match(settings.env.ANTHROPIC_BASE_URL, /^http:\/\/198\.1[89]\.\d+\.13:\d+$/);
     assert.deepEqual(settings.permissions.deny, ["WebFetch", "WebSearch"]);
     assert.ok(!settings.permissions.allow.some((t) => /^Web/.test(t)));
-    assert.ok(agent.includes(`ANTHROPIC_API_KEY=${PLACEHOLDER}`), agent.join(" "));
+    assert.ok(
+      agent.some((a) => new RegExp(`^ANTHROPIC_API_KEY=${PLACEHOLDER}-[0-9a-f]{48}$`).test(a)),
+      agent.join(" "),
+    );
     assert.ok(!agent.some((a) => /PROXY/.test(a)), "the agent step has no setup proxy");
   });
 
@@ -595,7 +598,10 @@ describe("on Docker Sandboxes, the model route is one per-sandbox rule for the p
     assert.ok(port, allow[5]);
     const agent = agentCall(calls);
     assert.equal(settingsOf(agent).env.ANTHROPIC_BASE_URL, `http://host.docker.internal:${port}`);
-    assert.ok(agent.includes(`ANTHROPIC_API_KEY=${PLACEHOLDER}`), agent.join(" "));
+    assert.ok(
+      agent.some((a) => new RegExp(`^ANTHROPIC_API_KEY=${PLACEHOLDER}-[0-9a-f]{48}$`).test(a)),
+      agent.join(" "),
+    );
     assert.deepEqual(untemplated(calls).at(-2).slice(-3), ["--resource", allow[5], "--force"]);
     // Never a per-sandbox deny, which would beat the proxy's allow, and never
     // a change to the global policy.

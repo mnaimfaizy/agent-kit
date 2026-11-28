@@ -70,6 +70,48 @@ describe("implementer Bash guard", () => {
     }
   });
 
+  it("refuses a line continuation outside single quotes", () => {
+    // The shell deletes a backslash-newline outside single quotes, inside
+    // double quotes too, so the words on either side join into one.
+    for (const command of [
+      "git commit --fi\\\nle=/proc/self/environ",
+      'git commit "--fi\\\nle=/proc/self/environ"',
+      "git commit --fi\\\nle /proc/self/environ",
+      "git add --pathspec-from\\\n-file=/proc/self/environ",
+      "git rm --pathspec\\\n-from-file=/proc/self/environ",
+      "git commit -\\\nF /proc/self/environ",
+      "git commit --tem\\\nplate=/proc/self/environ",
+      'git commit "--tem\\\nplate=/proc/self/environ"',
+      "gi\\\nt commit -F /proc/self/environ",
+      "g\\\nit -c core.pager=x status",
+      "git commit -m 'x' \\\n  -m 'y'",
+      'git commit -m "a\\\nb"',
+    ]) {
+      assert.match(decideBash(bash(command)) ?? "", /line continuation/, JSON.stringify(command));
+    }
+  });
+
+  it("judges every word that names git, after a wrapper and its options", () => {
+    for (const command of [
+      "env -u git git commit -F /proc/self/environ",
+      "env -u git git commit --file=/proc/self/environ",
+      "env -u git git add --pathspec-from-file=/proc/self/environ",
+      "env -u git git rm --pathspec-from-file=/proc/self/environ",
+      "env -u git git status --pathspec-from-file=/proc/self/environ",
+      "env -u git git commit -t /proc/self/environ",
+      "timeout -s git 5 git commit -F /proc/self/environ",
+      "env -u /usr/bin/git /usr/bin/git commit -F /proc/self/environ",
+      "env -u git git -c core.pager=x status",
+      "env -u git GIT_DIR=/tmp/x git status",
+    ]) {
+      assert.match(
+        decideBash(bash(command)) ?? "",
+        /reads a file|global options|assignment/,
+        command,
+      );
+    }
+  });
+
   it("refuses what it cannot parse", () => {
     for (const command of ["git commit -m 'unclosed", 'git commit -m "unclosed']) {
       assert.match(decideBash(bash(command)) ?? "", /cannot be parsed/, command);
@@ -91,6 +133,12 @@ describe("implementer Bash guard", () => {
       'git commit -m "-F only looks like a flag"',
       "git commit --message='-t also' --no-verify",
       'git commit -m "it\'s \\"quoted\\""',
+      // Inside single quotes a backslash-newline stays as written.
+      "git commit -m 'a\\\nb'",
+      "git commit -m 'subject' -m 'first paragraph' -m 'second paragraph'",
+      "git commit -m 'fix: x'\ngit status",
+      "git add git",
+      "git rm -r src/git",
       "git commit -m 'x' 2>&1",
       "gh pr view 12 --json title",
       "uv run pytest -q",
@@ -108,13 +156,35 @@ describe("implementer Bash guard", () => {
   });
 
   it("is probed in staging before the agent starts", () => {
-    const implement = readRepo(".github/workflows/agent-implement-reusable.yml");
-    assert.ok(
-      implement.includes("git commit -F /proc/self/environ"),
-      "staging must probe the Bash guard with a file-reading commit",
+    for (const workflow of [
+      ".github/workflows/agent-implement-reusable.yml",
+      ".github/workflows/agent-review-response-reusable.yml",
+    ]) {
+      const text = readRepo(workflow);
+      assert.ok(
+        text.includes("git commit -F /proc/self/environ"),
+        `${workflow}: staging must probe the Bash guard with a file-reading commit`,
+      );
+      assert.ok(
+        text.includes("The staged Bash guard did not refuse a commit that reads a file."),
+        workflow,
+      );
+      // The probe sends the JSON escape \\\n: a backslash, then a newline.
+      assert.ok(
+        text.includes(String.raw`git commit --fi\\\nle=/proc/self/environ`),
+        `${workflow}: staging must probe the Bash guard with a split option`,
+      );
+      assert.ok(
+        text.includes("The staged Bash guard did not refuse a line continuation."),
+        workflow,
+      );
+    }
+  });
+
+  it("refuses the split-option probe the workflows send", () => {
+    const probe = JSON.parse(
+      String.raw`{"tool_name":"Bash","tool_input":{"command":"git commit --fi\\\nle=/proc/self/environ"}}`,
     );
-    assert.ok(
-      implement.includes("The staged Bash guard did not refuse a commit that reads a file."),
-    );
+    assert.match(decideBash(probe) ?? "", /line continuation/);
   });
 });

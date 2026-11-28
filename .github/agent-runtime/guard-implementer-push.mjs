@@ -113,12 +113,19 @@ const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
 const EXPANSION =
   "implementer Bash guard: refused shell expansion or input redirection ($, backticks, <) outside single-quoted text, which could put the job's secrets or a runner file into output. Quote commit messages in single quotes, and repeat -m for more paragraphs.";
 const UNPARSED = "implementer Bash guard: the command cannot be parsed (unclosed quote); refused";
+const CONTINUATION =
+  "implementer Bash guard: refused a line continuation (a backslash before a newline) outside single-quoted text. Write the command on one line, and repeat -m for more paragraphs.";
 
 /**
  * Split a command into segments of words, as the shell would before running
  * it, or return a deny reason. `$`, backticks, and `<` are refused outside
  * single quotes, where the shell would expand or redirect them; `>` is only
  * output. `;`, `&`, `|`, newlines, and parentheses end a segment.
+ *
+ * A backslash before a newline is refused outside single quotes too. The shell
+ * deletes both characters there (a line continuation), joining the text on
+ * either side into one word, so the words judged here would not be the ones
+ * git receives. Inside single quotes both characters stay, as in the shell.
  */
 function shellSegments(command) {
   const segments = [];
@@ -145,13 +152,17 @@ function shellSegments(command) {
       let text = "";
       for (; j < command.length && command[j] !== '"'; j++) {
         if (command[j] === "$" || command[j] === "`") return { reason: EXPANSION };
-        if (command[j] === "\\" && j + 1 < command.length) j++;
+        if (command[j] === "\\" && j + 1 < command.length) {
+          if (command[j + 1] === "\n") return { reason: CONTINUATION };
+          j++;
+        }
         text += command[j];
       }
       if (j >= command.length) return { reason: UNPARSED };
       word = (word ?? "") + text;
       i = j;
     } else if (c === "\\") {
+      if (command[i + 1] === "\n") return { reason: CONTINUATION };
       if (i + 1 < command.length) word = (word ?? "") + command[++i];
     } else if (c === "$" || c === "`" || c === "<") {
       return { reason: EXPANSION };
@@ -199,8 +210,10 @@ function judgeGit(args) {
 /**
  * Decide on one Bash call, apart from the push check. Returns a deny reason,
  * or null to allow. Every segment of the command is judged: a git invocation
- * anywhere in it (after `{`, `!`, or a path to git) counts, and so does an
- * environment assignment in front of one.
+ * anywhere in it (after `{`, `!`, a path to git, or a wrapper and its options)
+ * counts, and so does an environment assignment in front of one. Each word
+ * that names git is judged, not only the first, since a wrapper option's value
+ * can be the word `git` ahead of the real invocation.
  */
 export function decideBash(payload) {
   if (payload?.tool_name !== "Bash") return null;
@@ -208,13 +221,14 @@ export function decideBash(payload) {
   const parsed = shellSegments(command);
   if (parsed.reason) return parsed.reason;
   for (const words of parsed.segments) {
-    const at = words.findIndex((w) => w === "git" || w.endsWith("/git"));
-    if (at < 0) continue;
-    if (words.slice(0, at).some((w) => ASSIGNMENT.test(w))) {
-      return "implementer Bash guard: an environment assignment before git is not allowed";
+    for (let at = 0; at < words.length; at++) {
+      if (words[at] !== "git" && !words[at].endsWith("/git")) continue;
+      if (words.slice(0, at).some((w) => ASSIGNMENT.test(w))) {
+        return "implementer Bash guard: an environment assignment before git is not allowed";
+      }
+      const reason = judgeGit(words.slice(at + 1));
+      if (reason) return reason;
     }
-    const reason = judgeGit(words.slice(at + 1));
-    if (reason) return reason;
   }
   return null;
 }

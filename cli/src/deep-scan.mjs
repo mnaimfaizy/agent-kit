@@ -37,6 +37,7 @@ import {
   withoutCredentials,
 } from "./deep-scan/credential.mjs";
 import { DEFAULT_LIMITS, describeLimits, parseLimits, VERIFY_LIMITS } from "./deep-scan/limits.mjs";
+import { publicHttpsFetch } from "./deep-scan/grounding-url.mjs";
 import { runLifecycle } from "./deep-scan/lifecycle.mjs";
 import { MODEL_ID } from "./deep-scan/model-proxy.mjs";
 import { envFilesAtRef, envFilesCarriedFromDefault, strayTokens } from "./deep-scan/preflight.mjs";
@@ -78,7 +79,7 @@ const CREDENTIALS_DOCS_URL = `https://github.com/mnaimfaizy/agent-kit/blob/v${CL
  *   `verifyPath` (a finding file) and `ref` go together, for a
  *   Verification run.
  *   `platform`, `env`, `fetch`, `signals` and `timers` are the host's
- *   (`process.platform`, `process.env`, the global fetch, `process`, the
+ *   (`process.platform`, `process.env`, the public-HTTPS grounding fetch, `process`, the
  *   real clock), and `reportDir` is a new private temporary folder, and
  *   `modelApi` is the real model API; only tests pass others, and no flag
  *   can change them.
@@ -101,7 +102,7 @@ export async function runDeepScan({
   limitFlags = {},
   platform = process.platform,
   env = process.env,
-  fetch = globalThis.fetch,
+  fetch = publicHttpsFetch,
   signals = process,
   reportDir,
   modelApi,

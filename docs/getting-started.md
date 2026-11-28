@@ -63,7 +63,7 @@ The steps below are the same adoption by hand.
 
 ## 2. Pick a tag
 
-Use the newest tag from [Releases](https://github.com/mnaimfaizy/agent-kit/releases), for example `v1.0.0-beta.12`. Every file you copy and every `uses:` pin must be the **same exact tag** — see [Adopt](adopt.md).
+Use the newest tag from [Releases](https://github.com/mnaimfaizy/agent-kit/releases), for example `v1.0.0-beta.13`. Every file you copy and every `uses:` pin must be the **same exact tag** — see [Adopt](adopt.md).
 
 > Do not use `v1.0.0-alpha.1` or `v1.0.0-alpha.2`: GitHub rejects their reusable workflows ("Invalid workflow file").
 
@@ -72,7 +72,7 @@ Use the newest tag from [Releases](https://github.com/mnaimfaizy/agent-kit/relea
 The reusable workflows run in _your_ checkout and load prompts, the read-confinement hook, and skills from it. These are the **Kit-owned paths**, listed in [`kit-owned-paths.txt`](../kit-owned-paths.txt) in every tag from `v1.0.0-alpha.11`. Copy them; the loop deletes each path, then copies it fresh, and leaves your own skills in `.claude/skills/` alone:
 
 ```bash
-TAG=v1.0.0-beta.12
+TAG=v1.0.0-beta.13
 rm -rf /tmp/agent-kit
 git clone --depth 1 --branch "$TAG" https://github.com/mnaimfaizy/agent-kit.git /tmp/agent-kit &&
 grep -v -e '^#' -e '^$' /tmp/agent-kit/kit-owned-paths.txt | while read -r path; do
@@ -169,7 +169,7 @@ Skip if you only use plan → implement → review.
 
 Callers read every Stage setting from repository variables named `AGENT_KIT_<STAGE>_<SETTING>`, with the Stage tokens `PLAN`, `IMPLEMENT`, `REVIEW`, `REVIEW_RESPONSE`, `SECURITY_AUDIT` and `DEEP_SCAN` ([ADR 0009](adr/0009-stage-settings-resolve-in-the-caller.md), [ADR 0022](adr/0022-stage-settings-are-named-for-the-kit-not-the-harness.md)). Settings that configure Claude Code itself (`CLAUDE_CODE_VERSION`, the `CLAUDE_CODE_*` environment) keep their names.
 
-**Upgrading from `v1.0.0-beta.12` or earlier.** These variables started with `CLAUDE_` before. The new example Callers read only the new names, with no fallback, so copying one turns its flow off until you set the new switch (`AGENT_KIT_AGENT_FLOW_ENABLED` for plan, implement and review), and every model and effort you set under an old name is ignored. Set each new variable to the old one's value, then delete the old one; `agent-kit doctor` names every one still set. A Caller you have not replaced keeps reading the old names against the new tag.
+**Upgrading from `v1.0.0-beta.13` or earlier.** These variables started with `CLAUDE_` before. The new example Callers read only the new names, with no fallback, so copying one turns its flow off until you set the new switch (`AGENT_KIT_AGENT_FLOW_ENABLED` for plan, implement and review), and every model and effort you set under an old name is ignored. Set each new variable to the old one's value, then delete the old one; `agent-kit doctor` names every one still set. A Caller you have not replaced keeps reading the old names against the new tag.
 
 Each Stage's **Kill switch** variables keep it off until every condition in its row holds:
 
@@ -274,7 +274,7 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
-      - run: npx --yes @mnaimfaizy/agent-kit@1.0.0-beta.12 doctor --ci
+      - run: npx --yes @mnaimfaizy/agent-kit@1.0.0-beta.13 doctor --ci
 ```
 
 Pin the CLI version as you pin actions; any CLI version checks any tag from `v1.0.0-alpha.11`. Tags before that have no `kit-owned-paths.txt`, and the CLI refuses them: follow that tag's own `docs/adopt.md` instead.

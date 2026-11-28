@@ -31,7 +31,9 @@ import { join } from "node:path";
 import { firstLine } from "../exec.mjs";
 import { agentBrief, agentEnv, agentScript, BRIEF_PATH, TURNS_MARKER } from "./agent.mjs";
 import { CLAUDE_CODE_VERSION, layerDockerfile } from "./claude-code.mjs";
+import { callerKeyFor } from "./credential.mjs";
 import { dockerDriver, LABEL } from "./docker-driver.mjs";
+import { groundingUrlProblem, isGroundingUrl } from "./grounding-url.mjs";
 import {
   LimitReached,
   STOPPED_EXIT,
@@ -340,7 +342,7 @@ async function lifecycle({
   const grounding = [];
   for (const [i, source] of steps.grounding.entries()) {
     const where = `grounding[${i}]`;
-    if (/^https?:\/\//i.test(source)) {
+    if (isGroundingUrl(source)) {
       const path = `agent-kit/grounding/urls/${i}-${basename(source)}`;
       fetched.push({
         path,
@@ -420,12 +422,16 @@ async function lifecycle({
 
   // 6. The model route: the key-injecting model proxy on this machine, the
   // scan's only way out, and the check from the host that nothing else is.
+  // The run's caller key: the sandboxed Claude Code holds it, and the proxy
+  // forwards only a request that carries it.
+  const callerKey = callerKeyFor(credentialKind);
   let proxy = null;
   const route = await driver.openModelRoute(async (bind) => {
     proxy = await startModelProxy({
       credential,
       kind: credentialKind,
       bind,
+      callerKey,
       maxTokens: limits.tokens,
       onCap: () => clocks.stop(TOKENS, `the run's ${limits.tokens}-token cap`),
       ...(modelApi !== undefined ? { upstream: modelApi } : {}),
@@ -500,7 +506,7 @@ async function lifecycle({
         ...(effort !== undefined ? { effort } : {}),
         kind: credentialKind,
       }),
-      { env: agentEnv(credentialKind) },
+      { env: agentEnv(credentialKind, callerKey) },
     );
   } catch (e) {
     if (!(e instanceof LimitReached)) throw e;
@@ -651,13 +657,24 @@ async function fetchGrounding(fetch, url, where, clocks) {
   const fail = (why) =>
     new StepFailed([`FAILED  ${where}: could not fetch ${url}: ${why}`, ENDS_HERE]);
   const tooLarge = `larger than ${MAX_GROUNDING_BYTES / 1024 / 1024} MiB`;
+  // The recipe check refuses these first; this holds for any caller.
+  const problem = groundingUrlProblem(url);
+  if (problem) throw fail(`the URL ${problem}`);
   // The request and the body read share one error path: an interrupt or a
   // limit that fires mid-download stops the run as it would anywhere else.
   try {
     const res = await fetch(url, {
-      redirect: "follow",
+      // A redirect could name any address, so none is followed.
+      redirect: "manual",
       signal: AbortSignal.any([clocks.signal(), AbortSignal.timeout(GROUNDING_TIMEOUT_MS)]),
     });
+    if (res.status >= 300 && res.status < 400) {
+      res.body?.cancel().catch(() => {});
+      const location = res.headers.get("location");
+      throw fail(
+        `it redirects (HTTP ${res.status}${location ? ` to ${location}` : ""}); name the final https:// URL in the recipe`,
+      );
+    }
     if (!res.ok) throw fail(`HTTP ${res.status}`);
     if (Number(res.headers.get("content-length") ?? "0") > MAX_GROUNDING_BYTES) {
       throw fail(tooLarge);

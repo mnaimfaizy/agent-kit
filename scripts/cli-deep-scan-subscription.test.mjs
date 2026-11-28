@@ -182,7 +182,12 @@ describe("--credential subscription: a placeholder CLAUDE_CODE_OAUTH_TOKEN in th
     assert.deepEqual(settings.permissions.deny, ["WebFetch", "WebSearch"]);
     // No --bare skips hooks here, so the launcher's settings turn them off.
     assert.equal(settings.disableAllHooks, true);
-    assert.ok(agent.includes(`CLAUDE_CODE_OAUTH_TOKEN=${OAUTH_PLACEHOLDER}`), agent.join(" "));
+    assert.ok(
+      agent.some((a) =>
+        new RegExp(`^CLAUDE_CODE_OAUTH_TOKEN=${OAUTH_PLACEHOLDER}-[0-9a-f]{48}$`).test(a),
+      ),
+      agent.join(" "),
+    );
     // An API key would outrank the token in Claude Code's auth order: none is set.
     assert.ok(!agent.some((a) => a.startsWith("ANTHROPIC_API_KEY=")), agent.join(" "));
     assert.ok(!agent.some((a) => a.startsWith("ANTHROPIC_AUTH_TOKEN=")), agent.join(" "));
@@ -291,7 +296,12 @@ describe("--credential subscription: a placeholder CLAUDE_CODE_OAUTH_TOKEN in th
       );
       assert.ok(agent, "the agent step ran on sbx");
       assert.ok(!agent.at(-1).includes("--bare"));
-      assert.ok(agent.includes(`CLAUDE_CODE_OAUTH_TOKEN=${OAUTH_PLACEHOLDER}`), agent.join(" "));
+      assert.ok(
+        agent.some((a) =>
+          new RegExp(`^CLAUDE_CODE_OAUTH_TOKEN=${OAUTH_PLACEHOLDER}-[0-9a-f]{48}$`).test(a),
+        ),
+        agent.join(" "),
+      );
       assertNeverHanded(res, REAL_OAUTH);
     } finally {
       await api.close();

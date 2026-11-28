@@ -10,21 +10,38 @@
 // gets an environment with the model credential variables removed, and the
 // sandbox gets only a placeholder.
 
+import { randomBytes } from "node:crypto";
 import { firstLine } from "../exec.mjs";
 import { GITHUB_TOKEN_VARS } from "./preflight.mjs";
 
 /** The default variable the API key is read from. */
 export const API_KEY_VAR = "ANTHROPIC_API_KEY";
 
-/** The non-secret key the sandboxed Claude Code holds; the proxy swaps it. */
+/**
+ * The start of the key the sandboxed Claude Code holds in place of a real
+ * one; the proxy swaps it for the real key.
+ */
 export const PLACEHOLDER_API_KEY = "agent-kit-deep-scan-placeholder";
 
 /**
- * The non-secret subscription token the sandboxed Claude Code holds on the
+ * The start of the token the sandboxed Claude Code holds on the
  * subscription path; the proxy swaps the bearer value it sends. It is shaped
  * like a token, in case Claude Code checks the prefix.
  */
 export const PLACEHOLDER_OAUTH_TOKEN = "sk-ant-oat01-agent-kit-deep-scan-placeholder";
+
+/**
+ * The run's caller key: a placeholder with 24 random bytes added, made once
+ * per run. The sandboxed Claude Code holds it in place of a credential, and
+ * the model proxy forwards only a request that carries it, so a process in
+ * the sandbox that never read Claude Code's environment cannot spend the
+ * real credential. It is worth nothing outside the run's proxy.
+ * @param {"api-key" | "subscription"} kind
+ */
+export function callerKeyFor(kind) {
+  const start = kind === SUBSCRIPTION ? PLACEHOLDER_OAUTH_TOKEN : PLACEHOLDER_API_KEY;
+  return `${start}-${randomBytes(24).toString("hex")}`;
+}
 
 /** The kinds `--credential` takes: an API key (the default) or the opt-in. */
 export const API_KEY = "api-key";
