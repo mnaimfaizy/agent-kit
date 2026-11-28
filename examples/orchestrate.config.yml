@@ -50,11 +50,14 @@ models: # model names the Executor's harness accepts, passed as written; leave o
   review: claude-opus-5-5 # a building brief's code-review phase, where the harness allows a model per phase
   qa: claude-sonnet-5-5 # QA Delegations: composing and running a QA Plan on a finished head
 
-efforts: # the effort for the same kinds of work, in the harness's own words; leave one out for the harness default
-  analysis: medium # analysis Delegations, where the harness lets one choose its effort
-  build: high # building Delegations
-  review: high # a building brief's code-review phase, where the harness allows an effort per phase
-  qa: medium # QA Delegations
+# The effort for the same kinds of work, in the harness's own words. Left
+# commented out: the harness pinned below, claude-code-desktop, takes none.
+# Uncomment it when a kind of work runs on a harness that takes one.
+# efforts:
+#   analysis: medium # analysis Delegations
+#   build: high # building Delegations
+#   review: high # a building brief's code-review phase, where the harness allows an effort per phase
+#   qa: medium # QA Delegations
 
 harness: claude-code-desktop # the harness the Chief of Staff runs on, pinned; leave it out to detect it each run (ids: the skill's HARNESSES.md)
 executors: # not the default: each kind of Delegation runs on `harness` unless one names another harness's headless run

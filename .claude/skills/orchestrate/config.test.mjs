@@ -2688,6 +2688,13 @@ test("`choose` prints each Delegation's entry and why, from the config and two f
   ]);
   assert.equal(run(...inputs).code, 2);
   files["run/delegations.json"] = JSON.stringify(builds(["backend"], []));
+  // A config with problems is refused in text, as bad usage is.
+  const config = files["orchestrate.config.yml"];
+  files["orchestrate.config.yml"] = "routs: {}";
+  const refused = run(...inputs);
+  assert.equal(refused.code, 2);
+  assert.match(refused.out, /^the config has problems/);
+  files["orchestrate.config.yml"] = config;
   files["run/available.json"] = "{}";
   assert.equal(run(...inputs).code, 1);
   assert.equal(run("--delegations", "run/delegations.json").code, 2);

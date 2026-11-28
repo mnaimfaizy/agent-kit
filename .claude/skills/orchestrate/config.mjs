@@ -37,7 +37,9 @@
 //   node config.mjs choose --harness <id> --delegations <file.json>
 //       --available <file.json> [--answers <file.json>] [--repo <dir>]
 //       each Delegation's harness, model, effort and why, by the rule in
-//       CONFIG.md ("executors"). Prints JSON; exits 1 on any problem.
+//       CONFIG.md ("executors"). Prints JSON; exits 1 when a Delegation has a
+//       problem; 2, with text, on bad usage, an unreadable input file or a
+//       config with problems.
 //   node config.mjs regate <sha> --out <file> [--repo <dir>]
 //       runs the config's `regate` commands in a detached worktree at <sha>
 //       (made beside <file>, which must be inside the run folder, and removed

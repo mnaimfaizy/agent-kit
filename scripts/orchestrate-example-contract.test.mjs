@@ -217,11 +217,35 @@ describe("examples/orchestrate.config.yml", () => {
     );
   });
 
+  it("shows the `efforts` keys as a commented block that reads with no problems once uncommented", () => {
+    const lines = EXAMPLE.split("\n");
+    const start = lines.indexOf("# efforts:");
+    assert.ok(start >= 0, "a commented `efforts:` block");
+    const block = [];
+    for (const line of lines.slice(start)) {
+      if (!line.startsWith("# ")) break;
+      block.push(line.slice(2));
+    }
+    const { config: parsed, problems } = config.parseConfig(FILE, block.join("\n"));
+    assert.deepEqual(problems, []);
+    assert.deepEqual(Object.keys(parsed.efforts), [...config.MODEL_KEYS]);
+  });
+
+  it("sets nothing its own harness cannot use", () => {
+    const { notes } = check().result.readiness;
+    assert.deepEqual(
+      notes.filter((note) => note.includes("is not used")),
+      [],
+    );
+  });
+
   it("shows every key config.mjs accepts", () => {
     const { config: parsed } = config.parseConfig(FILE, EXAMPLE);
-    // `records` is shown commented out, and checked by the test above.
+    // `records` and `efforts` are shown commented out, and checked by the tests above.
     const shown = new Set([
       ...keyPaths(parsed),
+      ...config.MODEL_KEYS.map((k) => `efforts.${k}`),
+      "efforts",
       ...config.RECORDS_KEYS.map((k) => `records.${k}`),
       "records",
       ...config.PRUNE_KEYS.map((k) => `prune.${k}`),
