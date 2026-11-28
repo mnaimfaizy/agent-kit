@@ -83,12 +83,14 @@ The Caller owns:
 
 - Threat pack paths (`threat_model_path`, `findings_ledger_path`)
 - kill switch
+- the harness, model and effort (`harness`, `model`, `effort`; see [the stage settings](getting-started.md#8-turn-the-flows-on-kill-switch-variables))
 - allowlist policy
 - advisories token secret
 - optional scanner command (`full` mode only)
 - optional email secrets
 - optional Dependabot alerts token
 - a `claude-code` credential: a Claude subscription token (`claude_code_oauth_token`) or an Anthropic API key (`anthropic_api_key`); for the opt-in deep scan the API key is the supported path, and the token is at your own risk
+- the other providers' secrets (`openai_api_key`, `gemini_api_key`, `cursor_api_key`), optional and read by no harness that runs the audit yet
 - `permissions:` that cover what the reusable job requests (`contents: read`, `pull-requests: write`, `security-events: write`)
 - for `pr` mode, the head SHA, base SHA, base ref, and PR number
 

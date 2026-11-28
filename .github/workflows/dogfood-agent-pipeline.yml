@@ -3,10 +3,11 @@ name: Dogfood agent pipeline
 # Agent-kit running plan → implement → review on its own issues and PRs, from
 # this commit (local ref). Off until the repository variable
 # AGENT_KIT_AGENT_FLOW_ENABLED is "true" and CLAUDE_CODE_OAUTH_TOKEN (or
-# ANTHROPIC_API_KEY) exists. A Stage
-# switch (AGENT_KIT_PLAN_ENABLED, _IMPLEMENT_, _REVIEW_) set to "false" turns one off.
-# With AGENT_KIT_REVIEW_RESPONSE_MODE set to "auto", a review that leaves findings
-# hands off to dogfood-review-response.yml. Setup: CONTRIBUTING.md → "Dogfood flows".
+# ANTHROPIC_API_KEY) exists. A Stage switch (AGENT_KIT_PLAN_ENABLED,
+# _IMPLEMENT_, _REVIEW_) set to "false" turns one off. With
+# AGENT_KIT_REVIEW_RESPONSE_MODE set to "auto", a review that leaves findings
+# hands off to dogfood-review-response.yml. Setup: CONTRIBUTING.md →
+# "Dogfood flows".
 
 on:
   issues:

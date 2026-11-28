@@ -147,10 +147,12 @@ gh variable set AGENT_KIT_SECURITY_AUDIT_ENABLED --body true
 gh variable set AGENT_KIT_AGENT_FLOW_ENABLED --body true
 gh variable set AGENT_KIT_REVIEW_RESPONSE_ENABLED --body true
 
-# Optional: model and effort for every dogfood run (defaults: claude-opus-5-5,
-# no --effort), and a per-Stage override, AGENT_KIT_<STAGE>_MODEL or
-# AGENT_KIT_<STAGE>_EFFORT with PLAN, IMPLEMENT, REVIEW, REVIEW_RESPONSE or
-# SECURITY_AUDIT.
+# Optional: harness, model and effort for every dogfood run, from
+# AGENT_KIT_HARNESS, AGENT_KIT_MODEL and AGENT_KIT_EFFORT (unset: claude-code,
+# the only harness that runs a Stage so far; claude-opus-5-5, which the
+# reusable workflow fills in; no --effort). A per-Stage override is
+# AGENT_KIT_<STAGE>_HARNESS, _MODEL or _EFFORT, with PLAN, IMPLEMENT, REVIEW,
+# REVIEW_RESPONSE or SECURITY_AUDIT.
 # AGENT_KIT_<STAGE>_ENABLED=false turns one Agent flow Stage off.
 gh variable set AGENT_KIT_MODEL --body claude-opus-5-5
 gh variable set AGENT_KIT_SECURITY_AUDIT_MODEL --body claude-fable-5-2

@@ -212,7 +212,7 @@ def stage_kill_switches(sources: Sources) -> str:
     return _table(["Stage", "Runs when"], rows)
 
 
-def stage_model_and_effort(sources: Sources) -> str:
+def stage_harness_model_and_effort(sources: Sources) -> str:
     stages = sources.stages
     # Every Stage reads its own variable, then the same shared ones, then the same default.
     for setting in ("harness", "model", "effort"):
@@ -221,7 +221,7 @@ def stage_model_and_effort(sources: Sources) -> str:
         if len(tails) > 1:
             raise SystemExit(
                 f"The example Callers' {setting} settings fall back differently ({sorted(map(str, tails))});"
-                " the stage-model-and-effort block shows one shared fallback, so make them agree"
+                " the stage-harness-model-and-effort block shows one shared fallback, so make them agree"
             )
 
     def shared(fallback: Fallback) -> str:
@@ -341,7 +341,7 @@ FACTS: dict[str, Callable[[Sources], str]] = {
     "review-response-protected-paths": review_response_protected_paths,
     "trigger-labels": trigger_labels,
     "stage-kill-switches": stage_kill_switches,
-    "stage-model-and-effort": stage_model_and_effort,
+    "stage-harness-model-and-effort": stage_harness_model_and_effort,
     "deep-scan-limits": deep_scan_limits,
     "deep-scan-recipe-fields": deep_scan_recipe_fields,
 }

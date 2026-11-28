@@ -202,9 +202,9 @@ gh variable set AGENT_KIT_IMPLEMENT_ENABLED --body false
 
 Set a flow's switch to anything but `true` (or delete it) to stop it instantly without a commit.
 
-**Harness, model and effort (optional).** Each Stage reads its own variable first, then the shared one, then the default in the last row. The harness is `claude-code`, `codex`, `gemini`, `opencode`, `cursor` or `custom:<name>`; only `claude-code` runs a Stage so far, and any other value fails the run before the agent starts, naming why. A model left empty is filled in by the reusable workflow with the harness's default. With no effort set, `--effort` is left off and the model's own default applies. Change either at any time, with no commit needed:
+**Harness, model and effort (optional).** Each Stage reads its own variable first, then the shared one, then the default in the last row. The harness is `claude-code`, `codex`, `gemini`, `opencode`, `cursor` or `custom:<name>`; only `claude-code` runs a Stage so far, and any other value fails the run before the agent starts, naming why. A model left empty is filled in by the reusable workflow with the harness's default. With no effort set, `--effort` is left off and the model's own default applies. Change any of them at any time, with no commit needed:
 
-<!-- generated:stage-model-and-effort -->
+<!-- generated:stage-harness-model-and-effort -->
 
 | Stage           | Harness                             | Model                                     | Effort                             |
 | --------------- | ----------------------------------- | ----------------------------------------- | ---------------------------------- |
@@ -217,7 +217,7 @@ Set a flow's switch to anything but `true` (or delete it) to stop it instantly w
 | any Stage above | `AGENT_KIT_HARNESS`                 | `AGENT_KIT_MODEL`                         | `AGENT_KIT_EFFORT`                 |
 | neither set     | `claude-code`                       | the harness's default (`claude-opus-5-5`) | none                               |
 
-<!-- /generated:stage-model-and-effort -->
+<!-- /generated:stage-harness-model-and-effort -->
 
 ```bash
 gh variable set AGENT_KIT_MODEL --body claude-opus-5-5

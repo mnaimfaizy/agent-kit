@@ -30,7 +30,7 @@ RECIPE_SCRIPT = Path("cli/src/deep-scan/recipe.mjs")
 PROTECTED_BLOCK = "review-response-protected-paths"
 LABELS_BLOCK = "trigger-labels"
 KILL_SWITCH_BLOCK = "stage-kill-switches"
-MODEL_BLOCK = "stage-model-and-effort"
+MODEL_BLOCK = "stage-harness-model-and-effort"
 LIMITS_BLOCK = "deep-scan-limits"
 RECIPE_FIELDS_BLOCK = "deep-scan-recipe-fields"
 PIPELINE_CALLER = Path("examples/plan-implement-review-caller.yml")
@@ -303,6 +303,8 @@ if __name__ == "__main__":
     test_a_changed_init_label_without_regenerating_fails()
     test_the_label_block_holds_inits_labels()
     test_the_stage_blocks_hold_each_stages_variables()
+    test_a_changed_harness_default_model_without_regenerating_fails()
+    test_workflows_that_disagree_on_the_default_model_fail_and_are_named()
     test_a_renamed_caller_variable_without_regenerating_fails()
     test_a_changed_kill_switch_without_regenerating_fails()
     test_a_caller_setting_the_generator_cannot_read_fails_and_names_it()
