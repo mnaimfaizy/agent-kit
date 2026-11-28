@@ -50,8 +50,9 @@ export const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:@/[\]-]*$/;
 const MAX_KEPT = 5;
 const MAX_ENTRY = 80;
 
-// Hop-by-hop headers (RFC 9110 7.6.1), the client's credentials, and the
-// Host, which is the model API's own. A profile's key headers join them.
+// Hop-by-hop headers (RFC 9110 7.6.1), the client's standard credential
+// headers, and the Host, which is the model API's own. A profile's key headers
+// join them, and its `forwardsHeader` may hold back more of a request's.
 const DROPPED = [
   "authorization",
   "proxy-authorization",
@@ -75,6 +76,8 @@ const DROPPED = [
  *   for each kind of credential, the one header it is written in, as [name, value]
  * @property {readonly string[]} keyHeaders  lower-case headers the sandbox may carry its
  *   caller key in, besides a bearer `Authorization`; never forwarded, either way
+ * @property {(header: string) => boolean} forwardsHeader  whether a request header, by
+ *   lower-case name, passes to the model API, among those the core has not already dropped
  * @property {(path: string, decoded: string) => boolean} inScope  whether the path, as sent
  *   and as percent-decoded, is one of the API's own that the cap could count
  * @property {ReadonlyArray<{ method: string, path: string, spends: boolean }>} routes  the
@@ -92,7 +95,8 @@ const DROPPED = [
  * @property {(answer: any) => unknown} answeringModel  the model an answer, or one of a
  *   stream's events, names
  * @property {() => (answer: any) => number} usageReducer  for one answer, a function that
- *   takes its body or each of its events and returns the tokens newly counted, each once
+ *   takes its body, or each of a stream's events that `streamHint` matches, and returns
+ *   the tokens newly counted, each once
  */
 
 /**
@@ -150,6 +154,11 @@ export async function startProxy(
       Object.entries(headers).filter(
         ([header, value]) => !dropped.has(header.toLowerCase()) && value !== undefined,
       ),
+    );
+  // A request's headers also pass the profile's rule.
+  const requestHeaders = (headers) =>
+    Object.fromEntries(
+      Object.entries(passed(headers)).filter(([header]) => profile.forwardsHeader(header)),
     );
   const target = new URL(upstream);
   const send = target.protocol === "https:" ? httpsRequest : httpRequest;
@@ -300,7 +309,7 @@ export async function startProxy(
         inFlight -= 1;
         reserved -= reservation;
       };
-      const headers = passed(req.headers);
+      const headers = requestHeaders(req.headers);
       headers[auth[0]] = auth[1];
       headers["content-length"] = String(body.length);
       // A plain body, so the meter can read its usage.
@@ -460,7 +469,8 @@ function callerHolds(headers, keyHeaders, key) {
 
 /**
  * Count the tokens an answer reports, as the answer streams past: the
- * profile's usage reducer takes a JSON body, or each data event of a stream.
+ * profile's usage reducer takes a JSON body, or each data event of a stream
+ * that the profile's `streamHint` matches.
  * A compressed body (sent although the proxy asked for none) is decoded for
  * counting only. The model the answer names goes to `named`, unchecked.
  * @param {import("node:http").IncomingMessage} r

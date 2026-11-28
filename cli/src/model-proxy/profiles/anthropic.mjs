@@ -17,7 +17,7 @@
 /** The model API every forwarded request goes to. */
 export const MODEL_API = "https://api.anthropic.com";
 
-/** Every path is checked against /v1/ first, then against FORWARDED. */
+/** A path must be under /v1/ and not UNCOUNTED_PATH before it is matched against ROUTES. */
 const MODEL_PATH = /^\/v1\//;
 
 /**
@@ -55,6 +55,15 @@ export const COUNTED_USAGE = Object.freeze([
   "cache_read_input_tokens",
   "output_tokens",
 ]);
+
+/** The header an API key goes in, as the caller sends its key and the proxy writes the real one. */
+const API_KEY_HEADER = "x-api-key";
+
+/**
+ * The request headers never passed on, beyond the hop-by-hop and standard
+ * credential headers the core drops itself. Every other header passes.
+ */
+const NEVER_FORWARDED = Object.freeze([API_KEY_HEADER]);
 
 /** The Messages API's error type for each of the proxy's own refusals. */
 const ERROR_TYPES = Object.freeze({
@@ -161,10 +170,11 @@ function usageReducer() {
 export const anthropic = Object.freeze({
   upstream: MODEL_API,
   credentialKinds: Object.freeze({
-    "api-key": (credential) => ["x-api-key", credential],
+    "api-key": (credential) => [API_KEY_HEADER, credential],
     subscription: (credential) => ["authorization", `Bearer ${credential}`],
   }),
-  keyHeaders: Object.freeze(["x-api-key"]),
+  keyHeaders: Object.freeze([API_KEY_HEADER]),
+  forwardsHeader: (header) => !NEVER_FORWARDED.includes(header),
   inScope: (path, decoded) =>
     MODEL_PATH.test(path) && MODEL_PATH.test(decoded) && !UNCOUNTED_PATH.test(decoded),
   routes: ROUTES,

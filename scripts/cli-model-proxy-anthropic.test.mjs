@@ -52,6 +52,13 @@ describe("the anthropic profile's upstream, credentials and routes", () => {
     assert.ok(Object.isFrozen(anthropic));
   });
 
+  it("passes on every header but its own credential header, an unknown one among them", () => {
+    assert.equal(anthropic.forwardsHeader("x-api-key"), false);
+    for (const header of ["anthropic-beta", "anthropic-version", "x-app", "x-unknown"]) {
+      assert.equal(anthropic.forwardsHeader(header), true, header);
+    }
+  });
+
   it("writes an API key as x-api-key and a subscription token as a bearer value", () => {
     assert.deepEqual(anthropic.credentialKinds["api-key"]("k"), ["x-api-key", "k"]);
     assert.deepEqual(anthropic.credentialKinds.subscription("t"), ["authorization", "Bearer t"]);

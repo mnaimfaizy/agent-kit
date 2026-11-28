@@ -19,6 +19,7 @@ const TOY = Object.freeze({
     token: (credential) => ["x-toy-auth", `Token ${credential}`],
   }),
   keyHeaders: Object.freeze(["x-toy-auth"]),
+  forwardsHeader: (header) => header !== "x-toy-private",
   inScope: (path, decoded) => path.startsWith("/toy/") && decoded.startsWith("/toy/"),
   routes: Object.freeze([
     Object.freeze({ method: "PUT", path: "/toy/say", spends: true }),
@@ -112,6 +113,7 @@ describe("the model proxy core takes everything about a provider from its profil
           authorization: "Bearer placeholder",
           cookie: "a=b",
           "x-other": "kept",
+          "x-toy-private": "dropped",
         },
       });
       assert.equal(res.status, 200);
@@ -121,6 +123,7 @@ describe("the model proxy core takes everything about a provider from its profil
       assert.equal(got.headers.authorization, undefined);
       assert.equal(got.headers.cookie, undefined);
       assert.equal(got.headers["x-other"], "kept");
+      assert.equal(got.headers["x-toy-private"], undefined, "the profile's header rule holds");
     }));
 
   it("forwards only the profile's routes, within its scope, on a path that decodes plainly", () =>
