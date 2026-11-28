@@ -1,0 +1,71 @@
+name: Harness images
+
+# Builds and pushes the Harness images (ADR 0029) in the pull request that
+# changes a pin: the image's Dockerfile, or the CLI version its adapter pins.
+# So a release carries only digests that already exist. An image is tagged by a
+# hash of those inputs and never rebuilt once pushed; the check then fails
+# until the adapter records that digest. The refresh workflow also dispatches
+# this on the branch it opens, since a pull request opened with the job token
+# starts no workflow.
+#
+# A pull request from a fork has no package write: its images are built and not
+# pushed, and the check passes only when the pin's image is already there.
+
+on:
+  pull_request:
+    paths:
+      - docker/harness-images/**
+      - cli/src/harness/**
+      - .github/workflows/harness-images.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # By pull request, so a fork's branch of the same name never replaces a queued run.
+  group: harness-images-${{ github.event.pull_request.number || github.ref }}
+  # A cancelled push could leave a tag whose digest no one saw.
+  cancel-in-progress: false
+
+jobs:
+  image:
+    name: ${{ matrix.harness }} image
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        harness: [claude-code]
+    env:
+      HARNESS: ${{ matrix.harness }}
+      OWN_BRANCH: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - name: Set up a builder for amd64 and arm64
+        run: |
+          # QEMU (binfmt, latest) and BuildKit (buildx-stable-1), pinned in 2026-11.
+          docker run --privileged --rm tonistiigi/binfmt@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0 --install arm64
+          docker buildx create --use --driver docker-container \
+            --driver-opt image=moby/buildkit@sha256:baf6138eb8c37644800c7c913fba051e840ebb9ba13eaf92d92ef9a1712d0b4c
+      - name: Log in to GHCR
+        if: env.OWN_BRANCH == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+      - name: Build and push the image of this pin
+        if: env.OWN_BRANCH == 'true'
+        run: node docker/harness-images/image.mjs publish "$HARNESS"
+      - name: Build the image, without pushing (fork)
+        if: env.OWN_BRANCH != 'true'
+        run: node docker/harness-images/image.mjs build "$HARNESS"
+      - name: Check the adapter records this image's digest
+        run: node docker/harness-images/image.mjs check "$HARNESS"

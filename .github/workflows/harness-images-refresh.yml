@@ -1,0 +1,82 @@
+name: Harness images refresh
+
+# Once a month (ADR 0029): move each Harness image's bases to their current
+# digests, rebuild and push every image, record the new digests, and open a
+# pull request. Merging it is a pin change like any other (ADR 0028): the
+# contract tests must pass. A pull request opened with the job token starts no
+# workflow by itself, so this dispatches CI and the image check on its branch.
+#
+# Opening the pull request needs the repository setting "Allow GitHub Actions
+# to create and approve pull requests". Without it the run fails at that step,
+# with the branch pushed for a maintainer to open by hand.
+
+on:
+  schedule:
+    - cron: "23 5 1 * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: harness-images-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    name: Refresh the bases and open a pull request
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: write
+      packages: write
+      pull-requests: write
+      actions: write
+    env:
+      HARNESSES: claude-code
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - name: Set up a builder for amd64 and arm64
+        run: |
+          # QEMU (binfmt, latest) and BuildKit (buildx-stable-1), pinned in 2026-11.
+          docker run --privileged --rm tonistiigi/binfmt@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0 --install arm64
+          docker buildx create --use --driver docker-container \
+            --driver-opt image=moby/buildkit@sha256:baf6138eb8c37644800c7c913fba051e840ebb9ba13eaf92d92ef9a1712d0b4c
+      - name: Log in to GHCR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+      - name: Refresh, rebuild, record and open the pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          month="$(date -u +%Y-%m)"
+          # The attempt too: a re-run must not push onto its first attempt's branch.
+          branch="chore/harness-images-$month-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          git switch --create "$branch"
+          node docker/harness-images/image.mjs refresh
+          for harness in $HARNESSES; do
+            node docker/harness-images/image.mjs publish "$harness"
+            node docker/harness-images/image.mjs record "$harness"
+          done
+          if git diff --quiet; then
+            echo "Nothing changed: the bases and packages were refreshed today already."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docker/harness-images cli/src/harness
+          git commit --message "chore: refresh the Harness images ($month)"
+          gh auth setup-git
+          git push origin "$branch"
+          gh pr create --base main --head "$branch" \
+            --title "chore: refresh the Harness images ($month)" \
+            --body "The monthly refresh (ADR 0029): the bases are at their current digests, every Harness image is rebuilt and pushed, and each adapter records its new digest. Merge only when CI and the image check pass (ADR 0028)."
+          gh workflow run ci.yml --ref "$branch"
+          gh workflow run harness-images.yml --ref "$branch"

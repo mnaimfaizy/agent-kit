@@ -8,7 +8,7 @@ import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import { AGENT_TOOLS, agentScript, WEB_TOOLS } from "../cli/src/deep-scan/agent.mjs";
 import { claudeCode } from "../cli/src/harness/claude-code.mjs";
-import { layerDockerfile } from "../cli/src/harness/install-layer.mjs";
+import { layerDockerfile, pinnedHarnessImage } from "../cli/src/harness/install-layer.mjs";
 
 const PARTS = [
   "identity",
@@ -32,6 +32,9 @@ const REQUEST = {
 
 const TOOLS = "Bash,Read,Write,Edit,Glob,Grep";
 
+const PINNED_IMAGE = /^ghcr\.io\/mnaimfaizy\/agent-kit-sandbox-claude-code@sha256:[0-9a-f]{64}$/;
+const IMAGE = `ghcr.io/o/h@sha256:${"c".repeat(64)}`;
+
 const SETTINGS = {
   env: {
     ANTHROPIC_BASE_URL: "http://10.0.0.1:5",
@@ -54,10 +57,12 @@ function assertCommonParts(plan) {
     version: "2.1.328",
     major: 2,
   });
-  assert.deepEqual(plan.installLayer, {
+  const { image, ...layer } = plan.installLayer;
+  assert.match(image, PINNED_IMAGE, "the Harness image, pinned by digest beside the version");
+  assert.deepEqual(layer, {
     env: ["DISABLE_AUTOUPDATER=1"],
     run: [
-      "npm install --global @anthropic-ai/claude-code@2.1.328 \\",
+      "ln -sf /opt/agent-kit/bin/claude /usr/local/bin/claude \\",
       "  && mkdir -p /etc/claude-code \\",
       `  && printf '%s\\n' '{"env":{"DISABLE_AUTOUPDATER":"1"}}' > /etc/claude-code/managed-settings.json`,
     ],
@@ -242,7 +247,7 @@ describe("the Launcher runs the plan it is handed", () => {
   const given = {
     ...claudeCode(REQUEST),
     identity: { name: "other", displayName: "Other CLI", version: "9.9.9", major: 9 },
-    installLayer: { env: ["OTHER=1"], run: ["install other"] },
+    installLayer: { image: IMAGE, env: ["OTHER=1"], run: ["install other"] },
     launch: { argv: ["other", "do it"], stdin: { file: "/in/task.md" }, files: [], env: [] },
     stops: { turnCap: { stderrPattern: "^out of turns" } },
     transcript: { path: "/agent-kit/logs/other.jsonl" },
@@ -250,12 +255,34 @@ describe("the Launcher runs the plan it is handed", () => {
   const script = (plan) =>
     agentScript({ plan, report: "/agent-kit/out/report.md", workspace: "/workspace" });
 
-  it("layers the plan's install layer on the base image", () => {
-    assert.equal(
-      layerDockerfile("node:22", given.installLayer),
-      "FROM node:22\nENV OTHER=1\nRUN install other\n",
-    );
+  it("copies /opt/agent-kit from the plan's Harness image onto the base image", () => {
+    const lines = layerDockerfile("node:22", given.installLayer).split("\n");
+    assert.equal(lines[0], "FROM node:22");
+    assert.match(lines[1], /^RUN .*getconf GNU_LIBC_VERSION.*ld-musl-/, "the musl check first");
+    assert.deepEqual(lines.slice(2), [
+      `COPY --from=${IMAGE} /opt/agent-kit /opt/agent-kit`,
+      // The pinned CLI first: one already in the image never runs in its place.
+      'ENV PATH="/opt/agent-kit/bin:${PATH}"',
+      "ENV OTHER=1",
+      "RUN install other",
+      "",
+    ]);
+    assert.doesNotMatch(layerDockerfile("node:22", claudeCode().installLayer), /\bnpm\b/);
   });
+
+  for (const [what, image] of [
+    ["a tag without a digest", "ghcr.io/mnaimfaizy/agent-kit-sandbox-claude-code:latest"],
+    ["no tag and no digest", "ghcr.io/o/h"],
+    ["a short digest", "ghcr.io/o/h@sha256:abc"],
+    ["a second line", `${IMAGE}\nRUN evil`],
+    ["nothing", undefined],
+  ]) {
+    it(`refuses a Harness image named by ${what}`, () => {
+      const installLayer = { ...given.installLayer, image };
+      assert.throws(() => pinnedHarnessImage(installLayer), /pinned by digest/);
+      assert.throws(() => layerDockerfile("node:22", installLayer), /pinned by digest/);
+    });
+  }
 
   it("runs the plan's command on its stdin file, into its transcript, with its turn marker", () => {
     const text = script(given);

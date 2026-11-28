@@ -15,6 +15,7 @@ Each tag is a **whole-kit snapshot**: reusable workflows, shipped skills, docs, 
   Environment variables beat git config: if `GIT_COMMITTER_EMAIL` (or `EMAIL`) is set in your shell, unset it. Both scripts check the address before they commit or tag. They print the domain of a wrong address, never the address itself.
 
 - `gh` is installed and signed in (`gh auth login`). The cut reads CI's result on the commit through it.
+- Each Harness image package on GHCR (`ghcr.io/mnaimfaizy/agent-kit-sandbox-<harness>`) is **public** and linked to this repository: a Consumer pulls it with no login, so a release whose package is private breaks every Deep scan. A new package starts private; change it once, under the package's settings. To check it, with no stored login: `docker --config "$(mktemp -d)" manifest inspect <image>@<digest>`, with the digest the adapter in `cli/src/harness/` records.
 - You hold the Admin role. The `release tags` ruleset lets only the Admin role create, update or delete `refs/tags/v*`, and the `main branch` ruleset lets only the Admin bypass merge to `main`. See [Branch protection](../CONTRIBUTING.md#branch-protection).
 
 ## Cut a release

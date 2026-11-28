@@ -79,13 +79,16 @@ describe("a valid recipe", () => {
   });
 });
 
+describe("a recipe with no image of its own", () => {
+  it("is valid with neither image nor dockerfile: the scan runs on the Harness image", async () => {
+    const res = await run(recipeRepo(recipe({ drop: ["image"] })));
+    assert.equal(res.code, 0, res.text);
+    assert.match(res.out, /Scan recipe .* is valid\./);
+  });
+});
+
 describe("an invalid recipe is refused with a precise message", () => {
   const cases = [
-    [
-      "missing image and dockerfile",
-      recipe({ drop: ["image"] }),
-      /image or dockerfile: .*has neither/,
-    ],
     [
       "both image and dockerfile",
       recipe({ add: "dockerfile: Dockerfile" }),
@@ -237,9 +240,9 @@ describe("an invalid recipe is refused with a precise message", () => {
   }
 
   it("lists every problem at once", async () => {
-    const res = await run(recipeRepo(recipe({ drop: ["image", "ready"], add: "max_turns: 9" })));
+    const res = await run(recipeRepo(recipe({ drop: ["setup", "ready"], add: "max_turns: 9" })));
     assert.equal(res.code, 1);
-    assert.match(res.err, /image or dockerfile/);
+    assert.match(res.err, /setup: is missing/);
     assert.match(res.err, /start: is given without ready/);
     assert.match(res.err, /max_turns: the recipe holds no limits/);
   });
@@ -256,12 +259,12 @@ describe("the recipe is read at the trusted ref, never the working tree", () => 
 
   it("validates main's copy, not an edited working copy", async () => {
     const dir = makeRepo({
-      committed: { ".security/scan-recipe.yml": recipe({ drop: ["image"] }) },
+      committed: { ".security/scan-recipe.yml": recipe({ drop: ["setup"] }) },
       working: { ".security/scan-recipe.yml": VALID },
     });
     const res = await run(dir);
     assert.equal(res.code, 1);
-    assert.match(res.err, /image or dockerfile/);
+    assert.match(res.err, /setup: is missing/);
     assert.match(res.err, /working copy of .* differs from main's; deep-scan used main's/);
   });
 

@@ -2,9 +2,11 @@
 // Stage request and returns a launch plan, as plain data. The Launcher does
 // everything with the plan; this module starts nothing and imports nothing.
 //
-// The CLI: one pinned version, installed with npm, with the auto-updater off
-// both by environment and by managed settings in /etc/claude-code, which the
-// repository's own project settings cannot override.
+// The CLI: one pinned version, in `/opt/agent-kit` of the kit's Harness image
+// (ADR 0029, docker/harness-images/), which is pinned by digest, with the
+// auto-updater off both by environment and by managed settings in
+// /etc/claude-code, which the repository's own project settings cannot
+// override. Nothing is installed at run time.
 //
 // The launch: print mode, the brief on stdin. `--bare` skips skill and
 // CLAUDE.md discovery, so the Launcher hands the agent everything
@@ -26,6 +28,15 @@
 
 /** The Claude Code version every sandbox runs, pinned. */
 const VERSION = "2.1.328";
+
+/**
+ * The Harness image that holds that version. The `harness-images` workflow
+ * builds it in the pull request that changes the pin or its Dockerfile, and
+ * fails until this holds the digest it pushed
+ * (`node docker/harness-images/image.mjs record claude-code`).
+ */
+const IMAGE = "ghcr.io/mnaimfaizy/agent-kit-sandbox-claude-code";
+const IMAGE_DIGEST = "sha256:07639f096861d011ffdb5f8ba8a191b884ea449a41456e048703e81f90eb1744"; // inputs-377fe8ee201e90f814db7b0844d3d8ca
 
 /** The environment that keeps the auto-updater off. */
 const AUTO_UPDATER_OFF = "DISABLE_AUTOUPDATER=1";
@@ -78,7 +89,7 @@ const CREDENTIALS = {
  *
  * @typedef {{
  *   identity: { name: string, displayName: string, version: string, major: number },
- *   installLayer: { env: string[], run: string[] },
+ *   installLayer: { image: string, env: string[], run: string[] },
  *   modelRoute: { profile: string },
  *   credentials: {
  *     accepted: Record<string, { secret: string, env: string, placeholder: string }>,
@@ -94,8 +105,10 @@ const CREDENTIALS = {
  *   instructionFiles: string[],
  *   stops: { turnCap: { stderrPattern: string } | null },
  *   transcript: { path: string },
- * }} LaunchPlan  The nine parts of ADR 0027. `installLayer.run` is the lines
- *   of one shell command, layered on an image that has npm.
+ * }} LaunchPlan  The nine parts of ADR 0027. `installLayer.image` is the
+ *   Harness image, by digest: the sandbox runs from it, or its
+ *   `/opt/agent-kit` is copied onto another glibc image, where `env` is set
+ *   and `run`, the lines of one shell command, puts the CLI on the path.
  *   `credentials.scrub` names every variable a model credential of this
  *   harness can sit in, removed from the Launcher's own commands.
  */
@@ -133,9 +146,10 @@ export function claudeCode({
   return {
     identity: { name: "claude-code", displayName: "Claude Code", version: VERSION, major: 2 },
     installLayer: {
+      image: `${IMAGE}@${IMAGE_DIGEST}`,
       env: [AUTO_UPDATER_OFF],
       run: [
-        `npm install --global @anthropic-ai/claude-code@${VERSION} \\`,
+        "ln -sf /opt/agent-kit/bin/claude /usr/local/bin/claude \\",
         "  && mkdir -p /etc/claude-code \\",
         `  && printf '%s\\n' '${MANAGED_SETTINGS}' > /etc/claude-code/managed-settings.json`,
       ],
