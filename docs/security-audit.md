@@ -21,6 +21,8 @@ The reusable job supports:
 
 What the audit agent can and cannot change or run: [Agent limits](plan-implement-review.md#agent-limits).
 
+The run summary names the harness, its [Support Level](harnesses.md#support-levels) and that it is not a Proving run, with a warning at `documented`. The static audit is a security Stage, so it will be refused below `tried` once it runs through the Launcher; until then it runs, whatever its level.
+
 `pr` mode requires `head_sha`, `base_sha`, `base_ref`, and `pr_number`. The job restores instructions and `.github/agent-runtime/`, and stages its credentialed scripts, from the base before the agent starts, when the base is on the trusted branch (`trusted_branch`, otherwise the repository's default branch); otherwise from that branch's tip. `scan_command` runs in `full` mode only. `full` mode audits the commit the run was dispatched on and refuses a `head_sha` or `base_sha`: to audit a pull request, use `pr` mode.
 
 The preflight checks the advisories token is live, then sends an empty body to the create-advisory endpoint. GitHub checks authorization first, so a token that may create advisories gets a validation error (422), which passes, and one that may not gets 403 or 404, which fails the run before the agent starts. Nothing is created.
@@ -327,14 +329,18 @@ Backstops beyond these limits:
 5. **Run it** from your checkout:
 
    ```sh
-   npx @mnaimfaizy/agent-kit deep-scan
+   npx @mnaimfaizy/agent-kit deep-scan --proving-run
    ```
 
-   With the key in 1Password: `npx @mnaimfaizy/agent-kit deep-scan --credential-from op://Private/Anthropic-deep-scan/credential`.
+   With the key in 1Password: `npx @mnaimfaizy/agent-kit deep-scan --proving-run --credential-from op://Private/Anthropic-deep-scan/credential`.
+
+   `--proving-run` is needed while the [Support Level](harnesses.md#support-levels) of Claude Code on the Deep scan is below `tried`, where it starts: without it `deep-scan` refuses, exit 1, before anything runs. With it the run is a [Proving run](harnesses.md#proving-runs), on an unproven pair at your own risk; every other check and Guard holds. The first line printed names the harness, its level and whether the run is a Proving run.
 
 6. **Read the report** at the path `deep-scan` prints last (`Report: …/report.md`), in a new private folder under your temporary folder. It is the only thing the scan leaves on your machine. Nothing is filed or posted: to file a draft advisory, follow the skill's by-hand rule.
 
 A good run prints the recipe, the Threat pack and the key's source, the runtime, each setup step `ok`, `Network: cut`, `Model route: only the model proxy…`, the agent step, `Model proxy: forwarded N request(s) to api.anthropic.com (answers: 200 xN); the model API answered with <model id>`, the report's path, and `Teardown: removed …`, and exits 0. A model proxy answer of `401` means the key was refused: when every answer was `401` or `403`, the run also prints `The model API refused the credential: …`, naming the credential's kind (API key or subscription token) and where it came from, never its value (not in GitHub Actions, where the answers are withheld); `refused` lists hosts or paths the agent tried that the proxy turned away, and `counted N of the …-token cap` is the run's token count. A run a [limit](#limits) stopped prints `Stopped: …` and exits 3; to let a scan run longer, raise that limit with its option, for example `--scan-minutes 120`.
+
+A [Verification run](#verification-run) is a Deep scan, so the same Support Level rule holds for it.
 
 To choose the model the agent runs on, pass `--model <id>`, a plain model id such as `claude-opus-5-5` (letters, digits and `. _ : @ / [ ] -`; anything else is a usage error, exit 2). To choose its effort level, pass `--effort <level>`, one of `low`, `medium`, `high`, `xhigh` or `max`, the values of Claude Code's own `--effort` (anything else is a usage error, exit 2, before any runtime starts). Without either, Claude Code runs on its own default; both apply on either credential path and in a [Verification run](#verification-run). Whether a model supports a given effort level is up to Claude Code; if it refuses, the agent step fails and says why.
 
@@ -343,7 +349,7 @@ To choose the model the agent runs on, pass `--model <id>`, a plain model id suc
 A Verification run checks whether your fix holds, before you merge it or release the advisory. It re-attempts the Reproduction of findings you already have, on a ref you name, and answers each with `Reproduced: yes` (the fix does not hold) or `Reproduced: no` (it holds), with a reason. It is confirm-only: no `full` walk, no exploration and no new findings.
 
 ```sh
-npx @mnaimfaizy/agent-kit deep-scan --verify ~/advisories/findings.md --ref fix/upload-traversal
+npx @mnaimfaizy/agent-kit deep-scan --proving-run --verify ~/advisories/findings.md --ref fix/upload-traversal
 ```
 
 - **`--verify <file>`** is the finding file: Markdown in a deep report's own shape, where each finding is a `###` section with `- **Concept id:**` (kebab-case), `- **Location:**` and `- **Observation:**` lines. The deep report that found them works as it is, once you drop the findings it did not reproduce; other `###` sections (Notes, Open questions) and anything inside a code fence are ignored. Keep the file outside the repository: it names a concept id that is private until release. `deep-scan` refuses, exit 1, before anything runs, a file that is missing, not a regular file, larger than 512 KiB, not UTF-8 text, or has no finding, a finding without a Concept id, Location or Observation, a concept id that is not kebab-case, or the same concept id twice.
@@ -356,11 +362,13 @@ npx @mnaimfaizy/agent-kit deep-scan --verify ~/advisories/findings.md --ref fix/
 
 ## Deep scan in CI
 
+**While Claude Code on the Deep scan is below `tried`, this workflow's scan is refused.** It never passes `--proving-run`, so a run ends at the launcher step, before anything is read or run, until a kit release raises the pair's [Support Level](harnesses.md#support-levels). Until then, run a Deep scan on your own machine.
+
 The CI path is opt-in: a separate reusable workflow, `deep-scan-reusable.yml`, which calls the same `agent-kit deep-scan` launcher as a local run. Adopting it leaves your static security-audit Caller and `security-audit-reusable.yml`, with its "no Bash" rule, unchanged. Use it when you have no accepted runtime on your own machine, or to scan on a schedule. `--verify` has no CI form ([ADR 0018](adr/0018-a-deep-scan-runs-locally-by-default.md)).
 
 What the workflow does, in one job on an ephemeral GitHub-hosted runner (`ubuntu-latest`):
 
-1. **Checks its inputs** (the harness, the model, the effort level and the limits): it refuses any harness but `claude-code`, fills an empty model with that harness's default, and refuses anything but plain values, and both or neither Claude Code secrets, and a `setup_minutes` plus `scan_minutes` above 150, so the job's `timeout-minutes: 180` stays above the phase limits.
+1. **Checks its inputs** (the harness, the model, the effort level and the limits): it refuses any harness but `claude-code`, fills an empty model with that harness's default, drops an effort [inherited from `AGENT_KIT_EFFORT`](harnesses.md#effort) that the harness does not accept, and refuses anything but plain values, and both or neither Claude Code secrets, and a `setup_minutes` plus `scan_minutes` above 150, so the job's `timeout-minutes: 180` stays above the phase limits.
 2. **Runs on the default branch only.** The job runs only from a `schedule` or `workflow_dispatch` event, and the gate refuses a run whose ref is not the repository's default branch. It never checks out a pull request head: the checkout takes no ref, and `deep-scan` exports the default branch's tip, not the working tree. The gate also preflights the advisory token, as the static audit does, before any model spend.
 3. **Stages the delivery scripts** (`.github/security-audit/publish-draft-advisory.sh` and `notify-email.sh`, the same ones the static audit uses) from the commit object to a folder outside the workspace, and records their SHA-256 digests, before the scan.
 4. **Installs gVisor** (`runsc`), a pinned release checked against its SHA-512, and registers it as a Docker runtime. `deep-scan` then chooses it, and the agent and the target run together in the gVisor container. The runner holds `deep-scan`'s proxies and the delivery steps. The runner's Docker also runs the relay containers and their `-host` bridge network under Docker's default runtime (runc), not gVisor, and the probe containers under gVisor, as the sandbox; they run launcher code only (the pinned `node` image and the digest-checked relay script), never target code.
@@ -369,7 +377,7 @@ What the workflow does, in one job on an ephemeral GitHub-hosted runner (`ubuntu
 7. **Delivers the report** after teardown: each staged script runs only after its digest check. The report becomes a private draft advisory, and is emailed when the email secrets are set (in full if the draft could not be filed).
 8. **Prints a status** with no counts: whether a report came out and was filed, or which limit stopped the run.
 
-**The Public-log rule in CI.** The Actions log of a public repository is world-readable, so nothing from the scan is printed or uploaded. In GitHub Actions (`GITHUB_ACTIONS=true`, which the runner always sets), `deep-scan` withholds everything the scan shaped: Claude Code's error output (it prints only the exit code), the model proxy's refused hosts and paths, its answer counts and the model ids the API answered with (it prints `Model proxy: closed`), and why a report could not be copied out. A failed `setup`, `start` or `ready` step still prints its output: that is your own build output, from before any probing. The publisher's metadata lines (finding counts, severity) are discarded, so the log never says how many findings there were. No artifact, cache or job summary is written. On a stop with no report, the only public output is the status naming the limit. The `Agent step:` line still names the requested model and effort: those are your own inputs. The answered model ids are withheld because anything in the sandbox can call the model proxy with a model of its choosing, so which models answered is something the scan shaped. To see what the run withheld, run `deep-scan` locally.
+**The Public-log rule in CI.** The Actions log of a public repository is world-readable, so nothing from the scan is printed or uploaded. In GitHub Actions (`GITHUB_ACTIONS=true`, which the runner always sets), `deep-scan` withholds everything the scan shaped: Claude Code's error output (it prints only the exit code), the model proxy's refused hosts and paths, its answer counts and the model ids the API answered with (it prints `Model proxy: closed`), and why a report could not be copied out. A failed `setup`, `start` or `ready` step still prints its output: that is your own build output, from before any probing. The publisher's metadata lines (finding counts, severity) are discarded, so the log never says how many findings there were. No artifact or cache is written, and the run summary gets one line: the harness, its Support Level and whether the run is a Proving run. On a stop with no report, the only public output is the status naming the limit. The `Agent step:` line still names the requested model and effort: those are your own inputs. The answered model ids are withheld because anything in the sandbox can call the model proxy with a model of its choosing, so which models answered is something the scan shaped. To see what the run withheld, run `deep-scan` locally.
 
 **Adopt it:**
 

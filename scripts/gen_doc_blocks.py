@@ -46,6 +46,14 @@ MARKER = re.compile(r"<!-- (/?)generated:([a-z0-9-]+) -->")
 # Anything a marker was meant to be, so a mistyped one is reported, not skipped.
 LOOSE_MARKER = re.compile(r"<!--\s*/?\s*generated\s*:[^>]*-->", re.IGNORECASE)
 
+# The harness facts every kit tag ships, written by scripts/gen_harnesses.mjs (ADR 0030).
+HARNESSES_FILE = "cli/harnesses.json"
+# How the Support Level table names each Stage in that file.
+STAGE_LEVEL_NAMES = {
+    "deep-scan": "Deep scan",
+    "security-audit": "static security audit",
+    "review-response": "Review response",
+}
 # The example Callers, whose jobs pass each Stage's settings as GitHub expressions.
 CALLERS = "examples/*-caller.yml"
 # The reusable workflows, whose check step fills an empty model with the harness's default.
@@ -336,6 +344,26 @@ def deep_scan_recipe_fields(sources: Sources) -> str:
     return _table(["Field", "Required", "Holds"], rows)
 
 
+def support_levels(sources: Sources) -> str:
+    """The Support Level table of cli/harnesses.json: a row per Stage, a column per harness (ADR 0028)."""
+    path = sources.root / HARNESSES_FILE
+    if not path.is_file():
+        raise SystemExit(f"{HARNESSES_FILE} is missing: run node scripts/gen_harnesses.mjs")
+    facts = json.loads(path.read_text(encoding="utf-8"))
+
+    def cell(entry: dict) -> str:
+        if entry["level"] is None:
+            return "none (refused)"
+        return f"[`{entry['level']}`]({entry['run']})" if entry["run"] else f"`{entry['level']}`"
+
+    harnesses = facts["harnesses"].values()
+    rows = [
+        [STAGE_LEVEL_NAMES.get(stage, stage), *(cell(h["supportLevels"][stage]) for h in harnesses)]
+        for stage in facts["stages"]
+    ]
+    return _table(["Stage", *(h["displayName"] for h in harnesses)], rows)
+
+
 # Each fact's name, as its markers spell it, and the function that writes its block.
 FACTS: dict[str, Callable[[Sources], str]] = {
     "review-response-protected-paths": review_response_protected_paths,
@@ -344,6 +372,7 @@ FACTS: dict[str, Callable[[Sources], str]] = {
     "stage-harness-model-and-effort": stage_harness_model_and_effort,
     "deep-scan-limits": deep_scan_limits,
     "deep-scan-recipe-fields": deep_scan_recipe_fields,
+    "support-levels": support_levels,
 }
 
 

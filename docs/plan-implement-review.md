@@ -8,6 +8,8 @@ This runbook documents the reusable plan -> implement -> review flow. Setup step
 2. A human reads it and adds `agent:implement`. The implement job extracts only the Verified plan, runs the Caller's `setup_commands`, lets the agent change code under a deny-by-default tool list, and opens a **draft** PR as the Claude GitHub App. A separate read-only job checks out the agent's branch and runs `setup_commands` and `verify_commands` there.
 3. A human adds `agent:review` to the PR. The review job restores its runtime from the PR base (from the default branch when the base is not on it), reviews on three axes, and comments. It never pushes, approves, or merges.
 
+Each Stage's run summary names its harness, the pair's [Support Level](harnesses.md#support-levels) and that it is not a Proving run; at `documented`, where every pair starts, the Stage runs with a warning there.
+
 Each stage consumes its label, so re-adding the label re-runs the stage. Humans decide every transition. After review, [Review response](review-response.md) answers the review's findings: on its own label, or, in its auto mode, handed off by the review.
 
 ## Reusable jobs

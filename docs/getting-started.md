@@ -225,7 +225,9 @@ gh variable set AGENT_KIT_SECURITY_AUDIT_MODEL --body claude-fable-5-2
 gh variable set AGENT_KIT_PLAN_EFFORT --body low
 ```
 
-Effort is one of `low`, `medium`, `high`, `xhigh` or `max`, and a model is a plain model id in the harness's own words. The run fails before the agent starts if either is anything else, and the error names the input. Whether a model supports a given effort level is up to Claude Code; if it refuses, the workflow log says why. Delete a Stage's variable to fall back to the shared one, and delete that to fall back to the default.
+Effort is one of `low`, `medium`, `high`, `xhigh` or `max` on `claude-code`, and a model is a plain model id in the harness's own words. A model that is anything else, or a Stage's own effort that is, fails the run before the agent starts, and the error names the input. An effort inherited from `AGENT_KIT_EFFORT` that the Stage's harness does not accept is dropped instead, with a log line ([Effort](harnesses.md#effort)). Whether a model supports a given effort level is up to Claude Code; if it refuses, the workflow log says why. Delete a Stage's variable to fall back to the shared one, and delete that to fall back to the default.
+
+Each harness and Stage pair has a **Support Level**, and the run summary names it: [Harnesses and Support Levels](harnesses.md).
 
 ## 9. First run
 
