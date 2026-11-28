@@ -2,7 +2,7 @@ name: Dogfood security audit
 
 # Agent-kit auditing itself with its own reusable workflow, from this commit
 # (local ref), so every change to the audit is exercised before it is tagged.
-# Off until the repository variable CLAUDE_SECURITY_AUDIT_ENABLED is "true" and
+# Off until the repository variable AGENT_KIT_SECURITY_AUDIT_ENABLED is "true" and
 # the secrets below exist. Setup: CONTRIBUTING.md → "Dogfood flows".
 
 on:
@@ -27,9 +27,10 @@ jobs:
     uses: ./.github/workflows/security-audit-reusable.yml
     with:
       mode: ${{ github.event_name == 'pull_request' && 'pr' || 'full' }}
-      kill_switch: ${{ vars.CLAUDE_SECURITY_AUDIT_ENABLED != 'true' }}
-      model: ${{ vars.CLAUDE_SECURITY_AUDIT_MODEL || vars.CLAUDE_MODEL || 'claude-opus-5-5' }}
-      effort: ${{ vars.CLAUDE_SECURITY_AUDIT_EFFORT || vars.CLAUDE_EFFORT || '' }}
+      kill_switch: ${{ vars.AGENT_KIT_SECURITY_AUDIT_ENABLED != 'true' }}
+      harness: ${{ vars.AGENT_KIT_SECURITY_AUDIT_HARNESS || vars.AGENT_KIT_HARNESS || 'claude-code' }}
+      model: ${{ vars.AGENT_KIT_SECURITY_AUDIT_MODEL || vars.AGENT_KIT_MODEL || '' }}
+      effort: ${{ vars.AGENT_KIT_SECURITY_AUDIT_EFFORT || vars.AGENT_KIT_EFFORT || '' }}
       allowlist_actors: '["mnaimfaizy"]'
       threat_model_path: "security/threat-model.md"
       findings_ledger_path: "security/findings-ledger.md"
@@ -41,4 +42,8 @@ jobs:
     secrets:
       advisories_token: ${{ secrets.AGENT_KIT_ADVISORIES_TOKEN }}
       claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+      openai_api_key: ${{ secrets.OPENAI_API_KEY }}
+      gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
+      cursor_api_key: ${{ secrets.CURSOR_API_KEY }}
       dependabot_alerts_token: ${{ secrets.AGENT_KIT_DEPENDABOT_ALERTS_TOKEN }}

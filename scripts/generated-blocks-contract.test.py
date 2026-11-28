@@ -22,7 +22,7 @@ GENERATOR = ROOT / "scripts" / "gen_doc_blocks.py"
 # Every Doc fact's source, copied with the docs so the copy can be regenerated.
 # cli/src/tags.mjs, imported by init.mjs, reads cli/package.json when it loads.
 # cli/src holds the deep-scan facts' sources too: limits.mjs and recipe.mjs.
-FACT_SOURCES = [".github/agent-review-response", "cli/src", "cli/package.json"]
+FACT_SOURCES = [".github/agent-review-response", ".github/workflows", "cli/src", "cli/package.json"]
 REVIEW_RESPONSE_SCRIPT = Path(".github/agent-review-response/review-response.mjs")
 INIT_SCRIPT = Path("cli/src/init.mjs")
 LIMITS_SCRIPT = Path("cli/src/deep-scan/limits.mjs")
@@ -30,10 +30,11 @@ RECIPE_SCRIPT = Path("cli/src/deep-scan/recipe.mjs")
 PROTECTED_BLOCK = "review-response-protected-paths"
 LABELS_BLOCK = "trigger-labels"
 KILL_SWITCH_BLOCK = "stage-kill-switches"
-MODEL_BLOCK = "stage-model-and-effort"
+MODEL_BLOCK = "stage-harness-model-and-effort"
 LIMITS_BLOCK = "deep-scan-limits"
 RECIPE_FIELDS_BLOCK = "deep-scan-recipe-fields"
 PIPELINE_CALLER = Path("examples/plan-implement-review-caller.yml")
+PLAN_WORKFLOW = Path(".github/workflows/agent-plan-reusable.yml")
 RESPONSE_CALLER = Path("examples/review-response-caller.yml")
 # Each fact this test names, and the pages that hold its block.
 BLOCK_PAGES = {
@@ -146,19 +147,48 @@ def test_the_label_block_holds_inits_labels() -> None:
 
 def test_the_stage_blocks_hold_each_stages_variables() -> None:
     switches = block(KILL_SWITCH_BLOCK)
-    assert "`CLAUDE_AGENT_FLOW_ENABLED` is `true` and `CLAUDE_IMPLEMENT_ENABLED` is not `false`" in switches, switches
-    assert "| Review response | `CLAUDE_REVIEW_RESPONSE_ENABLED` is `true`" in switches, switches
-    models = block(MODEL_BLOCK)
-    assert "| security audit | `CLAUDE_SECURITY_AUDIT_MODEL` | `CLAUDE_SECURITY_AUDIT_EFFORT` |" in " ".join(
-        models.split()
+    assert "`AGENT_KIT_AGENT_FLOW_ENABLED` is `true` and `AGENT_KIT_IMPLEMENT_ENABLED` is not `false`" in switches, (
+        switches
+    )
+    assert "| Review response | `AGENT_KIT_REVIEW_RESPONSE_ENABLED` is `true`" in switches, switches
+    models = " ".join(block(MODEL_BLOCK).split())
+    assert (
+        "| security audit | `AGENT_KIT_SECURITY_AUDIT_HARNESS` | `AGENT_KIT_SECURITY_AUDIT_MODEL` |"
+        " `AGENT_KIT_SECURITY_AUDIT_EFFORT` |" in models
     ), models
-    assert "`CLAUDE_MODEL`" in models and "`CLAUDE_EFFORT`" in models and "`claude-opus-5-5`" in models, models
+    assert "| any Stage above | `AGENT_KIT_HARNESS` | `AGENT_KIT_MODEL` | `AGENT_KIT_EFFORT` |" in models, models
+    assert "| neither set | `claude-code` | the harness's default (`claude-opus-5-5`) | none |" in models, models
+
+
+def test_a_changed_harness_default_model_without_regenerating_fails() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = copy_repo(Path(tmp))
+        for workflow in (root / ".github" / "workflows").glob("*-reusable.yml"):
+            text = workflow.read_text(encoding="utf-8")
+            workflow.write_text(text.replace("MODEL:-claude-opus-5-5", "MODEL:-claude-opus-6"), encoding="utf-8")
+
+        result = check(root)
+
+    assert result.returncode == 1, f"--check passed after the default model changed:\n{result.stdout}"
+    assert f"docs/getting-started.md: generated:{MODEL_BLOCK} is stale" in result.stderr, result.stderr
+
+
+def test_workflows_that_disagree_on_the_default_model_fail_and_are_named() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = copy_repo(Path(tmp))
+        edit(root / PLAN_WORKFLOW, "MODEL:-claude-opus-5-5", "MODEL:-claude-opus-6")
+
+        result = check(root)
+
+    assert result.returncode == 1, f"--check passed on two default models:\n{result.stdout}"
+    assert "Traceback" not in result.stderr, result.stderr
+    assert "claude-opus-6" in result.stderr and "agent-plan-reusable.yml" in result.stderr, result.stderr
 
 
 def test_a_renamed_caller_variable_without_regenerating_fails() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = copy_repo(Path(tmp))
-        edit(root / PIPELINE_CALLER, "vars.CLAUDE_PLAN_EFFORT ||", "vars.CLAUDE_PLAN_THINKING ||")
+        edit(root / PIPELINE_CALLER, "vars.AGENT_KIT_PLAN_EFFORT ||", "vars.AGENT_KIT_PLAN_THINKING ||")
 
         result = check(root)
 
@@ -172,9 +202,9 @@ def test_a_changed_kill_switch_without_regenerating_fails() -> None:
         root = copy_repo(Path(tmp))
         edit(
             root / RESPONSE_CALLER,
-            "kill_switch: ${{ vars.CLAUDE_REVIEW_RESPONSE_ENABLED != 'true' }}",
-            "kill_switch: ${{ vars.CLAUDE_AGENT_FLOW_ENABLED != 'true'"
-            " || vars.CLAUDE_REVIEW_RESPONSE_ENABLED != 'true' }}",
+            "kill_switch: ${{ vars.AGENT_KIT_REVIEW_RESPONSE_ENABLED != 'true' }}",
+            "kill_switch: ${{ vars.AGENT_KIT_AGENT_FLOW_ENABLED != 'true'"
+            " || vars.AGENT_KIT_REVIEW_RESPONSE_ENABLED != 'true' }}",
         )
 
         result = check(root)
@@ -186,11 +216,11 @@ def test_a_changed_kill_switch_without_regenerating_fails() -> None:
 def test_a_caller_setting_the_generator_cannot_read_fails_and_names_it() -> None:
     cases = {
         "kill_switch": (
-            "kill_switch: ${{ vars.CLAUDE_REVIEW_RESPONSE_ENABLED != 'true' }}",
-            "kill_switch: ${{ !vars.CLAUDE_REVIEW_RESPONSE_ENABLED }}",
+            "kill_switch: ${{ vars.AGENT_KIT_REVIEW_RESPONSE_ENABLED != 'true' }}",
+            "kill_switch: ${{ !vars.AGENT_KIT_REVIEW_RESPONSE_ENABLED }}",
         ),
         "effort": (
-            "effort: ${{ vars.CLAUDE_REVIEW_RESPONSE_EFFORT || vars.CLAUDE_EFFORT || '' }}",
+            "effort: ${{ vars.AGENT_KIT_REVIEW_RESPONSE_EFFORT || vars.AGENT_KIT_EFFORT || '' }}",
             "effort: ${{ 'high' }}",
         ),
     }
@@ -273,6 +303,8 @@ if __name__ == "__main__":
     test_a_changed_init_label_without_regenerating_fails()
     test_the_label_block_holds_inits_labels()
     test_the_stage_blocks_hold_each_stages_variables()
+    test_a_changed_harness_default_model_without_regenerating_fails()
+    test_workflows_that_disagree_on_the_default_model_fail_and_are_named()
     test_a_renamed_caller_variable_without_regenerating_fails()
     test_a_changed_kill_switch_without_regenerating_fails()
     test_a_caller_setting_the_generator_cannot_read_fails_and_names_it()

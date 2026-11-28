@@ -40,11 +40,12 @@ jobs:
       github.event_name == 'workflow_dispatch'
     uses: mnaimfaizy/agent-kit/.github/workflows/agent-review-response-reusable.yml@v1.0.0-beta.13
     with:
-      kill_switch: ${{ vars.CLAUDE_REVIEW_RESPONSE_ENABLED != 'true' }}
+      kill_switch: ${{ vars.AGENT_KIT_REVIEW_RESPONSE_ENABLED != 'true' }}
       # Exactly `auto` accepts the review handoff's dispatch; unset is manual.
-      response_mode: ${{ vars.CLAUDE_REVIEW_RESPONSE_MODE || 'manual' }}
-      model: ${{ vars.CLAUDE_REVIEW_RESPONSE_MODEL || vars.CLAUDE_MODEL || 'claude-opus-5-5' }}
-      effort: ${{ vars.CLAUDE_REVIEW_RESPONSE_EFFORT || vars.CLAUDE_EFFORT || '' }}
+      response_mode: ${{ vars.AGENT_KIT_REVIEW_RESPONSE_MODE || 'manual' }}
+      harness: ${{ vars.AGENT_KIT_REVIEW_RESPONSE_HARNESS || vars.AGENT_KIT_HARNESS || 'claude-code' }}
+      model: ${{ vars.AGENT_KIT_REVIEW_RESPONSE_MODEL || vars.AGENT_KIT_MODEL || '' }}
+      effort: ${{ vars.AGENT_KIT_REVIEW_RESPONSE_EFFORT || vars.AGENT_KIT_EFFORT || '' }}
       # Who may start a round with the label, and whose thread replies are
       # Maintainer guidance. Nobody else's reply reaches the agent.
       allowlist_actors: '["your-github-login"]'
@@ -89,3 +90,7 @@ jobs:
       #   infra/production.tf
     secrets:
       claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+      openai_api_key: ${{ secrets.OPENAI_API_KEY }}
+      gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
+      cursor_api_key: ${{ secrets.CURSOR_API_KEY }}

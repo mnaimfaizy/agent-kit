@@ -1,6 +1,6 @@
 # Plan-implement-review First-class flow
 
-This runbook documents the reusable plan -> implement -> review flow. Setup steps: [Getting started](getting-started.md). Every input and secret: [reference.md](reference.md#plan).
+This runbook documents the reusable plan -> implement -> review flow. Setup steps: [Getting started](getting-started.md); each Stage's harness, model and effort variables are in [its step 8](getting-started.md#8-turn-the-flows-on-kill-switch-variables). Every input and secret: [reference.md](reference.md#plan).
 
 ## How a change flows
 

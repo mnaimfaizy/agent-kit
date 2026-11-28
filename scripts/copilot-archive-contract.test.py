@@ -30,7 +30,7 @@ def test_restore_doc_is_choose_one_with_distinct_killswitches() -> None:
     doc = read(RESTORE_DOC)
     assert "Archive Claude caller workflows first" in doc
     assert "mutually exclusive" in doc
-    assert "CLAUDE_AGENT_FLOW_ENABLED" in doc
+    assert "AGENT_KIT_AGENT_FLOW_ENABLED" in doc
     assert "AGENT_KIT_COPILOT_PIPELINE_ENABLED" in doc
     assert "AGENT_KIT_COPILOT_SECURITY_AUDIT_ENABLED" in doc
 

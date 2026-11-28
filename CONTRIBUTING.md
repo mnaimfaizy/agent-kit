@@ -116,7 +116,7 @@ One-time setup:
 
 ```bash
 # Secrets (paste values when prompted)
-gh secret set CLAUDE_CODE_OAUTH_TOKEN              # from `claude setup-token`
+gh secret set CLAUDE_CODE_OAUTH_TOKEN              # from `claude setup-token`; or ANTHROPIC_API_KEY
 gh secret set AGENT_KIT_ADVISORIES_TOKEN           # fine-grained PAT: Repository security advisories RW
 gh secret set AGENT_KIT_DEPENDABOT_ALERTS_TOKEN    # optional; fine-grained PAT: Dependabot alerts R
 ```
@@ -143,25 +143,27 @@ gh label create "agent:audit" --color B60205 --description "Agent-kit: security 
 Then turn the flows on:
 
 ```bash
-gh variable set CLAUDE_SECURITY_AUDIT_ENABLED --body true
-gh variable set CLAUDE_AGENT_FLOW_ENABLED --body true
-gh variable set CLAUDE_REVIEW_RESPONSE_ENABLED --body true
+gh variable set AGENT_KIT_SECURITY_AUDIT_ENABLED --body true
+gh variable set AGENT_KIT_AGENT_FLOW_ENABLED --body true
+gh variable set AGENT_KIT_REVIEW_RESPONSE_ENABLED --body true
 
-# Optional: model and effort for every dogfood run (defaults: claude-opus-5-5,
-# no --effort), and a per-Stage override, CLAUDE_<STAGE>_MODEL or
-# CLAUDE_<STAGE>_EFFORT with PLAN, IMPLEMENT, REVIEW, REVIEW_RESPONSE or
-# SECURITY_AUDIT.
-# CLAUDE_<STAGE>_ENABLED=false turns one Agent flow Stage off.
-gh variable set CLAUDE_MODEL --body claude-opus-5-5
-gh variable set CLAUDE_SECURITY_AUDIT_MODEL --body claude-fable-5-2
-gh variable set CLAUDE_PLAN_EFFORT --body low
+# Optional: harness, model and effort for every dogfood run, from
+# AGENT_KIT_HARNESS, AGENT_KIT_MODEL and AGENT_KIT_EFFORT (unset: claude-code,
+# the only harness that runs a Stage so far; claude-opus-5-5, which the
+# reusable workflow fills in; no --effort). A per-Stage override is
+# AGENT_KIT_<STAGE>_HARNESS, _MODEL or _EFFORT, with PLAN, IMPLEMENT, REVIEW,
+# REVIEW_RESPONSE or SECURITY_AUDIT.
+# AGENT_KIT_<STAGE>_ENABLED=false turns one Agent flow Stage off.
+gh variable set AGENT_KIT_MODEL --body claude-opus-5-5
+gh variable set AGENT_KIT_SECURITY_AUDIT_MODEL --body claude-fable-5-2
+gh variable set AGENT_KIT_PLAN_EFFORT --body low
 
-# Optional: auto mode (needs CLAUDE_REVIEW_RESPONSE_ENABLED=true as well: the
+# Optional: auto mode (needs AGENT_KIT_REVIEW_RESPONSE_ENABLED=true as well: the
 # review's handoff does not check it, so without it each review with findings
 # dispatches a run that skips). A dogfood review that leaves findings hands off
 # to dogfood-review-response.yml, at most two rounds per PR. Unset is manual:
 # apply agent:address-review yourself.
-gh variable set CLAUDE_REVIEW_RESPONSE_MODE --body auto
+gh variable set AGENT_KIT_REVIEW_RESPONSE_MODE --body auto
 ```
 
 Also: install the [Claude GitHub App](https://github.com/apps/claude) on the repository (implementer) (see [getting-started §7](docs/getting-started.md#7-prepare-the-security-audit) for the audit). Review [security/threat-model.md](security/threat-model.md) before the first audit; it is a draft.

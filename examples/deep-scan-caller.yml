@@ -3,7 +3,7 @@ name: deep-scan
 # Opt-in: a Deep scan of the default branch in CI, beside (not instead of) the
 # static security-audit Caller. It needs a Scan recipe on the default branch
 # (.security/scan-recipe.yml) and costs model spend per run: set
-# CLAUDE_DEEP_SCAN_ENABLED to true only once the recipe is valid.
+# AGENT_KIT_DEEP_SCAN_ENABLED to true only once the recipe is valid.
 on:
   schedule:
     - cron: "0 5 * * 1"
@@ -16,24 +16,30 @@ jobs:
   deep-scan:
     uses: mnaimfaizy/agent-kit/.github/workflows/deep-scan-reusable.yml@v1.0.0-beta.13
     with:
-      kill_switch: ${{ vars.CLAUDE_DEEP_SCAN_ENABLED != 'true' }}
-      model: ${{ vars.CLAUDE_DEEP_SCAN_MODEL || vars.CLAUDE_MODEL || 'claude-opus-5-5' }}
-      effort: ${{ vars.CLAUDE_DEEP_SCAN_EFFORT || vars.CLAUDE_EFFORT || '' }}
+      kill_switch: ${{ vars.AGENT_KIT_DEEP_SCAN_ENABLED != 'true' }}
+      harness: ${{ vars.AGENT_KIT_DEEP_SCAN_HARNESS || vars.AGENT_KIT_HARNESS || 'claude-code' }}
+      model: ${{ vars.AGENT_KIT_DEEP_SCAN_MODEL || vars.AGENT_KIT_MODEL || '' }}
+      effort: ${{ vars.AGENT_KIT_DEEP_SCAN_EFFORT || vars.AGENT_KIT_EFFORT || '' }}
       # The launcher's defaults; setup_minutes + scan_minutes may be at most 150.
       setup_minutes: 20
       scan_minutes: 60
       max_turns: 200
       max_tokens: 5000000
     secrets:
-      # The model credential: exactly one of these two. An API key from a
-      # dedicated Console workspace with its own spend limit is the supported
-      # path. Or, opted into at your own risk, a Claude subscription token
-      # from `claude setup-token`: it relies on undocumented Claude Code
-      # behaviour and may break with any release, has no refresh (rotate it by
-      # hand), leaves the terms question to you, and max_tokens is its only
-      # spend lever. To use it, swap the comment onto the API key's line.
+      # Every provider secret is passed (an unset one is empty), so changing
+      # harness needs no edit here. The Deep scan runs on claude-code alone so
+      # far, which takes exactly one of the first two: set one secret, not both.
+      # An API key from a dedicated Console workspace with its own spend limit is
+      # the supported path. Or, opted into at your own risk, a Claude
+      # subscription token from `claude setup-token`: it relies on undocumented
+      # Claude Code behaviour and may break with any release, has no refresh
+      # (rotate it by hand), leaves the terms question to you, and max_tokens is
+      # its only spend lever.
+      claude_code_oauth_token: ${{ secrets.AGENT_KIT_DEEP_SCAN_CLAUDE_CODE_OAUTH_TOKEN }}
       anthropic_api_key: ${{ secrets.AGENT_KIT_DEEP_SCAN_ANTHROPIC_API_KEY }}
-      # claude_code_oauth_token: ${{ secrets.AGENT_KIT_DEEP_SCAN_CLAUDE_CODE_OAUTH_TOKEN }}
+      openai_api_key: ${{ secrets.AGENT_KIT_DEEP_SCAN_OPENAI_API_KEY }}
+      gemini_api_key: ${{ secrets.AGENT_KIT_DEEP_SCAN_GEMINI_API_KEY }}
+      cursor_api_key: ${{ secrets.AGENT_KIT_DEEP_SCAN_CURSOR_API_KEY }}
       advisories_token: ${{ secrets.AGENT_KIT_ADVISORIES_TOKEN }}
       notify_email_to: ${{ secrets.AGENT_KIT_NOTIFY_EMAIL_TO }}
       notify_email_from: ${{ secrets.AGENT_KIT_NOTIFY_EMAIL_FROM }}
