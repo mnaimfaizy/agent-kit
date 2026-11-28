@@ -292,7 +292,7 @@ RECIPE_FIELD_ROWS = {
     "fixtures": ("yes (`[]` for none)", "Mappings of test users, roles and similar. Fake values only."),
     "grounding": (
         "no",
-        "URLs or repository paths `deep-scan` copies in before the agent enters, since it has no web access.",
+        "Public `https://` URLs or repository paths `deep-scan` copies in before the agent enters, since it has no web access.",
     ),
     "notes": ("yes", "A line or a list of lines: what stays static-only."),
 }

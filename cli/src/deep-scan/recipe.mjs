@@ -7,6 +7,7 @@
 
 import { CLI_VERSION } from "../tags.mjs";
 import { checkSafePath } from "../safe-paths.mjs";
+import { groundingUrlProblem, isGroundingUrl } from "./grounding-url.mjs";
 import {
   isMapping,
   parseScalar,
@@ -215,6 +216,11 @@ export function validateRecipe(text) {
   if ("grounding" in recipe) {
     asList(recipe.grounding, "grounding", say)?.forEach((g, i) => {
       if (!isWord(g)) say(`grounding[${i}]`, "must be one URL or repository path.");
+      else if (isGroundingUrl(g)) {
+        // Fetched on the host, so only a public https:// page (see grounding-url.mjs).
+        const problem = groundingUrlProblem(g);
+        if (problem) say(`grounding[${i}]`, `${problem}.`);
+      }
     });
   }
 
