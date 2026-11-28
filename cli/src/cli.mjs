@@ -121,6 +121,12 @@ Options for deep-scan:
                           such as your fix branch. The recipe, the skill
                           and the Threat pack still come from the default
                           branch.
+  --proving-run           Run on a harness whose Support Level for the Deep
+                          scan is below tried, to record the evidence that
+                          raises it (a Proving run, marked in the output
+                          and the run summary). Without it such a run is
+                          refused. It relaxes nothing else, and the
+                          reusable workflows never pass it.
 In GitHub Actions (GITHUB_ACTIONS=true) deep-scan keeps the Public-log
 rule: it prints nothing the scan shaped (Claude Code's error output, the
 model proxy's refusals), since the Actions log is world-readable.
@@ -165,6 +171,7 @@ const COMMAND_OPTIONS = {
     "report",
     "verify",
     "ref",
+    "proving-run",
   ],
 };
 
@@ -230,6 +237,7 @@ export async function main(argv, io) {
         effort: { type: "string" },
         report: { type: "string" },
         ref: { type: "string" },
+        "proving-run": { type: "boolean" },
         yes: { type: "boolean", short: "y" },
         force: { type: "boolean" },
         help: { type: "boolean", short: "h" },
@@ -309,6 +317,7 @@ export async function main(argv, io) {
       reportPath: values.report,
       verifyPath: values.verify,
       ref: values.ref,
+      provingRun: Boolean(values["proving-run"]),
       limitFlags: {
         "setup-minutes": values["setup-minutes"],
         "scan-minutes": values["scan-minutes"],
