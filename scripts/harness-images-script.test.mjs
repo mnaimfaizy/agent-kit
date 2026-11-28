@@ -66,7 +66,11 @@ describe("the Dockerfile of the Claude Code image", () => {
     }
     assert.match(DOCKERFILE, /cp \/usr\/local\/bin\/node \/opt\/agent-kit\/node\/bin\/node/);
     assert.match(DOCKERFILE, /^COPY --from=harness \/opt\/agent-kit \/opt\/agent-kit$/m);
-    assert.doesNotMatch(DOCKERFILE, /^ENV .*bPATH=/m, "the harness's Node stays off the project's path");
+    assert.doesNotMatch(
+      DOCKERFILE,
+      /^ENV .*PATH=/m,
+      "the harness's Node stays off the project's path",
+    );
   });
 
   it("holds the adapter's install layer, so it runs alone as a layered image does", () => {
