@@ -52,8 +52,13 @@ const CONTROL_MARKERS = Object.freeze(["settings-", "local-", "mcp-server"]);
 /** The sandbox's own container name, as the driver gives it. */
 const SANDBOX = /^agent-kit-deep-[0-9a-f]{12}$/;
 
-/** What a run says when the sandbox's isolation check failed before the agent step. */
-const NOT_ISOLATED = /not isolated|the network is not cut|more than the model route is open/;
+/**
+ * A line that says one of the sandbox's isolation checks failed before the
+ * agent step: each such failure of the Docker driver's, and of the network cut
+ * and the model route.
+ */
+const NOT_ISOLATED =
+  /^FAILED {2}(.* is not isolated|the sandbox is not on .* alone|the network is not cut|more than the model route is open)\b/m;
 
 /**
  * The control for the checkout-config probe: the harness started again in the

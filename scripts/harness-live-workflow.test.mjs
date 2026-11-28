@@ -5,13 +5,20 @@
 // harness-live-workflow-contract.test.py. Offline: `gh` and git are faked.
 
 import assert from "node:assert/strict";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 import { suiteNeeded } from "../.github/harness-live/changes.mjs";
 import { needsSuite, SUITE_PATHS } from "../.github/harness-live/paths.mjs";
-import { GUARD_LABEL, reportFailure, TITLE } from "../.github/harness-live/report-failure.mjs";
+import {
+  GUARD_LABEL,
+  GUARD_LABELS,
+  reportFailure,
+  TITLE,
+} from "../.github/harness-live/report-failure.mjs";
 import { GUARDS } from "../cli/src/harness-live/assess.mjs";
+import { dockerDriver } from "../cli/src/deep-scan/docker-driver.mjs";
+import { claudeCode } from "../cli/src/harness/claude-code.mjs";
 import { report } from "../cli/src/harness-live/run.mjs";
 import { SCENARIOS, scenarioVerdict } from "../cli/src/harness-live/suite.mjs";
 
@@ -70,6 +77,93 @@ describe("which changes run the live suite", () => {
 
   it("fails, never skips, when the changes cannot be read", () => {
     assert.throws(() => suiteNeeded({ env: pr, git: git([], 128) }), /could not list/);
+  });
+});
+
+/**
+ * What the real Docker driver says when it refuses to start a sandbox, with a
+ * `docker` that shows `network` as the sandbox's network and `attached` as the
+ * networks the sandbox is on.
+ */
+async function startFailure({ network, attached }) {
+  const answer = (args) => {
+    if (args[0] === "network" && args[1] === "inspect") {
+      return args[3] === "{{json .IPAM.Config}}" ? [{ Gateway: "172.20.0.1" }] : network;
+    }
+    if (args[0] === "container") return Object.fromEntries(attached.map((n) => [n, {}]));
+    // A probe: it reaches nothing.
+    if (args.includes("probe")) return { self: ["198.18.0.11"], results: ["unreachable"] };
+    return "";
+  };
+  const call = async (_, args) => ({
+    status: 0,
+    signal: null,
+    aborted: false,
+    stdout: Buffer.from(JSON.stringify(answer(args))),
+    stderr: "",
+  });
+  const driver = dockerDriver({
+    runtime: { id: "gvisor", name: "gVisor", dockerRuntime: "runsc" },
+    id: "abcdef012345",
+    call,
+    plan: claudeCode(),
+  });
+  const steps = { setup: [], start: [], ready: [], seed: [], registries: [], grounding: [] };
+  await driver.prepare(steps, { out: () => {}, branch: "main", short: "abc" });
+  try {
+    await driver.start(steps);
+  } catch (e) {
+    return e.lines.join("\n");
+  }
+  return assert.fail("the driver started the sandbox");
+}
+
+describe("a sandbox that fails its isolation check before the harness starts", () => {
+  const isolated = {
+    Internal: true,
+    Options: {
+      "com.docker.network.bridge.gateway_mode_ipv4": "isolated",
+      "com.docker.network.bridge.gateway_mode_ipv6": "isolated",
+    },
+    IPAM: { Config: [{}] },
+  };
+  const verdict = (log) =>
+    scenarioVerdict({
+      findings: GUARDS.map((guard) => ({ guard, status: "inconclusive", reasons: [] })),
+      started: false,
+      exit: 1,
+      log,
+    });
+
+  it("is a Guard failure when the sandbox is on a second network", async () => {
+    const log = await startFailure({
+      network: isolated,
+      attached: ["agent-kit-deep-abcdef012345", "bridge"],
+    });
+    assert.match(log, /not on the setup network alone/);
+    assert.equal(verdict(`Sandbox: starting.\n${log}`), "guard-failed");
+  });
+
+  it("is a Guard failure when its network is not isolated", async () => {
+    const log = await startFailure({ network: { Internal: false }, attached: [] });
+    assert.match(log, /not isolated/);
+    assert.equal(verdict(log), "guard-failed");
+  });
+
+  it("is a Guard failure when the network is not cut, or more than the model route is open", () => {
+    for (const why of ["the network is not cut: x", "more than the model route is open: x"]) {
+      assert.equal(verdict(`FAILED  ${why}.`), "guard-failed", why);
+    }
+  });
+
+  it("is another failure when no isolation check failed", () => {
+    for (const log of [
+      "FAILED  pulling the Harness image: not found",
+      "FAILED  no free subnet for the sandbox's network: tried 198.18.0.0/24.",
+      "FAILED  checking the sandbox's networks: exit 1",
+    ]) {
+      assert.equal(verdict(log), "error", log);
+    }
   });
 });
 
@@ -190,6 +284,12 @@ describe("a failed weekly run", () => {
     );
     assert.deepEqual(flag(acts[0].args, "--add-label"), ["ready-for-human", "guard-failure"]);
     assert.deepEqual(flag(acts[0].args, "--remove-label"), ["needs-triage"]);
+  });
+
+  it("sets the labels the release page names", () => {
+    const page = readFileSync(join(ROOT, "docs", "cutting-releases.md"), "utf8");
+    const section = page.split("## A failed Guard probe")[1].split("\n## ")[0];
+    for (const label of GUARD_LABELS) assert.ok(section.includes(`\`${label}\``), label);
   });
 
   it("looks only at issues the job token opened, and fails when gh does", () => {
