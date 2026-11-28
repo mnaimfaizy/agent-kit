@@ -12,23 +12,26 @@
 
 import { randomBytes } from "node:crypto";
 import { firstLine } from "../exec.mjs";
+import { claudeCode } from "../harness/claude-code.mjs";
 import { GITHUB_TOKEN_VARS } from "./preflight.mjs";
 
-/** The default variable the API key is read from. */
-export const API_KEY_VAR = "ANTHROPIC_API_KEY";
+/**
+ * The credentials the harness accepts, from its launch plan: each kind's
+ * variable is also the one it is read from by default.
+ */
+const { accepted, scrub } = claudeCode().credentials;
 
 /**
- * The start of the key the sandboxed Claude Code holds in place of a real
- * one; the proxy swaps it for the real key.
+ * The start of the key the sandboxed agent holds in place of a real one;
+ * the proxy swaps it for the real key.
  */
-export const PLACEHOLDER_API_KEY = "agent-kit-deep-scan-placeholder";
+export const PLACEHOLDER_API_KEY = accepted["api-key"].placeholder;
 
 /**
- * The start of the token the sandboxed Claude Code holds on the
- * subscription path; the proxy swaps the bearer value it sends. It is shaped
- * like a token, in case Claude Code checks the prefix.
+ * The start of the token the sandboxed agent holds on the subscription
+ * path; the proxy swaps the bearer value it sends.
  */
-export const PLACEHOLDER_OAUTH_TOKEN = "sk-ant-oat01-agent-kit-deep-scan-placeholder";
+export const PLACEHOLDER_OAUTH_TOKEN = accepted.subscription.placeholder;
 
 /**
  * The run's caller key: a placeholder with 24 random bytes added, made once
@@ -49,14 +52,8 @@ export const SUBSCRIPTION = "subscription";
 const CREDENTIAL_KINDS = Object.freeze([API_KEY, SUBSCRIPTION]);
 
 /** Model credential variables, removed from every command the launcher runs. */
-export const CREDENTIAL_VARS = Object.freeze([
-  "ANTHROPIC_API_KEY",
-  "ANTHROPIC_AUTH_TOKEN",
-  "CLAUDE_CODE_OAUTH_TOKEN",
-]);
+export const CREDENTIAL_VARS = Object.freeze(scrub);
 
-/** The variable Claude Code reads a subscription (OAuth) token from. */
-const OAUTH_TOKEN_VAR = "CLAUDE_CODE_OAUTH_TOKEN";
 /** How a Claude subscription (OAuth) token starts; an API key starts sk-ant-api. */
 const OAUTH_TOKEN_PREFIX = "sk-ant-oat";
 
@@ -89,7 +86,7 @@ export function credentialKind(value) {
  */
 export function credentialSource(value, kind = API_KEY) {
   if (value === undefined) {
-    return { kind: "env", name: kind === SUBSCRIPTION ? OAUTH_TOKEN_VAR : API_KEY_VAR };
+    return { kind: "env", name: accepted[kind].env };
   }
   if (value.startsWith("env:")) {
     const name = value.slice(4);
@@ -136,7 +133,7 @@ export function readCredential({ source, env, runner, kind = API_KEY }) {
     );
   }
   const { name } = source;
-  if (!token && name.toUpperCase() === OAUTH_TOKEN_VAR) return notAnApiKey(name);
+  if (!token && name.toUpperCase() === accepted[SUBSCRIPTION].env) return notAnApiKey(name);
   const command = `npx @mnaimfaizy/agent-kit deep-scan${token ? " --credential subscription" : ""}`;
   const value = valueOf(env, name);
   if (!value) {
