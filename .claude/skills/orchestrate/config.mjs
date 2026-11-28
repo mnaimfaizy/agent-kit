@@ -34,6 +34,10 @@
 //       applied, answers merged in), the harness and tracker reports, and
 //       readiness: what the run still needs to ask for, and notes to say.
 //       Prints JSON; exits 1 on any problem, 2 on bad usage.
+//   node config.mjs choose --harness <id> --delegations <file.json>
+//       --available <file.json> [--answers <file.json>] [--repo <dir>]
+//       each Delegation's harness, model, effort and why, by the rule in
+//       CONFIG.md ("executors"). Prints JSON; exits 1 on any problem.
 //   node config.mjs regate <sha> --out <file> [--repo <dir>]
 //       runs the config's `regate` commands in a detached worktree at <sha>
 //       (made beside <file>, which must be inside the run folder, and removed
@@ -104,19 +108,27 @@ export const QA_CONFIG_FILES = /** @type {const} */ ([
   "qa.config.json",
 ]);
 export const EXECUTOR_KEYS = /** @type {const} */ (["build", "analysis", "qa"]);
+/** The keys of one entry in a list of harnesses for a kind of work. */
+export const ENTRY_KEYS = /** @type {const} */ (["harness", "model", "effort", "when_label"]);
+/** The keys of the object form of `executors.<kind>`, and the ways its entries are spread. */
+export const EXECUTOR_LIST_KEYS = /** @type {const} */ (["spread", "entries"]);
+export const SPREADS = /** @type {const} */ (["first", "round-robin"]);
+/** Why a harness's CLI fails the step-1 check. */
+export const UNAVAILABLE_CAUSES = /** @type {const} */ (["missing", "signed-out"]);
 export const SUPPORT_LEVELS = /** @type {const} */ (["verified", "tried", "documented"]);
 
 /**
  * The harnesses this skill has a file for, read from `harnesses/<id>.md`
  * beside this script (HARNESSES.md, "A harness file"): each one's Support
  * Level, whether it has a headless run another harness's Chief of Staff can
- * start, and whether that run can carry a QA Delegation. A harness file is the
- * one source of all three; this reader only finds them. A file it cannot read
+ * start, whether that run can carry a QA Delegation, and the flag that gives a
+ * run its effort. A harness file is the one source of all four; this reader
+ * only finds them. A file it cannot read
  * them from is a **problem**, named, never a crash: `check` must still print
  * JSON for step 1.
  *
  * @param {string} [dir]
- * @returns {{harnesses: Record<string, {level: string, headless: boolean, headlessQa: boolean}>, problems: string[]}}
+ * @returns {{harnesses: Record<string, {level: string, headless: boolean, headlessQa: boolean, effort: string | null}>, problems: string[]}}
  */
 export function harnessCatalog(dir = fileURLToPath(new URL("./harnesses/", import.meta.url))) {
   const harnesses = {};
@@ -144,6 +156,7 @@ export function harnessCatalog(dir = fileURLToPath(new URL("./harnesses/", impor
     const level = /^`([a-z]+)`/.exec(line("Support Level") ?? "")?.[1];
     const headless = line("Headless run");
     const headlessQa = line("Headless QA");
+    const effort = line("Effort");
     const missing = [
       line("Id") === `\`${id}\`` ? null : `\`- **Id:** \`${id}\`\``,
       SUPPORT_LEVELS.includes(level)
@@ -151,6 +164,7 @@ export function harnessCatalog(dir = fileURLToPath(new URL("./harnesses/", impor
         : "`- **Support Level:**` with one of " + SUPPORT_LEVELS.join(", "),
       headless === undefined ? "`- **Headless run:**`" : null,
       headlessQa === undefined ? "`- **Headless QA:**`" : null,
+      effort === undefined ? "`- **Effort:**`" : null,
     ].filter(Boolean);
     if (missing.length) {
       problems.push(
@@ -162,6 +176,7 @@ export function harnessCatalog(dir = fileURLToPath(new URL("./harnesses/", impor
       level,
       headless: !headless.startsWith("none"),
       headlessQa: !headlessQa.startsWith("none"),
+      effort: effort.startsWith("none") ? null : (/^`([^`]+)`/.exec(effort)?.[1] ?? effort),
     };
   }
   return { harnesses, problems };
@@ -905,6 +920,39 @@ function checkSink(sink, s, base, types, expected) {
     sink.add(`${base}.branch`, "expected a valid git branch name");
 }
 
+const noEffort = (id) => `\`${id}\` takes no effort (its harness file's Effort line is \`none\`)`;
+
+/** Whether `id`, named at `path`, can run `kind` work. */
+function checkExecutor(sink, path, id, kind, config) {
+  if (!Object.hasOwn(HARNESSES, id))
+    sink.add(path, `\`${id}\` has no harness file; known: ${Object.keys(HARNESSES).join(", ")}`);
+  else if (id !== config.harness && !HARNESSES[id].headless)
+    sink.add(path, `\`${id}\` has no headless run another harness can start`);
+  else if (id !== config.harness && kind === "qa" && !HARNESSES[id].headlessQa)
+    sink.add(
+      path,
+      `\`${id}\`'s headless run cannot carry QA (its harness file's Headless QA line): QA there is a session the human starts`,
+    );
+}
+
+/** A list of harness entries for `kind`; each problem names the entry's index and key. */
+function checkEntries(sink, list, path, kind, config) {
+  if (!Array.isArray(list)) return sink.add(path, "expected a list of entries");
+  if (!list.length) return sink.add(path, "expected at least one entry");
+  list.forEach((entry, n) => {
+    const at = `${path}[${n}]`;
+    if (!isMapping(entry)) return sink.add(at, "expected a mapping with `harness`");
+    unknownKeys(sink, entry, at, ENTRY_KEYS);
+    for (const key of ["model", "effort", "when_label"])
+      if (given(sink, entry, key, `${at}.${key}`) && !nonEmpty(entry[key]))
+        sink.add(`${at}.${key}`, "expected a non-empty string");
+    if (!nonEmpty(entry.harness)) return sink.add(`${at}.harness`, "expected a harness id");
+    checkExecutor(sink, `${at}.harness`, entry.harness, kind, config);
+    if (nonEmpty(entry.effort) && HARNESSES[entry.harness]?.effort === null)
+      sink.add(`${at}.effort`, noEffort(entry.harness));
+  });
+}
+
 /**
  * The checker for each top-level key, in CONFIG.md's order. A mode that needs
  * keys of its own adds its section here.
@@ -986,6 +1034,9 @@ export const SECTIONS = {
   models(sink, value) {
     stringMapping(sink, value, "models", MODEL_KEYS);
   },
+  efforts(sink, value) {
+    stringMapping(sink, value, "efforts", MODEL_KEYS);
+  },
   harness(sink, value) {
     if (!nonEmpty(value)) return sink.add("harness", "expected a harness id");
     if (!Object.hasOwn(HARNESSES, value))
@@ -995,23 +1046,30 @@ export const SECTIONS = {
       );
   },
   executors(sink, value, config) {
-    stringMapping(sink, value, "executors", EXECUTOR_KEYS);
-    if (!isMapping(value)) return;
+    if (!isMapping(value)) return sink.add("executors", "expected a mapping");
+    unknownKeys(sink, value, "executors", EXECUTOR_KEYS);
     for (const key of EXECUTOR_KEYS) {
-      const id = value[key];
-      if (!nonEmpty(id) || !Object.hasOwn(value, key)) continue;
-      if (!Object.hasOwn(HARNESSES, id))
-        sink.add(
-          `executors.${key}`,
-          `\`${id}\` has no harness file; known: ${Object.keys(HARNESSES).join(", ")}`,
-        );
-      else if (id !== config.harness && !HARNESSES[id].headless)
-        sink.add(`executors.${key}`, `\`${id}\` has no headless run another harness can start`);
-      else if (id !== config.harness && key === "qa" && !HARNESSES[id].headlessQa)
-        sink.add(
-          "executors.qa",
-          `\`${id}\`'s headless run cannot carry QA (its harness file's Headless QA line): QA there is a session the human starts`,
-        );
+      const path = `executors.${key}`;
+      if (!given(sink, value, key, path)) continue;
+      const named = value[key];
+      if (Array.isArray(named)) checkEntries(sink, named, path, key, config);
+      else if (isMapping(named)) {
+        unknownKeys(sink, named, path, EXECUTOR_LIST_KEYS);
+        if (given(sink, named, "spread", `${path}.spread`) && !SPREADS.includes(named.spread))
+          sink.add(`${path}.spread`, `expected one of: ${SPREADS.join(", ")}`);
+        if (!Object.hasOwn(named, "entries"))
+          sink.add(`${path}.entries`, "expected a list of entries");
+        else if (given(sink, named, "entries", `${path}.entries`))
+          checkEntries(sink, named.entries, `${path}.entries`, key, config);
+      } else if (!nonEmpty(named)) sink.add(path, "expected a non-empty string");
+      else {
+        checkExecutor(sink, path, named, key, config);
+        // `efforts.<kind>` goes to this harness. On the Chief of Staff's own
+        // harness it applies only where that harness can take one.
+        const effort = isMapping(config.efforts) ? config.efforts[key] : undefined;
+        if (nonEmpty(effort) && named !== config.harness && HARNESSES[named]?.effort === null)
+          sink.add(`efforts.${key}`, noEffort(named));
+      }
     }
   },
   limits(sink, value) {
@@ -1356,8 +1414,11 @@ export function effectiveConfig(config) {
     skills: pick(section("skills"), SKILL_KEYS),
     triage_labels: triageLabels(config.triage_labels),
     models: pick(section("models"), MODEL_KEYS),
+    efforts: pick(section("efforts"), MODEL_KEYS),
     harness: config.harness ?? null,
-    executors: pick(section("executors"), EXECUTOR_KEYS),
+    executors: Object.fromEntries(
+      EXECUTOR_KEYS.map((key) => [key, normaliseExecutor(section("executors")[key])]),
+    ),
     limits: {
       building: limits.building === undefined ? DEFAULTS.building : Number(limits.building),
       shared: limits.shared ?? [],
@@ -1420,6 +1481,22 @@ export function effectiveConfig(config) {
 }
 
 /**
+ * One `executors.<kind>` as a run reads it: a single id stays a string; both
+ * list forms become `{ spread, entries }`, with null for a key not given.
+ */
+function normaliseExecutor(value) {
+  if (value === undefined || value === null) return null;
+  if (typeof value === "string") return value;
+  const list = Array.isArray(value) ? value : value.entries;
+  return {
+    spread: (!Array.isArray(value) && value.spread) || SPREADS[0],
+    entries: list.map((entry) =>
+      Object.fromEntries(ENTRY_KEYS.map((key) => [key, entry[key] ?? null])),
+    ),
+  };
+}
+
+/**
  * Where each triage role's label comes from: the repository's own mapping
  * document (read at run time), the config's mapping, or the default, where
  * each label is its role's name.
@@ -1467,8 +1544,9 @@ export function readiness({ path, config, problems, qaConfig = null }) {
     notes.push("no re-gate commands: a finished branch is checked by its CI alone");
   for (const key of SKILL_KEYS)
     if (effective.skills[key] === null) notes.push(`no \`skills.${key}\`: ${SKILL_NOTES[key]}`);
+  const listed = (key) => typeof effective.executors[key] === "object" && effective.executors[key];
   for (const key of MODEL_KEYS)
-    if (effective.models[key] === null)
+    if (effective.models[key] === null && !listed(key))
       notes.push(`no \`models.${key}\`: that work runs on the harness's default model`);
   const below = (id) => HARNESSES[id] && HARNESSES[id].level !== "verified";
   if (effective.harness !== null && below(effective.harness))
@@ -1476,14 +1554,29 @@ export function readiness({ path, config, problems, qaConfig = null }) {
       `\`harness\` is \`${effective.harness}\`, at Support Level \`${HARNESSES[effective.harness].level}\`: ` +
         "the Dispatch Plan says so, and waits for the human's go",
     );
+  const level = (id) => (below(id) ? `, at Support Level \`${HARNESSES[id].level}\`` : "");
   for (const key of EXECUTOR_KEYS) {
-    const id = effective.executors[key];
-    if (id === null || id === effective.harness) continue;
-    notes.push(
-      `\`executors.${key}\` runs that work on \`${id}\`` +
-        (below(id) ? `, at Support Level \`${HARNESSES[id].level}\`` : "") +
-        `: check its CLI is installed and signed in, and that \`models.${key}\` names a model there`,
-    );
+    const named = effective.executors[key];
+    if (named === null) continue;
+    if (typeof named === "string") {
+      if (named !== effective.harness)
+        notes.push(
+          `\`executors.${key}\` runs that work on \`${named}\`${level(named)}` +
+            `: check its CLI is installed and signed in, and that \`models.${key}\` names a model there`,
+        );
+      continue;
+    }
+    for (const id of new Set(named.entries.map((entry) => entry.harness)))
+      if (id !== effective.harness)
+        notes.push(
+          `\`executors.${key}\` may run that work on \`${id}\`${level(id)}` +
+            ": check its CLI is installed and signed in, and that its entries' `model` names a model there",
+        );
+    if (named.entries.every((entry) => entry.when_label !== null))
+      notes.push(
+        `\`executors.${key}\` has no catch-all entry (one without \`when_label\`): ` +
+          "an issue with none of its labels matches no entry, which stops the Dispatch Plan",
+      );
   }
   if (qaConfig !== null) {
     const qaSet = isMapping(config.ready_to_merge) && config.ready_to_merge.qa !== undefined;
@@ -1505,6 +1598,124 @@ export function readiness({ path, config, problems, qaConfig = null }) {
       `the triage roles' labels are read from \`${effective.triage_labels.document}\` at the start of the run`,
     );
   return { ready: needs.length === 0, needs, notes };
+}
+
+/** A label name as it is compared; null, a catch-all's, stays null. */
+const labelKey = (name) => (name === null ? null : name.trim().toLowerCase());
+
+/** A choice's reason as the Dispatch Plan writes it; "" where no entry was chosen. */
+export function reasonText(reason) {
+  if (reason === null) return "";
+  if (reason.by === "label") return `label ${reason.label}`;
+  if (reason.by === "round-robin") return `round-robin ${reason.i}/${reason.n}`;
+  if (reason.by === "fallback") return `fallback: ${reason.harness} ${reason.cause}`;
+  return reason.by;
+}
+
+/**
+ * Each Delegation's harness, model and effort, chosen when the Dispatch Plan
+ * is made (CONFIG.md, "executors"). Pure: nothing here changes a choice later.
+ *
+ * An entry matches when its `when_label` is one of the issue's labels, whatever
+ * its case or surrounding space, or it has none. The first matching, available entry wins. With `round-robin`, the
+ * available matching entries with the winner's `when_label` take turns, in the
+ * order the Delegations are given. A choice that passed over an unavailable
+ * entry says so, in place of the label or the turn.
+ *
+ * @param {{executors?: Record<string, any>, models?: Record<string, any>, efforts?: Record<string, any>, harness: string}} settings
+ *   `effectiveConfig`'s values, with `harness` the Chief of Staff's own.
+ * @param {{id: string, kind: string, labels?: string[]}[]} delegations in Dispatch Plan order
+ * @param {Record<string, {ok: boolean, cause?: string}>} available each other
+ *   harness's step-1 result. The Chief of Staff's own harness needs none.
+ * @returns {{choices: {id: string, harness: string, model: string | null, effort: string | null, reason: Record<string, any> | null}[], problems: string[]}}
+ */
+export function chooseExecutors(settings, delegations, available = {}) {
+  const { executors = {}, models = {}, efforts = {}, harness: own } = settings;
+  const choices = [];
+  const problems = [];
+  const turns = new Map();
+  const state = (id) =>
+    id === own ? { ok: true } : Object.hasOwn(available, id) ? available[id] : null;
+  // A harness with no usable result is neither chosen nor passed over in silence.
+  const unreadable = (id) => {
+    const found = state(id);
+    if (found === null) return `\`${id}\` has no step-1 result in \`available\``;
+    if (found.ok !== true && !UNAVAILABLE_CAUSES.includes(found.cause))
+      return `\`${id}\` is not \`ok\` and has no cause (${UNAVAILABLE_CAUSES.join(" or ")})`;
+    return null;
+  };
+  const isOpen = (id) => state(id).ok === true;
+
+  for (const { id, kind, labels = [] } of delegations) {
+    const problem = (message) => problems.push(`\`${id}\` (${kind}): ${message}`);
+    if (!EXECUTOR_KEYS.includes(kind)) {
+      problem(`unknown kind; expected one of: ${EXECUTOR_KEYS.join(", ")}`);
+      continue;
+    }
+    const named = executors[kind] ?? null;
+    if (named === null || typeof named === "string") {
+      const harness = named ?? own;
+      const bad = unreadable(harness);
+      if (bad !== null) problem(bad);
+      else if (!isOpen(harness))
+        problem(`\`executors.${kind}\`: \`${harness}\` is ${state(harness).cause}`);
+      else
+        choices.push({
+          id,
+          harness,
+          model: models[kind] ?? null,
+          // None where the harness takes none, so the plan never promises one.
+          effort: HARNESSES[harness]?.effort ? (efforts[kind] ?? null) : null,
+          reason: null,
+        });
+      continue;
+    }
+
+    const carried = new Set(labels.map(labelKey));
+    const matching = named.entries.filter(
+      (entry) => entry.when_label === null || carried.has(labelKey(entry.when_label)),
+    );
+    const bad = matching.map((entry) => unreadable(entry.harness)).find((found) => found !== null);
+    if (bad !== undefined) {
+      problem(bad);
+      continue;
+    }
+    const open = matching.filter((entry) => isOpen(entry.harness));
+    if (!open.length) {
+      problem(
+        matching.length
+          ? `no entry of \`executors.${kind}\` is available: ` +
+              matching.map((e) => `\`${e.harness}\` is ${state(e.harness).cause}`).join(", ")
+          : `no entry of \`executors.${kind}\` matches the issue's labels`,
+      );
+      continue;
+    }
+
+    const first = open[0];
+    const rotates = named.spread === "round-robin";
+    const sameGroup = (entry) => labelKey(entry.when_label) === labelKey(first.when_label);
+    const tied = open.filter(sameGroup);
+    let entry = first;
+    let reason =
+      first.when_label === null ? { by: "catch-all" } : { by: "label", label: first.when_label };
+    if (rotates && tied.length > 1) {
+      const group = JSON.stringify([kind, labelKey(first.when_label)]);
+      const turn = turns.get(group) ?? 0;
+      turns.set(group, turn + 1);
+      entry = tied[turn % tied.length];
+      reason = { by: "round-robin", i: (turn % tied.length) + 1, n: tied.length };
+    }
+    // Passed over: an unavailable entry read before the winner, or one that
+    // would have taken turns with it.
+    const passed = matching.find(
+      (other, n) =>
+        !isOpen(other.harness) && (n < matching.indexOf(first) || (rotates && sameGroup(other))),
+    );
+    if (passed)
+      reason = { by: "fallback", harness: passed.harness, cause: state(passed.harness).cause };
+    choices.push({ id, harness: entry.harness, model: entry.model, effort: entry.effort, reason });
+  }
+  return { choices, problems };
 }
 
 /** The re-gate commands, whether `regate` is a list or a mapping; null when unset. */
@@ -1815,6 +2026,75 @@ function regateCommand(rest, io) {
   return { code: ok ? 0 : 1, out: `${lines.join("\n")}\n` };
 }
 
+/**
+ * `choose --harness <id> --delegations <file> --available <file>`: null on bad
+ * arguments. Files are read relative to the repository.
+ */
+function chooseCommand(rest, io) {
+  const required = ["--harness", "--delegations", "--available"];
+  const parsed = gateArgs(rest, 0, [...required, "--answers", "--repo"]);
+  if (!parsed || required.some((name) => parsed.options[name] === undefined)) return null;
+  const { options } = parsed;
+  const refuse = (message) => ({ code: 2, out: `${message}\n` });
+  const repo = resolve(io.cwd ?? process.cwd(), options["--repo"] ?? ".");
+  const read = io.read ?? repoReader(repo);
+  const inRepo = (file) => relative(repo, resolve(repo, file)).split("\\").join("/");
+  const textOf = (name) => {
+    try {
+      return read(inRepo(options[name])) ?? null;
+    } catch {
+      return null;
+    }
+  };
+
+  const harness = options["--harness"];
+  const inputs = {};
+  for (const name of ["--delegations", "--available"]) {
+    try {
+      inputs[name] = JSON.parse(textOf(name) ?? "");
+    } catch {
+      return refuse(`\`${name}\`: \`${options[name]}\` is not a readable JSON file`);
+    }
+  }
+  const delegations = inputs["--delegations"];
+  const available = inputs["--available"];
+  const isDelegation = (d) =>
+    isMapping(d) &&
+    nonEmpty(d.id) &&
+    nonEmpty(d.kind) &&
+    (d.labels === undefined ||
+      (Array.isArray(d.labels) && d.labels.every((label) => typeof label === "string")));
+  if (!Array.isArray(delegations) || !delegations.every(isDelegation))
+    return refuse(
+      "`--delegations`: expected a list of `{ id, kind, labels }`, `labels` a list of label names",
+    );
+  if (!isMapping(available) || !Object.values(available).every(isMapping))
+    return refuse("`--available`: expected a mapping of harness ids to `{ ok, cause }`");
+
+  let answers = null;
+  if (options["--answers"] !== undefined) {
+    const body = textOf("--answers");
+    if (body === null) return refuse(`no answers file at \`${options["--answers"]}\``);
+    answers = { path: inRepo(options["--answers"]), text: body };
+  }
+  const loaded = readConfig(read, {
+    answers,
+    exists: io.exists ?? ((path) => existsSync(join(repo, path))),
+  });
+  if (loaded.problems.length)
+    return refuse(`the config has problems; run \`check\`:\n${loaded.problems.join("\n")}`);
+  const result = chooseExecutors(
+    { ...effectiveConfig(loaded.config), harness },
+    delegations,
+    available,
+  );
+  const choices = result.choices.map((c) => ({ ...c, why: reasonText(c.reason) }));
+  return {
+    code: result.problems.length ? 1 : 0,
+    out: `${JSON.stringify({ choices, problems: result.problems }, null, 2)}\n`,
+  };
+}
+
 /** A glob as a regular expression: `**` crosses folders, `*` and `?` stay in one; a trailing `/` is the whole folder. */
 export function globToRegExp(glob) {
   const pattern = glob.endsWith("/") ? `${glob}**` : glob;
@@ -1935,6 +2215,7 @@ const inside = (dir, path) => {
 
 const USAGE =
   "usage: node config.mjs check [--answers <file.json>] [--repo <dir>] | where <skill> [--repo <dir>]\n" +
+  "       node config.mjs choose --harness <id> --delegations <file.json> --available <file.json> [--answers <file.json>] [--repo <dir>]\n" +
   "       node config.mjs regate <sha> --out <file> [--repo <dir>]\n" +
   "       node config.mjs land <branch> --cut <sha> --onto <integration> --fence <glob>... [--repo <dir>]\n";
 
@@ -1949,6 +2230,7 @@ export function main(argv, io = {}) {
   if (command === "where") return whichCopyCommand(argv, io) ?? usage;
   if (command === "regate") return regateCommand(rest, io) ?? usage;
   if (command === "land") return landCommand(rest, io) ?? usage;
+  if (command === "choose") return chooseCommand(rest, io) ?? usage;
   if (command !== "check") return usage;
   const options = {};
   for (let n = 0; n < rest.length; n += 2) {

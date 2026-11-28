@@ -44,17 +44,18 @@ While the watch runs, the turn stays open, so the human has no prompt to answer 
 | `devin`               | Devin CLI or Devin Desktop (formerly Windsurf) | `subagent_explore`                                               | [devin.md](harnesses/devin.md)                             |
 | `opencode`            | OpenCode 2                                     | a `subagent` tool and a `shell` tool that runs in the background | [opencode.md](harnesses/opencode.md)                       |
 
-The id is the value `harness:` and `executors.*` take in the config ([CONFIG.md](CONFIG.md#harness)).
+The id is the value `harness:`, `executors.<kind>` and an entry's `harness` take in the config ([CONFIG.md](CONFIG.md#executors)).
 
 ### A harness file
 
-`harnesses/<id>.md` opens with these bullets, each on its own line in this form, because `config.mjs` reads `Id`, `Support Level`, `Headless run` and `Headless QA`. A file without them is a problem every `check` reports, so the run stops until it is fixed:
+`harnesses/<id>.md` opens with these bullets, each on its own line in this form, because `config.mjs` reads `Id`, `Support Level`, `Headless run`, `Headless QA` and `Effort`. A file without them is a problem every `check` reports, so the run stops until it is fixed:
 
 - `- **Id:** \`<id>\``, the file's own name.
 - `- **Support Level:** \`<level>\``, then what it rests on.
 - `- **Tier:**`
 - `- **Headless run:**` the command, or `none: …` when another harness cannot start one.
 - `- **Headless QA:**` `yes` when that headless run can carry a QA Delegation, or `none: …`.
+- `- **Effort:**` the flag that gives the headless run its effort, in backticks with `<effort>`, and its source; or `none: …`. A flag no source documents is written `none`, with a **check before use** item.
 - `- **Facts from:**` where and when each fact was read.
 - `- **Executors:**` building, analysis and QA.
 - `- **Notify:**` how the Chief of Staff can tell the human a question is queued, or `none known`, with a **check before use** item ([below](#notifying-the-human)).
@@ -116,12 +117,13 @@ Most harnesses run a building or QA Delegation as a headless run of their CLI. W
 
 ## Executors on another harness
 
-By default every Executor runs on the Chief of Staff's own harness. The config's `executors` may name another harness for one kind of Delegation (`build`, `analysis` or `qa`), for example a Cursor Chief of Staff whose building Delegations run as Claude Code CLI headless runs. Then:
+By default every Executor runs on the Chief of Staff's own harness. The config's `executors` may name another harness for one kind of Delegation (`build`, `analysis` or `qa`), for example a Cursor Chief of Staff whose building Delegations run as Claude Code CLI headless runs, or an ordered list of harness entries, from which each Delegation gets one ([CONFIG.md](CONFIG.md#choosing-an-entry)). Then:
 
 - The Delegation uses that harness's headless run, from that harness's file, started from the Chief of Staff's shell. Only a harness with a headless run can be named: a sub-agent or a Live Session belongs to the session that starts it.
-- That harness's CLI must be installed and signed in: check it (`<cli> --version`) at step 1, and treat a failure as a config problem.
-- `models` for that kind of work names a model on that harness. The Dispatch Plan shows each Delegation's harness beside its model, for the human to confirm.
-- Its Support Level and Limits join the Dispatch Plan's, and the lower Support Level of the two decides the warning.
+- That harness's CLI must be installed and signed in: check it (`<cli> --version`, and its sign-in status where the CLI reports one) at step 1, for every entry's harness. A single id that fails is a config problem. A list entry that fails is unavailable: its Delegation passes to the next match when the Dispatch Plan is made, which says so, and it is a config problem only when no entry is left. Nothing changes harness after "go".
+- The model and effort come from `models` and `efforts` for a single id, and from the entry for a list. The harness file's **Effort** line gives the flag. The Dispatch Plan shows each Delegation's harness, model, effort and why it was chosen, for the human to confirm.
+- The Support Level and Limits of each harness the plan uses join the Dispatch Plan's, and the lowest Support Level among them decides the warning.
+- An entry that names the Chief of Staff's own harness runs there, with the entry's model and effort where that harness allows.
 
 ## Cloud agents
 

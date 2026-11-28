@@ -50,11 +50,29 @@ models: # model names the Executor's harness accepts, passed as written; leave o
   review: claude-opus-5-5 # a building brief's code-review phase, where the harness allows a model per phase
   qa: claude-sonnet-5-5 # QA Delegations: composing and running a QA Plan on a finished head
 
+efforts: # the effort for the same kinds of work, in the harness's own words; leave one out for the harness default
+  analysis: medium # analysis Delegations, where the harness lets one choose its effort
+  build: high # building Delegations
+  review: high # a building brief's code-review phase, where the harness allows an effort per phase
+  qa: medium # QA Delegations
+
 harness: claude-code-desktop # the harness the Chief of Staff runs on, pinned; leave it out to detect it each run (ids: the skill's HARNESSES.md)
 executors: # not the default: each kind of Delegation runs on `harness` unless one names another harness's headless run
   build: claude-code-desktop # building; from Cursor, `claude-code-cli` would build with `claude -p`
   analysis: claude-code-desktop # analysis
   qa: claude-code-desktop # QA
+
+# Or give a kind of work an ordered list of entries, in place of its line above.
+# Each Delegation gets the first matching, available entry when the Dispatch
+# Plan is made; `round-robin` takes turns among tied ones. An entry reads its
+# own `model` and `effort`, never `models` or `efforts`.
+# executors:
+#   build:
+#     spread: round-robin # first (default) | round-robin
+#     entries:
+#       - { harness: codex-cli, effort: high, when_label: backend } # only issues with this label
+#       - { harness: claude-code-cli, model: claude-sonnet-5-5 } # no when_label: a catch-all
+#       - { harness: copilot-cli }
 
 limits: # how many building Delegations run at once, and what only one may hold
   building: 2 # most building Delegations running at once; a whole number, 1 or more; QA does not count

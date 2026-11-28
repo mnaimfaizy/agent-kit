@@ -5,13 +5,14 @@
 - **Tier:** 2, with a tier 1 `await`: a Chief of Staff in the Copilot CLI is told when a background shell ends.
 - **Headless run:** `copilot -p`
 - **Headless QA:** yes, with a Playwright MCP server; else a session the human starts.
+- **Effort:** `--effort <effort>` on the headless run (`copilot --help`, version 1.0.79-5, read on 2026-11-28).
 - **Facts from:** docs.github.com/copilot and the Copilot CLI changelog up to 1.0.112, read on 2026-11-14. `--worktree` needs 1.0.85 or later; before it, the flag is experimental. Copilot was not run with a prompt.
 - **Executors:** building and QA, a headless run in its own worktree; analysis, a `task` sub-agent; QA falls back to a session the human starts.
 - **Notify:** none known: the sources in **Facts from** name no way for the Chief of Staff to notify the human. A queued question waits in its session and on the board.
 
 ## Verbs
 
-- `spawn`: `copilot -p "<brief>" --session-id <uuid> --worktree=<branch> --model <model> --output-format json --no-ask-user --add-dir <run folder>`, with the tool permissions the human approved (`--allow-all-tools`, or allow rules), as a background shell. The handle is the uuid. Straight after `spawn`, check with `git worktree list` that the branch's worktree exists and is not the Chief of Staff's checkout.
+- `spawn`: `copilot -p "<brief>" --session-id <uuid> --worktree=<branch> --model <model> [--effort <effort>] --output-format json --no-ask-user --add-dir <run folder>`, with the tool permissions the human approved (`--allow-all-tools`, or allow rules), as a background shell. The handle is the uuid. Straight after `spawn`, check with `git worktree list` that the branch's worktree exists and is not the Chief of Staff's checkout.
 - `message`: `copilot -p "<text>" --resume=<uuid>`, once the run has ended.
 - `await`: the background shell's end, which is announced to a Chief of Staff in the Copilot CLI; elsewhere, the process's end. The heartbeat is the foreground watch ([HARNESSES.md](../HARNESSES.md#waiting-an-event-and-a-heartbeat)): while the run waits on a Delegation, the Chief of Staff does not end its turn, and the announced end is one more change the watch sees. Whether an announcement wakes an idle Chief of Staff is not relied on.
 - `report`: the report file, which `--add-dir` makes writable; else the run's last message.
@@ -34,3 +35,4 @@
 - Whether a headless run can drive a browser for `manual-qa`.
 - The field names of the final record in the JSON output.
 - Whether the harness can notify the human that a question is queued, and how: record what was found.
+- Whether a resumed run (`--resume`) keeps the run's `--effort`, or needs it again.

@@ -25,6 +25,8 @@ import { after, test } from "node:test";
 import {
   CONFIG_FILES,
   DEFAULTS,
+  chooseExecutors,
+  reasonText,
   HARNESSES,
   HARNESS_ENV,
   HARNESS_FILE_PROBLEMS,
@@ -163,6 +165,7 @@ test("each key's default, with an empty config", () => {
       labels: Object.fromEntries(TRIAGE_ROLES.map((role) => [role, role])),
     },
     models: { analysis: null, build: null, review: null, qa: null },
+    efforts: { analysis: null, build: null, review: null, qa: null },
     harness: null,
     executors: { build: null, analysis: null, qa: null },
     limits: { building: 3, shared: [] },
@@ -781,7 +784,7 @@ test("JSON: each problem is named with its line, like YAML's", () => {
     "}",
   ].join("\n");
   assert.deepEqual(json(text).problems, [
-    "line 3: `routs`: unknown key (CONFIG.md documents: run_dir, read_first, routes, regate, skills, triage_labels, models, harness, executors, limits, decisions, ready_to_merge, spec, tracker, team, records, prune)",
+    "line 3: `routs`: unknown key (CONFIG.md documents: run_dir, read_first, routes, regate, skills, triage_labels, models, efforts, harness, executors, limits, decisions, ready_to_merge, spec, tracker, team, records, prune)",
     "line 10: `read_first[1]`: expected a relative path inside the repository",
     "line 6: `routes.push`: unknown key (CONFIG.md documents: commit, pull_request, merge)",
     "line 5: `routes.commit`: expected a non-empty string",
@@ -1443,6 +1446,11 @@ test("each harness file names its Support Level, and Claude Code desktop and Ant
     for (const heading of ["## Verbs", "## Limits", "## Check before use"])
       assert.ok(text.includes(`\n${heading}\n`), `${id} has ${heading}`);
     assert.ok(text.includes(`- **Id:** \`${id}\``), `${id} names its own id`);
+    assert.match(
+      text,
+      /^- \*\*Effort:\*\* (`[^`]*<effort>[^`]*`|none: )/m,
+      `${id} has an Effort line`,
+    );
   }
 });
 
@@ -1570,11 +1578,13 @@ test("a malformed or stray harness file is a named problem, never a crash", () =
     writeFileSync(join(dir, "README.md"), "# Harnesses\n");
     writeFileSync(
       join(dir, "good.md"),
-      "- **Id:** `good`\n- **Support Level:** `tried`\n- **Headless run:** `good -p`\n- **Headless QA:** none: no skills\n",
+      "- **Id:** `good`\n- **Support Level:** `tried`\n- **Headless run:** `good -p`\n- **Headless QA:** none: no skills\n- **Effort:** `--think <effort>`\n",
     );
     mkdirSync(join(dir, "dir.md"));
     const { harnesses, problems } = harnessCatalog(dir);
-    assert.deepEqual(harnesses, { good: { level: "tried", headless: true, headlessQa: false } });
+    assert.deepEqual(harnesses, {
+      good: { level: "tried", headless: true, headlessQa: false, effort: "--think <effort>" },
+    });
     assert.equal(problems.length, 2);
     assert.match(problems[0], /^harnesses\/README\.md: not a harness file; it needs /);
     assert.match(problems[1], /^harnesses\/dir\.md cannot be read \(EISDIR\)$/);
@@ -1797,8 +1807,14 @@ test("CONFIG.md's `regate` example reads with no problems, and names a failure w
   assert.match(effective.regate_allowed_failures[0].reason, /macOS/);
 });
 
-test("CONFIG.md's `team` example reads with no problems, and is the defaults", () => {
+test("CONFIG.md's `executors` example reads with no problems", () => {
   const block = configBlock("yaml", 3);
+  assert.match(block, /^executors:/);
+  assert.deepEqual(parseConfig("orchestrate.config.yml", block).problems, []);
+});
+
+test("CONFIG.md's `team` example reads with no problems, and is the defaults", () => {
+  const block = configBlock("yaml", 4);
   assert.match(block, /^team:/);
   const read = parseConfig("orchestrate.config.yml", block);
   assert.deepEqual(read.problems, []);
@@ -2333,4 +2349,329 @@ test("`records.raw.sink` problems: only `s3`, with its required fields, and no s
 test("`records.raw` problems name their lines in YAML", () => {
   const found = yaml("records:", "  raw:", "    sink:", "      type: github").problems.join("\n");
   assert.match(found, /^line 4: `records\.raw\.sink\.type`: `github` cannot hold raw run folders/);
+});
+
+// ── `executors` as a list of entries, and `efforts` ──────────────────────────
+
+const LIST_YAML = [
+  "harness: claude-code-desktop",
+  "executors:",
+  "  build:",
+  "    spread: round-robin",
+  "    entries:",
+  "      - { harness: codex-cli, model: m1, effort: high, when_label: backend }",
+  "      - { harness: claude-code-cli, model: claude-sonnet-5-5 }",
+  "      - { harness: cursor }",
+  "  analysis:",
+  "    - { harness: copilot-cli, effort: low }",
+];
+const blank = { model: null, effort: null, when_label: null };
+const LIST_EFFECTIVE = {
+  build: {
+    spread: "round-robin",
+    entries: [
+      { harness: "codex-cli", model: "m1", effort: "high", when_label: "backend" },
+      { ...blank, harness: "claude-code-cli", model: "claude-sonnet-5-5" },
+      { ...blank, harness: "cursor" },
+    ],
+  },
+  analysis: { spread: "first", entries: [{ ...blank, harness: "copilot-cli", effort: "low" }] },
+  qa: null,
+};
+
+test("a bare list and `{ spread, entries }` read the same in YAML and JSON, normalised", () => {
+  const config = {
+    harness: "claude-code-desktop",
+    executors: {
+      build: {
+        spread: "round-robin",
+        entries: [
+          { harness: "codex-cli", model: "m1", effort: "high", when_label: "backend" },
+          { harness: "claude-code-cli", model: "claude-sonnet-5-5" },
+          { harness: "cursor" },
+        ],
+      },
+      analysis: [{ harness: "copilot-cli", effort: "low" }],
+    },
+  };
+  for (const read of [yaml(...LIST_YAML), json(JSON.stringify(config))]) {
+    assert.deepEqual(read.problems, []);
+    assert.deepEqual(effectiveConfig(read.config).executors, LIST_EFFECTIVE);
+  }
+});
+
+test("each unusable entry is one problem naming its index and key", () => {
+  const cases = [
+    [[{ harness: "aider" }], "executors.build[0].harness", /has no harness file/],
+    [
+      [{ harness: "cursor" }, { harness: "claude-code-desktop" }],
+      "executors.build[1].harness",
+      /has no headless run/,
+    ],
+    [[{ harness: "cursor", limit: "2" }], "executors.build[0].limit", /unknown key/],
+    [[{ model: "m" }], "executors.build[0].harness", /expected a harness id/],
+    [[{ harness: "cursor", model: " " }], "executors.build[0].model", /non-empty string/],
+    [[{ harness: "codex-cli", effort: "" }], "executors.build[0].effort", /non-empty string/],
+    [[{ harness: "cursor", when_label: null }], "executors.build[0].when_label", /no value/],
+    [[{ harness: "cursor", effort: "high" }], "executors.build[0].effort", /takes no effort/],
+    [["cursor"], "executors.build[0]", /expected a mapping/],
+    [[], "executors.build", /at least one entry/],
+    [{ entries: [{ harness: "aider" }] }, "executors.build.entries[0].harness", /no harness file/],
+    [
+      { spread: "random", entries: [{ harness: "cursor" }] },
+      "executors.build.spread",
+      /first, round-robin/,
+    ],
+    [{ entries: [{ harness: "cursor" }], order: "x" }, "executors.build.order", /unknown key/],
+    [{ spread: "first" }, "executors.build.entries", /expected a list of entries/],
+    [{ entries: "cursor" }, "executors.build.entries", /expected a list of entries/],
+  ];
+  for (const [build, path, message] of cases) {
+    const { problems } = json(JSON.stringify({ executors: { build } }));
+    assert.equal(problems.length, 1, `${path}: ${problems.join(" | ")}`);
+    assert.ok(problems[0].includes(`\`${path}\`: `), `${path}: ${problems[0]}`);
+    assert.match(problems[0], message);
+  }
+  const qa = json(JSON.stringify({ executors: { qa: [{ harness: "devin" }] } }));
+  assert.equal(qa.problems.length, 1);
+  assert.match(
+    qa.problems[0],
+    /`executors\.qa\[0\]\.harness`: `devin`'s headless run cannot carry QA/,
+  );
+});
+
+test("an entry naming the pinned harness needs no headless run", () => {
+  const read = yaml(
+    "harness: claude-code-desktop",
+    "executors: { build: [{ harness: claude-code-desktop }] }",
+  );
+  assert.deepEqual(read.problems, []);
+});
+
+test("`efforts` is checked like `models`, and refused where the single harness takes none", () => {
+  assert.match(yaml("efforts: { deploy: high }").problems[0], /`efforts\.deploy`: unknown key/);
+  assert.match(yaml("efforts: high").problems[0], /`efforts`: expected a mapping/);
+  const none = yaml(
+    "harness: claude-code-desktop",
+    "efforts: { build: high }",
+    "executors: { build: cursor }",
+  );
+  assert.equal(none.problems.length, 1, none.problems.join(" | "));
+  assert.match(none.problems[0], /^line 2: `efforts\.build`: `cursor` takes no effort/);
+  // On the Chief of Staff's own harness it applies only where that harness can.
+  const own = yaml("harness: cursor", "efforts: { build: high }", "executors: { build: cursor }");
+  assert.deepEqual(own.problems, []);
+});
+
+test("readiness notes each other entry harness once, and a list with no catch-all", () => {
+  const read = readConfig(
+    reader({
+      "orchestrate.config.yml": [
+        ...READY_BASE,
+        "harness: cursor",
+        "executors:",
+        "  build:",
+        "    - { harness: cursor, when_label: ui }",
+        "    - { harness: codex-cli, when_label: backend }",
+        "    - { harness: codex-cli, when_label: api }",
+        "  analysis:",
+        "    - { harness: claude-code-cli }",
+      ].join("\n"),
+    }),
+  );
+  assert.deepEqual(read.problems, []);
+  const notes = readiness(read).notes.filter((n) => n.startsWith("`executors."));
+  assert.equal(notes.length, 3, notes.join(" | "));
+  assert.match(notes[0], /`executors\.build` may run that work on `codex-cli`, at Support Level/);
+  assert.match(notes[1], /`executors\.build` has no catch-all entry/);
+  assert.match(notes[2], /`executors\.analysis` may run that work on `claude-code-cli`/);
+});
+
+const entry = (harness, more = {}) => ({ ...blank, harness, ...more });
+const OK = { "codex-cli": { ok: true }, "claude-code-cli": { ok: true }, cursor: { ok: true } };
+const pick = (executors, delegations, available = OK, more = {}) =>
+  chooseExecutors({ executors, harness: "claude-code-desktop", ...more }, delegations, available);
+const builds = (...labelSets) =>
+  labelSets.map((labels, n) => ({ id: `d${n + 1}`, kind: "build", labels }));
+const shown = ({ choices }) => choices.map((c) => [c.harness, reasonText(c.reason)]);
+
+test("choosing: a label match beats the catch-all, and the first match wins", () => {
+  const list = {
+    spread: "first",
+    entries: [
+      entry("codex-cli", { when_label: "backend" }),
+      entry("cursor", { when_label: "backend" }),
+      entry("claude-code-cli"),
+    ],
+  };
+  assert.deepEqual(shown(pick({ build: list }, builds(["backend"], ["ui"], []))), [
+    ["codex-cli", "label backend"],
+    ["claude-code-cli", "catch-all"],
+    ["claude-code-cli", "catch-all"],
+  ]);
+});
+
+test("choosing: round-robin alternates tied entries in plan order, a counter per tie group", () => {
+  const list = {
+    spread: "round-robin",
+    entries: [
+      entry("codex-cli", { when_label: "backend" }),
+      entry("claude-code-cli"),
+      entry("cursor"),
+    ],
+  };
+  const result = pick({ build: list }, builds([], ["backend"], [], []));
+  assert.deepEqual(shown(result), [
+    ["claude-code-cli", "round-robin 1/2"],
+    ["codex-cli", "label backend"],
+    ["cursor", "round-robin 2/2"],
+    ["claude-code-cli", "round-robin 1/2"],
+  ]);
+  assert.deepEqual(result.problems, []);
+});
+
+test("choosing: an unavailable entry falls through, and the choice records why", () => {
+  const entries = [
+    entry("codex-cli", { when_label: "backend", model: "m1" }),
+    entry("claude-code-cli"),
+    entry("cursor"),
+  ];
+  const available = { ...OK, "codex-cli": { ok: false, cause: "signed-out" } };
+  for (const spread of ["first", "round-robin"]) {
+    const [choice] = pick({ build: { spread, entries } }, builds(["backend"]), available).choices;
+    assert.equal(choice.harness, "claude-code-cli");
+    assert.equal(choice.model, null);
+    assert.deepEqual(choice.reason, { by: "fallback", harness: "codex-cli", cause: "signed-out" });
+    assert.equal(reasonText(choice.reason), "fallback: codex-cli signed-out");
+  }
+  // A skipped entry of the same turn is named too.
+  const rotating = pick({ build: { spread: "round-robin", entries } }, builds([]), {
+    ...OK,
+    cursor: { ok: false, cause: "missing" },
+  });
+  assert.deepEqual(shown(rotating), [["claude-code-cli", "fallback: cursor missing"]]);
+  // Under `first`, an unavailable entry below the winner was never reached.
+  const below = pick({ build: { spread: "first", entries } }, builds([]), {
+    ...OK,
+    cursor: { ok: false, cause: "missing" },
+  });
+  assert.deepEqual(shown(below), [["claude-code-cli", "catch-all"]]);
+});
+
+test("choosing: no available or matching entry, or no step-1 result, is a problem", () => {
+  const list = { spread: "first", entries: [entry("codex-cli", { when_label: "backend" })] };
+  const gone = pick({ build: list }, builds(["backend"]), {
+    "codex-cli": { ok: false, cause: "missing" },
+  });
+  assert.deepEqual(gone.choices, []);
+  assert.match(
+    gone.problems[0],
+    /`d1` \(build\): no entry .* is available: `codex-cli` is missing/,
+  );
+  assert.match(pick({ build: list }, builds(["ui"])).problems[0], /matches the issue's labels/);
+  assert.match(pick({ build: list }, builds(["backend"]), {}).problems[0], /no step-1 result/);
+  assert.match(
+    pick({ build: list }, builds(["backend"]), { "codex-cli": { ok: false } }).problems[0],
+    /no cause/,
+  );
+  assert.match(
+    pick({ build: "codex-cli" }, builds([]), { "codex-cli": { ok: false, cause: "missing" } })
+      .problems[0],
+    /`executors\.build`: `codex-cli` is missing/,
+  );
+  assert.match(pick({}, [{ id: "d1", kind: "review" }]).problems[0], /unknown kind/);
+});
+
+test("choosing: a list entry uses only its own model and effort; a single id uses `models`", () => {
+  const settings = {
+    models: { build: "kind-model", analysis: "a-model", qa: "q-model" },
+    efforts: { build: "kind-effort", analysis: "a-effort", qa: "q-effort" },
+  };
+  const executors = {
+    build: {
+      spread: "round-robin",
+      entries: [entry("codex-cli", { model: "m1", effort: "high" }), entry("cursor")],
+    },
+    analysis: "claude-code-cli",
+    qa: null,
+  };
+  const delegations = [...builds([], []), { id: "a1", kind: "analysis" }, { id: "q1", kind: "qa" }];
+  const { choices } = pick(executors, delegations, OK, settings);
+  assert.deepEqual(
+    choices.map(({ harness, model, effort }) => [harness, model, effort]),
+    [
+      ["codex-cli", "m1", "high"],
+      ["cursor", null, null],
+      ["claude-code-cli", "a-model", "a-effort"],
+      ["claude-code-desktop", "q-model", null],
+    ],
+  );
+  assert.equal(choices[2].reason, null);
+  // The Chief of Staff's own harness takes no effort here, so none is promised.
+  assert.equal(choices[3].effort, null);
+});
+
+test("choosing: labels match whatever their case or spacing", () => {
+  const list = {
+    spread: "first",
+    entries: [entry("codex-cli", { when_label: "Backend " }), entry("cursor")],
+  };
+  assert.deepEqual(shown(pick({ build: list }, builds(["backend"]))), [
+    ["codex-cli", "label Backend "],
+  ]);
+});
+
+test("readiness asks no `models` note for work a list of entries runs", () => {
+  const read = readConfig(
+    reader({
+      "orchestrate.config.yml": [...READY_BASE, "executors: { build: [{ harness: cursor }] }"].join(
+        "\n",
+      ),
+    }),
+  );
+  const { notes } = readiness(read);
+  assert.ok(!notes.some((n) => n.startsWith("no `models.build`")));
+  assert.ok(notes.some((n) => n.startsWith("no `models.qa`")));
+});
+
+test("`choose` prints each Delegation's entry and why, from the config and two files", () => {
+  const files = {
+    "orchestrate.config.yml": [...READY_BASE, ...LIST_YAML].join("\n"),
+    "run/delegations.json": JSON.stringify(builds(["backend"], [])),
+    "run/available.json": JSON.stringify({ ...OK, "copilot-cli": { ok: true } }),
+  };
+  const run = (...extra) =>
+    main(["choose", "--harness", "claude-code-desktop", ...extra], {
+      read: reader(files),
+      exists: () => true,
+      cwd: "/repo",
+    });
+  const inputs = ["--delegations", "run/delegations.json", "--available", "run/available.json"];
+  const { code, out } = run(...inputs);
+  assert.equal(code, 0, out);
+  assert.deepEqual(
+    JSON.parse(out).choices.map((c) => [c.id, c.harness, c.why]),
+    [
+      ["d1", "codex-cli", "label backend"],
+      ["d2", "claude-code-cli", "round-robin 1/2"],
+    ],
+  );
+  // A harness with no file may be the Chief of Staff's own.
+  assert.equal(
+    main(["choose", "--harness", "aider", ...inputs], {
+      read: reader(files),
+      exists: () => true,
+      cwd: "/repo",
+    }).code,
+    0,
+  );
+  files["run/delegations.json"] = JSON.stringify([
+    { id: "d1", kind: "build", labels: [{ name: "backend" }] },
+  ]);
+  assert.equal(run(...inputs).code, 2);
+  files["run/delegations.json"] = JSON.stringify(builds(["backend"], []));
+  files["run/available.json"] = "{}";
+  assert.equal(run(...inputs).code, 1);
+  assert.equal(run("--delegations", "run/delegations.json").code, 2);
+  assert.equal(run("--delegations", "run/nope.json", "--available", "run/available.json").code, 2);
 });

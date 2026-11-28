@@ -5,6 +5,7 @@
 - **Tier:** 2. Its documentation also describes tier 1 behaviour (sub-agents in worktrees of their own that the human can type into while they work), not yet confirmed.
 - **Headless run:** `agy -p`
 - **Headless QA:** yes, else a session the human starts.
+- **Effort:** `--effort <effort>` on the headless `agy` run (`agy --help`, version 1.5.17, read on 2026-11-28: `low`, `medium`, `high`, `xhigh`, `max`). A sub-agent is given none.
 - **Facts from:** antigravity.google docs, App 2.32.0 and CLI `agy` 1.5.8, read on 2026-11-14. Each fact marked "(seen in the 378-389 run)" was seen in `/orchestrate #378 #389` on `mnaimfaizy/agent-kit`, 2026-11-26 (run `2026-11-26-378-389`, PRs 540 and 542), and is recorded in its Activity Log.
 - **Executors:** building and analysis, a sub-agent in its own worktree; QA, a headless `agy` run in a worktree the Chief of Staff makes ([HARNESSES.md](../HARNESSES.md#a-headless-run-in-a-worktree)), else a session the human starts.
 - **Notify:** none known: the sources in **Facts from** name no way for the Chief of Staff to notify the human. A queued question waits in its session and on the board.
@@ -21,7 +22,7 @@
 
 - `report`: sub-agents can write directly to `<run folder>/delegations/<id>/` (`report.md`, `decisions.md`, `activity.md`, `events.jsonl`) by absolute path without fallback, and also deliver their report as their final message (seen in the 378-389 run).
 - Analysis: the `research` sub-agent, which is read-only, or `self` with workspace `branch` for anything that runs code.
-- A QA Delegation: `agy -p "<brief>" --model <model> --output-format json --add-dir <run folder>` in the worktree, then `agy -p "/qa-plan <n> [--answers <working_dir>/qa-readiness.json]" --conversation <id>`, and later `/manual-qa <plan file>`; print mode expands skill commands. Else a session the human starts in that worktree. With `go`, that is the typed route; with `go autonomous`, on a `stack` or a `url` target, the same session follows its brief instead, reading each QA skill's `SKILL.md` from the paths the brief gives, so no command is sent or typed. A `url` target runs from the brief too, with its hosts typed in the Dispatch Plan and relayed through the brief.
+- A QA Delegation: `agy -p "<brief>" --model <model> [--effort <effort>] --output-format json --add-dir <run folder>` in the worktree, then `agy -p "/qa-plan <n> [--answers <working_dir>/qa-readiness.json]" --conversation <id>`, and later `/manual-qa <plan file>`; print mode expands skill commands. Else a session the human starts in that worktree. With `go`, that is the typed route; with `go autonomous`, on a `stack` or a `url` target, the same session follows its brief instead, reading each QA skill's `SKILL.md` from the paths the brief gives, so no command is sent or typed. A `url` target runs from the brief too, with its hosts typed in the Dispatch Plan and relayed through the brief.
 
 ## Limits
 
@@ -40,3 +41,4 @@
 - Whether `invoke_subagent` takes an exact model id (the 378-389 run used tier `flash`).
 - Whether the human can type into a running sub-agent, which would make it a tier 1 harness.
 - Whether the harness can notify the human that a question is queued, and how: record what was found.
+- Whether `invoke_subagent` can give a sub-agent an effort.

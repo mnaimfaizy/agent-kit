@@ -36,7 +36,7 @@ These are word for word the definitions in Agent-kit's root glossary, where a co
 
 **Scoped QA Delegation**: A QA Delegation (`d<issue>-qa<k>`) started when the human picks a new QA Delegation for scenarios left for a person; it runs only those listed scenarios on the same head and delivered QA Plan, on an Executor with the missing driver, and merges its rows into that head's one QA Report with provenance.
 
-**Dispatch Plan**: The one table the Chief of Staff shows before any Delegation starts, giving each one's scope, Executor, model and wave, with the kinds of routine write the human may approve; one "go" approves it whole.
+**Dispatch Plan**: The one table the Chief of Staff shows before any Delegation starts, giving each one's scope, Executor, harness, model, effort (with why that harness entry was chosen) and wave, with the kinds of routine write the human may approve; one "go" approves it whole.
 
 **Activity Log**: An append-only record of what was done in a run and why, kept by the Chief of Staff and by each Delegation in the run folder.
 
@@ -76,7 +76,7 @@ A Delegation may push its own branch, open its own pull request and reply on its
 
 ## One plan, one go
 
-The human approves scope, Executor, model and wave for every Delegation in one table, because that is the decision that commits the run's cost and the human's attention. A change to any row is a new plan, shown again: a "go" given to one plan is not a "go" to another. Adding `go` to the invocation skips the wait for a run the human already trusts, but never skips a Decision Request that analysis raised.
+The human approves scope, Executor, harness, model, effort and wave for every Delegation in one table, because that is the decision that commits the run's cost and the human's attention. A change to any row is a new plan, shown again: a "go" given to one plan is not a "go" to another. Adding `go` to the invocation skips the wait for a run the human already trusts, but never skips a Decision Request that analysis raised.
 
 ## Readiness by triage role
 
