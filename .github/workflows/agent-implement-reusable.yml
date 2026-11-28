@@ -81,7 +81,7 @@ on:
         type: string
         default: ""
       effort:
-        description: "Claude Code effort level: `low`, `medium`, `high`, `xhigh` or `max`. Empty leaves `--effort` off, so the model's own default applies; anything else fails the run before the agent starts."
+        description: "Claude Code effort level: `low`, `medium`, `high`, `xhigh` or `max`. Empty leaves `--effort` off, so the model's own default applies. Any other value fails the run before the agent starts, unless it is inherited from `AGENT_KIT_EFFORT` (the Stage's own variable unset): that one is dropped, with a log line."
         required: false
         type: string
         default: ""
@@ -130,6 +130,9 @@ jobs:
           HARNESS: ${{ inputs.harness }}
           MODEL: ${{ inputs.model }}
           EFFORT: ${{ inputs.effort }}
+          # Whether it is AGENT_KIT_EFFORT, with no effort of the Stage's own:
+          # the Caller resolves both into the one input.
+          EFFORT_INHERITED: ${{ vars.AGENT_KIT_IMPLEMENT_EFFORT == '' && inputs.effort == vars.AGENT_KIT_EFFORT }}
           # Whether each model secret was passed, never its value.
           HAS_OAUTH_TOKEN: ${{ secrets.claude_code_oauth_token != '' }}
           HAS_API_KEY: ${{ secrets.anthropic_api_key != '' }}
@@ -162,18 +165,36 @@ jobs:
             echo "::error title=Invalid model input::The model input is not a plain model id (letters, digits and . _ : @ / [ ] -)."
             exit 1
           fi
+          # The efforts cli/harnesses.json names for claude-code (ADR 0027). An
+          # inherited global that is none of them is dropped, not refused.
+          effort="$EFFORT"
           case "$EFFORT" in
             "" | low | medium | high | xhigh | max) ;;
             *)
-              echo "::error title=Invalid effort input::The effort input must be empty or one of low, medium, high, xhigh, max."
-              exit 1
+              if [ "$EFFORT_INHERITED" != true ]; then
+                echo "::error title=Invalid effort input::The effort input must be empty or one of low, medium, high, xhigh, max."
+                exit 1
+              fi
+              effort=""
+              echo "::notice title=Effort dropped::AGENT_KIT_EFFORT is not an effort claude-code accepts (low, medium, high, xhigh, max), so this Stage runs without --effort."
               ;;
           esac
           if [ "$HAS_OAUTH_TOKEN" != true ] && [ "$HAS_API_KEY" != true ]; then
             echo "::error title=No model credential::The claude-code harness needs the claude_code_oauth_token secret or the anthropic_api_key secret, and the Caller passed neither."
             exit 1
           fi
+          # The Stage's Support Level, as cli/harnesses.json at this tag holds it
+          # (ADR 0028). A Stage other than a security one runs at documented, with
+          # a warning. No workflow takes a Proving run.
+          level=documented
+          echo "Harness: \`$harness\` · Support Level: \`$level\` · Proving run: no" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$level" = documented ]; then
+            warning="$harness is at Support Level documented for the implement Stage: no run of it has been recorded."
+            echo "::warning title=Support Level documented::$warning"
+            { echo; echo "> [!WARNING]"; echo "> $warning"; } >> "$GITHUB_STEP_SUMMARY"
+          fi
           echo "model=$model" >> "$GITHUB_OUTPUT"
+          echo "effort=$effort" >> "$GITHUB_OUTPUT"
 
       - name: Enforce allowlist (optional)
         env:
@@ -528,7 +549,7 @@ jobs:
           # rather than replacing it, so the commit path stays intact.
           claude_args: |
             --model ${{ steps.settings.outputs.model }}
-            ${{ inputs.effort != '' && format('--effort {0}', inputs.effort) || '' }}
+            ${{ steps.settings.outputs.effort != '' && format('--effort {0}', steps.settings.outputs.effort) || '' }}
             --max-turns 200
             --allowedTools "${{ steps.tools.outputs.allowed }}"
             --disallowedTools "Read(./.git/**),Edit(./.git/**),Edit(./.claude/settings.json),Edit(./.claude/settings.local.json),Edit(./.mcp.json),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(gh pr create:*),Edit(./.github/workflows/**),Edit(./.github/actions/**),Edit(./.github/agent-runtime/**),Edit(./.github/agent-pipeline/**),Edit(./.github/security-audit/**),Edit(./.github/agent-review-response/**),ScheduleWakeup,CronCreate,RemoteTrigger,SendMessage,Workflow,Monitor,PushNotification"
