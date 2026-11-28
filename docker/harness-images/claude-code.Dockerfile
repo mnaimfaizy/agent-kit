@@ -10,7 +10,9 @@
 
 # The harness: the pinned CLI and its own Node, all under /opt/agent-kit, off
 # the project's path. A later stage, or a local build on another glibc image,
-# copies that one directory.
+# copies that one directory. The pinned CLI is a native binary, so nothing runs
+# that Node today: ADR 0029 puts it there so the harness never leans on the
+# project's, and the last check below holds the CLI to that.
 FROM node:24-trixie-slim@sha256:4d00acb4bcc42c454c4eb801526f7ad7f772ea3bd4fd168c5cc2e384abcbb9d4 AS harness
 ARG CLI_VERSION
 RUN set -eu; \
@@ -38,6 +40,9 @@ COPY --from=harness /opt/agent-kit /opt/agent-kit
 RUN ln -sf /opt/agent-kit/bin/claude /usr/local/bin/claude \
   && mkdir -p /etc/claude-code \
   && printf '%s\n' '{"env":{"DISABLE_AUTOUPDATER":"1"}}' > /etc/claude-code/managed-settings.json
-# The build fails unless the CLI that runs is the pinned one.
+# The build fails unless the CLI that runs is the pinned one, and unless it
+# runs with nothing on the path, as on a recipe image with no Node: a CLI that
+# needed one would have to be started with /opt/agent-kit/node/bin/node.
 RUN claude --version | grep -F "$CLI_VERSION"
+RUN env -i PATH=/nonexistent /opt/agent-kit/bin/claude --version | grep -F "$CLI_VERSION"
 WORKDIR /workspace

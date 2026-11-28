@@ -46,6 +46,13 @@ describe("the Dockerfile of the Claude Code image", () => {
     assert.match(DOCKERFILE, /^RUN claude --version \| grep -F "\$CLI_VERSION"$/m);
   });
 
+  it("fails unless the CLI runs with nothing on the path, so not on the project's Node", () => {
+    assert.match(
+      DOCKERFILE,
+      /^RUN env -i PATH=\/nonexistent \/opt\/agent-kit\/bin\/claude --version \| grep -F "\$CLI_VERSION"$/m,
+    );
+  });
+
   it("pins every base by digest, Debian slim and a Node LTS", () => {
     const from = [...DOCKERFILE.matchAll(/^FROM (\S+)/gm)].map((m) => m[1]);
     assert.equal(from.length, 2);
