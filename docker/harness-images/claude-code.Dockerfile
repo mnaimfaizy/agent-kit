@@ -26,7 +26,7 @@ RUN set -eu; \
 # Python project need, from Debian's own packages.
 FROM debian:trixie-slim@sha256:8aa5a7bf5a1955bddbe7d74fcdd0b91ab30e74362a8b73af672b0481b35b44a0
 ARG CLI_VERSION
-ARG REFRESHED=2026-11
+ARG REFRESHED=2026-11-28
 RUN set -eu; \
   echo "packages as of $REFRESHED"; \
   apt-get update; \
