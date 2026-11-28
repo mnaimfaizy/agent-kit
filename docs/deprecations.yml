@@ -66,3 +66,163 @@
   replacement: .claude/skills/security-response/RUN.md
   release: 1.0.0-beta.10
   allowed_paths: []
+
+# ADR 0022: Stage settings are named for the kit, not the harness (#457).
+- kind: variable
+  old: CLAUDE_AGENT_FLOW_ENABLED
+  replacement: AGENT_KIT_AGENT_FLOW_ENABLED
+  release: 1.0.0-beta.14
+  allowed_paths:
+    - cli/src/checks/secrets-and-variables.mjs
+    - scripts/cli-doctor-contract.test.mjs
+    - scripts/cli-init-contract.test.mjs
+- kind: variable
+  old: CLAUDE_SECURITY_AUDIT_ENABLED
+  replacement: AGENT_KIT_SECURITY_AUDIT_ENABLED
+  release: 1.0.0-beta.14
+  allowed_paths:
+    - cli/src/checks/secrets-and-variables.mjs
+    - scripts/cli-doctor-contract.test.mjs
+    - scripts/cli-init-contract.test.mjs
+- kind: variable
+  old: CLAUDE_REVIEW_RESPONSE_ENABLED
+  replacement: AGENT_KIT_REVIEW_RESPONSE_ENABLED
+  release: 1.0.0-beta.14
+  allowed_paths:
+    - cli/src/checks/secrets-and-variables.mjs
+    - scripts/cli-doctor-contract.test.mjs
+    - scripts/cli-init-contract.test.mjs
+- kind: variable
+  old: CLAUDE_DEEP_SCAN_ENABLED
+  replacement: AGENT_KIT_DEEP_SCAN_ENABLED
+  release: 1.0.0-beta.14
+  allowed_paths:
+    - cli/src/checks/secrets-and-variables.mjs
+    - scripts/cli-doctor-contract.test.mjs
+- kind: variable
+  old: CLAUDE_PLAN_ENABLED
+  replacement: AGENT_KIT_PLAN_ENABLED
+  release: 1.0.0-beta.14
+  allowed_paths:
+    - cli/src/checks/secrets-and-variables.mjs
+    - scripts/cli-doctor-contract.test.mjs
+- kind: variable
+  old: CLAUDE_IMPLEMENT_ENABLED
+  replacement: AGENT_KIT_IMPLEMENT_ENABLED
+  release: 1.0.0-beta.14
+  allowed_paths:
+    - cli/src/checks/secrets-and-variables.mjs
+    - scripts/cli-doctor-contract.test.mjs
+- kind: variable
+  old: CLAUDE_REVIEW_ENABLED
+  replacement: AGENT_KIT_REVIEW_ENABLED
+  release: 1.0.0-beta.14
+  allowed_paths:
+    - cli/src/checks/secrets-and-variables.mjs
+    - scripts/cli-doctor-contract.test.mjs
+- kind: variable
+  old: CLAUDE_MODEL
+  replacement: AGENT_KIT_MODEL
+  release: 1.0.0-beta.14
+  allowed_paths:
+    - cli/src/checks/secrets-and-variables.mjs
+    - scripts/cli-doctor-contract.test.mjs
+- kind: variable
+  old: CLAUDE_EFFORT
+  replacement: AGENT_KIT_EFFORT
+  release: 1.0.0-beta.14
+  allowed_paths:
+    - cli/src/checks/secrets-and-variables.mjs
+    - scripts/cli-doctor-contract.test.mjs
+- kind: variable
+  old: CLAUDE_PLAN_MODEL
+  replacement: AGENT_KIT_PLAN_MODEL
+  release: 1.0.0-beta.14
+  allowed_paths:
+    - cli/src/checks/secrets-and-variables.mjs
+    - scripts/cli-doctor-contract.test.mjs
+- kind: variable
+  old: CLAUDE_PLAN_EFFORT
+  replacement: AGENT_KIT_PLAN_EFFORT
+  release: 1.0.0-beta.14
+  allowed_paths:
+    - cli/src/checks/secrets-and-variables.mjs
+    - scripts/cli-doctor-contract.test.mjs
+- kind: variable
+  old: CLAUDE_IMPLEMENT_MODEL
+  replacement: AGENT_KIT_IMPLEMENT_MODEL
+  release: 1.0.0-beta.14
+  allowed_paths:
+    - cli/src/checks/secrets-and-variables.mjs
+    - scripts/cli-doctor-contract.test.mjs
+- kind: variable
+  old: CLAUDE_IMPLEMENT_EFFORT
+  replacement: AGENT_KIT_IMPLEMENT_EFFORT
+  release: 1.0.0-beta.14
+  allowed_paths:
+    - cli/src/checks/secrets-and-variables.mjs
+    - scripts/cli-doctor-contract.test.mjs
+- kind: variable
+  old: CLAUDE_REVIEW_MODEL
+  replacement: AGENT_KIT_REVIEW_MODEL
+  release: 1.0.0-beta.14
+  allowed_paths:
+    - cli/src/checks/secrets-and-variables.mjs
+    - scripts/cli-doctor-contract.test.mjs
+- kind: variable
+  old: CLAUDE_REVIEW_EFFORT
+  replacement: AGENT_KIT_REVIEW_EFFORT
+  release: 1.0.0-beta.14
+  allowed_paths:
+    - cli/src/checks/secrets-and-variables.mjs
+    - scripts/cli-doctor-contract.test.mjs
+- kind: variable
+  old: CLAUDE_REVIEW_RESPONSE_MODEL
+  replacement: AGENT_KIT_REVIEW_RESPONSE_MODEL
+  release: 1.0.0-beta.14
+  allowed_paths:
+    - cli/src/checks/secrets-and-variables.mjs
+    - scripts/cli-doctor-contract.test.mjs
+- kind: variable
+  old: CLAUDE_REVIEW_RESPONSE_EFFORT
+  replacement: AGENT_KIT_REVIEW_RESPONSE_EFFORT
+  release: 1.0.0-beta.14
+  allowed_paths:
+    - cli/src/checks/secrets-and-variables.mjs
+    - scripts/cli-doctor-contract.test.mjs
+- kind: variable
+  old: CLAUDE_SECURITY_AUDIT_MODEL
+  replacement: AGENT_KIT_SECURITY_AUDIT_MODEL
+  release: 1.0.0-beta.14
+  allowed_paths:
+    - cli/src/checks/secrets-and-variables.mjs
+    - scripts/cli-doctor-contract.test.mjs
+- kind: variable
+  old: CLAUDE_SECURITY_AUDIT_EFFORT
+  replacement: AGENT_KIT_SECURITY_AUDIT_EFFORT
+  release: 1.0.0-beta.14
+  allowed_paths:
+    - cli/src/checks/secrets-and-variables.mjs
+    - scripts/cli-doctor-contract.test.mjs
+- kind: variable
+  old: CLAUDE_DEEP_SCAN_MODEL
+  replacement: AGENT_KIT_DEEP_SCAN_MODEL
+  release: 1.0.0-beta.14
+  allowed_paths:
+    - cli/src/checks/secrets-and-variables.mjs
+    - scripts/cli-doctor-contract.test.mjs
+- kind: variable
+  old: CLAUDE_DEEP_SCAN_EFFORT
+  replacement: AGENT_KIT_DEEP_SCAN_EFFORT
+  release: 1.0.0-beta.14
+  allowed_paths:
+    - cli/src/checks/secrets-and-variables.mjs
+    - scripts/cli-doctor-contract.test.mjs
+- kind: variable
+  old: CLAUDE_REVIEW_RESPONSE_MODE
+  replacement: AGENT_KIT_REVIEW_RESPONSE_MODE
+  release: 1.0.0-beta.14
+  allowed_paths:
+    - cli/src/checks/secrets-and-variables.mjs
+    - scripts/cli-doctor-contract.test.mjs
+    - scripts/cli-init-contract.test.mjs

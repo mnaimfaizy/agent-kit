@@ -34,6 +34,8 @@ const NO_PACK = "v1.0.0-alpha.12";
 const TAG = "v1.0.0-alpha.13";
 const BROKEN = "v1.0.0-alpha.20";
 const NO_RESPONSE = "v1.0.0-alpha.21";
+// Its Callers read the variables by the names ADR 0022 replaced.
+const OLD_NAMES = "v1.0.0-alpha.22";
 const GIT_ID = [
   "-c",
   "user.name=t",
@@ -88,6 +90,9 @@ const examples = Object.fromEntries(
     ),
   ].map((p) => [p, readRepo(p)]),
 );
+/** An example Caller as a tag from before ADR 0022 shipped it. */
+const older = (text) =>
+  text.replaceAll("vars.AGENT_KIT_", "vars.CLAUDE_").replace(/^ +anthropic_api_key: .*\n/gm, "");
 const threatPack = {
   "examples/threat-pack/threat-model.md": readRepo("examples/threat-pack/threat-model.md"),
   "examples/threat-pack/findings-ledger.md": readRepo("examples/threat-pack/findings-ledger.md"),
@@ -132,6 +137,10 @@ before(() => {
   git(kit, "rm", "-q", "examples/review-response-caller.yml");
   git(kit, "commit", "-qm", "no review-response example");
   git(kit, "tag", "-a", NO_RESPONSE, "-m", NO_RESPONSE);
+  writeTree(kit, Object.fromEntries(Object.entries(examples).map(([p, t]) => [p, older(t)])));
+  git(kit, "add", "-A");
+  git(kit, "commit", "-qm", "older variable names");
+  git(kit, "tag", "-a", OLD_NAMES, "-m", OLD_NAMES);
   kitUrl = pathToFileURL(kit).href;
 });
 after(() => rmSync(tmp, { recursive: true, force: true }));
@@ -243,12 +252,33 @@ describe("init: both flows from flags", () => {
       "$ gh secret set AGENT_KIT_ADVISORIES_TOKEN",
       "$ gh label create agent:plan --color 1D76DB --description 'Agent-kit: plan this issue'",
       "$ gh api 'repos/{owner}/{repo}/rulesets'",
-      "$ gh variable set CLAUDE_AGENT_FLOW_ENABLED --body true",
-      "$ gh variable set CLAUDE_SECURITY_AUDIT_ENABLED --body true",
+      "$ gh variable set AGENT_KIT_AGENT_FLOW_ENABLED --body true",
+      "$ gh variable set AGENT_KIT_SECURITY_AUDIT_ENABLED --body true",
     ]) {
       assert.ok(res.text.includes(line), line);
     }
     assert.match(res.text, /blob\/v1\.0\.0-alpha\.13\/docs\/repository-hardening\.md/);
+  });
+
+  it("offers the API key as the other claude-code credential", () => {
+    assert.match(res.text, /or set ANTHROPIC_API_KEY instead/);
+  });
+
+  it("prints the variable names an older tag's Callers read", async () => {
+    const args = FULL.map((a) => (a === TAG ? OLD_NAMES : a)).map((a) =>
+      a === "pipeline,audit" ? "pipeline,audit,review-response" : a,
+    );
+    const out = await init(makeConsumer(), args);
+    assert.equal(out.code, 0, out.text);
+    for (const line of [
+      "$ gh variable set CLAUDE_AGENT_FLOW_ENABLED --body true",
+      "$ gh variable set CLAUDE_SECURITY_AUDIT_ENABLED --body true",
+      "$ gh variable set CLAUDE_REVIEW_RESPONSE_ENABLED --body true",
+      "$ gh variable set CLAUDE_REVIEW_RESPONSE_MODE --body auto",
+    ]) {
+      assert.ok(out.text.includes(line), `${line}\n${out.text}`);
+    }
+    assert.doesNotMatch(out.text, /variable set AGENT_KIT_|ANTHROPIC_API_KEY/);
   });
 
   it("commits nothing", () => {
@@ -307,7 +337,7 @@ describe("init: choices", () => {
     assert.ok(existsSync(join(dir, "docs/security/findings-ledger.md")));
     assert.equal(existsSync(join(dir, ".security")), false);
     assert.equal(existsSync(join(dir, ".github/workflows/agent-pipeline.yml")), false);
-    assert.doesNotMatch(res.text, /gh label create|CLAUDE_AGENT_FLOW_ENABLED/);
+    assert.doesNotMatch(res.text, /gh label create|AGENT_KIT_AGENT_FLOW_ENABLED/);
   });
 
   it("--preset none leaves the commented setup_commands block", async () => {
@@ -623,15 +653,15 @@ describe("init: the review-response flow", () => {
     for (const line of [
       "$ gh secret set CLAUDE_CODE_OAUTH_TOKEN",
       "$ gh label create agent:address-review --color FBCA04 --description 'Agent-kit: answer the review on this PR'",
-      "$ gh variable set CLAUDE_REVIEW_RESPONSE_ENABLED --body true",
-      "$ gh variable set CLAUDE_REVIEW_RESPONSE_MODE --body auto",
+      "$ gh variable set AGENT_KIT_REVIEW_RESPONSE_ENABLED --body true",
+      "$ gh variable set AGENT_KIT_REVIEW_RESPONSE_MODE --body auto",
     ]) {
       assert.ok(res.text.includes(line), `${line}\n${res.text}`);
     }
     assert.match(res.text, /blob\/v1\.0\.0-alpha\.13\/docs\/review-response\.md#auto-mode/);
     assert.doesNotMatch(
       res.text,
-      /agent:plan|CLAUDE_AGENT_FLOW_ENABLED|AGENT_KIT_ADVISORIES_TOKEN|apps\/claude/,
+      /agent:plan|AGENT_KIT_AGENT_FLOW_ENABLED|AGENT_KIT_ADVISORIES_TOKEN|apps\/claude/,
     );
   });
 

@@ -55,11 +55,14 @@ describe("example placeholders", () => {
   it("the review-response example takes the auto-mode dispatch and reads both variables", () => {
     const text = read(FLOWS["review-response"].example);
     assert.match(text, /^ {2}workflow_dispatch:\n {4}inputs:\n {6}pr_number:$/m);
-    assert.match(text, /kill_switch: \$\{\{ vars\.CLAUDE_REVIEW_RESPONSE_ENABLED != 'true' \}\}/);
+    assert.match(
+      text,
+      /kill_switch: \$\{\{ vars\.AGENT_KIT_REVIEW_RESPONSE_ENABLED != 'true' \}\}/,
+    );
     // A fallback keeps the variable optional: unset is manual, not a missing variable.
     assert.match(
       text,
-      /response_mode: \$\{\{ vars\.CLAUDE_REVIEW_RESPONSE_MODE \|\| 'manual' \}\}/,
+      /response_mode: \$\{\{ vars\.AGENT_KIT_REVIEW_RESPONSE_MODE \|\| 'manual' \}\}/,
     );
     assert.match(text, /trigger_label: "agent:address-review"/);
   });

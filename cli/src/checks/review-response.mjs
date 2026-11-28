@@ -1,4 +1,4 @@
-// Review response mode: what CLAUDE_REVIEW_RESPONSE_MODE is set to, and, in
+// Review response mode: what AGENT_KIT_REVIEW_RESPONSE_MODE is set to, and, in
 // auto mode, whether the Callers carry what the Handoff needs. The Trigger
 // label and the Kill switch variable are covered by the trigger-labels and
 // variables checks, which read them from the Callers like any other flow's.
@@ -10,10 +10,16 @@
 // error anywhere a Consumer would look.
 
 import { result } from "./result.mjs";
+import { RENAMED_VARIABLES } from "./secrets-and-variables.mjs";
 
 const ID = "review-response-mode";
 const TITLE = "Review response mode is set up";
-export const MODE_VARIABLE = "CLAUDE_REVIEW_RESPONSE_MODE";
+export const MODE_VARIABLE = "AGENT_KIT_REVIEW_RESPONSE_MODE";
+/** The mode variable, and the names it replaced: a Caller from an older tag reads one. */
+const MODE_VARIABLES = [
+  MODE_VARIABLE,
+  ...Object.keys(RENAMED_VARIABLES).filter((old) => RENAMED_VARIABLES[old] === MODE_VARIABLE),
+];
 const RESPONSE_REUSABLE = "agent-review-response-reusable.yml";
 const REVIEW_REUSABLE = "agent-review-reusable.yml";
 /** What the review workflow's handoff accepts as `response_workflow`. */
@@ -23,16 +29,16 @@ const WORKFLOW_PATH = /^\.github\/workflows\/[A-Za-z0-9_-][A-Za-z0-9._-]*\.ya?ml
  * The variable's value as a workflow run sees it: the repository's, else the
  * organization's. null when neither sets it. Throws when it cannot be read.
  */
-export function readMode(github, repo, ownerType) {
+export function readMode(github, repo, ownerType, variable = MODE_VARIABLE) {
   try {
-    return String(github.getJson(`repos/${repo}/actions/variables/${MODE_VARIABLE}`).value ?? "");
+    return String(github.getJson(`repos/${repo}/actions/variables/${variable}`).value ?? "");
   } catch (err) {
     if (err?.httpStatus !== 404) throw err;
   }
   if (ownerType !== "Organization") return null;
   const lines = github.getLines(
     `repos/${repo}/actions/organization-variables`,
-    `.variables[] | select(.name == "${MODE_VARIABLE}") | .value`,
+    `.variables[] | select(.name == "${variable}") | .value`,
   );
   return lines.length ? lines[0] : null;
 }
@@ -47,6 +53,15 @@ const jobsUsing = (callers, file) =>
 const passes = (job, input) =>
   typeof job.with?.[input] === "string" && job.with[input].trim() !== "";
 
+/** The mode variable a job's `response_mode` expression reads, or null. */
+export function modeVariable(job) {
+  const value = passes(job, "response_mode") ? job.with.response_mode.trim() : "";
+  // An expression: `${{ vars.AGENT_KIT_REVIEW_RESPONSE_MODE || 'manual' }}`.
+  if (!/^\$\{\{.*\}\}$/.test(value)) return null;
+  const read = (name) => new RegExp(`\\bvars\\.${name}\\b`, "i").test(value);
+  return MODE_VARIABLES.find(read) ?? null;
+}
+
 /**
  * Where a job's `response_mode` comes from: "auto" (the literal), "variable"
  * (an expression reading the mode variable), "other" (anything else), or
@@ -56,9 +71,7 @@ export function modeSource(job) {
   if (!passes(job, "response_mode")) return null;
   const value = job.with.response_mode.trim();
   if (value === "auto") return "auto";
-  // An expression that reads the variable: `${{ vars.CLAUDE_REVIEW_RESPONSE_MODE || 'manual' }}`.
-  if (/^\$\{\{.*\bvars\.CLAUDE_REVIEW_RESPONSE_MODE\b.*\}\}$/i.test(value)) return "variable";
-  return "other";
+  return modeVariable(job) ? "variable" : "other";
 }
 
 /** Does any Caller hardcode `response_mode: auto`, whatever the variable says? */
@@ -68,11 +81,12 @@ const hardcodesAuto = (callers) =>
   );
 
 /**
- * Why a job would not see `auto` as its `response_mode`, given the
- * variable's value; null when it would.
+ * Why a job would not see `auto` as its `response_mode`, given `modeOf`, the
+ * value of each mode variable; null when it would.
  */
-function notAuto(job, mode, consequence) {
+function notAuto(job, modeOf, consequence) {
   const source = modeSource(job);
+  const variable = modeVariable(job) ?? MODE_VARIABLE;
   if (source === null) {
     return `does not pass response_mode (vars.${MODE_VARIABLE}), so ${consequence}.`;
   }
@@ -82,17 +96,17 @@ function notAuto(job, mode, consequence) {
       `reads vars.${MODE_VARIABLE} nor is auto, so ${consequence}.`
     );
   }
-  if (source === "variable" && mode !== "auto") {
-    return `reads response_mode from vars.${MODE_VARIABLE}, which is not auto, so ${consequence}.`;
+  if (source === "variable" && modeOf(variable) !== "auto") {
+    return `reads response_mode from vars.${variable}, which is not auto, so ${consequence}.`;
   }
   return null;
 }
 
 /**
  * Why auto mode would never start a round from these Callers; empty when it
- * would. `mode` is the variable's value (null when unset).
+ * would. `modeOf` gives a mode variable's value (null when unset).
  */
-export function autoModeProblems(callers, mode = "auto") {
+export function autoModeProblems(callers, modeOf = () => "auto") {
   const problems = [];
   const responders = jobsUsing(callers, RESPONSE_REUSABLE);
   // A responder file whose trigger is wrong is reported once, here, not again
@@ -110,7 +124,7 @@ export function autoModeProblems(callers, mode = "auto") {
     }
   }
   for (const { job, where } of responders) {
-    const why = notAuto(job, mode, "its gate refuses every dispatched round");
+    const why = notAuto(job, modeOf, "its gate refuses every dispatched round");
     if (why) problems.push(`${where}: ${why}`);
   }
 
@@ -121,7 +135,7 @@ export function autoModeProblems(callers, mode = "auto") {
     );
   }
   for (const { job, where } of reviewers) {
-    const why = notAuto(job, mode, "its reviews never hand off");
+    const why = notAuto(job, modeOf, "its reviews never hand off");
     if (why) problems.push(`${where}: ${why}`);
     const target = passes(job, "response_workflow") ? job.with.response_workflow.trim() : "";
     if (!target) {
@@ -148,16 +162,29 @@ export function checkReviewResponseMode({ github, repo, ownerType, callers }) {
   if (jobsUsing(callers, RESPONSE_REUSABLE).length === 0) {
     return result(ID, TITLE, "pass", "No Caller uses the Review response flow.");
   }
-  let mode;
-  try {
-    mode = readMode(github, repo, ownerType);
-  } catch (err) {
-    return result(ID, TITLE, "skip", `Could not read ${MODE_VARIABLE}: ${err.message}`);
+  // The variable each Caller reads: more than one only part-way through an upgrade.
+  const jobs = [...jobsUsing(callers, RESPONSE_REUSABLE), ...jobsUsing(callers, REVIEW_REUSABLE)];
+  const read = [...new Set(jobs.map(({ job }) => modeVariable(job)).filter(Boolean))];
+  if (read.length === 0) read.push(MODE_VARIABLE);
+  const values = new Map();
+  for (const variable of read) {
+    try {
+      values.set(variable, readMode(github, repo, ownerType, variable));
+    } catch (err) {
+      return result(ID, TITLE, "skip", `Could not read ${variable}: ${err.message}`);
+    }
   }
+  const modeOf = (variable) => values.get(variable) ?? null;
+  // The variable to report: the one that turns auto mode on, else the newest read.
+  const name =
+    read.find((v) => modeOf(v) === "auto") ??
+    MODE_VARIABLES.find((v) => read.includes(v)) ??
+    MODE_VARIABLE;
+  const mode = modeOf(name);
   // A Caller that hardcodes `response_mode: auto` is in auto mode whatever
   // the variable says, so its wiring is checked too.
   if (mode !== "auto" && hardcodesAuto(callers)) {
-    const problems = autoModeProblems(callers, mode);
+    const problems = autoModeProblems(callers, modeOf);
     if (problems.length) {
       return result(
         ID,
@@ -179,7 +206,7 @@ export function checkReviewResponseMode({ github, repo, ownerType, callers }) {
       ID,
       TITLE,
       "pass",
-      `Manual: ${MODE_VARIABLE} is ${mode === null ? "not set" : JSON.stringify(mode)}, so only the Trigger label starts a round.`,
+      `Manual: ${name} is ${mode === null ? "not set" : JSON.stringify(mode)}, so only the Trigger label starts a round.`,
     );
   }
   if (mode !== "auto") {
@@ -187,17 +214,17 @@ export function checkReviewResponseMode({ github, repo, ownerType, callers }) {
       ID,
       TITLE,
       "warn",
-      `${MODE_VARIABLE} is ${JSON.stringify(mode)}, which is not exactly auto, so Review response stays manual.`,
+      `${name} is ${JSON.stringify(mode)}, which is not exactly auto, so Review response stays manual.`,
       { details: ["Set it to auto for auto mode, or to manual (or delete it) for manual mode."] },
     );
   }
-  const problems = autoModeProblems(callers, mode);
+  const problems = autoModeProblems(callers, modeOf);
   if (problems.length) {
     return result(
       ID,
       TITLE,
       "fail",
-      `${MODE_VARIABLE} is auto, but ${problems.length} problem(s) keep the handoff from starting a round.`,
+      `${name} is auto, but ${problems.length} problem(s) keep the handoff from starting a round.`,
       { details: problems },
     );
   }
