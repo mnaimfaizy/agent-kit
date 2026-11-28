@@ -8,7 +8,7 @@ status: accepted
 
 Each harness has its own file in the skill, `harnesses/<id>.md`, with its **Support Level**: `verified` (a full run passed), `tried` (a run happened, with gaps named) or `documented` (written from its documentation alone). The Dispatch Plan opens with the harness and its level. Below `verified`, it lists the harness's limits that bear on the run, and waits for the human's "go" even when the invocation carried `go`. A level rises only on a run's recorded evidence.
 
-By default every Executor runs on the Chief of Staff's harness. An optional `executors` key moves one kind of Delegation (`build`, `analysis` or `qa`) onto another harness's headless run, for example a Cursor Chief of Staff that builds with `claude -p`.
+By default every Executor runs on the Chief of Staff's harness. An optional `executors` key moves one kind of Delegation (`build`, `analysis` or `qa`) onto another harness's headless run, for example a Cursor Chief of Staff that builds with `claude -p`. [ADR 0046](0046-executors-are-chosen-per-delegation-from-an-ordered-list.md) extends it to an ordered list of harnesses per kind, each with its own model and effort, and review on its own harness.
 
 Recorded in [#194](https://github.com/mnaimfaizy/agent-kit/issues/194), after the first Cursor run ([#189](https://github.com/mnaimfaizy/agent-kit/issues/189) to [#192](https://github.com/mnaimfaizy/agent-kit/issues/192)) and the harness research in [docs/research/](../research/).
 
