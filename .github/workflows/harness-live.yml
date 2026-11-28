@@ -1,0 +1,158 @@
+name: Harness live
+
+# The live tier of the adapter contract tests (ADR 0031): each pinned harness,
+# in its Harness image, in the real sandbox under gVisor, behind the real model
+# proxy, whose upstream is the kit's stub model, attempts a breach of each of
+# the six Guards, and the host judges the result. It needs no secret, so it runs
+# on a pull request from a fork too; the model credential it uses is made up.
+#
+# The suite runs on a pull request that touches an adapter, a Harness image, the
+# Launcher, the sandbox driver or the model proxy (.github/harness-live/paths.mjs),
+# weekly on main, and by hand. The `Harness live` job reports on every pull
+# request, so a ruleset can require it: it passes when the suite passed, or when
+# the pull request touches none of those paths.
+#
+# A failed weekly run opens an issue, or adds to the open one. When a Guard was
+# not held, the issue is labelled ready-for-human and guard-failure, and an open
+# guard-failure issue blocks the next release (scripts/release.py).
+
+on:
+  pull_request:
+  schedule:
+    - cron: "41 3 * * 2"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: harness-live-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  changes:
+    name: Harness live changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.changes.outputs.run }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # The merge commit and its base parent, to list what a pull request changes.
+          fetch-depth: 2
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - name: Does this run need the suite?
+        id: changes
+        run: node .github/harness-live/changes.mjs
+
+  suite:
+    name: Harness live suite
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    outputs:
+      guard_failed: ${{ steps.suite.outputs.guard_failed }}
+      failed: ${{ steps.suite.outputs.failed }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - name: Install gVisor (pinned, checksum-verified)
+        # The same release the Deep scan's workflow installs
+        # (deep-scan-reusable.yml); a contract test holds the two equal.
+        shell: bash
+        run: |
+          set -euo pipefail
+          GVISOR_RELEASE="20261102"
+          GVISOR_SHA512="2e6671bb2d033b871c5811ab57e16ac570988b0e0054c525f911cfaf191bab3ca4efb08e0a98daa4b9e7d248f9e5776ef2ef2f8a6b82d829646a42924c98bb05"
+          if [[ "$(uname -s)/$(uname -m)" != "Linux/x86_64" ]]; then
+            echo "::error title=gVisor install failed::The pinned gVisor is x86_64 Linux; this runner is $(uname -s)/$(uname -m)."
+            exit 1
+          fi
+          work="$RUNNER_TEMP/gvisor-download"
+          rm -rf "$work"
+          mkdir -p "$work"
+          curl --fail --silent --show-error --location --retry 5 --retry-all-errors --retry-delay 10 \
+            --connect-timeout 20 --max-time 300 --output "$work/gvisor.tar.bz2" \
+            "https://storage.googleapis.com/gvisor/releases/release/${GVISOR_RELEASE}/x86_64/gvisor.tar.bz2"
+          echo "$GVISOR_SHA512  $work/gvisor.tar.bz2" | sha512sum --check --strict -
+          tar -xjf "$work/gvisor.tar.bz2" -C "$work" runsc
+          sudo install -m 755 "$work/runsc" /usr/local/bin/runsc
+          rm -rf "$work"
+          sudo /usr/local/bin/runsc install
+          sudo systemctl restart docker
+          if ! docker info --format '{{json .Runtimes}}' | jq -e 'has("runsc")' >/dev/null; then
+            echo "::error title=gVisor install failed::Docker does not list runsc as a runtime."
+            exit 1
+          fi
+          runsc --version | head -n 1
+      - name: Run the live suite
+        id: suite
+        # Under the job's limit, so a hung run still hands its outputs on.
+        timeout-minutes: 35
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The suite's own command line holds it; no sandbox may see it.
+          node cli/src/harness-live/run.mjs "AKCANARY-$(openssl rand -hex 16)"
+
+  gate:
+    # The one check to require: it always reports.
+    name: Harness live
+    needs: [changes, suite]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Pass only when the suite passed, or was not needed
+        env:
+          CHANGES: ${{ needs.changes.result }}
+          NEEDED: ${{ needs.changes.outputs.run }}
+          SUITE: ${{ needs.suite.result }}
+        run: |
+          set -euo pipefail
+          if [ "$CHANGES" = success ] && [ "$NEEDED" = false ] && [ "$SUITE" = skipped ]; then
+            echo "This change touches nothing the live suite proves."
+          elif [ "$CHANGES" = success ] && [ "$NEEDED" = true ] && [ "$SUITE" = success ]; then
+            echo "The live suite passed."
+          else
+            echo "::error title=Harness live failed::changes: $CHANGES, suite needed: ${NEEDED:-unknown}, suite: $SUITE."
+            exit 1
+          fi
+
+  report:
+    name: Report a weekly failure
+    needs: [changes, suite]
+    # A job that timed out ends as cancelled, so anything but success counts.
+    if: ${{ always() && github.event_name == 'schedule' && (needs.changes.result != 'success' || needs.suite.result != 'success') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - name: Open the issue, or add to the open one
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GUARD_FAILED: ${{ needs.suite.outputs.guard_failed }}
+          FAILED: ${{ needs.suite.outputs.failed }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: node .github/harness-live/report-failure.mjs
