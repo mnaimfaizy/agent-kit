@@ -39,7 +39,11 @@ import {
   isSandboxRun,
   relayRuns,
   flagValues,
+  HARNESS_IMAGE,
+  stdinFilesOf,
 } from "./cli-deep-scan-fixtures.mjs";
+import { agentPlan } from "../cli/src/deep-scan/agent.mjs";
+import { dockerDriver } from "../cli/src/deep-scan/docker-driver.mjs";
 
 describe("the sandbox lifecycle runs in order on the chosen runtime", () => {
   it("pulls, layers, starts, copies in, sets up, cuts the network, runs the agent step, copies out and tears down", async () => {
@@ -110,12 +114,15 @@ describe("the sandbox lifecycle runs in order on the chosen runtime", () => {
 });
 
 describe("the image layers a pinned Claude Code with the auto-updater off", () => {
-  it("builds FROM the recipe's image, installing an exact Claude Code version", async () => {
+  it("builds FROM the recipe's image, copying /opt/agent-kit from the Harness image by digest", async () => {
     const res = await run(recipeRepo(VALID));
     const dockerfile = stdinOf(res, (a) => a[0] === "build")?.toString("utf8");
     assert.ok(dockerfile, "the layer's Dockerfile comes on stdin");
     assert.match(dockerfile, /^FROM node:22-bookworm\n/);
-    assert.match(dockerfile, /npm install --global @anthropic-ai\/claude-code@\d+\.\d+\.\d+ /);
+    assert.ok(
+      dockerfile.includes(`\nCOPY --from=${HARNESS_IMAGE} /opt/agent-kit /opt/agent-kit\n`),
+      dockerfile,
+    );
     assert.match(dockerfile, /^ENV DISABLE_AUTOUPDATER=1$/m);
     assert.match(
       dockerfile,
@@ -151,6 +158,99 @@ describe("the image layers a pinned Claude Code with the auto-updater off", () =
     assert.equal(df.data.toString("utf8"), "FROM node:22\n");
     const layer = stdinOf(res, (a) => a[0] === "build" && a[1] !== "--file").toString("utf8");
     assert.ok(layer.startsWith(`FROM ${base}\n`), layer);
+  });
+});
+
+describe("a Deep scan installs no harness at scan time (ADR 0029)", () => {
+  const NO_IMAGE = recipe({ drop: ["image"] });
+  const ALPINE = recipe({ drop: ["image"], add: "image: alpine:3.22" });
+  /** The layer's build is the one that starts `build --label`; BuildKit prints the marker. */
+  const muslHost = () =>
+    gvisorWith({
+      "build --label": {
+        status: 1,
+        stderr: "#5 0.2 agent-kit-musl-image\nERROR: failed to solve: exit code: 1\n",
+      },
+    });
+
+  it("runs from the Harness image alone when the recipe names no image", async () => {
+    const res = await run(recipeRepo(NO_IMAGE));
+    assert.equal(res.code, 0, res.text);
+    const calls = lifecycle(res);
+    assert.deepEqual(calls[0], ["pull", HARNESS_IMAGE]);
+    assert.deepEqual(
+      calls.filter((a) => a[0] === "build").map((a) => a[a.indexOf("--tag") + 1].split("-").at(-1)),
+      ["relay"],
+      "no local build but the relay's",
+    );
+    assert.deepEqual(calls.find(isSandboxRun).slice(-3), [HARNESS_IMAGE, "-f", "/dev/null"]);
+    // The pulled image is not this run's to remove.
+    assert.ok(!removed(calls).some((a) => a.includes(HARNESS_IMAGE)));
+    assert.ok(res.out.includes(`Image: pulling the Harness image ${HARNESS_IMAGE}`), res.out);
+    assert.doesNotMatch(res.out, /has no @sha256: digest/);
+  });
+
+  it("ends before the sandbox when the Harness image cannot be pulled", async () => {
+    const host = gvisorWith({ pull: { status: 1, stderr: "manifest unknown" } });
+    const res = await run(recipeRepo(NO_IMAGE), [], { host });
+    assert.equal(res.code, 1, res.text);
+    assert.match(res.err, /FAILED {2}pulling the Harness image .*: manifest unknown/);
+    assert.ok(!lifecycle(res).some(isSandboxRun));
+  });
+
+  for (const [what, text] of [
+    ["with a recipe image", VALID],
+    ["with none", NO_IMAGE],
+  ]) {
+    it(`issues no npm install, ${what}`, async () => {
+      const res = await run(recipeRepo(text));
+      assert.equal(res.code, 0, res.text);
+      const sent = [JSON.stringify(res.shims), ...stdinFilesOf(res).map((d) => d.toString("utf8"))];
+      for (const s of sent) assert.doesNotMatch(s, /npm (install|i) [^\n]*claude-code/);
+      assert.doesNotMatch(JSON.stringify(res.shims), /npm (install|i) /);
+    });
+  }
+
+  it("refuses a musl recipe image in preflight, naming why, before any sandbox", async () => {
+    const res = await run(recipeRepo(ALPINE), [], { host: muslHost() });
+    assert.equal(res.code, 1, res.text);
+    assert.match(
+      res.err,
+      /REFUSED {2}The recipe's image alpine:3\.22 is musl Linux \(such as Alpine\)/,
+    );
+    assert.match(res.err, /glibc/);
+    assert.match(res.err, /before the agent step/);
+    assert.ok(!lifecycle(res).some(isSandboxRun));
+  });
+
+  it("names the recipe's Dockerfile when the image it builds is musl", async () => {
+    const text = recipe({ drop: ["image"], add: "dockerfile: scan.Dockerfile" });
+    const dir = makeRepo({
+      committed: { ".security/scan-recipe.yml": text, "scan.Dockerfile": "FROM alpine:3.22\n" },
+    });
+    const res = await run(dir, [], { host: muslHost() });
+    assert.equal(res.code, 1, res.text);
+    assert.match(
+      res.err,
+      /REFUSED {2}The image the recipe's scan\.Dockerfile builds is musl Linux/,
+    );
+  });
+
+  it("refuses a plan whose Harness image has no digest before any docker call", async () => {
+    const plan = agentPlan();
+    plan.installLayer.image = "ghcr.io/mnaimfaizy/agent-kit-sandbox-claude-code:latest";
+    const calls = [];
+    const driver = dockerDriver({
+      runtime: { id: "gvisor", name: "gVisor", dockerRuntime: "runsc" },
+      id: "0123456789ab",
+      call: async (...a) => calls.push(a),
+      plan,
+    });
+    await assert.rejects(
+      driver.prepare({ setup: [] }, { out: () => {}, archive: () => {} }),
+      /pinned by digest/,
+    );
+    assert.deepEqual(calls, []);
   });
 });
 

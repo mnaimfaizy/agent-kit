@@ -32,8 +32,9 @@
 // scan's only route to the internet.
 
 import { isIPv4 } from "node:net";
-import { layerDockerfile } from "../harness/install-layer.mjs";
+import { layerDockerfile, pinnedHarnessImage } from "../harness/install-layer.mjs";
 import { startEgressProxy } from "./egress.mjs";
+import { refuseMusl } from "./preflight.mjs";
 import { imageDigestNote } from "./recipe.mjs";
 import {
   OTHER_HOST_PORT,
@@ -93,11 +94,26 @@ export function dockerDriver({ runtime, id, call, plan }) {
   let hostGateway = null;
   /** The relay image, once built. */
   let relayImage = null;
+  /** What the sandbox runs: the Harness image, or the run's layered image. */
+  let sandboxImage = null;
 
   return {
     container: name,
 
     async prepare(steps, { archive, out, branch, short }) {
+      const harness = pinnedHarnessImage(plan.installLayer);
+      // No image of the recipe's: the sandbox runs the Harness image, which
+      // is not this run's to remove.
+      if (steps.dockerfile === undefined && steps.image === undefined) {
+        out(
+          `Image: pulling the Harness image ${harness}, which holds the pinned ${displayName}; the recipe names no image.`,
+        );
+        must(await docker(["pull", harness]), `pulling the Harness image ${harness}`, {
+          showOutput: true,
+        });
+        sandboxImage = harness;
+        return;
+      }
       let base;
       if (steps.dockerfile !== undefined) {
         out(`Image: building ${steps.dockerfile} from ${branch} (${short}).`);
@@ -119,15 +135,16 @@ export function dockerDriver({ runtime, id, call, plan }) {
         if (note) out(note);
         must(await docker(["pull", base]), `pulling ${base}`, { showOutput: true });
       }
-      out(`Image: layering the pinned ${displayName}, auto-updater off.`);
-      resources.push(["image", name]);
-      must(
-        await docker(["build", "--label", label, "--tag", name, "-"], {
-          stdin: layerDockerfile(base, plan.installLayer),
-        }),
-        `layering ${displayName} on ${base}`,
-        { showOutput: true },
+      out(
+        `Image: layering the pinned ${displayName}, auto-updater off, from the Harness image ${harness}.`,
       );
+      resources.push(["image", name]);
+      const layered = await docker(["build", "--label", label, "--tag", name, "-"], {
+        stdin: layerDockerfile(base, plan.installLayer),
+      });
+      refuseMusl(layered, steps);
+      must(layered, `layering ${displayName} on ${base}`, { showOutput: true });
+      sandboxImage = name;
     },
 
     /**
@@ -166,7 +183,7 @@ export function dockerDriver({ runtime, id, call, plan }) {
           "/workspace",
           "--entrypoint",
           "tail",
-          name,
+          sandboxImage,
           "-f",
           "/dev/null",
         ]),

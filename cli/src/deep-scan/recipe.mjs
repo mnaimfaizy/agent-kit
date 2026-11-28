@@ -132,15 +132,11 @@ export function validateRecipe(text) {
     if (problem) say(key, problem);
   }
 
-  // image or dockerfile, exactly one.
+  // image or dockerfile, at most one: without either, the scan runs on the
+  // Harness image (ADR 0029).
   const hasImage = "image" in recipe;
   const hasDockerfile = "dockerfile" in recipe;
-  if (!hasImage && !hasDockerfile) {
-    say(
-      "image or dockerfile",
-      "name a base image (image) or a Dockerfile (dockerfile); the recipe has neither.",
-    );
-  } else if (hasImage && hasDockerfile) {
+  if (hasImage && hasDockerfile) {
     say("image and dockerfile", "give one of them, not both.");
   }
   if (hasImage && !isWord(recipe.image)) {

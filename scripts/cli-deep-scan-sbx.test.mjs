@@ -28,6 +28,7 @@ import {
   sbxVerb,
   withRule,
   sandboxName,
+  HARNESS_IMAGE,
 } from "./cli-deep-scan-fixtures.mjs";
 
 describe("Docker Sandboxes runs the same lifecycle, on a deny-all global policy", () => {
@@ -112,7 +113,8 @@ describe("Docker Sandboxes runs the same lifecycle, on a deny-all global policy"
     const stdin = docker[1].find((x) => x && typeof x === "object" && x.stdin);
     const dockerfile = readFileSync(join(res.host.dir, stdin.stdin), "utf8");
     assert.match(dockerfile, /^FROM node:22-bookworm\n/);
-    assert.match(dockerfile, /npm install --global @anthropic-ai\/claude-code@\d+\.\d+\.\d+/);
+    assert.ok(dockerfile.includes(`COPY --from=${HARNESS_IMAGE} /opt/agent-kit /opt/agent-kit`));
+    assert.doesNotMatch(dockerfile, /\bnpm\b/);
     assert.match(dockerfile, /managed-settings\.json/);
     // Tools are checked, never installed: the build reaches no package mirror.
     for (const tool of ["curl", "git", "bash", "sh"]) {
@@ -125,7 +127,7 @@ describe("Docker Sandboxes runs the same lifecycle, on a deny-all global policy"
     assert.match(dockerfile, /usermod -l agent -d \/home\/agent -m "\$existing"/);
     assert.match(dockerfile, /useradd -u 1000 -g 1000 -m -d \/home\/agent -s \/bin\/bash agent/);
     assert.match(dockerfile, /\nUSER agent\n$/, "the image's last word is USER agent");
-    assert.ok(dockerfile.indexOf("USER agent") > dockerfile.indexOf("claude-code@"));
+    assert.ok(dockerfile.indexOf("USER agent") > dockerfile.indexOf("COPY --from="));
     // Saved to a private host file, loaded by its name, then gone.
     assert.deepEqual(docker[2].slice(0, 2), ["save", "--output"]);
     assert.equal(docker[2][3], tag);
@@ -140,6 +142,26 @@ describe("Docker Sandboxes runs the same lifecycle, on a deny-all global policy"
       res.out,
       /Image: layering the pinned Claude Code on node:22-bookworm with Docker on this machine/,
     );
+  });
+
+  it("builds the template from the Harness image alone when the recipe names no image", async () => {
+    const res = await run(recipeRepo(recipe({ drop: ["image"] })), [], { host: sbxHost() });
+    assert.equal(res.code, 0, res.text);
+    const docker = dockerCalls(res);
+    assert.deepEqual(docker[0], ["pull", HARNESS_IMAGE]);
+    const stdin = docker[1].find((x) => x && typeof x === "object" && x.stdin);
+    const dockerfile = readFileSync(join(res.host.dir, stdin.stdin), "utf8");
+    assert.ok(dockerfile.startsWith(`FROM ${HARNESS_IMAGE}\nUSER root\n`), dockerfile);
+    assert.doesNotMatch(dockerfile, /\bnpm\b|COPY --from/);
+    assert.match(dockerfile, /\nUSER agent\n$/);
+  });
+
+  it("refuses a musl recipe image in preflight, naming why", async () => {
+    const host = sbxHost({}, { build: { status: 1, stderr: "agent-kit-musl-image\n" } });
+    const res = await run(recipeRepo(VALID), [], { host });
+    assert.equal(res.code, 1, res.text);
+    assert.match(res.err, /REFUSED {2}The recipe's image node:22-bookworm is musl Linux/);
+    assert.ok(!sbxCalls(res).some((a) => a[0] === "create" || a[0] === "template"));
   });
 
   it("runs no install and opens no registry.npmjs.org rule in the sandbox", async () => {

@@ -14,8 +14,9 @@
 //   starts, and a plain image has no /home/agent, so `-t <plain image>` never
 //   starts (#375's diagnosis, run evidence d375-sbx-diag.txt). The human chose
 //   (#375, option 1): Docker on the host pulls the recipe's image and layers
-//   on it the Docker driver's pinned Claude Code and what Docker's docs
-//   require of a template image (TEMPLATE_LAYER: a non-root `agent`, uid
+//   on it the Docker driver's pinned Claude Code (copied from the Harness
+//   image, ADR 0029; a recipe with no image gets the Harness image itself as
+//   the base) and what Docker's docs require of a template image (TEMPLATE_LAYER: a non-root `agent`, uid
 //   1000, home /home/agent, as its USER; curl, git, CA certificates and
 //   bash, checked); `docker save` writes it to a private folder, `sbx template load`
 //   loads it, and `sbx create --pull never -t <it>` uses it. Teardown removes
@@ -42,9 +43,10 @@ import { lstatSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { firstLine } from "../exec.mjs";
-import { layerDockerfile } from "../harness/install-layer.mjs";
+import { layerDockerfile, pinnedHarnessImage } from "../harness/install-layer.mjs";
 import { LABEL } from "./docker-driver.mjs";
 import { allowlistOf } from "./egress.mjs";
+import { refuseMusl } from "./preflight.mjs";
 import { imageDigestNote } from "./recipe.mjs";
 import { ENDS_HERE, must, StepFailed } from "./steps.mjs";
 
@@ -179,21 +181,26 @@ export function sbxDriver({ id, call, plan }) {
     container: name,
 
     async prepare(steps, { out }) {
+      const harness = pinnedHarnessImage(plan.installLayer);
       if (steps.dockerfile !== undefined) {
         throw new StepFailed([
           `REFUSED  The recipe builds ${steps.dockerfile}, and on Docker Sandboxes its build steps would run on this machine's Docker (Docker Desktop's WSL 2 VM on Windows), outside the sandbox.`,
-          "On Docker Sandboxes, name a base image with `image:` instead (one with Node.js and npm), or run on another accepted runtime.",
+          "On Docker Sandboxes, name a glibc base image with `image:` instead, or none to run on the Harness image, or run on another accepted runtime.",
         ]);
       }
       const problem = globalPolicyProblem(await sbx(["policy", "ls", "--json"]));
       if (problem) throw new StepFailed(problem);
       out("Network policy: Docker Sandboxes' global policy is deny-all (checked read-only).");
+      const own = steps.image !== undefined;
+      const base = own ? steps.image : harness;
       out(
-        `Image: layering the pinned ${displayName} on ${steps.image} with Docker on this machine, auto-updater off, as the sandbox's template.`,
+        own
+          ? `Image: layering the pinned ${displayName} on ${base} with Docker on this machine, auto-updater off, as the sandbox's template; ${displayName} comes from the Harness image ${harness}.`
+          : `Image: the Harness image ${harness}, which holds the pinned ${displayName}, as the sandbox's template, built with Docker on this machine; the recipe names no image.`,
       );
-      const note = imageDigestNote(steps.image);
+      const note = own ? imageDigestNote(base) : null;
       if (note) out(note);
-      const pulled = await docker(["pull", steps.image]);
+      const pulled = await docker(["pull", base]);
       if (pulled.status === null) {
         throw new StepFailed([
           "FAILED  Docker Sandboxes' template is built with Docker on this machine, and docker could not run: " +
@@ -202,15 +209,14 @@ export function sbxDriver({ id, call, plan }) {
           ENDS_HERE,
         ]);
       }
-      must(pulled, `pulling ${steps.image}`, { showOutput: true });
+      must(pulled, `pulling ${base}`, { showOutput: true });
       imageBuilt = true;
-      must(
-        await docker(["build", "--label", `${LABEL}=${id}`, "--tag", template, "-"], {
-          stdin: `${layerDockerfile(steps.image, plan.installLayer)}${TEMPLATE_LAYER}`,
-        }),
-        `layering ${displayName} on ${steps.image}`,
-        { showOutput: true },
-      );
+      const layer = own ? layerDockerfile(base, plan.installLayer) : `FROM ${base}\n`;
+      const built = await docker(["build", "--label", `${LABEL}=${id}`, "--tag", template, "-"], {
+        stdin: `${layer}${TEMPLATE_LAYER}`,
+      });
+      if (own) refuseMusl(built, steps);
+      must(built, `layering ${displayName} on ${base}`, { showOutput: true });
       // A private host file, by a name relative to its folder, so a Windows
       // drive letter is never read as anything else; gone once it is loaded.
       const tar = "template.tar";

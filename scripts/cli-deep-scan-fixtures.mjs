@@ -38,6 +38,7 @@ import { dirname, join } from "node:path";
 import { after, before } from "node:test";
 import { main } from "../cli/src/cli.mjs";
 import { systemRunner } from "../cli/src/exec.mjs";
+import { claudeCode } from "../cli/src/harness/claude-code.mjs";
 import { startModelProxy } from "../cli/src/deep-scan/model-proxy.mjs";
 import { tarOf } from "../cli/src/deep-scan/tar.mjs";
 
@@ -66,6 +67,9 @@ export function writeTree(dir, files) {
     writeFileSync(join(dir, path), text);
   }
 }
+
+/** The Claude Code Harness image, as the adapter pins it. */
+export const HARNESS_IMAGE = claudeCode().installLayer.image;
 
 export const DOCS = /docs\/security-audit\.md#scan-recipe/;
 

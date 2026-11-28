@@ -1,5 +1,6 @@
 // The Deep scan sandbox lifecycle (#369), from image to teardown, on the
-// runtime `selectRuntime` chose. In order: prepare the image (with a pinned
+// runtime `selectRuntime` chose. In order: prepare the image (the Harness
+// image, or the recipe's with the harness copied from it, ADR 0029: a pinned
 // Claude Code, its auto-updater off); start the sandbox with no mount; copy
 // in an export of the trusted ref (never the working tree) and the grounding
 // files, and nothing else; run the setup phase (`setup`, `start`, `ready`,

@@ -1,9 +1,34 @@
 // The Deep scan launcher's pre-flight refusals (#368): before any sandbox
 // runtime is touched, refuse a GitHub token that would reach the sandbox and
 // a .env that would be forwarded into it wholesale. Both checks read only the
-// launcher's own environment and the trusted ref's file list.
+// launcher's own environment and the trusted ref's file list. A third
+// refusal comes with the image, the first thing that can show it, and still
+// before any sandbox: a musl recipe image, which cannot run the Harness
+// image's glibc builds (ADR 0029).
 
 import { firstLine } from "../exec.mjs";
+import { MUSL_MARKER } from "../harness/install-layer.mjs";
+import { ENDS_HERE, outputLines, StepFailed } from "./steps.mjs";
+
+/**
+ * Throw the musl refusal when the layer build `r` failed on the musl check.
+ * @param {import("../exec.mjs").StartResult} r
+ * @param {{ image?: string, dockerfile?: string }} steps the recipe's
+ */
+export function refuseMusl(r, { image, dockerfile }) {
+  if (r.status === 0) return;
+  if (!`${r.stdout.toString("utf8")}\n${r.stderr}`.includes(MUSL_MARKER)) return;
+  const what =
+    dockerfile !== undefined
+      ? `The image the recipe's ${dockerfile} builds`
+      : `The recipe's image ${image}`;
+  throw new StepFailed([
+    `REFUSED  ${what} is musl Linux (such as Alpine), and the harness runs only on glibc Linux.`,
+    ...outputLines(r),
+    "Name a glibc image, such as a Debian or Ubuntu one, or leave image and dockerfile out to run on the Harness image.",
+    ENDS_HERE,
+  ]);
+}
 
 /** The GitHub token variables that must never reach the sandbox. */
 export const GITHUB_TOKEN_VARS = Object.freeze(["GH_TOKEN", "GITHUB_TOKEN"]);
