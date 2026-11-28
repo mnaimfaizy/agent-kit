@@ -1,0 +1,43 @@
+# The Claude Code Harness image (ADR 0029): the kit's base image plus
+# /opt/agent-kit, which holds the pinned CLI and the Node it runs on. Built
+# for amd64 and arm64 by .github/workflows/harness-images.yml with
+# `node docker/harness-images/image.mjs publish claude-code`, which passes the
+# CLI version the adapter pins (cli/src/harness/claude-code.mjs); the adapter
+# records the digest. It has no build context.
+#
+# The monthly refresh (harness-images-refresh.yml) moves both FROM digests and
+# REFRESHED, so a rebuild takes Debian's current packages.
+
+# The harness: the pinned CLI and its own Node, all under /opt/agent-kit, off
+# the project's path. A later stage, or a local build on another glibc image,
+# copies that one directory.
+FROM node:24-trixie-slim@sha256:4d00acb4bcc42c454c4eb801526f7ad7f772ea3bd4fd168c5cc2e384abcbb9d4 AS harness
+ARG CLI_VERSION
+RUN set -eu; \
+  test -n "$CLI_VERSION"; \
+  mkdir -p /opt/agent-kit/bin /opt/agent-kit/node/bin; \
+  npm install --global --prefix /opt/agent-kit/cli --no-audit --no-fund "@anthropic-ai/claude-code@$CLI_VERSION"; \
+  cp /usr/local/bin/node /opt/agent-kit/node/bin/node; \
+  ln -s ../cli/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe /opt/agent-kit/bin/claude
+
+# The kit's base: Debian slim with the tools a Stage and an ordinary Node or
+# Python project need, from Debian's own packages.
+FROM debian:trixie-slim@sha256:8aa5a7bf5a1955bddbe7d74fcdd0b91ab30e74362a8b73af672b0481b35b44a0
+ARG CLI_VERSION
+ARG REFRESHED=2026-11
+RUN set -eu; \
+  echo "packages as of $REFRESHED"; \
+  apt-get update; \
+  DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends \
+    bash ca-certificates curl git nodejs npm python3 python3-pip python3-venv; \
+  rm -rf /var/lib/apt/lists/*
+# The sandbox is one run's own, so pip may install beside Debian's packages.
+ENV DISABLE_AUTOUPDATER=1 PIP_BREAK_SYSTEM_PACKAGES=1
+COPY --from=harness /opt/agent-kit /opt/agent-kit
+# The adapter's install layer, as it runs on another image.
+RUN ln -sf /opt/agent-kit/bin/claude /usr/local/bin/claude \
+  && mkdir -p /etc/claude-code \
+  && printf '%s\n' '{"env":{"DISABLE_AUTOUPDATER":"1"}}' > /etc/claude-code/managed-settings.json
+# The build fails unless the CLI that runs is the pinned one.
+RUN claude --version | grep -F "$CLI_VERSION"
+WORKDIR /workspace
