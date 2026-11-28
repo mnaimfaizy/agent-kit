@@ -95,3 +95,4 @@ cli/package.json
 cli/README.md
 cli/bin/agent-kit.mjs
 cli/src/
+cli/harnesses.json

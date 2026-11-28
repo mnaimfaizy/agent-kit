@@ -579,13 +579,16 @@ export async function run(
     modelApi = "http://127.0.0.1:9",
     timers = fakeTimers(),
     reportDir = mkdtempSync(join(tmp, "report-")),
+    // Every pair starts at `documented`, so a run here is a Proving run
+    // unless a test is about the refusal without the flag.
+    provingRun = true,
   } = {},
 ) {
   const out = [];
   const err = [];
   const calls = [];
   const envs = [];
-  const code = await main(["deep-scan", ...args], {
+  const code = await main(["deep-scan", ...(provingRun ? ["--proving-run"] : []), ...args], {
     cwd: dir,
     stdout: (s) => out.push(s),
     stderr: (s) => err.push(s),

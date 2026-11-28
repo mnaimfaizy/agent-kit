@@ -65,7 +65,8 @@ def test_package_has_no_runtime_dependencies_or_install_scripts() -> None:
 
 def test_files_whitelist_is_strict() -> None:
     files = package()["files"]
-    assert files == ["bin/agent-kit.mjs", "src/"], f"unexpected files whitelist {files}"
+    # harnesses.json: the generated harness facts preflight reads (ADR 0030).
+    assert files == ["bin/agent-kit.mjs", "src/", "harnesses.json"], f"unexpected files whitelist {files}"
     for entry in files:
         assert (CLI / entry).exists(), f"cli/{entry} is whitelisted but missing"
     # Only code under src/: no kit files bundled into the tarball (ADR 0001).

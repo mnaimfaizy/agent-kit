@@ -4,9 +4,12 @@
 // launcher's own environment and the trusted ref's file list. A third
 // refusal comes with the image, the first thing that can show it, and still
 // before any sandbox: a musl recipe image, which cannot run the Harness
-// image's glibc builds (ADR 0029).
+// image's glibc builds (ADR 0029). Before all of them, the Support Level
+// (ADR 0028): a Deep scan runs on a pair below `tried` only as a Proving run.
 
+import { appendFileSync } from "node:fs";
 import { firstLine } from "../exec.mjs";
+import { readHarnesses, supportFor } from "../harness/facts.mjs";
 import { MUSL_MARKER } from "../harness/install-layer.mjs";
 import { ENDS_HERE, outputLines, StepFailed } from "./steps.mjs";
 
@@ -28,6 +31,42 @@ export function refuseMusl(r, { image, dockerfile }) {
     "Name a glibc image, such as a Debian or Ubuntu one, or leave image and dockerfile out to run on the Harness image.",
     ENDS_HERE,
   ]);
+}
+
+/**
+ * Whether a Deep scan may run on `harness` at the Support Level
+ * `cli/harnesses.json` holds for the pair: the refusal, or what the run says
+ * about it (the line it prints, the line of the GitHub Actions run summary,
+ * and the warning at `documented`). All of it comes from that file and the
+ * flag, nothing from the scan, so a public log may hold it.
+ * @param {{ harness?: string, provingRun?: boolean }} run
+ * @returns {{ refused: string } | { line: string, summary: string, warning?: string }}
+ */
+export function deepScanSupport({ harness = "claude-code", provingRun = false }) {
+  const facts = readHarnesses().harnesses[harness];
+  const found = supportFor(facts, { stage: "deep-scan", provingRun });
+  if (found.refused !== undefined) return { refused: found.refused };
+  return {
+    line: `Harness: ${harness}; ${found.summary}`,
+    summary: `Harness: \`${harness}\` · Support Level: \`${found.level}\` · Proving run: ${provingRun ? "yes" : "no"}`,
+    ...(found.warning !== undefined ? { warning: found.warning } : {}),
+  };
+}
+
+/**
+ * Add `line` to the GitHub Actions run summary, where `env` names one.
+ * @param {Record<string, string | undefined>} env
+ * @param {string} line
+ * @returns {string | null} why it could not be written, or null
+ */
+export function writeRunSummary(env, line) {
+  if (!env.GITHUB_STEP_SUMMARY) return null;
+  try {
+    appendFileSync(env.GITHUB_STEP_SUMMARY, `${line}\n`);
+    return null;
+  } catch (e) {
+    return firstLine(e.message);
+  }
 }
 
 /** The GitHub token variables that must never reach the sandbox. */

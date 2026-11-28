@@ -130,6 +130,10 @@ jobs:
             echo "::error::npm $npm_version is older than 11.5.1"
             exit 1
           fi
+      - name: Check harnesses.json matches the adapters
+        # The package ships cli/harnesses.json; preflight and the Consumer's
+        # doctor go by it (ADR 0030).
+        run: node scripts/gen_harnesses.mjs --check
       - name: CLI contract tests
         run: node --test scripts/cli-*.test.mjs
       - name: Publish

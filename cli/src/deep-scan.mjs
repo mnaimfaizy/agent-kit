@@ -1,4 +1,6 @@
 // `agent-kit deep-scan`: the host-side launcher for a Deep scan (ADR 0019).
+// It first refuses a harness whose Support Level for the Deep scan is below
+// `tried`, unless the run is a Proving run (`--proving-run`, ADR 0028).
 // Its first stage finds the Consumer's Scan recipe at the trusted ref (the
 // default branch's tip, never the working tree) and validates it, or refuses
 // with what is wrong and a pointer to the docs. There is no fallback to a
@@ -40,7 +42,14 @@ import { DEFAULT_LIMITS, describeLimits, parseLimits, VERIFY_LIMITS } from "./de
 import { publicHttpsFetch } from "./deep-scan/grounding-url.mjs";
 import { runLifecycle } from "./deep-scan/lifecycle.mjs";
 import { MODEL_ID } from "./deep-scan/model-proxy.mjs";
-import { envFilesAtRef, envFilesCarriedFromDefault, strayTokens } from "./deep-scan/preflight.mjs";
+import {
+  deepScanSupport,
+  envFilesAtRef,
+  envFilesCarriedFromDefault,
+  strayTokens,
+  writeRunSummary,
+} from "./deep-scan/preflight.mjs";
+import { effortFor, readHarnesses } from "./harness/facts.mjs";
 import { RUNTIMES_DOCS_URL, selectRuntime } from "./deep-scan/runtime.mjs";
 import {
   readFindingFile,
@@ -50,7 +59,14 @@ import {
 } from "./deep-scan/verify.mjs";
 import { CLI_VERSION } from "./tags.mjs";
 
+/** The Deep scan's harness, as `cli/harnesses.json` describes it. */
+const HARNESS = readHarnesses().harnesses["claude-code"];
+
+/** The effort levels it accepts: nothing else reaches the command line. */
+export const EFFORTS = Object.freeze(HARNESS.effortValues);
+
 const CREDENTIALS_DOCS_URL = `https://github.com/mnaimfaizy/agent-kit/blob/v${CLI_VERSION}/docs/security-audit.md#credentials`;
+const PROVING_DOCS_URL = `https://github.com/mnaimfaizy/agent-kit/blob/v${CLI_VERSION}/docs/harnesses.md#proving-runs`;
 
 /**
  * @param {{
@@ -65,6 +81,7 @@ const CREDENTIALS_DOCS_URL = `https://github.com/mnaimfaizy/agent-kit/blob/v${CL
  *   reportPath?: string,
  *   verifyPath?: string,
  *   ref?: string,
+ *   provingRun?: boolean,
  *   limitFlags?: Record<string, string | undefined>,
  *   platform?: string,
  *   env?: Record<string, string | undefined>,
@@ -78,6 +95,8 @@ const CREDENTIALS_DOCS_URL = `https://github.com/mnaimfaizy/agent-kit/blob/v${CL
  * }} opts  `limitFlags` holds the limit flags' values, keyed by flag name.
  *   `verifyPath` (a finding file) and `ref` go together, for a
  *   Verification run.
+ *   `provingRun` runs a harness below `tried` for the Deep scan, to record
+ *   the evidence that raises its level; it relaxes nothing else.
  *   `platform`, `env`, `fetch`, `signals` and `timers` are the host's
  *   (`process.platform`, `process.env`, the public-HTTPS grounding fetch, `process`, the
  *   real clock), and `reportDir` is a new private temporary folder, and
@@ -99,6 +118,7 @@ export async function runDeepScan({
   reportPath,
   verifyPath,
   ref,
+  provingRun = false,
   limitFlags = {},
   platform = process.platform,
   env = process.env,
@@ -163,7 +183,8 @@ export async function runDeepScan({
     );
     return 2;
   }
-  if (effort !== undefined && !EFFORTS.includes(effort)) {
+  // The Stage's own effort: one its harness does not accept is refused.
+  if (effort !== undefined && (effort === "" || "refused" in effortFor(HARNESS, { effort }))) {
     err(
       `--effort must be one of ${EFFORTS.slice(0, -1).join(", ")} or ${EFFORTS.at(-1)}, got: ${JSON.stringify(effort)}`,
     );
@@ -205,6 +226,14 @@ export async function runDeepScan({
     err(source.error);
     return 2;
   }
+
+  // The Support Level (ADR 0028), before anything is read or run.
+  const support = deepScanSupport({ provingRun });
+  if ("refused" in support) return refuse([support.refused], PROVING_DOCS_URL);
+  out(support.line);
+  if (support.warning !== undefined) err(`Warning: ${support.warning}`);
+  const unwritten = writeRunSummary(env, support.summary);
+  if (unwritten !== null) err(`Could not write the run summary: ${unwritten}`);
 
   // The finding file, read and checked on the host before anything runs.
   let given = null;
@@ -331,7 +360,7 @@ export async function runDeepScan({
       [
         `${tokens.join(" and ")} ${tokens.length > 1 ? "are" : "is"} set in deep-scan's environment, and a GitHub token must never reach the sandbox.`,
         `Unset ${tokens.length > 1 ? "them" : "it"} for this run, for example:`,
-        "  env -u GH_TOKEN -u GITHUB_TOKEN npx @mnaimfaizy/agent-kit deep-scan",
+        `  env -u GH_TOKEN -u GITHUB_TOKEN npx @mnaimfaizy/agent-kit deep-scan${provingRun ? " --proving-run" : ""}`,
         "  In PowerShell: Remove-Item Env:GH_TOKEN, Env:GITHUB_TOKEN -ErrorAction SilentlyContinue, then run it again.",
       ],
       RUNTIMES_DOCS_URL,
@@ -453,12 +482,6 @@ export async function runDeepScan({
     err,
   });
 }
-
-/**
- * The effort levels Claude Code's --effort takes (2.1.328's --help), and the
- * static workflow's effort input: nothing else reaches the command line.
- */
-export const EFFORTS = Object.freeze(["low", "medium", "high", "xhigh", "max"]);
 
 /** Text with LF line ends, so a CRLF checkout of the same file compares equal. */
 const lf = (text) => text.replace(/\r\n?/g, "\n");

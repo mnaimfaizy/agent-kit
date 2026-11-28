@@ -9,7 +9,8 @@
   },
   "files": [
     "bin/agent-kit.mjs",
-    "src/"
+    "src/",
+    "harnesses.json"
   ],
   "engines": {
     "node": ">=22"

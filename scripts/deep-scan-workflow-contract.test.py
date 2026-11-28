@@ -139,10 +139,12 @@ def test_the_effort_input_is_the_static_workflows() -> None:
 
 
 def test_the_effort_reaches_only_the_check_and_the_launcher() -> None:
+    # The raw input reaches the check alone (and whether it is inherited); the
+    # launcher takes what the check let through.
+    assert step(CHECK)["env"]["EFFORT"] == "${{ inputs.effort }}"
+    assert step(LAUNCHER)["env"]["EFFORT"] == "${{ steps.settings.outputs.effort }}"
     for s in steps():
-        if s.get("name") in (CHECK, LAUNCHER):
-            assert s["env"]["EFFORT"] == "${{ inputs.effort }}", s["name"]
-        else:
+        if s.get("name") != CHECK:
             assert "inputs.effort" not in text(s), s.get("name")
     assert raw().count("inputs.effort") == 2
 
@@ -329,6 +331,7 @@ def run_check(**inputs: str) -> subprocess.CompletedProcess:
         "HARNESS": "claude-code",
         "MODEL": "claude-opus-5-5",
         "EFFORT": "",
+        "EFFORT_INHERITED": "false",
         "SETUP_MINUTES": "20",
         "SCAN_MINUTES": "60",
         "MAX_TURNS": "200",

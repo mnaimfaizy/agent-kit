@@ -7,6 +7,7 @@ A Generated block is the text between `<!-- generated:<fact> -->` and
 with a block or a source made stale.
 """
 
+import json
 import shutil
 import subprocess
 import sys
@@ -22,7 +23,14 @@ GENERATOR = ROOT / "scripts" / "gen_doc_blocks.py"
 # Every Doc fact's source, copied with the docs so the copy can be regenerated.
 # cli/src/tags.mjs, imported by init.mjs, reads cli/package.json when it loads.
 # cli/src holds the deep-scan facts' sources too: limits.mjs and recipe.mjs.
-FACT_SOURCES = [".github/agent-review-response", ".github/workflows", "cli/src", "cli/package.json"]
+HARNESSES_FILE = Path("cli/harnesses.json")
+FACT_SOURCES = [
+    ".github/agent-review-response",
+    ".github/workflows",
+    "cli/src",
+    "cli/package.json",
+    HARNESSES_FILE.as_posix(),
+]
 REVIEW_RESPONSE_SCRIPT = Path(".github/agent-review-response/review-response.mjs")
 INIT_SCRIPT = Path("cli/src/init.mjs")
 LIMITS_SCRIPT = Path("cli/src/deep-scan/limits.mjs")
@@ -33,6 +41,7 @@ KILL_SWITCH_BLOCK = "stage-kill-switches"
 MODEL_BLOCK = "stage-harness-model-and-effort"
 LIMITS_BLOCK = "deep-scan-limits"
 RECIPE_FIELDS_BLOCK = "deep-scan-recipe-fields"
+LEVELS_BLOCK = "support-levels"
 PIPELINE_CALLER = Path("examples/plan-implement-review-caller.yml")
 PLAN_WORKFLOW = Path(".github/workflows/agent-plan-reusable.yml")
 RESPONSE_CALLER = Path("examples/review-response-caller.yml")
@@ -44,6 +53,7 @@ BLOCK_PAGES = {
     MODEL_BLOCK: ["docs/getting-started.md"],
     LIMITS_BLOCK: ["docs/security-audit.md"],
     RECIPE_FIELDS_BLOCK: ["docs/security-audit.md"],
+    LEVELS_BLOCK: ["docs/harnesses.md"],
 }
 
 
@@ -121,6 +131,33 @@ def test_a_new_protected_path_without_regenerating_fails() -> None:
     assert result.returncode == 1, f"--check passed after a protected path was added:\n{result.stdout}"
     for page in ["docs/review-response.md", "CONTRIBUTING.md"]:
         assert f"{page}: generated:{PROTECTED_BLOCK}" in result.stderr, result.stderr
+
+
+def test_a_support_level_raised_without_regenerating_fails() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = copy_repo(Path(tmp))
+        path = root / HARNESSES_FILE
+        facts = json.loads(path.read_text(encoding="utf-8"))
+        run = "https://github.com/mnaimfaizy/agent-kit/actions/runs/1"
+        facts["harnesses"]["claude-code"]["supportLevels"]["deep-scan"] = {"level": "tried", "run": run}
+        path.write_text(json.dumps(facts), encoding="utf-8")
+
+        result = check(root)
+
+    assert result.returncode == 1, f"--check passed after a Support Level changed: {result.stdout}"
+    assert f"docs/harnesses.md: generated:{LEVELS_BLOCK} is stale" in result.stderr, result.stderr
+
+
+def test_the_support_level_block_holds_every_pair() -> None:
+    levels = " ".join(block(LEVELS_BLOCK, "docs/harnesses.md").split())
+    facts = json.loads((ROOT / HARNESSES_FILE).read_text(encoding="utf-8"))
+    assert "| Stage | Claude Code |" in levels, levels
+    for name in ("Deep scan", "static security audit", "review", "plan", "implement", "Review response"):
+        assert f"| {name} |" in levels, name
+    cells = facts["harnesses"]["claude-code"]["supportLevels"].values()
+    for entry in cells:
+        assert f"`{entry['level']}`" in levels
+        assert entry["run"] is None or entry["run"] in levels
 
 
 def test_a_changed_init_label_without_regenerating_fails() -> None:
@@ -311,6 +348,8 @@ if __name__ == "__main__":
     test_a_broken_marker_fails_and_names_it()
     test_an_empty_source_list_is_rendered_not_a_crash()
     test_a_marker_problem_stops_the_write_before_any_page_changes()
+    test_a_support_level_raised_without_regenerating_fails()
+    test_the_support_level_block_holds_every_pair()
     print("generated-blocks-contract tests passed")
 
 

@@ -174,7 +174,7 @@ describe("review fixes: the repository export has its own size limit, named when
     const host = gvisorHost();
     const calls = [];
     const err = [];
-    const code = await main(["deep-scan"], {
+    const code = await main(["deep-scan", "--proving-run"], {
       cwd: recipeRepo(VALID),
       stdout: () => {},
       stderr: (s) => err.push(s),
