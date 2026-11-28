@@ -61,7 +61,7 @@ describe("the Dockerfile of the Claude Code image", () => {
   });
 
   it("installs the base tools, and puts the harness in /opt/agent-kit with its own Node", () => {
-    for (const tool of ["bash", "ca-certificates", "curl", "git", "nodejs", "python3"]) {
+    for (const tool of ["bash", "ca-certificates", "curl", "git", "python3"]) {
       assert.match(DOCKERFILE, new RegExp(`--no-install-recommends[^;]*\\s${tool}[\\s;]`), tool);
     }
     assert.match(DOCKERFILE, /cp \/usr\/local\/bin\/node \/opt\/agent-kit\/node\/bin\/node/);
@@ -72,6 +72,24 @@ describe("the Dockerfile of the Claude Code image", () => {
     const lines = DOCKERFILE.split(/\r?\n/);
     const paths = lines.filter((l) => l.startsWith("ENV ") && l.includes("PATH="));
     assert.deepEqual(paths, ['ENV PATH="/opt/agent-kit/bin:${PATH}"']);
+  });
+
+  it("puts Node 24 and its npm on the project's path, from the pinned Node stage", () => {
+    // Debian's Node is past upstream end of life (ADR 0029, amended).
+    assert.doesNotMatch(DOCKERFILE, /--no-install-recommends[^;]*\s(nodejs|npm)[\s;]/);
+    const base = DOCKERFILE.slice(DOCKERFILE.indexOf("FROM debian:"));
+    for (const path of ["bin/node", "include/node", "lib/node_modules"]) {
+      const line = new RegExp(`^COPY --from=harness /usr/local/${path} /usr/local/${path}$`, "m");
+      assert.match(base, line, path);
+    }
+    for (const bin of ["npm/bin/npm-cli.js", "npm/bin/npx-cli.js"]) {
+      assert.ok(base.includes(`ln -s ../lib/node_modules/${bin} /usr/local/bin/`), bin);
+    }
+    // Run on each platform as it builds: the build fails on any other major.
+    assert.match(
+      base,
+      /^RUN node --version \| grep -E '\^v24\\\.' && npm --version && npx --version$/m,
+    );
   });
 
   it("holds the adapter's install layer, so it runs alone as a layered image does", () => {

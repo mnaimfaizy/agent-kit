@@ -149,7 +149,7 @@ notes: # what stays static-only, so a report never implies it was exercised
 
 <!-- /generated:deep-scan-recipe-fields -->
 
-**The image.** A recipe names `image`, `dockerfile` or neither, never both. With neither, the scan runs on the kit's **Harness image** (`ghcr.io/mnaimfaizy/agent-kit-sandbox-claude-code`, pulled by digest): Debian slim with bash, curl, git, CA certificates, Python 3 with pip and venv, and Debian's Node.js and npm, plus the pinned Claude Code under `/opt/agent-kit`. An image of your own, named or built, must be glibc Linux: a musl image, such as Alpine, is refused. It needs no Node.js or npm for Claude Code, which is copied onto it, and its user must be able to write `/usr/local/bin` and `/etc`, as `root` can.
+**The image.** A recipe names `image`, `dockerfile` or neither, never both. With neither, the scan runs on the kit's **Harness image** (`ghcr.io/mnaimfaizy/agent-kit-sandbox-claude-code`, pulled by digest): Debian slim with bash, curl, git, CA certificates, Python 3 with pip and venv, and Node.js 24 LTS and its npm, plus the pinned Claude Code under `/opt/agent-kit`. An image of your own, named or built, must be glibc Linux: a musl image, such as Alpine, is refused. It needs no Node.js or npm for Claude Code, which is copied onto it, and its user must be able to write `/usr/local/bin` and `/etc`, as `root` can.
 
 A command field takes one command or a list of them; `start` and `ready`, when given, are not empty. Lists are block lists, one `- item` per line; only an empty `[]` may be written inline.
 
