@@ -139,7 +139,7 @@ export async function startProxy(
     name = "model proxy",
   },
 ) {
-  if (!Object.hasOwn(profile.credentialKinds, kind)) {
+  if (typeof kind !== "string" || !Object.hasOwn(profile.credentialKinds, kind)) {
     throw new Error(`the model proxy has no credential kind ${JSON.stringify(kind)}`);
   }
   if (callerKey !== undefined && (typeof callerKey !== "string" || callerKey.length < 32)) {
